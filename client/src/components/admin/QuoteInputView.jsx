@@ -736,20 +736,14 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
   });
 
   const getCellStyles = (idx, isEvenRow = false, extraStyles = {}) => {
-    const item = displaySelectedOptions[idx];
-    if (!item) return {};
-    const vColor = item.vColor;
-    const isNewVehicle = idx > 0 && displaySelectedOptions[idx].vIdx !== displaySelectedOptions[idx-1].vIdx;
     return {
-      background: isEvenRow ? vColor.light : '#ffffff',
-      borderLeft: isNewVehicle ? '2.5px solid #111e38' : '1px solid #cbd5e1',
+      background: isEvenRow ? '#f9f8f6' : '#ffffff',
       textAlign: 'right',
       fontWeight: '500',
       paddingTop: '12px',
       paddingBottom: '12px',
       paddingLeft: '16px',
       paddingRight: '2.5rem',
-      borderBottom: '1px solid #cbd5e1',
       transition: 'all 0.15s ease',
       ...extraStyles
     };
@@ -1846,8 +1840,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
           }
           .comparison-table-modern th, .comparison-table-modern td {
             padding: 12px 16px;
-            border-bottom: 1px solid #cbd5e1;
-            border-right: 1px solid #cbd5e1;
+            border-bottom: 1px solid #e9e6e0;
+            border-right: 1px solid #ad885c;
             transition: all 0.15s ease;
           }
           .comparison-table-modern th:last-child, .comparison-table-modern td:last-child {
@@ -1860,7 +1854,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
             padding-left: 12px !important;
             padding-right: 12px !important;
             width: 15% !important;
-            border-right: 2.5px solid #111e38 !important;
+            border-right: 1px solid #ad885c !important;
           }
           .value-cell {
             text-align: right !important;
@@ -1910,8 +1904,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
               border-bottom: 3px solid #111e38 !important;
             }
             .comparison-table-modern th, .comparison-table-modern td {
-              border-bottom: 1px solid #cbd5e1 !important;
-              border-right: 1px solid #cbd5e1 !important;
+              border-bottom: 1px solid #e9e6e0 !important;
+              border-right: 1px solid #ad885c !important;
               padding: 10px 12px !important;
               font-size: 10pt !important;
               -webkit-print-color-adjust: exact !important;
@@ -1921,14 +1915,15 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
               border-right: none !important;
             }
             .comparison-table-modern th {
-              color: inherit !important;
+              background-color: #111e38 !important;
+              color: #fff !important;
             }
             .comparison-table-modern td.row-header {
               text-align: center !important;
               padding-left: 4px !important;
               font-weight: 800 !important;
               background-color: #fafafa !important;
-              border-right: 2.5px solid #111e38 !important;
+              border-right: 1px solid #ad885c !important;
             }
             /* Highlight total purchase cost in yellow when printed */
             .print-highlight-yellow {
@@ -1989,21 +1984,20 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
               <thead>
                 {/* Row 1: Vehicle model colspans */}
                 <tr style={{ background: '#111e38', color: '#fff' }}>
-                  <th rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '15%', borderBottom: '1px solid #1a2b4c', textAlign: 'center', borderRight: '2.5px solid #fff' }}>구 분</th>
+                  <th rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '15%', borderBottom: '1px solid #ad885c', textAlign: 'center', borderRight: '1px solid #ad885c' }}>구 분</th>
                   {vehicleColSpans.map((group, idx) => {
-                    const vColor = getVehicleColor(group.vIdx);
                     return (
                       <th 
                         key={idx} 
                         colSpan={group.span} 
                         style={{ 
-                          background: vColor.dark, 
+                          background: '#111e38', 
                           color: '#fff', 
                           fontWeight: '800', 
                           fontSize: '1rem', 
                           padding: '1.2rem 0.5rem',
-                          borderBottom: '2px solid #fff',
-                          borderLeft: idx > 0 ? '2.5px solid #fff' : 'none',
+                          borderBottom: '1px solid #ad885c',
+                          borderRight: '1px solid #ad885c',
                           textAlign: 'center',
                           letterSpacing: '0.5px'
                         }}
@@ -2012,30 +2006,29 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                       </th>
                     );
                   })}
-                  <th rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '15%', borderBottom: '1px solid #1a2b4c', textAlign: 'center', borderLeft: '2.5px solid #fff' }}>비고</th>
+                  <th rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '15%', borderBottom: '1px solid #ad885c', textAlign: 'center' }}>비고</th>
                 </tr>
                 {/* Row 2: Options descriptions */}
                 <tr style={{ background: '#111e38', color: '#fff' }}>
-                  {displaySelectedOptions.map(({ opt, vColor }, idx) => {
-                    const isNewVehicle = idx > 0 && displaySelectedOptions[idx].vIdx !== displaySelectedOptions[idx-1].vIdx;
+                  {displaySelectedOptions.map(({ opt }, idx) => {
                     return (
                       <th 
                         key={idx} 
                         style={{ 
-                          background: vColor.light, 
-                          borderBottom: '2.5px solid #111e38', 
-                          borderLeft: isNewVehicle ? '2.5px solid #111e38' : '1px solid #e2e8f0',
+                          background: '#111e38', 
+                          borderBottom: '1px solid #ad885c', 
+                          borderRight: '1px solid #ad885c',
                           padding: '1rem 0.5rem', 
                           fontSize: '0.8rem', 
                           fontWeight: '700', 
-                          color: '#1e293b',
+                          color: '#fff',
                           lineHeight: '1.5',
                           textAlign: 'center'
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', marginBottom: '0.2rem' }}>
                           <span style={{ 
-                            backgroundColor: vColor.primary, 
+                            backgroundColor: '#ad885c', 
                             color: '#fff', 
                             padding: '0.15rem 0.5rem', 
                             borderRadius: '4px', 
@@ -2043,9 +2036,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                             fontSize: '0.72rem', 
                             display: 'inline-block' 
                           }}>{opt.name}</span>
-                          <span style={{ fontWeight: '800', color: vColor.dark }}>렌트 {opt.termYears * 12}개월 · 보증금 {Math.round(opt.depositRate * 100)}%</span>
+                          <span style={{ fontWeight: '800', color: '#fff' }}>렌트 {opt.termYears * 12}개월 · 보증금 {Math.round(opt.depositRate * 100)}%</span>
                         </div>
-                        <div style={{ color: '#475569', fontSize: '0.74rem', fontWeight: '600' }}>
+                        <div style={{ color: '#cbd5e1', fontSize: '0.74rem', fontWeight: '500' }}>
                           선수금 {Math.round(opt.advancePaymentRate * 100)}% · 잔존가치 {Math.round(opt.residualRate * 100)}%
                         </div>
                       </th>
@@ -2056,15 +2049,15 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
               <tbody>
                 {/* 차량가격 */}
                 <tr>
-                  <td className="row-header" style={{ background: '#f8fafc', borderRight: '2.5px solid #111e38' }}>차량가격</td>
+                  <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>차량가격</td>
                   {displaySelectedOptions.map(({ calc }, idx) => (
                     <td key={idx} style={getCellStyles(idx, false)}>{toCommaString(calc.totalCarPrice)}</td>
                   ))}
-                  <td style={{ background: '#f8fafc', borderLeft: '2.5px solid #111e38' }}></td>
+                  <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
                 </tr>
                 {/* 보증금 */}
                 <tr>
-                  <td className="row-header" style={{ background: '#f8fafc', borderRight: '2.5px solid #111e38' }}>보증금</td>
+                  <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>보증금</td>
                   {displaySelectedOptions.map(({ calc }, idx) => {
                     const hasDeposit = calc.deposit && calc.deposit > 0;
                     return (
@@ -2076,11 +2069,11 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                       </td>
                     );
                   })}
-                  <td style={{ background: '#f8fafc', borderLeft: '2.5px solid #111e38' }}></td>
+                  <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
                 </tr>
                 {/* 선수금 */}
                 <tr>
-                  <td className="row-header" style={{ background: '#f8fafc', borderRight: '2.5px solid #111e38' }}>선수금</td>
+                  <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>선수금</td>
                   {displaySelectedOptions.map(({ calc }, idx) => {
                     const hasAdvance = calc.advancePayment && calc.advancePayment > 0;
                     return (
@@ -2092,75 +2085,75 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                       </td>
                     );
                   })}
-                  <td style={{ background: '#f8fafc', borderLeft: '2.5px solid #111e38' }}></td>
+                  <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
                 </tr>
                 {/* 잔존가치 */}
                 <tr>
-                  <td className="row-header" style={{ background: '#f8fafc', borderRight: '2.5px solid #111e38' }}>잔존가치</td>
+                  <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>잔존가치</td>
                   {displaySelectedOptions.map(({ calc }, idx) => (
                     <td key={idx} style={getCellStyles(idx, true)}>{toCommaString(calc.takeoverPrice)}</td>
                   ))}
-                  <td style={{ background: '#f8fafc', borderLeft: '2.5px solid #111e38' }}></td>
+                  <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
                 </tr>
                 {/* 출고전 납입액 */}
                 <tr>
-                  <td className="row-header" style={{ background: '#f8fafc', borderRight: '2.5px solid #111e38' }}>출고전 납입액</td>
+                  <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>출고전 납입액</td>
                   {displaySelectedOptions.map(({ calc }, idx) => (
                     <td key={idx} style={getCellStyles(idx, false, { fontWeight: '800', color: '#111e38' })}>{toCommaString(calc.deposit + calc.advancePayment)}</td>
                   ))}
-                  <td style={{ background: '#f8fafc', borderLeft: '2.5px solid #111e38' }}></td>
+                  <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
                 </tr>
                 {/* 월 납입액 */}
                 <tr>
-                  <td className="row-header" style={{ background: '#f8fafc', borderRight: '2.5px solid #111e38' }}>월 납입액</td>
+                  <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>월 납입액</td>
                   {displaySelectedOptions.map(({ calc }, idx) => (
                     <td key={idx} style={getCellStyles(idx, true, { fontWeight: '800', fontSize: '0.95rem', color: '#111e38' })}>{toCommaString(calc.monthlyLeaseFee)}</td>
                   ))}
-                  <td style={{ background: '#f8fafc', borderLeft: '2.5px solid #111e38' }}></td>
+                  <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
                 </tr>
                 {/* 기간(개월) */}
                 <tr>
-                  <td className="row-header" style={{ background: '#f8fafc', borderRight: '2.5px solid #111e38' }}>기간(개월)</td>
+                  <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>기간(개월)</td>
                   {displaySelectedOptions.map(({ opt }, idx) => (
                     <td key={idx} style={getCellStyles(idx, false)}>{opt.termYears * 12}</td>
                   ))}
-                  <td style={{ background: '#f8fafc', borderLeft: '2.5px solid #111e38' }}></td>
+                  <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
                 </tr>
                 {/* 월 납입액계 */}
                 <tr>
-                  <td className="row-header" style={{ background: '#f8fafc', borderRight: '2.5px solid #111e38' }}>월 납입액계</td>
+                  <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>월 납입액계</td>
                   {displaySelectedOptions.map(({ opt, calc }, idx) => (
                     <td key={idx} style={getCellStyles(idx, true, { fontWeight: '600' })}>{toCommaString(calc.monthlyLeaseFee * opt.termYears * 12)}</td>
                   ))}
-                  <td style={{ background: '#f8fafc', borderLeft: '2.5px solid #111e38' }}></td>
+                  <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
                 </tr>
                 {/* 종료 후 납입액 */}
                 <tr>
-                  <td className="row-header" style={{ background: '#f8fafc', borderRight: '2.5px solid #111e38' }}>종료 후 납입액</td>
+                  <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>종료 후 납입액</td>
                   {displaySelectedOptions.map(({ calc }, idx) => (
                     <td key={idx} style={getCellStyles(idx, false)}>{toCommaString(calc.takeoverPrice - calc.deposit)}</td>
                   ))}
-                  <td style={{ background: '#f8fafc', borderLeft: '2.5px solid #111e38' }}></td>
+                  <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
                 </tr>
                 {/* 예상보험료 */}
                 <tr>
-                  <td className="row-header" style={{ background: '#f8fafc', borderRight: '2.5px solid #111e38' }}>예상보험료</td>
+                  <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>예상보험료</td>
                   {displaySelectedOptions.map((_, idx) => (
                     <td key={idx} style={getCellStyles(idx, true, { color: '#94a3b8', textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>-</td>
                   ))}
-                  <td style={{ background: '#f8fafc', borderLeft: '2.5px solid #111e38' }}></td>
+                  <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
                 </tr>
                 {/* 자동차세 */}
                 <tr>
-                  <td className="row-header" style={{ background: '#f8fafc', borderRight: '2.5px solid #111e38' }}>자동차세</td>
+                  <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>자동차세</td>
                   {displaySelectedOptions.map((_, idx) => (
                     <td key={idx} style={getCellStyles(idx, false, { color: '#94a3b8', textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>-</td>
                   ))}
-                  <td style={{ background: '#f8fafc', borderLeft: '2.5px solid #111e38' }}></td>
+                  <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
                 </tr>
                 {/* 총구입가 */}
                 <tr style={{ borderTop: '2px solid #ad885c', borderBottom: '2px solid #ad885c' }}>
-                  <td className="row-header" style={{ background: '#f8fafc', borderRight: '2.5px solid #111e38' }}>총구입가</td>
+                  <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>총구입가</td>
                   {displaySelectedOptions.map(({ opt, calc }, idx) => {
                     const totalBuyCost = calc.advancePayment + (calc.monthlyLeaseFee * opt.termYears * 12) + calc.takeoverPrice;
                     return (
@@ -2172,11 +2165,11 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                       </td>
                     );
                   })}
-                  <td style={{ background: '#f8fafc', borderLeft: '2.5px solid #111e38' }}></td>
+                  <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
                 </tr>
                 {/* 비교금액 */}
                 <tr style={{ borderBottom: '2px solid #ad885c' }}>
-                  <td className="row-header" style={{ background: '#f8fafc', borderRight: '2.5px solid #111e38' }}>비교금액</td>
+                  <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>비교금액</td>
                   {displaySelectedOptions.map(({ opt, calc }, idx) => {
                     const totalBuyCost = calc.advancePayment + (calc.monthlyLeaseFee * opt.termYears * 12) + calc.takeoverPrice;
                     const firstCost = displaySelectedOptions[0]
@@ -2202,23 +2195,23 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                       </td>
                     );
                   })}
-                  <td style={{ background: '#f8fafc', borderLeft: '2.5px solid #111e38' }}></td>
+                  <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
                 </tr>
                 {/* 약정운행거리(년) */}
                 <tr>
-                  <td className="row-header" style={{ background: '#f8fafc', borderRight: '2.5px solid #111e38' }}>약정운행거리(년)</td>
+                  <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>약정운행거리(년)</td>
                   {displaySelectedOptions.map(({ opt }, idx) => (
                     <td key={idx} style={getCellStyles(idx, false)}>{opt.mileage ? opt.mileage.toLocaleString() + 'km' : '20,000km'}</td>
                   ))}
-                  <td style={{ background: '#f8fafc', borderLeft: '2.5px solid #111e38' }}></td>
+                  <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
                 </tr>
                 {/* 정비 */}
                 <tr style={{ borderBottom: '3px solid #111e38' }}>
-                  <td className="row-header" style={{ background: '#f8fafc', borderRight: '2.5px solid #111e38' }}>정비</td>
+                  <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>정비</td>
                   {displaySelectedOptions.map(({ opt }, idx) => (
                     <td key={idx} style={getCellStyles(idx, true, { textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>{opt.maintenancePlan || '가입'}</td>
                   ))}
-                  <td style={{ background: '#f8fafc', borderLeft: '2.5px solid #111e38' }}></td>
+                  <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
                 </tr>
               </tbody>
             </table>

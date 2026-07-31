@@ -1876,8 +1876,11 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
 
           /* Mobile responsiveness optimization */
           @media screen and (max-width: 768px) {
+            .comparison-sheet-section {
+              padding: 1rem !important;
+            }
             .comparison-table-modern {
-              min-width: 850px !important;
+              min-width: 800px !important;
             }
             .mobile-scroll-hint {
               display: block !important;

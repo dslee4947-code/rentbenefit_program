@@ -142,7 +142,7 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
       </aside>
 
       {/* Main Content Area */}
-      <main style={{ flex: 1, padding: '2.5rem', overflowY: 'auto' }}>
+      <main style={{ flex: 1, padding: '2.5rem', overflowY: 'auto', minWidth: 0 }}>
         
         {/* Header Title Area */}
         <header style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

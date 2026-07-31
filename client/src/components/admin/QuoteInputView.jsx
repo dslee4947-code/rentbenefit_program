@@ -1874,6 +1874,21 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
             display: none;
           }
 
+          /* Mobile responsiveness optimization */
+          @media screen and (max-width: 768px) {
+            .comparison-table-modern {
+              min-width: 850px !important;
+            }
+            .mobile-scroll-hint {
+              display: block !important;
+            }
+            .customer-info-bar {
+              flex-direction: column !important;
+              align-items: flex-start !important;
+              gap: 0.5rem !important;
+            }
+          }
+
           /* Print Overrides */
           @media print {
             body {
@@ -1960,7 +1975,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
           </div>
 
           {/* Customer & Date Info Bar */}
-          <div style={{ 
+          <div className="customer-info-bar" style={{ 
             display: 'flex', 
             justifyContent: 'space-between', 
             alignItems: 'center', 
@@ -1976,6 +1991,22 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
             <div style={{ color: '#555', fontWeight: '500', fontSize: '0.9rem' }}>
               작성일 {todayDateStr}
             </div>
+          </div>
+
+          {/* Mobile Scroll Hint */}
+          <div className="mobile-scroll-hint" style={{ 
+            display: 'none', 
+            textAlign: 'center', 
+            fontSize: '0.8rem', 
+            color: '#ad885c', 
+            backgroundColor: '#fdfbfa',
+            border: '1px dashed #ad885c',
+            borderRadius: '6px',
+            padding: '0.6rem',
+            marginBottom: '1rem', 
+            fontWeight: '700' 
+          }}>
+            ← 좌우로 밀어서 전체 비교표를 확인하세요 →
           </div>
 
           {/* Table Wrapper */}

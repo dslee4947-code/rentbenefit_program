@@ -1,0 +1,12 @@
+{
+  "name": "rent-benefit-monorepo",
+  "version": "1.0.0",
+  "description": "Root package.json to deploy the server to Heroku",
+  "scripts": {
+    "start": "npm start --prefix server",
+    "heroku-postbuild": "npm install --prefix server"
+  },
+  "engines": {
+    "node": "20.x"
+  }
+}

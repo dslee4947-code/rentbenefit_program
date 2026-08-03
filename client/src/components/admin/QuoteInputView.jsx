@@ -490,8 +490,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
     // 타이어 교체 비용 (AD13)
     const tireCostTotal = computedTireCount * opt.tireUnitCost;
     
-    // 정기점검 비용 (AD16) - 1000원 단위 버림 적용
-    const flooredMonthlyMaintenanceFee = Math.floor(monthlyMaintenanceFee / 1000) * 1000;
+    // 정기점검 비용 (AD16) - 1000원 단위 버림 적용 (옵션별 정비 비용 우선 적용)
+    const optMaintenanceFee = opt.monthlyMaintenanceFee !== undefined ? opt.monthlyMaintenanceFee : monthlyMaintenanceFee;
+    const flooredMonthlyMaintenanceFee = Math.floor(optMaintenanceFee / 1000) * 1000;
     const maintenanceFeeTotal = flooredMonthlyMaintenanceFee * rentPeriodMonths;
     
     // 총구입원가 (E30)
@@ -614,6 +615,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
     // 평소 상태일 때는 포맷팅해서 출력
     if (field === 'termYears') return stateValue || '';
     if (field === 'termMonths') return stateValue || '';
+    if (field === 'mileage' || field === 'monthlyMaintenanceFee') {
+      return stateValue !== undefined ? toCommaString(stateValue) : '';
+    }
     
     // 백분율 요율 필드는 100을 곱하고 소수점 2자리 정리 + '%' 붙이기
     if (field === 'depositRate' || field === 'advancePaymentRate' || field === 'residualRate' || field === 'dealerIncentiveRate') {
@@ -867,8 +871,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
             <button
               type="button"
               onClick={() => {
-                // Apply the calculated monthly fee and save the items list to the active vehicle
-                updateActiveVehicle({
+                // Apply the calculated monthly fee and save the items list to the selected option
+                updateActiveVehicleOption(selectedOpt.id, {
                   maintenanceItems: items,
                   monthlyMaintenanceFee: calculatedMonthly
                 });
@@ -1537,9 +1541,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
             <button 
               type="button"
               onClick={() => {
-                const items = activeVehicle.maintenanceItems || defaultMaintenanceItems;
+                const items = selectedOpt?.maintenanceItems || defaultMaintenanceItems;
                 setTempMaintenanceItems(items.map(item => ({ ...item })));
-                setTempMonthlyMaintenanceFee(activeVehicle.monthlyMaintenanceFee || 0);
+                setTempMonthlyMaintenanceFee(selectedOpt?.monthlyMaintenanceFee || 0);
                 setSubView('maintenance');
               }}
               style={{
@@ -1587,18 +1591,24 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
               <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>월 정비비 (원)</label>
               <input 
                 type="text" 
-                value={activeInputKey === `${selectedVehicleId}-global-monthlyMaintenanceFee` ? activeInputValue : toCommaString(Math.floor(activeVehicle.monthlyMaintenanceFee / 1000) * 1000)} 
+                value={activeInputKey === `option-${selectedOpt?.id}-monthlyMaintenanceFee` ? activeInputValue : toCommaString(Math.floor((selectedOpt?.monthlyMaintenanceFee ?? 50000) / 1000) * 1000)} 
                 onChange={(e) => {
                   setActiveInputValue(e.target.value);
-                  updateActiveVehicle({ monthlyMaintenanceFee: parseNumber(e.target.value) });
+                  if (selectedOpt) {
+                    updateActiveVehicleOption(selectedOpt.id, { monthlyMaintenanceFee: parseNumber(e.target.value) });
+                  }
                 }} 
                 onFocus={() => {
-                  setActiveInputKey(`${selectedVehicleId}-global-monthlyMaintenanceFee`);
-                  setActiveInputValue(activeVehicle.monthlyMaintenanceFee.toString());
+                  if (selectedOpt) {
+                    setActiveInputKey(`option-${selectedOpt.id}-monthlyMaintenanceFee`);
+                    setActiveInputValue((selectedOpt.monthlyMaintenanceFee ?? 50000).toString());
+                  }
                 }}
                 onBlur={() => {
                   handleBlur();
-                  updateActiveVehicle({ monthlyMaintenanceFee: Math.floor(activeVehicle.monthlyMaintenanceFee / 1000) * 1000 });
+                  if (selectedOpt) {
+                    updateActiveVehicleOption(selectedOpt.id, { monthlyMaintenanceFee: Math.floor((selectedOpt.monthlyMaintenanceFee ?? 50000) / 1000) * 1000 });
+                  }
                 }}
                 onKeyDown={handleKeyDown}
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }} 
@@ -1939,31 +1949,37 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', fontSize: '0.8rem' }}>
                     <div>
                       <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>기간 (년수)</label>
-                      <input 
-                        type="number" 
-                        step="any" 
-                        value={getInputValue(opt.id, 'termYears', opt.termYears)} 
-                        onChange={(e) => handleInputChange(opt.id, 'termYears', e.target.value)} 
-                        onFocus={() => handleFocus(opt.id, 'termYears')}
-                        onBlur={handleBlur}
-                        onKeyDown={handleKeyDown}
-                        style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px' }} 
-                        placeholder="예: 4"
-                      />
+                      <select 
+                        value={opt.termYears || 4} 
+                        onChange={(e) => {
+                          const years = Number(e.target.value);
+                          updateActiveVehicleOption(opt.id, { termYears: years });
+                        }}
+                        style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px', background: '#fff', color: '#333' }} 
+                      >
+                        <option value={1}>1년</option>
+                        <option value={2}>2년</option>
+                        <option value={3}>3년</option>
+                        <option value={4}>4년</option>
+                        <option value={5}>5년</option>
+                      </select>
                     </div>
                     <div>
                       <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>기간 (개월수)</label>
-                      <input 
-                        type="number" 
-                        step="any" 
-                        value={getInputValue(opt.id, 'termMonths', opt.termYears ? opt.termYears * 12 : '')} 
-                        onChange={(e) => handleInputChange(opt.id, 'termMonths', e.target.value)} 
-                        onFocus={() => handleFocus(opt.id, 'termMonths')}
-                        onBlur={handleBlur}
-                        onKeyDown={handleKeyDown}
-                        style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px' }} 
-                        placeholder="예: 48"
-                      />
+                      <select 
+                        value={opt.termYears ? Math.round(opt.termYears * 12) : 48} 
+                        onChange={(e) => {
+                          const months = Number(e.target.value);
+                          updateActiveVehicleOption(opt.id, { termYears: months / 12 });
+                        }}
+                        style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px', background: '#fff', color: '#333' }} 
+                      >
+                        <option value={12}>12개월</option>
+                        <option value={24}>24개월</option>
+                        <option value={36}>36개월</option>
+                        <option value={48}>48개월</option>
+                        <option value={60}>60개월</option>
+                      </select>
                     </div>
                     <div>
                       <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>보증금율 (%)</label>
@@ -2033,6 +2049,33 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                         onChange={(e) => handleInputChange(opt.id, 'residualAmount', e.target.value)} 
                         onFocus={() => handleFocus(opt.id, 'residualAmount')}
                         onBlur={handleBlur}
+                        onKeyDown={handleKeyDown}
+                        style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px' }} 
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>연간 주행거리 (km)</label>
+                      <input 
+                        type="text" 
+                        value={getInputValue(opt.id, 'mileage', opt.mileage)} 
+                        onChange={(e) => handleInputChange(opt.id, 'mileage', e.target.value)} 
+                        onFocus={() => handleFocus(opt.id, 'mileage')}
+                        onBlur={handleBlur}
+                        onKeyDown={handleKeyDown}
+                        style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px' }} 
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>월 정비비 (원)</label>
+                      <input 
+                        type="text" 
+                        value={getInputValue(opt.id, 'monthlyMaintenanceFee', opt.monthlyMaintenanceFee ?? 50000)} 
+                        onChange={(e) => handleInputChange(opt.id, 'monthlyMaintenanceFee', e.target.value)} 
+                        onFocus={() => handleFocus(opt.id, 'monthlyMaintenanceFee')}
+                        onBlur={() => {
+                          handleBlur();
+                          updateActiveVehicleOption(opt.id, { monthlyMaintenanceFee: Math.floor((opt.monthlyMaintenanceFee ?? 50000) / 1000) * 1000 });
+                        }}
                         onKeyDown={handleKeyDown}
                         style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px' }} 
                       />

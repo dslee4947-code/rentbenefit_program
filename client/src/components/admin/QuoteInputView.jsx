@@ -107,6 +107,29 @@ const getRecommendedTirePrices = (carModel) => {
   };
 };
 
+const getCalculatedMaintenanceFee = (opt, vehicle) => {
+  if (!opt || !vehicle) return 50000;
+  
+  const rawItems = opt.maintenanceItems || vehicle.maintenanceItems || defaultMaintenanceItems;
+  const totalMileage = (opt.termYears || 4) * (opt.mileage || 20000);
+  const computedTireCount = Math.floor(totalMileage / 60000) * 4;
+  const computedTireCost = computedTireCount * (opt.tireUnitCost || 150000);
+  
+  const totalSum = rawItems
+    .filter(item => item.checked)
+    .reduce((sum, item) => {
+      if (item.name === '타이어 교체') {
+        return sum + computedTireCost;
+      }
+      return sum + (item.price || 0);
+    }, 0);
+    
+  const termMonths = (opt.termYears || 4) * 12;
+  if (termMonths <= 0) return 0;
+  
+  return Math.floor((totalSum / termMonths) / 1000) * 1000;
+};
+
 function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
   const [customers, setCustomers] = useState([]);
   const [useExistingCustomer, setUseExistingCustomer] = useState(true);
@@ -490,10 +513,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
     // 타이어 교체 비용 (AD13)
     const tireCostTotal = computedTireCount * opt.tireUnitCost;
     
-    // 정기점검 비용 (AD16) - 1000원 단위 버림 적용 (옵션별 정비 비용 우선 적용)
-    const optMaintenanceFee = opt.monthlyMaintenanceFee !== undefined ? opt.monthlyMaintenanceFee : monthlyMaintenanceFee;
-    const flooredMonthlyMaintenanceFee = Math.floor(optMaintenanceFee / 1000) * 1000;
-    const maintenanceFeeTotal = flooredMonthlyMaintenanceFee * rentPeriodMonths;
+    // 정기점검 비용 (AD16) - 옵션별 실시간 계산 적용 (1000원 단위 버림)
+    const calculatedMaintenanceFee = getCalculatedMaintenanceFee(opt, vehicle);
+    const maintenanceFeeTotal = calculatedMaintenanceFee * rentPeriodMonths;
     
     // 총구입원가 (E30)
     let totalCost;
@@ -1591,7 +1613,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
               <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>월 정비비 (원)</label>
               <input 
                 type="text" 
-                value={toCommaString(Math.floor((selectedOpt?.monthlyMaintenanceFee ?? 50000) / 1000) * 1000)} 
+                value={toCommaString(getCalculatedMaintenanceFee(selectedOpt, activeVehicle))} 
                 disabled 
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#f5f5f5', color: '#666', fontWeight: '600' }} 
               />
@@ -1949,7 +1971,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                       <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>월 정비비 (원)</label>
                       <input 
                         type="text" 
-                        value={toCommaString(Math.floor((opt.monthlyMaintenanceFee ?? 50000) / 1000) * 1000)} 
+                        value={toCommaString(getCalculatedMaintenanceFee(opt, activeVehicle))} 
                         disabled 
                         style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px', background: '#f5f5f5', color: '#666', fontWeight: '600' }} 
                       />

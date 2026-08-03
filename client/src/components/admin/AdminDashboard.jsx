@@ -16,7 +16,9 @@ import {
   Calendar,
   LogOut,
   UserCheck,
-  Users
+  Users,
+  Menu,
+  X
 } from 'lucide-react';
 
 function AdminDashboard({ showToast, currentUser, onLogout }) {
@@ -43,6 +45,7 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
   
   // Shared state to transfer data from Quote -> Contract Register
   const [prefilledQuoteData, setPrefilledQuoteData] = useState(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const menuItems = [
     { id: 'dashboard', name: '통계 대시보드', icon: <LayoutDashboard size={18} /> },
@@ -59,10 +62,183 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
   };
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-main)' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-main)', flexDirection: 'row' }} className="admin-container">
+      <style dangerouslySetInnerHTML={{__html: `
+        @media (max-width: 768px) {
+          .desktop-sidebar {
+            display: none !important;
+          }
+          .mobile-header {
+            display: flex !important;
+          }
+          .main-content {
+            padding: 1rem !important;
+          }
+          .admin-container {
+            flex-direction: column !important;
+          }
+        }
+        @media (min-width: 769px) {
+          .desktop-sidebar {
+            display: flex !important;
+          }
+          .mobile-header {
+            display: none !important;
+          }
+          .main-content {
+            padding: 2.5rem !important;
+          }
+          .admin-container {
+            flex-direction: row !important;
+          }
+        }
+      `}} />
       
+      {/* Mobile Top Header */}
+      <header className="mobile-header" style={{
+        height: '60px',
+        background: 'var(--bg-surface)',
+        borderBottom: '1px solid var(--border-color)',
+        display: 'none',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '0 1.2rem',
+        position: 'sticky',
+        top: 0,
+        zIndex: 999
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <img src="http://www.sdibenefit.com/images/logo.png" alt="RENT BENefit" style={{ maxHeight: '28px', width: 'auto' }} />
+        </div>
+        <button 
+          onClick={() => setIsMobileMenuOpen(true)}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'var(--text-main)',
+            cursor: 'pointer',
+            padding: '0.4rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <Menu size={24} />
+        </button>
+      </header>
+
+      {/* Mobile Menu Drawer/Overlay */}
+      {isMobileMenuOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          background: 'rgba(0, 0, 0, 0.4)',
+          zIndex: 1000,
+          display: 'flex',
+          justifyContent: 'flex-end'
+        }} onClick={() => setIsMobileMenuOpen(false)}>
+          <div style={{
+            width: '280px',
+            height: '100%',
+            background: 'var(--bg-surface)',
+            boxShadow: '-4px 0 12px rgba(0,0,0,0.15)',
+            display: 'flex',
+            flexDirection: 'column',
+            padding: '1.5rem',
+            gap: '1.5rem'
+          }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.8rem' }}>
+              <img src="http://www.sdibenefit.com/images/logo.png" alt="RENT BENefit" style={{ maxHeight: '26px', width: 'auto' }} />
+              <button 
+                onClick={() => setIsMobileMenuOpen(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer'
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.5rem 0' }}>
+              <div style={{ width: '32px', height: '32px', background: 'var(--primary-glow)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
+                <UserCheck size={16} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-bright)' }}>{currentUser?.name || '관리자'}</span>
+                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{currentUser?.email || 'admin@rentbenefit.co.kr'}</span>
+              </div>
+            </div>
+
+            <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: 1, overflowY: 'auto' }}>
+              {menuItems.map(item => {
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => { 
+                      window.location.hash = `#/${item.id}`; 
+                      setIsMobileMenuOpen(false);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.8rem',
+                      width: '100%',
+                      padding: '0.7rem 0.8rem',
+                      border: 'none',
+                      background: isActive ? 'var(--primary-glow)' : 'transparent',
+                      color: isActive ? 'var(--primary)' : 'var(--text-main)',
+                      fontWeight: isActive ? '700' : '500',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                      textAlign: 'left',
+                      transition: 'all 0.15s'
+                    }}
+                  >
+                    {item.icon}
+                    <span>{item.name}</span>
+                  </button>
+                );
+              })}
+            </nav>
+
+            <button
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                onLogout();
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.8rem',
+                width: '100%',
+                padding: '0.7rem 0.8rem',
+                border: '1px solid var(--border-color)',
+                background: 'transparent',
+                color: 'var(--text-muted)',
+                fontWeight: '600',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                transition: 'all 0.15s'
+              }}
+            >
+              <LogOut size={16} />
+              <span>로그아웃</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar Navigation */}
-      <aside style={{ width: '260px', background: 'var(--bg-surface)', borderRight: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', padding: '1.5rem', gap: '2rem', position: 'sticky', top: 0, height: '100vh' }}>
+      <aside className="desktop-sidebar" style={{ width: '260px', background: 'var(--bg-surface)', borderRight: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', padding: '1.5rem', gap: '2rem', position: 'sticky', top: 0, height: '100vh' }}>
         {/* Brand/Logo */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', alignItems: 'center', width: '100%', textAlign: 'center' }}>
           <img src="http://www.sdibenefit.com/images/logo.png" alt="RENT BENefit" style={{ maxWidth: '180px', width: '100%', height: 'auto', maxHeight: '42px', objectFit: 'contain', margin: '0 auto' }} />
@@ -142,7 +318,7 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
       </aside>
 
       {/* Main Content Area */}
-      <main style={{ flex: 1, padding: '2.5rem', overflowY: 'auto', minWidth: 0 }}>
+      <main className="main-content" style={{ flex: 1, padding: '2.5rem', overflowY: 'auto', minWidth: 0 }}>
         
         {/* Header Title Area */}
         <header style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

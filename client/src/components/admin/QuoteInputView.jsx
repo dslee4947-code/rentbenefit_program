@@ -490,8 +490,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
     // 타이어 교체 비용 (AD13)
     const tireCostTotal = computedTireCount * opt.tireUnitCost;
     
-    // 정기점검 비용 (AD16)
-    const maintenanceFeeTotal = monthlyMaintenanceFee * rentPeriodMonths;
+    // 정기점검 비용 (AD16) - 1000원 단위 버림 적용
+    const flooredMonthlyMaintenanceFee = Math.floor(monthlyMaintenanceFee / 1000) * 1000;
+    const maintenanceFeeTotal = flooredMonthlyMaintenanceFee * rentPeriodMonths;
     
     // 총구입원가 (E30)
     let totalCost;
@@ -844,7 +845,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
       .reduce((sum, item) => sum + (item.price || 0), 0);
       
     const termMonths = selectedOpt ? selectedOpt.termYears * 12 : 48;
-    const calculatedMonthly = Math.round(totalSum / termMonths);
+    const calculatedMonthly = Math.floor((totalSum / termMonths) / 1000) * 1000;
 
     const updateTempItem = (index, fields) => {
       setTempMaintenanceItems(prev => prev.map((item, idx) => idx === index ? { ...item, ...fields } : item));
@@ -1586,7 +1587,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
               <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>월 정비비 (원)</label>
               <input 
                 type="text" 
-                value={activeInputKey === `${selectedVehicleId}-global-monthlyMaintenanceFee` ? activeInputValue : toCommaString(activeVehicle.monthlyMaintenanceFee)} 
+                value={activeInputKey === `${selectedVehicleId}-global-monthlyMaintenanceFee` ? activeInputValue : toCommaString(Math.floor(activeVehicle.monthlyMaintenanceFee / 1000) * 1000)} 
                 onChange={(e) => {
                   setActiveInputValue(e.target.value);
                   updateActiveVehicle({ monthlyMaintenanceFee: parseNumber(e.target.value) });
@@ -1595,7 +1596,10 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                   setActiveInputKey(`${selectedVehicleId}-global-monthlyMaintenanceFee`);
                   setActiveInputValue(activeVehicle.monthlyMaintenanceFee.toString());
                 }}
-                onBlur={handleBlur}
+                onBlur={() => {
+                  handleBlur();
+                  updateActiveVehicle({ monthlyMaintenanceFee: Math.floor(activeVehicle.monthlyMaintenanceFee / 1000) * 1000 });
+                }}
                 onKeyDown={handleKeyDown}
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }} 
               />

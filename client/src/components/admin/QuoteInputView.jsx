@@ -56,6 +56,57 @@ const defaultMaintenanceItems = [
   { name: '기타 보충', cycle: '수시', desc: '-', price: 0, checked: true }
 ];
 
+const getRecommendedTirePrices = (carModel) => {
+  const model = (carModel || '').toLowerCase();
+  
+  if (model.includes('gv80') || model.includes('팰리세이드') || model.includes('모하비') || model.includes('렉스턴')) {
+    return {
+      standard: 160000,
+      premium: 260000,
+      standardLabel: '금호 크루젠 HP71 (16만원)',
+      premiumLabel: '미쉐린 프라이머시 LTX (26만원)'
+    };
+  }
+  if (model.includes('쏘렌토') || model.includes('싼타페') || model.includes('스포티지') || model.includes('투싼') || model.includes('qm6') || model.includes('토레스')) {
+    return {
+      standard: 140000,
+      premium: 220000,
+      standardLabel: '한국 다이나프로 HL3 (14만원)',
+      premiumLabel: '콘티넨탈 크로스콘택트 (22만원)'
+    };
+  }
+  if (model.includes('g80') || model.includes('g90') || model.includes('그랜저') || model.includes('그랜져') || model.includes('k9') || model.includes('k8') || model.includes('아우디') || model.includes('벤츠') || model.includes('bmw')) {
+    return {
+      standard: 150000,
+      premium: 240000,
+      standardLabel: '금호 마제스티9 TA91 (15만원)',
+      premiumLabel: '미쉐린 파일럿 스포츠 4 (24만원)'
+    };
+  }
+  if (model.includes('아반떼') || model.includes('k3') || model.includes('k5') || model.includes('쏘나타') || model.includes('소나타') || model.includes('말리부') || model.includes('sm6')) {
+    return {
+      standard: 110000,
+      premium: 170000,
+      standardLabel: '금호 솔루스 TA51 (11만원)',
+      premiumLabel: '한국 벤투스 S2 AS (17만원)'
+    };
+  }
+  if (model.includes('캐스퍼') || model.includes('레이') || model.includes('모닝') || model.includes('스파크')) {
+    return {
+      standard: 80000,
+      premium: 120000,
+      standardLabel: '한국 키너지 EX (8만원)',
+      premiumLabel: '금호 솔루스 TA31 (12만원)'
+    };
+  }
+  return {
+    standard: 130000,
+    premium: 200000,
+    standardLabel: '일반 사계절 타이어 (13만원)',
+    premiumLabel: '고급 저소음 타이어 (20만원)'
+  };
+};
+
 function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
   const [customers, setCustomers] = useState([]);
   const [useExistingCustomer, setUseExistingCustomer] = useState(true);
@@ -120,6 +171,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
         advancePaymentRate: 0.00,
         dealerIncentiveRate: 0.00,
         tireUnitCost: 160000,
+        tireType: 'standard',
         discountRate: 0.00,
         maintenancePlan: '가입',
         insuranceFeeAnnual: 800000,
@@ -139,6 +191,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
         advancePaymentRate: 0.00,
         dealerIncentiveRate: 0.00,
         tireUnitCost: 240000,
+        tireType: 'premium',
         discountRate: 0.00,
         maintenancePlan: '가입',
         insuranceFeeAnnual: 800000,
@@ -430,8 +483,12 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
     // 판관비/노무비 (E28) - 글로벌 설정 기준
     const pandanbi = isPandanbiEnabled ? totalCarPrice * 0.03 : 0;
     
+    // 동적 타이어 본수 계산 (6만km당 4본)
+    const totalMileage = opt.termYears * opt.mileage;
+    const computedTireCount = Math.floor(totalMileage / 60000) * 4;
+
     // 타이어 교체 비용 (AD13)
-    const tireCostTotal = tireCount * opt.tireUnitCost;
+    const tireCostTotal = computedTireCount * opt.tireUnitCost;
     
     // 정기점검 비용 (AD16)
     const maintenanceFeeTotal = monthlyMaintenanceFee * rentPeriodMonths;
@@ -693,6 +750,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
   const options = activeVehicle.options || [];
   const selectedOpt = options.find(o => o.id === primarySelectedId) || options[0] || {};
   const selectedCalc = calculateOptionValues(selectedOpt, activeVehicle);
+  const recTires = getRecommendedTirePrices(activeVehicle.carModel);
   const totalCarPrice = activeVehicle.carPrice + activeVehicle.carOptionPrice;
   const activeIndex = vehicles.findIndex(v => v.id === selectedVehicleId) + 1;
   const displayOpts = options.filter(o => selectedOptionIds.includes(o.id));
@@ -761,8 +819,25 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
 
 
   const renderMaintenancePage = () => {
-    const items = tempMaintenanceItems.length > 0 ? tempMaintenanceItems : defaultMaintenanceItems;
+    // Determine dynamic tire count and cost for selected option
+    const totalMileage = (selectedOpt?.termYears || 4) * (selectedOpt?.mileage || 20000);
+    const computedTireCount = Math.floor(totalMileage / 60000) * 4;
+    const computedTireCost = computedTireCount * (selectedOpt?.tireUnitCost || 150000);
+
+    const rawItems = tempMaintenanceItems.length > 0 ? tempMaintenanceItems : defaultMaintenanceItems;
     
+    // Dynamically adjust the "타이어 교체" row price and description
+    const items = rawItems.map(item => {
+      if (item.name === '타이어 교체') {
+        return {
+          ...item,
+          desc: `타이어*마모 한계선 도래 시 교체 (${computedTireCount}본)`,
+          price: computedTireCost
+        };
+      }
+      return item;
+    });
+
     // Calculate total sum of checked items
     const totalSum = items
       .filter(item => item.checked)
@@ -791,11 +866,10 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
             <button
               type="button"
               onClick={() => {
-                // Apply the calculated (or edited) monthly fee and save the items list to the active vehicle
-                const finalMonthlyFee = tempMonthlyMaintenanceFee === 0 || tempMonthlyMaintenanceFee === calculatedMonthly ? calculatedMonthly : tempMonthlyMaintenanceFee;
+                // Apply the calculated monthly fee and save the items list to the active vehicle
                 updateActiveVehicle({
                   maintenanceItems: items,
-                  monthlyMaintenanceFee: finalMonthlyFee
+                  monthlyMaintenanceFee: calculatedMonthly
                 });
                 setSubView('quote');
                 showToast('정비 상세 내역과 월 정비비가 견적서에 적용되었습니다.', 'success');
@@ -859,10 +933,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
             <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>최종 적용 월 정비비 (원)</span>
             <input 
               type="text"
-              value={toCommaString(tempMonthlyMaintenanceFee === 0 ? calculatedMonthly : tempMonthlyMaintenanceFee)}
-              onChange={(e) => {
-                setTempMonthlyMaintenanceFee(parseNumber(e.target.value));
-              }}
+              value={toCommaString(calculatedMonthly)}
+              disabled
               style={{
                 width: '100%',
                 padding: '0.4rem 0.6rem',
@@ -870,10 +942,11 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                 borderRadius: '6px',
                 fontSize: '1rem',
                 fontWeight: '700',
-                color: 'var(--text-bright)',
-                background: '#fff'
+                color: 'var(--primary)',
+                background: '#f5f5f5'
               }}
             />
+            <span style={{ fontSize: '0.66rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.2rem' }}>* (합계 / 개월 수)로 자동 고정 적용됩니다.</span>
           </div>
         </div>
 
@@ -896,7 +969,10 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                 <th style={{ padding: '0.8rem 1rem', fontWeight: '700', color: 'var(--text-bright)', borderRight: '1px solid var(--border-color)', textAlign: 'left', width: '22%' }}>소모품</th>
                 <th style={{ padding: '0.8rem 1rem', fontWeight: '700', color: 'var(--text-bright)', borderRight: '1px solid var(--border-color)', textAlign: 'left', width: '30%' }}>교환주기</th>
                 <th style={{ padding: '0.8rem 1rem', fontWeight: '700', color: 'var(--text-bright)', borderRight: '1px solid var(--border-color)', textAlign: 'left', width: '25%' }}>부품내역</th>
-                <th style={{ padding: '0.8rem 1rem', fontWeight: '700', color: 'var(--text-bright)', textAlign: 'right', width: '15%' }}>금액 (원)</th>
+                <th style={{ padding: '0.8rem 1rem', fontWeight: '700', color: 'var(--text-bright)', textAlign: 'right', width: '15%' }}>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--primary)', marginBottom: '0.2rem' }}>총 {toCommaString(totalSum)} 원</div>
+                  금액 (원)
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -928,7 +1004,15 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                       disabled={!row.checked}
                       value={toCommaString(row.price)}
                       onChange={(e) => {
-                        updateTempItem(idx, { price: parseNumber(e.target.value) });
+                        const newPrice = parseNumber(e.target.value);
+                        if (row.name === '타이어 교체') {
+                          const unitCost = computedTireCount > 0 ? Math.round(newPrice / computedTireCount) : 0;
+                          if (selectedOpt) {
+                            updateActiveVehicleOption(selectedOpt.id, { tireUnitCost: unitCost });
+                          }
+                        } else {
+                          updateTempItem(idx, { price: newPrice });
+                        }
                       }}
                       style={{
                         padding: '0.3rem 0.5rem',
@@ -1517,21 +1601,29 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
               />
             </div>
             <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>타이어 등급</label>
+              <select
+                value={selectedOpt?.tireType || 'standard'}
+                onChange={(e) => {
+                  const type = e.target.value;
+                  const price = type === 'premium' ? recTires.premium : recTires.standard;
+                  if (selectedOpt) {
+                    updateActiveVehicleOption(selectedOpt.id, { tireType: type, tireUnitCost: price });
+                  }
+                }}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }}
+              >
+                <option value="standard">일반형</option>
+                <option value="premium">고급형</option>
+              </select>
+            </div>
+            <div>
               <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>제공 타이어 본수 (본)</label>
               <input 
                 type="text" 
-                value={activeInputKey === `${selectedVehicleId}-global-tireCount` ? activeInputValue : toCommaString(activeVehicle.tireCount)} 
-                onChange={(e) => {
-                  setActiveInputValue(e.target.value);
-                  updateActiveVehicle({ tireCount: parseNumber(e.target.value) });
-                }} 
-                onFocus={() => {
-                  setActiveInputKey(`${selectedVehicleId}-global-tireCount`);
-                  setActiveInputValue(activeVehicle.tireCount.toString());
-                }}
-                onBlur={handleBlur}
-                onKeyDown={handleKeyDown}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }} 
+                value={toCommaString(Math.floor(((selectedOpt?.termYears || 4) * (selectedOpt?.mileage || 20000)) / 60000) * 4) + ' 본 (자동 계산)'} 
+                disabled 
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#f5f5f5', color: '#666', fontWeight: '600' }} 
               />
             </div>
             <div>
@@ -1555,6 +1647,51 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                 onKeyDown={handleKeyDown}
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }} 
               />
+              <div style={{ display: 'flex', gap: '0.3rem', marginTop: '0.3rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedOpt) {
+                      updateActiveVehicleOption(selectedOpt.id, { tireType: 'standard', tireUnitCost: recTires.standard });
+                    }
+                  }}
+                  style={{
+                    background: (selectedOpt?.tireType === 'standard' || !selectedOpt?.tireType) ? 'var(--primary-glow)' : 'var(--bg-main)',
+                    border: `1px solid ${(selectedOpt?.tireType === 'standard' || !selectedOpt?.tireType) ? 'var(--primary)' : 'var(--border-color)'}`,
+                    borderRadius: '4px',
+                    padding: '0.2rem 0.4rem',
+                    fontSize: '0.68rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    color: (selectedOpt?.tireType === 'standard' || !selectedOpt?.tireType) ? 'var(--primary)' : 'var(--text-muted)'
+                  }}
+                >
+                  일반: {toCommaString(recTires.standard)}원
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedOpt) {
+                      updateActiveVehicleOption(selectedOpt.id, { tireType: 'premium', tireUnitCost: recTires.premium });
+                    }
+                  }}
+                  style={{
+                    background: selectedOpt?.tireType === 'premium' ? 'var(--primary-glow)' : 'var(--bg-main)',
+                    border: `1px solid ${selectedOpt?.tireType === 'premium' ? 'var(--primary)' : 'var(--border-color)'}`,
+                    borderRadius: '4px',
+                    padding: '0.2rem 0.4rem',
+                    fontSize: '0.68rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    color: selectedOpt?.tireType === 'premium' ? 'var(--primary)' : 'var(--text-muted)'
+                  }}
+                >
+                  고급: {toCommaString(recTires.premium)}원
+                </button>
+              </div>
+              <div style={{ fontSize: '0.64rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                * 추천: {selectedOpt?.tireType === 'premium' ? recTires.premiumLabel : recTires.standardLabel}
+              </div>
             </div>
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>연간 주행거리 (km)</label>

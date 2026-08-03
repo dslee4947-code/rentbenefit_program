@@ -1591,27 +1591,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
               <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>월 정비비 (원)</label>
               <input 
                 type="text" 
-                value={activeInputKey === `option-${selectedOpt?.id}-monthlyMaintenanceFee` ? activeInputValue : toCommaString(Math.floor((selectedOpt?.monthlyMaintenanceFee ?? 50000) / 1000) * 1000)} 
-                onChange={(e) => {
-                  setActiveInputValue(e.target.value);
-                  if (selectedOpt) {
-                    updateActiveVehicleOption(selectedOpt.id, { monthlyMaintenanceFee: parseNumber(e.target.value) });
-                  }
-                }} 
-                onFocus={() => {
-                  if (selectedOpt) {
-                    setActiveInputKey(`option-${selectedOpt.id}-monthlyMaintenanceFee`);
-                    setActiveInputValue((selectedOpt.monthlyMaintenanceFee ?? 50000).toString());
-                  }
-                }}
-                onBlur={() => {
-                  handleBlur();
-                  if (selectedOpt) {
-                    updateActiveVehicleOption(selectedOpt.id, { monthlyMaintenanceFee: Math.floor((selectedOpt.monthlyMaintenanceFee ?? 50000) / 1000) * 1000 });
-                  }
-                }}
-                onKeyDown={handleKeyDown}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }} 
+                value={toCommaString(Math.floor((selectedOpt?.monthlyMaintenanceFee ?? 50000) / 1000) * 1000)} 
+                disabled 
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#f5f5f5', color: '#666', fontWeight: '600' }} 
               />
             </div>
             <div>
@@ -1709,25 +1691,23 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
             </div>
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>연간 주행거리 (km)</label>
-              <input 
-                type="text" 
-                value={activeInputKey === `option-${selectedOpt?.id}-mileage` ? activeInputValue : toCommaString(selectedOpt?.mileage)} 
+              <select
+                value={selectedOpt?.mileage || 20000}
                 onChange={(e) => {
-                  setActiveInputValue(e.target.value);
+                  const val = Number(e.target.value);
                   if (selectedOpt) {
-                    updateActiveVehicleOption(selectedOpt.id, { mileage: parseNumber(e.target.value) });
-                  }
-                }} 
-                onFocus={() => {
-                  if (selectedOpt) {
-                    setActiveInputKey(`option-${selectedOpt.id}-mileage`);
-                    setActiveInputValue(selectedOpt.mileage.toString());
+                    updateActiveVehicleOption(selectedOpt.id, { mileage: val });
                   }
                 }}
-                onBlur={handleBlur}
-                onKeyDown={handleKeyDown}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }} 
-              />
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }}
+              >
+                <option value={10000}>10,000 km</option>
+                <option value={15000}>15,000 km</option>
+                <option value={20000}>20,000 km</option>
+                <option value={25000}>25,000 km</option>
+                <option value={30000}>30,000 km</option>
+                <option value={40000}>40,000 km</option>
+              </select>
             </div>
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>보험 (원)</label>
@@ -1948,6 +1928,33 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                   {/* Settings Input Grid */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', fontSize: '0.8rem' }}>
                     <div>
+                      <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>연간 주행거리 (km)</label>
+                      <select 
+                        value={opt.mileage || 20000} 
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateActiveVehicleOption(opt.id, { mileage: val });
+                        }}
+                        style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px', background: '#fff', color: '#333' }} 
+                      >
+                        <option value={10000}>10,000 km</option>
+                        <option value={15000}>15,000 km</option>
+                        <option value={20000}>20,000 km</option>
+                        <option value={25000}>25,000 km</option>
+                        <option value={30000}>30,000 km</option>
+                        <option value={40000}>40,000 km</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>월 정비비 (원)</label>
+                      <input 
+                        type="text" 
+                        value={toCommaString(Math.floor((opt.monthlyMaintenanceFee ?? 50000) / 1000) * 1000)} 
+                        disabled 
+                        style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px', background: '#f5f5f5', color: '#666', fontWeight: '600' }} 
+                      />
+                    </div>
+                    <div>
                       <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>기간 (년수)</label>
                       <select 
                         value={opt.termYears || 4} 
@@ -2049,33 +2056,6 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                         onChange={(e) => handleInputChange(opt.id, 'residualAmount', e.target.value)} 
                         onFocus={() => handleFocus(opt.id, 'residualAmount')}
                         onBlur={handleBlur}
-                        onKeyDown={handleKeyDown}
-                        style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px' }} 
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>연간 주행거리 (km)</label>
-                      <input 
-                        type="text" 
-                        value={getInputValue(opt.id, 'mileage', opt.mileage)} 
-                        onChange={(e) => handleInputChange(opt.id, 'mileage', e.target.value)} 
-                        onFocus={() => handleFocus(opt.id, 'mileage')}
-                        onBlur={handleBlur}
-                        onKeyDown={handleKeyDown}
-                        style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px' }} 
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>월 정비비 (원)</label>
-                      <input 
-                        type="text" 
-                        value={getInputValue(opt.id, 'monthlyMaintenanceFee', opt.monthlyMaintenanceFee ?? 50000)} 
-                        onChange={(e) => handleInputChange(opt.id, 'monthlyMaintenanceFee', e.target.value)} 
-                        onFocus={() => handleFocus(opt.id, 'monthlyMaintenanceFee')}
-                        onBlur={() => {
-                          handleBlur();
-                          updateActiveVehicleOption(opt.id, { monthlyMaintenanceFee: Math.floor((opt.monthlyMaintenanceFee ?? 50000) / 1000) * 1000 });
-                        }}
                         onKeyDown={handleKeyDown}
                         style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px' }} 
                       />

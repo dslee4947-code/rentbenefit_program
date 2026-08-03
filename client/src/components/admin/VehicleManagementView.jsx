@@ -236,7 +236,7 @@ function VehicleManagementView({ showToast }) {
   const [formData, setFormData] = useState(initialFormState);
   const [parsedQuoteSummary, setParsedQuoteSummary] = useState(null);
   const [hoveredCard, setHoveredCard] = useState(null);
-  const [limit, setLimit] = useState(20);
+  const [limit, setLimit] = useState(10000);
 
   const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
@@ -830,7 +830,32 @@ function VehicleManagementView({ showToast }) {
           <h3 style={{ fontSize: '1.5rem', fontWeight: '800', margin: '0.3rem 0 0 0', color: 'var(--text-bright)' }}>{stats.total} 대</h3>
         </div>
 
-        {/* 카드 2: 장기렌트 현황 */}
+        {/* 카드 2: 계약진행 현황 */}
+        <div 
+          onClick={() => { setOperationFilter('계약진행중'); setPage(1); }}
+          onMouseEnter={() => setHoveredCard('계약진행중')}
+          onMouseLeave={() => setHoveredCard(null)}
+          style={{ 
+            background: 'var(--bg-surface)', 
+            padding: '1rem 1.2rem', 
+            borderRadius: '10px', 
+            borderTop: operationFilter === '계약진행중' ? '2px solid #722ed1' : '1px solid var(--border-color)', 
+            borderRight: operationFilter === '계약진행중' ? '2px solid #722ed1' : '1px solid var(--border-color)', 
+            borderBottom: operationFilter === '계약진행중' ? '2px solid #722ed1' : '1px solid var(--border-color)', 
+            borderLeft: '4px solid #722ed1',
+            cursor: 'pointer',
+            transform: hoveredCard === '계약진행중' ? 'translateY(-3px)' : 'none',
+            boxShadow: operationFilter === '계약진행중' 
+              ? '0 4px 12px rgba(114, 46, 209, 0.25)' 
+              : (hoveredCard === '계약진행중' ? '0 6px 16px rgba(0,0,0,0.1)' : '0 2px 4px rgba(0,0,0,0.05)'),
+            transition: 'all 0.2s ease-in-out'
+          }}
+        >
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '600' }}>🔧 계약진행 현황</span>
+          <h3 style={{ fontSize: '1.5rem', fontWeight: '800', margin: '0.3rem 0 0 0', color: '#722ed1' }}>{stats.contractInProgress} 대</h3>
+        </div>
+
+        {/* 카드 3: 장기렌트 현황 */}
         <div 
           onClick={() => { setOperationFilter('장기렌트'); setPage(1); }}
           onMouseEnter={() => setHoveredCard('장기렌트')}
@@ -855,7 +880,7 @@ function VehicleManagementView({ showToast }) {
           <h3 style={{ fontSize: '1.5rem', fontWeight: '800', margin: '0.3rem 0 0 0', color: '#52c41a' }}>{stats.longTermRent} 대</h3>
         </div>
 
-        {/* 카드 3: 사고대차 현황 */}
+        {/* 카드 4: 사고대차 현황 */}
         <div 
           onClick={() => { setOperationFilter('사고대차'); setPage(1); }}
           onMouseEnter={() => setHoveredCard('사고대차')}
@@ -878,31 +903,6 @@ function VehicleManagementView({ showToast }) {
         >
           <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '600' }}>🅿️ 사고대차 현황</span>
           <h3 style={{ fontSize: '1.5rem', fontWeight: '800', margin: '0.3rem 0 0 0', color: '#fa8c16' }}>{stats.accidentSubstitution} 대</h3>
-        </div>
-
-        {/* 카드 4: 계약진행 현황 */}
-        <div 
-          onClick={() => { setOperationFilter('계약진행중'); setPage(1); }}
-          onMouseEnter={() => setHoveredCard('계약진행중')}
-          onMouseLeave={() => setHoveredCard(null)}
-          style={{ 
-            background: 'var(--bg-surface)', 
-            padding: '1rem 1.2rem', 
-            borderRadius: '10px', 
-            borderTop: operationFilter === '계약진행중' ? '2px solid #722ed1' : '1px solid var(--border-color)', 
-            borderRight: operationFilter === '계약진행중' ? '2px solid #722ed1' : '1px solid var(--border-color)', 
-            borderBottom: operationFilter === '계약진행중' ? '2px solid #722ed1' : '1px solid var(--border-color)', 
-            borderLeft: '4px solid #722ed1',
-            cursor: 'pointer',
-            transform: hoveredCard === '계약진행중' ? 'translateY(-3px)' : 'none',
-            boxShadow: operationFilter === '계약진행중' 
-              ? '0 4px 12px rgba(114, 46, 209, 0.25)' 
-              : (hoveredCard === '계약진행중' ? '0 6px 16px rgba(0,0,0,0.1)' : '0 2px 4px rgba(0,0,0,0.05)'),
-            transition: 'all 0.2s ease-in-out'
-          }}
-        >
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '600' }}>🔧 계약진행 현황</span>
-          <h3 style={{ fontSize: '1.5rem', fontWeight: '800', margin: '0.3rem 0 0 0', color: '#722ed1' }}>{stats.contractInProgress} 대</h3>
         </div>
       </div>
 
@@ -952,10 +952,11 @@ function VehicleManagementView({ showToast }) {
               fontSize: '0.85rem'
             }}
           >
-            <option value={15}>15개씩 보기</option>
-            <option value={20}>20개씩 보기</option>
-            <option value={50}>50개씩 보기</option>
+            <option value={10000}>전체보기</option>
             <option value={100}>100개씩 보기</option>
+            <option value={200}>200개씩 보기</option>
+            <option value={300}>300개씩 보기</option>
+            <option value={500}>500개씩 보기</option>
           </select>
 
           <select
@@ -990,9 +991,9 @@ function VehicleManagementView({ showToast }) {
             }}
           >
             <option value="all">전체 운영 보기</option>
+            <option value="계약진행중">계약진행중</option>
             <option value="장기렌트">장기렌트</option>
             <option value="사고대차">사고대차</option>
-            <option value="계약진행중">계약진행중</option>
             <option value="계약변경">계약변경</option>
             <option value="계약완료">계약완료</option>
           </select>

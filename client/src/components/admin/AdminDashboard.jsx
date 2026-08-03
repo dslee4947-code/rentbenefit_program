@@ -49,7 +49,7 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
     { id: 'customers', name: '고객 DB 관리', icon: <Users size={18} /> },
     { id: 'quote-input', name: '견적서', icon: <Coins size={18} /> },
     { id: 'contract-register', name: '계약서 등록', icon: <FileSignature size={18} /> },
-    { id: 'vehicles', name: '차량 DB 조회', icon: <Car size={18} /> },
+    { id: 'vehicles', name: '렌트차량 DB', icon: <Car size={18} /> },
     { id: 'contracts', name: '계약 / 견적 목록', icon: <Receipt size={18} /> },
     { id: 'calendar', name: '일정표 캘린더', icon: <Calendar size={18} /> }
   ];
@@ -152,7 +152,7 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
               {activeTab === 'customers' && '고객 DB 관리'}
               {activeTab === 'quote-input' && '견적서'}
               {activeTab === 'contract-register' && '계약서 신규 등록'}
-              {activeTab === 'vehicles' && '차량 DB 조회 및 관리'}
+              {activeTab === 'vehicles' && '렌트차량 DB 관리'}
               {activeTab === 'contracts' && '계약 / 견적서 목록'}
               {activeTab === 'calendar' && '캘린더 관리 일정표'}
             </h1>
@@ -161,7 +161,7 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
               {activeTab === 'customers' && '아웃룩 연동 및 수동 등록된 전체 고객 정보 목록을 실시간 조회 및 관리합니다.'}
               {activeTab === 'quote-input' && '고객과의 상담 기록 및 예상 대여료 비교 견적서를 작성합니다.'}
               {activeTab === 'contract-register' && '확정된 견적 정보를 계약서로 신규 등록하고 입고 차량 DB 및 알림 일정을 자동 생성합니다.'}
-              {activeTab === 'vehicles' && '전체 운용 차량의 계약정보, 잔여일정, 담당 정비 내역을 상세 조회합니다.'}
+              {activeTab === 'vehicles' && '전체 렌트 차량의 계약정보, 잔여일정, 담당 정비 내역을 상세 조회합니다.'}
               {activeTab === 'contracts' && '현재까지 등록된 모든 견적서 정보와 렌트 계약서 정보 리스트입니다.'}
               {activeTab === 'calendar' && '정기점검, 종합검사, 렌트만료, 계산서발행 예정일을 한눈에 보여주는 관리 일정표입니다.'}
             </p>

@@ -28,9 +28,13 @@ function ContractsListView({ setActiveTab, setPrefilledQuoteData, showToast }) {
         fetch(`${API_HOST}/api/customers`)
       ]);
 
-      const cData = resContracts.ok ? await resContracts.json() : [];
-      const qData = resQuotes.ok ? await resQuotes.json() : [];
-      const custData = resCustomers.ok ? await resCustomers.json() : [];
+      const rawCData = resContracts.ok ? await resContracts.json() : [];
+      const rawQData = resQuotes.ok ? await resQuotes.json() : [];
+      const rawCustData = resCustomers.ok ? await resCustomers.json() : [];
+
+      const cData = Array.isArray(rawCData) ? rawCData : (rawCData.contracts || rawCData.data || []);
+      const qData = Array.isArray(rawQData) ? rawQData : (rawQData.quotes || rawQData.data || []);
+      const custData = Array.isArray(rawCustData) ? rawCustData : (rawCustData.customers || rawCustData.data || []);
 
       setContracts(cData);
       setQuotes(qData);

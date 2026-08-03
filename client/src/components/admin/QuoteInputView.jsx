@@ -135,6 +135,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
   const [activeInputKey, setActiveInputKey] = useState(null); // e.g., 'option-1-depositRate'
   const [activeInputValue, setActiveInputValue] = useState(''); // temporary input string
   const [createdBy, setCreatedBy] = useState('이두식');
+  const [printFormType, setPrintFormType] = useState('comparison'); // 'comparison' or 'rental'
 
   const activeVehicle = vehicles.find(v => v.id === selectedVehicleId) || vehicles[0];
 
@@ -224,13 +225,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
           const list = data.customers || data || [];
           setCustomerSearchResults(list);
           setCustomers(list);
-          if (list.length > 0) {
-            setSelectedCustomerId(list[0]._id);
-            setSelectedCustomer(list[0]);
-            const surname = list[0].surname || list[0].name || '';
-            const givenName = list[0].givenName || list[0].displayName || list[0].contactName || '';
-            setCustomerSearchQuery(`${surname} ${givenName}`.trim());
-          }
+          setSelectedCustomerId('');
+          setSelectedCustomer(null);
+          setCustomerSearchQuery('');
         }
       } catch (err) {
         console.error('Failed to fetch customers', err);
@@ -704,10 +701,11 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
       }];
 
   const displayCustomerName = selectedCustomer 
-    ? ((selectedCustomer.surname || selectedCustomer.name || '') + ' ' + (selectedCustomer.givenName || selectedCustomer.displayName || selectedCustomer.contactName || '')).trim()
+    ? (selectedCustomer.surname || selectedCustomer.name || '').trim()
     : (newCustomer.name || '고객');
 
   const todayDateStr = new Date().toISOString().substring(0, 10);
+  const firstOption = displaySelectedOptions[0];
 
   const vehicleColSpans = [];
   let currentVehId = null;
@@ -854,7 +852,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                             onClick={() => {
                               setSelectedCustomerId(c._id);
                               setSelectedCustomer(c);
-                              setCustomerSearchQuery(`${c.surname || c.name || ''} ${c.givenName || c.displayName || c.contactName || ''}`.trim());
+                              setCustomerSearchQuery((c.surname || c.name || '').trim());
                               setIsDropdownOpen(false);
                             }}
                             style={{
@@ -898,7 +896,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
             {selectedCustomer && (
               <div style={{ marginTop: '0.8rem', background: '#fff', border: '1px solid #d9d9d9', borderRadius: '6px', padding: '0.8rem 1rem', display: 'flex', flexWrap: 'wrap', gap: '1.5rem', fontSize: '0.82rem', color: '#555' }}>
                 <div>
-                  <strong>선택된 고객:</strong> <span style={{ color: 'var(--primary)', fontWeight: '700', fontSize: '0.9rem' }}>{`${selectedCustomer.surname || selectedCustomer.name || ''} ${selectedCustomer.givenName || selectedCustomer.displayName || selectedCustomer.contactName || ''}`.trim()}</span>
+                  <strong>선택된 고객:</strong> <span style={{ color: 'var(--primary)', fontWeight: '700', fontSize: '0.9rem' }}>{(selectedCustomer.surname || selectedCustomer.name || '').trim()}</span>
                 </div>
                 {selectedCustomer.companyName && (
                   <div>
@@ -1782,7 +1780,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
       <div 
         id="print-comparison-area" 
         style={{ 
-          marginTop: '2.5rem', 
+          marginTop: '1rem', 
           background: '#fff', 
           border: '1px solid var(--border-color)', 
           borderRadius: '16px', 
@@ -1791,12 +1789,64 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
         }}
         className="comparison-sheet-section"
       >
+        {/* 견적서 인쇄 양식 선택 탭 (no-print) */}
+        <div className="no-print" style={{ 
+          display: 'flex', 
+          gap: '0.5rem', 
+          marginBottom: '1.5rem', 
+          background: 'var(--bg-main)', 
+          padding: '0.4rem', 
+          borderRadius: '10px', 
+          border: '1px solid var(--border-color)',
+          alignSelf: 'flex-start',
+          width: 'fit-content'
+        }}>
+          <button
+            type="button"
+            onClick={() => setPrintFormType('comparison')}
+            style={{
+              padding: '0.5rem 1rem',
+              borderRadius: '6px',
+              border: 'none',
+              fontSize: '0.8rem',
+              fontWeight: '700',
+              cursor: 'pointer',
+              background: printFormType === 'comparison' ? 'var(--primary)' : 'transparent',
+              color: printFormType === 'comparison' ? '#fff' : 'var(--text-muted)',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            📋 비교 견적서 (조건비교표)
+          </button>
+          <button
+            type="button"
+            onClick={() => setPrintFormType('rental')}
+            style={{
+              padding: '0.5rem 1rem',
+              borderRadius: '6px',
+              border: 'none',
+              fontSize: '0.8rem',
+              fontWeight: '700',
+              cursor: 'pointer',
+              background: printFormType === 'rental' ? 'var(--primary)' : 'transparent',
+              color: printFormType === 'rental' ? '#fff' : 'var(--text-muted)',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            📄 장기렌터카 견적서
+          </button>
+        </div>
+
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }} className="no-print">
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
             <h4 style={{ fontWeight: '800', color: 'var(--text-bright)', margin: 0, fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              📋 비교견적서 (차량 조건비교표)
+              {printFormType === 'comparison' ? '📋 비교견적서 (차량 조건비교표)' : '📄 장기렌터카 견적서'}
             </h4>
-            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>선택하신 비교 사양을 한눈에 대조하고 인쇄용 조건표를 다운로드할 수 있습니다.</p>
+            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              {printFormType === 'comparison' 
+                ? '선택하신 비교 사양을 한눈에 대조하고 인쇄용 조건표를 다운로드할 수 있습니다.' 
+                : '선택하신 차량 사양의 정식 인쇄용 견적서를 출력하고 다운로드할 수 있습니다.'}
+            </p>
           </div>
           <button
             type="button"
@@ -1844,7 +1894,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
             border-right: 1px solid #ad885c;
             transition: all 0.15s ease;
           }
-          .comparison-table-modern th:last-child, .comparison-table-modern td:last-child {
+          .comparison-table-modern thead tr:first-child th:last-child,
+          .comparison-table-modern tbody tr td:last-child {
             border-right: none;
           }
           .row-header {
@@ -1894,6 +1945,10 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
 
           /* Print Overrides */
           @media print {
+            @page {
+              size: A4 portrait;
+              margin: 8mm 8mm 8mm 8mm !important;
+            }
             body {
               background: #fff !important;
               color: #000 !important;
@@ -1901,18 +1956,25 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
               padding: 0 !important;
             }
             /* Hide dashboard components during print */
-            #root > :not(.comparison-sheet-section),
-            .sidebar, .navbar, .no-print, button, header, nav, aside, footer {
+            aside, header, nav, footer, button, .no-print {
               display: none !important;
             }
+            .quote-input-container > :not(.comparison-sheet-section) {
+              display: none !important;
+            }
+            main {
+              padding: 0 !important;
+              margin: 0 !important;
+              overflow: visible !important;
+            }
             .comparison-sheet-section {
-              position: absolute;
-              left: 0;
-              top: 0;
+              position: absolute !important;
+              left: 0 !important;
+              top: 0 !important;
               width: 100% !important;
               border: none !important;
               box-shadow: none !important;
-              padding: 40px !important;
+              padding: 0 !important;
               margin: 0 !important;
               background: #fff !important;
             }
@@ -1929,7 +1991,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
             }
-            .comparison-table-modern th:last-child, .comparison-table-modern td:last-child {
+            .comparison-table-modern thead tr:first-child th:last-child,
+            .comparison-table-modern tbody tr td:last-child {
               border-right: none !important;
             }
             .comparison-table-modern th {
@@ -1962,320 +2025,734 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
             .print-only {
               display: inline !important;
             }
+
+            /* Print size optimizations for long-term rental quote sheet */
+            .rental-print-area {
+              width: 100% !important;
+              max-width: 100% !important;
+              padding: 0 !important;
+              margin: 0 auto !important;
+              font-size: 6.8pt !important;
+              line-height: 1.15 !important;
+            }
+            .rental-print-area table {
+              width: 100% !important;
+              margin-bottom: 2px !important;
+              border-collapse: collapse !important;
+            }
+            .rental-print-area td, .rental-print-area th {
+              padding: 2px 3px !important;
+              font-size: 6.5pt !important;
+              border: 1px solid #000 !important;
+            }
+            .rental-print-area tr {
+              height: auto !important;
+            }
+            .rental-print-area div {
+              margin-bottom: 1px !important;
+              line-height: 1.15 !important;
+            }
           }
         `}} />
 
         {/* PDF Layout Content */}
-        <div style={{ maxWidth: '900px', margin: '0 auto', background: '#fff', padding: '10px' }}>
-          {/* Document Title Header */}
-          <div style={{ textAlign: 'center', marginBottom: '2.5rem', marginTop: '0.5rem' }}>
-            <div style={{ color: '#ad885c', fontSize: '0.8rem', fontWeight: '800', letterSpacing: '3px', marginBottom: '0.4rem', textTransform: 'uppercase' }}>
-              Vehicle Condition Comparison
+        {/* PDF Layout Content */}
+        {printFormType === 'comparison' ? (
+          <div style={{ maxWidth: '900px', margin: '0 auto', background: '#fff', padding: '10px' }}>
+            {/* Document Title Header */}
+            <div style={{ textAlign: 'center', marginBottom: '2.5rem', marginTop: '0.5rem' }}>
+              <div style={{ color: '#ad885c', fontSize: '0.8rem', fontWeight: '800', letterSpacing: '3px', marginBottom: '0.4rem', textTransform: 'uppercase' }}>
+                Vehicle Condition Comparison
+              </div>
+              <h2 style={{ fontWeight: '800', fontSize: '2.2rem', color: '#111e38', margin: 0, letterSpacing: '1px', borderBottom: '2px solid #ad885c', paddingBottom: '1rem', display: 'inline-block', width: '100%' }}>
+                차량 조건비교표
+              </h2>
             </div>
-            <h2 style={{ fontWeight: '800', fontSize: '2.2rem', color: '#111e38', margin: 0, letterSpacing: '1px', borderBottom: '2px solid #ad885c', paddingBottom: '1rem', display: 'inline-block', width: '100%' }}>
-              차량 조건비교표
-            </h2>
-          </div>
 
-          {/* Customer & Date Info Bar */}
-          <div className="customer-info-bar" style={{ 
-            display: 'flex', 
-            justifyContent: 'space-between', 
-            alignItems: 'center', 
-            marginBottom: '1rem',
-            color: '#111e38',
-            fontSize: '0.98rem',
-            fontWeight: '700'
-          }}>
-            <div>
-              <span style={{ color: '#ad885c', marginRight: '0.6rem' }}>수신</span>
-              <span>{displayCustomerName} 귀하</span>
+            {/* Customer & Date Info Bar */}
+            <div className="customer-info-bar" style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              marginBottom: '1rem',
+              color: '#111e38',
+              fontSize: '0.98rem',
+              fontWeight: '700'
+            }}>
+              <div>
+                <span style={{ color: '#ad885c', marginRight: '0.6rem' }}>수신</span>
+                <span>{displayCustomerName} 귀하</span>
+              </div>
+              <div style={{ color: '#555', fontWeight: '500', fontSize: '0.9rem' }}>
+                작성일 {todayDateStr}
+              </div>
             </div>
-            <div style={{ color: '#555', fontWeight: '500', fontSize: '0.9rem' }}>
-              작성일 {todayDateStr}
+
+            {/* Mobile Scroll Hint */}
+            <div className="mobile-scroll-hint" style={{ 
+              display: 'none', 
+              textAlign: 'center', 
+              fontSize: '0.8rem', 
+              color: '#ad885c', 
+              backgroundColor: '#fdfbfa',
+              border: '1px dashed #ad885c',
+              borderRadius: '6px',
+              padding: '0.6rem',
+              marginBottom: '1rem', 
+              fontWeight: '700' 
+            }}>
+              ← 좌우로 밀어서 전체 비교표를 확인하세요 →
             </div>
-          </div>
 
-          {/* Mobile Scroll Hint */}
-          <div className="mobile-scroll-hint" style={{ 
-            display: 'none', 
-            textAlign: 'center', 
-            fontSize: '0.8rem', 
-            color: '#ad885c', 
-            backgroundColor: '#fdfbfa',
-            border: '1px dashed #ad885c',
-            borderRadius: '6px',
-            padding: '0.6rem',
-            marginBottom: '1rem', 
-            fontWeight: '700' 
-          }}>
-            ← 좌우로 밀어서 전체 비교표를 확인하세요 →
-          </div>
-
-          {/* Table Wrapper */}
-          <div className="comparison-table-wrapper">
-            <table className="comparison-table-modern">
-              <thead>
-                {/* Row 1: Vehicle model colspans */}
-                <tr style={{ background: '#111e38', color: '#fff' }}>
-                  <th rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '15%', borderBottom: '1px solid #ad885c', textAlign: 'center', borderRight: '1px solid #ad885c' }}>구 분</th>
-                  {vehicleColSpans.map((group, idx) => {
-                    return (
-                      <th 
-                        key={idx} 
-                        colSpan={group.span} 
-                        style={{ 
-                          background: '#111e38', 
-                          color: '#fff', 
-                          fontWeight: '800', 
-                          fontSize: '1rem', 
-                          padding: '1.2rem 0.5rem',
-                          borderBottom: '1px solid #ad885c',
-                          borderRight: '1px solid #ad885c',
-                          textAlign: 'center',
-                          letterSpacing: '0.5px'
-                        }}
-                      >
-                        {group.model}
-                      </th>
-                    );
-                  })}
-                  <th rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '15%', borderBottom: '1px solid #ad885c', textAlign: 'center' }}>비고</th>
-                </tr>
-                {/* Row 2: Options descriptions */}
-                <tr style={{ background: '#111e38', color: '#fff' }}>
-                  {displaySelectedOptions.map(({ opt }, idx) => {
-                    return (
-                      <th 
-                        key={idx} 
-                        style={{ 
-                          background: '#111e38', 
-                          borderBottom: '1px solid #ad885c', 
-                          borderRight: '1px solid #ad885c',
-                          padding: '1rem 0.5rem', 
-                          fontSize: '0.8rem', 
-                          fontWeight: '700', 
-                          color: '#fff',
-                          lineHeight: '1.5',
-                          textAlign: 'center'
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', marginBottom: '0.2rem' }}>
-                          <span style={{ 
-                            backgroundColor: '#ad885c', 
+            {/* Table Wrapper */}
+            <div className="comparison-table-wrapper">
+              <table className="comparison-table-modern">
+                <thead>
+                  {/* Row 1: Vehicle model colspans */}
+                  <tr style={{ background: '#111e38', color: '#fff' }}>
+                    <th rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '15%', borderBottom: '1px solid #ad885c', textAlign: 'center', borderRight: '1px solid #ad885c' }}>구 분</th>
+                    {vehicleColSpans.map((group, idx) => {
+                      return (
+                        <th 
+                          key={idx} 
+                          colSpan={group.span} 
+                          style={{ 
+                            background: '#111e38', 
                             color: '#fff', 
-                            padding: '0.15rem 0.5rem', 
-                            borderRadius: '4px', 
                             fontWeight: '800', 
-                            fontSize: '0.72rem', 
-                            display: 'inline-block' 
-                          }}>{opt.name}</span>
-                          <span style={{ fontWeight: '800', color: '#fff' }}>렌트 {opt.termYears * 12}개월 · 보증금 {Math.round(opt.depositRate * 100)}%</span>
-                        </div>
-                        <div style={{ color: '#cbd5e1', fontSize: '0.74rem', fontWeight: '500' }}>
-                          선수금 {Math.round(opt.advancePaymentRate * 100)}% · 잔존가치 {Math.round(opt.residualRate * 100)}%
-                        </div>
-                      </th>
-                    );
-                  })}
+                            fontSize: '1rem', 
+                            padding: '1.2rem 0.5rem',
+                            borderBottom: '1px solid #ad885c',
+                            borderRight: '1px solid #ad885c',
+                            textAlign: 'center',
+                            letterSpacing: '0.5px'
+                          }}
+                        >
+                          {group.model}
+                        </th>
+                      );
+                    })}
+                    <th rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '15%', borderBottom: '1px solid #ad885c', textAlign: 'center' }}>비고</th>
+                  </tr>
+                  {/* Row 2: Options descriptions */}
+                  <tr style={{ background: '#111e38', color: '#fff' }}>
+                    {displaySelectedOptions.map(({ opt }, idx) => {
+                      return (
+                        <th 
+                          key={idx} 
+                          style={{ 
+                            background: '#111e38', 
+                            borderBottom: '1px solid #ad885c', 
+                            borderRight: '1px solid #ad885c',
+                            padding: '1rem 0.5rem', 
+                            fontSize: '0.8rem', 
+                            fontWeight: '700', 
+                            color: '#fff',
+                            lineHeight: '1.5',
+                            textAlign: 'center'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', marginBottom: '0.2rem' }}>
+                            <span style={{ 
+                              backgroundColor: '#ad885c', 
+                              color: '#fff', 
+                              padding: '0.15rem 0.5rem', 
+                              borderRadius: '4px', 
+                              fontWeight: '800', 
+                              fontSize: '0.72rem', 
+                              display: 'inline-block' 
+                            }}>{opt.name}</span>
+                            <span style={{ fontWeight: '800', color: '#fff' }}>렌트 {opt.termYears * 12}개월 · 보증금 {Math.round(opt.depositRate * 100)}%</span>
+                          </div>
+                          <div style={{ color: '#cbd5e1', fontSize: '0.74rem', fontWeight: '500' }}>
+                            선수금 {Math.round(opt.advancePaymentRate * 100)}% · 잔존가치 {Math.round(opt.residualRate * 100)}%
+                          </div>
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* 차량가격 */}
+                  <tr>
+                    <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>차량가격</td>
+                    {displaySelectedOptions.map(({ calc }, idx) => (
+                      <td key={idx} style={getCellStyles(idx, false)}>{toCommaString(calc.totalCarPrice)}</td>
+                    ))}
+                    <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
+                  </tr>
+                  {/* 보증금 */}
+                  <tr>
+                    <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>보증금</td>
+                    {displaySelectedOptions.map(({ calc }, idx) => {
+                      const hasDeposit = calc.deposit && calc.deposit > 0;
+                      return (
+                        <td 
+                          key={idx} 
+                          style={getCellStyles(idx, true, !hasDeposit ? { textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' } : {})}
+                        >
+                          {hasDeposit ? toCommaString(calc.deposit) : '-'}
+                        </td>
+                      );
+                    })}
+                    <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
+                  </tr>
+                  {/* 선수금 */}
+                  <tr>
+                    <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>선수금</td>
+                    {displaySelectedOptions.map(({ calc }, idx) => {
+                      const hasAdvance = calc.advancePayment && calc.advancePayment > 0;
+                      return (
+                        <td 
+                          key={idx} 
+                          style={getCellStyles(idx, false, !hasAdvance ? { textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' } : {})}
+                        >
+                          {hasAdvance ? toCommaString(calc.advancePayment) : '-'}
+                        </td>
+                      );
+                    })}
+                    <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
+                  </tr>
+                  {/* 잔존가치 */}
+                  <tr>
+                    <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>잔존가치</td>
+                    {displaySelectedOptions.map(({ calc }, idx) => (
+                      <td key={idx} style={getCellStyles(idx, true)}>{toCommaString(calc.takeoverPrice)}</td>
+                    ))}
+                    <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
+                  </tr>
+                  {/* 출고전 납입액 */}
+                  <tr>
+                    <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>출고전 납입액</td>
+                    {displaySelectedOptions.map(({ calc }, idx) => (
+                      <td key={idx} style={getCellStyles(idx, false, { fontWeight: '800', color: '#111e38' })}>{toCommaString(calc.deposit + calc.advancePayment)}</td>
+                    ))}
+                    <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
+                  </tr>
+                  {/* 월 납입액 */}
+                  <tr>
+                    <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>월 납입액</td>
+                    {displaySelectedOptions.map(({ calc }, idx) => (
+                      <td key={idx} style={getCellStyles(idx, true, { fontWeight: '800', fontSize: '0.95rem', color: '#111e38' })}>{toCommaString(calc.monthlyLeaseFee)}</td>
+                    ))}
+                    <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
+                  </tr>
+                  {/* 기간(개월) */}
+                  <tr>
+                    <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>기간(개월)</td>
+                    {displaySelectedOptions.map(({ opt }, idx) => (
+                      <td key={idx} style={getCellStyles(idx, false)}>{opt.termYears * 12}</td>
+                    ))}
+                    <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
+                  </tr>
+                  {/* 월 납입액계 */}
+                  <tr>
+                    <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>월 납입액계</td>
+                    {displaySelectedOptions.map(({ opt, calc }, idx) => (
+                      <td key={idx} style={getCellStyles(idx, true, { fontWeight: '600' })}>{toCommaString(calc.monthlyLeaseFee * opt.termYears * 12)}</td>
+                    ))}
+                    <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
+                  </tr>
+                  {/* 종료 후 납입액 */}
+                  <tr>
+                    <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>종료 후 납입액</td>
+                    {displaySelectedOptions.map(({ calc }, idx) => (
+                      <td key={idx} style={getCellStyles(idx, false)}>{toCommaString(calc.takeoverPrice - calc.deposit)}</td>
+                    ))}
+                    <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
+                  </tr>
+                  {/* 예상보험료 */}
+                  <tr>
+                    <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>예상보험료</td>
+                    {displaySelectedOptions.map((_, idx) => (
+                      <td key={idx} style={getCellStyles(idx, true, { color: '#94a3b8', textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>-</td>
+                    ))}
+                    <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
+                  </tr>
+                  {/* 자동차세 */}
+                  <tr>
+                    <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>자동차세</td>
+                    {displaySelectedOptions.map((_, idx) => (
+                      <td key={idx} style={getCellStyles(idx, false, { color: '#94a3b8', textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>-</td>
+                    ))}
+                    <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
+                  </tr>
+                  {/* 총구입가 */}
+                  <tr style={{ borderTop: '2px solid #ad885c', borderBottom: '2px solid #ad885c' }}>
+                    <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>총구입가</td>
+                    {displaySelectedOptions.map(({ opt, calc }, idx) => {
+                      const totalBuyCost = calc.advancePayment + (calc.monthlyLeaseFee * opt.termYears * 12) + calc.takeoverPrice;
+                      return (
+                        <td 
+                          key={idx} 
+                          style={getCellStyles(idx, true, { fontWeight: '800', fontSize: '0.95rem' })}
+                        >
+                          {toCommaString(totalBuyCost)}
+                        </td>
+                      );
+                    })}
+                    <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
+                  </tr>
+                  {/* 비교금액 */}
+                  <tr style={{ borderBottom: '2px solid #ad885c' }}>
+                    <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>비교금액</td>
+                    {displaySelectedOptions.map(({ opt, calc }, idx) => {
+                      const totalBuyCost = calc.advancePayment + (calc.monthlyLeaseFee * opt.termYears * 12) + calc.takeoverPrice;
+                      const firstCost = displaySelectedOptions[0]
+                        ? (displaySelectedOptions[0].calc.advancePayment + (displaySelectedOptions[0].calc.monthlyLeaseFee * displaySelectedOptions[0].opt.termYears * 12) + displaySelectedOptions[0].calc.takeoverPrice)
+                        : 0;
+                      const diff = firstCost - totalBuyCost;
+                      
+                      if (idx === 0) {
+                        return <td key={idx} style={getCellStyles(idx, false, { color: '#b91c1c', fontStyle: 'italic', fontWeight: '700', textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>-</td>;
+                      }
+                      
+                      let diffStr = '-';
+                      let isZero = diff === 0;
+                      if (diff > 0) {
+                        diffStr = toCommaString(diff);
+                      } else if (diff < 0) {
+                        diffStr = `- ${toCommaString(Math.abs(diff))}`;
+                      }
+                      
+                      return (
+                        <td key={idx} style={getCellStyles(idx, false, { color: '#b91c1c', fontStyle: 'italic', fontWeight: '700', ...(isZero ? { textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' } : {}) })}>
+                          {diffStr}
+                        </td>
+                      );
+                    })}
+                    <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
+                  </tr>
+                  {/* 약정운행거리(년) */}
+                  <tr>
+                    <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>약정운행거리(년)</td>
+                    {displaySelectedOptions.map(({ opt }, idx) => (
+                      <td key={idx} style={getCellStyles(idx, false)}>{opt.mileage ? opt.mileage.toLocaleString() + 'km' : '20,000km'}</td>
+                    ))}
+                    <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
+                  </tr>
+                  {/* 정비 */}
+                  <tr style={{ borderBottom: '3px solid #111e38' }}>
+                    <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>정비</td>
+                    {displaySelectedOptions.map(({ opt }, idx) => (
+                      <td key={idx} style={getCellStyles(idx, true, { textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>{opt.maintenancePlan || '가입'}</td>
+                    ))}
+                    <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Footer Area */}
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              marginTop: '1.5rem', 
+              fontSize: '0.78rem',
+              color: '#777',
+              fontWeight: '500',
+              borderTop: '1px solid #e9e6e0',
+              paddingTop: '1rem'
+            }}>
+              <div>
+                본 비교표는 계약 조건에 따라 변동될 수 있습니다.
+              </div>
+              <div style={{ 
+                color: '#ad885c', 
+                fontWeight: '800', 
+                letterSpacing: '2px', 
+                fontSize: '0.85rem' 
+              }}>
+                RENT BENEFIT
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="rental-print-area" style={{ maxWidth: '900px', margin: '0 auto', background: '#fff', padding: '10px 15px', color: '#000', fontFamily: 'sans-serif', fontSize: '0.76rem' }}>
+            {/* 1. Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.0rem', borderBottom: '2.5px double #000', paddingBottom: '0.5rem' }}>
+              <div style={{ fontSize: '1.0rem', fontWeight: '800', color: '#111e38', width: '130px' }}>(주)렌트베네핏</div>
+              <h2 style={{ fontSize: '1.8rem', fontWeight: '800', color: '#111e38', margin: 0, letterSpacing: '2px', flex: 1, textAlign: 'center' }}>장기렌터카 견적서</h2>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '130px' }}>
+                <img src="http://www.sdibenefit.com/images/logo.png" alt="RENT BENefit" style={{ maxWidth: '100px', height: 'auto' }} />
+                <span style={{ fontSize: '0.55rem', fontWeight: '800', color: '#ad885c', letterSpacing: '1px', marginTop: '1px' }}>RENT BENefit</span>
+              </div>
+            </div>
+
+            {/* 2. Customer & Document Meta Info */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1.0rem', marginBottom: '0.6rem' }}>
+              {/* 왼쪽 테이블: 고객 및 차량 정보 */}
+              <table style={{ width: '50%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.74rem' }}>
+                <tbody>
+                  <tr>
+                    <td style={{ width: '25%', background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>고객명</td>
+                    <td style={{ width: '75%', padding: '4px 6px', border: '1px solid #000', fontWeight: '700', fontSize: '0.78rem' }}>{displayCustomerName} 귀하</td>
+                  </tr>
+                  <tr>
+                    <td style={{ background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>차종</td>
+                    <td style={{ padding: '4px 6px', border: '1px solid #000', fontSize: '0.72rem', fontWeight: '600' }}>{firstOption?.veh.carModel || '차종 미입력'}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>예상납기</td>
+                    <td style={{ padding: '4px 6px', border: '1px solid #000', color: '#d9534f', fontWeight: '700' }}>{firstOption?.veh.deliveryPeriod || '협의'}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>색상</td>
+                    <td style={{ padding: '4px 6px', border: '1px solid #000', fontSize: '0.72rem' }}>
+                      [외장]: <span style={{ color: '#d9534f', fontWeight: '700' }}>{firstOption?.veh.exteriorColor || '-'}</span>, &nbsp;
+                      [내장]: <span style={{ color: '#d9534f', fontWeight: '700' }}>{firstOption?.veh.interiorColor || '-'}</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={{ background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>옵션</td>
+                    <td style={{ padding: '4px 6px', border: '1px solid #000', fontSize: '0.70rem', color: '#d9534f', fontWeight: '600' }}>{firstOption?.veh.carOptionsName || '-'}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              {/* 오른쪽 테이블: 견적 정보 및 담당자 */}
+              <table style={{ width: '50%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.74rem' }}>
+                <tbody>
+                  <tr>
+                    <td style={{ width: '25%', background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>작성일</td>
+                    <td style={{ width: '75%', padding: '4px 6px', border: '1px solid #000', textAlign: 'center' }}>{todayDateStr}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>견적서 보관 기간</td>
+                    <td style={{ padding: '4px 6px', border: '1px solid #000', textAlign: 'center' }}>작성일로부터 10일 간 보관</td>
+                  </tr>
+                  <tr>
+                    <td style={{ background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>견적 번호</td>
+                    <td style={{ padding: '4px 6px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>
+                      {`RB-${todayDateStr.replace(/-/g, '').substring(2)}-${displayCustomerName.slice(0, 2).replace(/\s/g, '') || '01'}`}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={{ background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>담당자</td>
+                    <td style={{ padding: '4px 6px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>{createdBy} 팀장</td>
+                  </tr>
+                  <tr>
+                    <td style={{ background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>연락처</td>
+                    <td style={{ padding: '2px 6px', border: '1px solid #000', fontSize: '0.70rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>TEL</span>
+                        <span>02-547-0303 / 010-9061-3000</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dotted #ccc', paddingTop: '1px', marginTop: '1px' }}>
+                        <span>FAX</span>
+                        <span>02-529-3303</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dotted #ccc', paddingTop: '1px', marginTop: '1px' }}>
+                        <span>E-Mail</span>
+                        <span style={{ color: '#0056b3', textDecoration: 'underline' }}>rent@sdibenefit.com</span>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* 3. Credit Information Notice */}
+            <div style={{ background: '#fafafa', border: '1px solid #adadad', padding: '4px 10px', fontSize: '0.68rem', color: '#333', marginBottom: '0.6rem', borderRadius: '4px', lineHeight: '1.3' }}>
+              <div style={{ fontWeight: '700', textAlign: 'center', marginBottom: '1px' }}>• 대출액 10억 이하인 경우 및 최근 1개년 재무제표 미제출시에 한함 •</div>
+              <div>1. 기업의 신용도 판단 목적으로 대표자의 개인신용정보를 조회할 경우, 렌트베네핏은 해당 기업의 대표자에게 조회 사실 및 이유 등을 사전 고지하여야 합니다.</div>
+              <div>2. 렌트베네핏에 장기 견적을 요청한 업무담당자께서는 귀사의 대표자에게 신용조회가 발생할 수 있음을 반드시 사전 보고해 주시기 바랍니다.</div>
+            </div>
+
+            {/* 4. Main Rental Details Table */}
+            <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.74rem', marginBottom: '0.2rem' }}>
+              <thead>
+                <tr style={{ background: '#dcdcdc', borderBottom: '1.5px solid #000' }}>
+                  <th style={{ width: '6%', padding: '4px 2px', border: '1px solid #000', fontWeight: '700', textAlign: 'center' }}>구분</th>
+                  <th style={{ width: '32%', padding: '4px 2px', border: '1px solid #000', fontWeight: '700', textAlign: 'center' }}>차종</th>
+                  <th style={{ width: '6%', padding: '4px 2px', border: '1px solid #000', fontWeight: '700', textAlign: 'center' }}>수량</th>
+                  <th style={{ width: '8%', padding: '4px 2px', border: '1px solid #000', fontWeight: '700', textAlign: 'center' }}>계약기간</th>
+                  <th style={{ width: '12%', padding: '4px 2px', border: '1px solid #000', fontWeight: '700', textAlign: 'center' }}>차량가격</th>
+                  <th style={{ width: '9%', padding: '4px 2px', border: '1px solid #000', fontWeight: '700', textAlign: 'center' }}>보증금</th>
+                  <th style={{ width: '9%', padding: '4px 2px', border: '1px solid #000', fontWeight: '700', textAlign: 'center' }}>선수금</th>
+                  <th style={{ width: '9%', padding: '4px 2px', border: '1px solid #000', fontWeight: '700', textAlign: 'center' }}>인수가</th>
+                  <th style={{ width: '11%', padding: '4px 2px', border: '1px solid #000', fontWeight: '700', textAlign: 'center' }}>월대여료</th>
                 </tr>
               </thead>
               <tbody>
-                {/* 차량가격 */}
-                <tr>
-                  <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>차량가격</td>
-                  {displaySelectedOptions.map(({ calc }, idx) => (
-                    <td key={idx} style={getCellStyles(idx, false)}>{toCommaString(calc.totalCarPrice)}</td>
-                  ))}
-                  <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
-                </tr>
-                {/* 보증금 */}
-                <tr>
-                  <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>보증금</td>
-                  {displaySelectedOptions.map(({ calc }, idx) => {
-                    const hasDeposit = calc.deposit && calc.deposit > 0;
+                {[0, 1, 2, 3].map(index => {
+                  const item = displaySelectedOptions[index];
+                  if (item) {
+                    const { veh, opt, calc } = item;
                     return (
-                      <td 
-                        key={idx} 
-                        style={getCellStyles(idx, true, !hasDeposit ? { textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' } : {})}
-                      >
-                        {hasDeposit ? toCommaString(calc.deposit) : '-'}
-                      </td>
+                      <React.Fragment key={index}>
+                        <tr style={{ height: '1.5rem' }}>
+                          <td rowSpan={2} style={{ textAlign: 'center', padding: '4px 2px', border: '1px solid #000', fontWeight: '700', background: '#fafafa' }}>{index + 1}</td>
+                          <td style={{ padding: '4px 4px', border: '1px solid #000', fontWeight: '700', fontSize: '0.70rem' }}>{veh.carModel}</td>
+                          <td style={{ textAlign: 'center', padding: '4px 2px', border: '1px solid #000' }}>1</td>
+                          <td style={{ textAlign: 'center', padding: '4px 2px', border: '1px solid #000' }}>{opt.termYears * 12}</td>
+                          <td style={{ textAlign: 'right', padding: '4px 4px', border: '1px solid #000' }}>{toCommaString(calc.totalCarPrice)}</td>
+                          <td style={{ textAlign: 'right', padding: '4px 4px', border: '1px solid #000' }}>{toCommaString(calc.deposit)}</td>
+                          <td style={{ textAlign: 'right', padding: '4px 4px', border: '1px solid #000' }}>{toCommaString(calc.advancePayment)}</td>
+                          <td style={{ textAlign: 'right', padding: '4px 4px', border: '1px solid #000' }}>{toCommaString(calc.takeoverPrice)}</td>
+                          <td style={{ textAlign: 'right', padding: '4px 4px', border: '1px solid #000', fontWeight: '700', color: '#111e38' }}>{toCommaString(calc.monthlyLeaseFee)}</td>
+                        </tr>
+                        <tr style={{ background: '#fdfbfa', fontSize: '0.66rem', height: '1.2rem' }}>
+                          <td style={{ padding: '2px 4px', border: '1px solid #000', color: '#555' }}>
+                            정비 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <strong>{opt.maintenancePlan || '가입'}</strong>
+                          </td>
+                          <td colSpan={3} style={{ border: '1px solid #000' }}></td>
+                          <td style={{ textAlign: 'right', padding: '2px 4px', border: '1px solid #000', color: '#555', fontWeight: '600' }}>
+                            {Math.round(opt.depositRate * 100)}%
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '2px 4px', border: '1px solid #000', color: '#555', fontWeight: '600' }}>
+                            {Math.round(opt.advancePaymentRate * 100)}%
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '2px 4px', border: '1px solid #000', color: '#555', fontWeight: '600' }}>
+                            {Math.round(opt.residualRate * 100)}%
+                          </td>
+                          <td style={{ border: '1px solid #000' }}></td>
+                        </tr>
+                      </React.Fragment>
                     );
-                  })}
-                  <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
-                </tr>
-                {/* 선수금 */}
-                <tr>
-                  <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>선수금</td>
-                  {displaySelectedOptions.map(({ calc }, idx) => {
-                    const hasAdvance = calc.advancePayment && calc.advancePayment > 0;
+                  } else {
                     return (
-                      <td 
-                        key={idx} 
-                        style={getCellStyles(idx, false, !hasAdvance ? { textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' } : {})}
-                      >
-                        {hasAdvance ? toCommaString(calc.advancePayment) : '-'}
-                      </td>
+                      <React.Fragment key={index}>
+                        <tr style={{ height: '1.4rem' }}>
+                          <td rowSpan={2} style={{ textAlign: 'center', padding: '4px 2px', border: '1px solid #000', fontWeight: '700', background: '#fafafa', color: '#ccc' }}>{index + 1}</td>
+                          <td style={{ padding: '4px 4px', border: '1px solid #000' }}></td>
+                          <td style={{ border: '1px solid #000' }}></td>
+                          <td style={{ border: '1px solid #000' }}></td>
+                          <td style={{ border: '1px solid #000' }}></td>
+                          <td style={{ border: '1px solid #000' }}></td>
+                          <td style={{ border: '1px solid #000' }}></td>
+                          <td style={{ border: '1px solid #000' }}></td>
+                          <td style={{ border: '1px solid #000' }}></td>
+                        </tr>
+                        <tr style={{ height: '1.1rem', background: '#fdfbfa' }}>
+                          <td style={{ border: '1px solid #000' }}></td>
+                          <td colSpan={3} style={{ border: '1px solid #000' }}></td>
+                          <td style={{ border: '1px solid #000' }}></td>
+                          <td style={{ border: '1px solid #000' }}></td>
+                          <td style={{ border: '1px solid #000' }}></td>
+                          <td style={{ border: '1px solid #000' }}></td>
+                        </tr>
+                      </React.Fragment>
                     );
-                  })}
-                  <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
-                </tr>
-                {/* 잔존가치 */}
-                <tr>
-                  <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>잔존가치</td>
-                  {displaySelectedOptions.map(({ calc }, idx) => (
-                    <td key={idx} style={getCellStyles(idx, true)}>{toCommaString(calc.takeoverPrice)}</td>
-                  ))}
-                  <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
-                </tr>
-                {/* 출고전 납입액 */}
-                <tr>
-                  <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>출고전 납입액</td>
-                  {displaySelectedOptions.map(({ calc }, idx) => (
-                    <td key={idx} style={getCellStyles(idx, false, { fontWeight: '800', color: '#111e38' })}>{toCommaString(calc.deposit + calc.advancePayment)}</td>
-                  ))}
-                  <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
-                </tr>
-                {/* 월 납입액 */}
-                <tr>
-                  <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>월 납입액</td>
-                  {displaySelectedOptions.map(({ calc }, idx) => (
-                    <td key={idx} style={getCellStyles(idx, true, { fontWeight: '800', fontSize: '0.95rem', color: '#111e38' })}>{toCommaString(calc.monthlyLeaseFee)}</td>
-                  ))}
-                  <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
-                </tr>
-                {/* 기간(개월) */}
-                <tr>
-                  <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>기간(개월)</td>
-                  {displaySelectedOptions.map(({ opt }, idx) => (
-                    <td key={idx} style={getCellStyles(idx, false)}>{opt.termYears * 12}</td>
-                  ))}
-                  <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
-                </tr>
-                {/* 월 납입액계 */}
-                <tr>
-                  <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>월 납입액계</td>
-                  {displaySelectedOptions.map(({ opt, calc }, idx) => (
-                    <td key={idx} style={getCellStyles(idx, true, { fontWeight: '600' })}>{toCommaString(calc.monthlyLeaseFee * opt.termYears * 12)}</td>
-                  ))}
-                  <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
-                </tr>
-                {/* 종료 후 납입액 */}
-                <tr>
-                  <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>종료 후 납입액</td>
-                  {displaySelectedOptions.map(({ calc }, idx) => (
-                    <td key={idx} style={getCellStyles(idx, false)}>{toCommaString(calc.takeoverPrice - calc.deposit)}</td>
-                  ))}
-                  <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
-                </tr>
-                {/* 예상보험료 */}
-                <tr>
-                  <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>예상보험료</td>
-                  {displaySelectedOptions.map((_, idx) => (
-                    <td key={idx} style={getCellStyles(idx, true, { color: '#94a3b8', textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>-</td>
-                  ))}
-                  <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
-                </tr>
-                {/* 자동차세 */}
-                <tr>
-                  <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>자동차세</td>
-                  {displaySelectedOptions.map((_, idx) => (
-                    <td key={idx} style={getCellStyles(idx, false, { color: '#94a3b8', textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>-</td>
-                  ))}
-                  <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
-                </tr>
-                {/* 총구입가 */}
-                <tr style={{ borderTop: '2px solid #ad885c', borderBottom: '2px solid #ad885c' }}>
-                  <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>총구입가</td>
-                  {displaySelectedOptions.map(({ opt, calc }, idx) => {
-                    const totalBuyCost = calc.advancePayment + (calc.monthlyLeaseFee * opt.termYears * 12) + calc.takeoverPrice;
-                    return (
-                      <td 
-                        key={idx} 
-                        style={getCellStyles(idx, true, { fontWeight: '800', fontSize: '0.95rem' })}
-                      >
-                        {toCommaString(totalBuyCost)}
-                      </td>
-                    );
-                  })}
-                  <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
-                </tr>
-                {/* 비교금액 */}
-                <tr style={{ borderBottom: '2px solid #ad885c' }}>
-                  <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>비교금액</td>
-                  {displaySelectedOptions.map(({ opt, calc }, idx) => {
-                    const totalBuyCost = calc.advancePayment + (calc.monthlyLeaseFee * opt.termYears * 12) + calc.takeoverPrice;
-                    const firstCost = displaySelectedOptions[0]
-                      ? (displaySelectedOptions[0].calc.advancePayment + (displaySelectedOptions[0].calc.monthlyLeaseFee * displaySelectedOptions[0].opt.termYears * 12) + displaySelectedOptions[0].calc.takeoverPrice)
-                      : 0;
-                    const diff = firstCost - totalBuyCost;
-                    
-                    if (idx === 0) {
-                      return <td key={idx} style={getCellStyles(idx, false, { color: '#b91c1c', fontStyle: 'italic', fontWeight: '700', textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>-</td>;
-                    }
-                    
-                    let diffStr = '-';
-                    let isZero = diff === 0;
-                    if (diff > 0) {
-                      diffStr = toCommaString(diff);
-                    } else if (diff < 0) {
-                      diffStr = `- ${toCommaString(Math.abs(diff))}`;
-                    }
-                    
-                    return (
-                      <td key={idx} style={getCellStyles(idx, false, { color: '#b91c1c', fontStyle: 'italic', fontWeight: '700', ...(isZero ? { textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' } : {}) })}>
-                        {diffStr}
-                      </td>
-                    );
-                  })}
-                  <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
-                </tr>
-                {/* 약정운행거리(년) */}
-                <tr>
-                  <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>약정운행거리(년)</td>
-                  {displaySelectedOptions.map(({ opt }, idx) => (
-                    <td key={idx} style={getCellStyles(idx, false)}>{opt.mileage ? opt.mileage.toLocaleString() + 'km' : '20,000km'}</td>
-                  ))}
-                  <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
-                </tr>
-                {/* 정비 */}
-                <tr style={{ borderBottom: '3px solid #111e38' }}>
-                  <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>정비</td>
-                  {displaySelectedOptions.map(({ opt }, idx) => (
-                    <td key={idx} style={getCellStyles(idx, true, { textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>{opt.maintenancePlan || '가입'}</td>
-                  ))}
-                  <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
-                </tr>
+                  }
+                })}
               </tbody>
             </table>
-          </div>
 
-          {/* Footer Area */}
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'space-between', 
-            alignItems: 'center', 
-            marginTop: '1.5rem', 
-            fontSize: '0.78rem',
-            color: '#777',
-            fontWeight: '500',
-            borderTop: '1px solid #e9e6e0',
-            paddingTop: '1rem'
-          }}>
-            <div>
-              본 비교표는 계약 조건에 따라 변동될 수 있습니다.
+            <div style={{ textAlign: 'right', fontSize: '0.62rem', color: '#555', marginBottom: '0.4rem', fontWeight: '600' }}>
+              대당 / 차량소비자가격 * 옵션 및 VAT포함 / 월대여료 : VAT포함
             </div>
-            <div style={{ 
-              color: '#ad885c', 
-              fontWeight: '800', 
-              letterSpacing: '2px', 
-              fontSize: '0.85rem' 
-            }}>
-              RENT BENEFIT
+
+            {/* 5. Fine Print / Guidelines */}
+            <div style={{ background: '#fdfbfa', border: '1px dashed #ad885c', padding: '4px 8px', fontSize: '0.66rem', color: '#555', marginBottom: '0.5rem', lineHeight: '1.35' }}>
+              <div>• 상기 견적 금액은 운용대수(계약대수/차량보유대수), 차량가 변동 또는 정부 시책에 따라 변동될 수 있습니다.</div>
+              <div>• 상기 견적 중 선납금을 선택하신 경우는 선납금액을 계약기간으로 균등하게 나눈 금액을 월대여료에서 차감하고 청구됩니다.</div>
+              <div>• 차량 등급별 세부 옵션 사항을 반드시 확인하시기 바라며, 각 차종의 세부 옵션 사항은 차량제조사 홈페이지에서 확인이 가능합니다.</div>
+              <div>• 전기차 지역 보조금 소진 및 정부 정책에 따라 견적 상세 내용이 변경될 수 있으며, 안내되는 보조금 신청 사항 및 서류 접수 내용과 상이할 경우 견적이 취소됩니다.</div>
+            </div>
+
+            {/* 6. Rental and Insurance Clauses Grid */}
+            <div style={{ display: 'flex', gap: '1.2rem', marginBottom: '0.5rem' }}>
+              {/* 왼쪽 블록: 대여료 포함사항 & 보험가입내용 */}
+              <div style={{ width: '50%', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                {/* 원대여료 포함사항 */}
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.68rem' }}>
+                  <thead>
+                    <tr style={{ background: '#dcdcdc', borderBottom: '1px solid #000' }}>
+                      <th style={{ padding: '3px', fontWeight: '700', textAlign: 'center' }}>원대여료 포함사항</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td style={{ padding: '4px 6px', border: '1px solid #000', lineHeight: '1.4', fontWeight: '500' }}>
+                        <div>• 보험료, 차량 검사비, 세금, 공과금 전부 포함</div>
+                        <div>• 차량점검, 수리 / 소모품 교체 비용 등 불포함</div>
+                        <div>• 유류비, 세차비, 과태료, 범칙금은 임차인 부담</div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                {/* 보험 가입 내용 */}
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.66rem' }}>
+                  <thead>
+                    <tr style={{ background: '#dcdcdc', borderBottom: '1px solid #000' }}>
+                      <th colSpan={4} style={{ padding: '3px', fontWeight: '700', textAlign: 'center' }}>보험 가입 내용</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td style={{ width: '22%', background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>운전 범위</td>
+                      <td style={{ width: '28%', padding: '2px 4px', border: '1px solid #000', textAlign: 'center' }}>임직원</td>
+                      <td style={{ width: '22%', background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>운전자 연령</td>
+                      <td style={{ width: '28%', padding: '2px 4px', border: '1px solid #000', textAlign: 'center' }}>만26세</td>
+                    </tr>
+                    <tr>
+                      <td style={{ background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>대 인</td>
+                      <td colSpan={3} style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>무 제 한</td>
+                    </tr>
+                    <tr>
+                      <td style={{ background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>대 물</td>
+                      <td colSpan={3} style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>2 억 원</td>
+                    </tr>
+                    <tr>
+                      <td style={{ background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>자 기 신 체</td>
+                      <td colSpan={3} style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>사상 1억 / 부상 1500만</td>
+                    </tr>
+                    <tr>
+                      <td style={{ background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>자기부담금(CMD)</td>
+                      <td colSpan={3} style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>30만원</td>
+                    </tr>
+                    <tr>
+                      <td style={{ background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>무보험차상해</td>
+                      <td colSpan={3} style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>2억원 / 1인당</td>
+                    </tr>
+                    <tr>
+                      <td style={{ background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>긴급출동</td>
+                      <td colSpan={3} style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>5회/년</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* 오른쪽 블록: 대여조건 & 차량관리/정비서비스 */}
+              <div style={{ width: '50%', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                {/* 대여 조건 */}
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.68rem' }}>
+                  <thead>
+                    <tr style={{ background: '#dcdcdc', borderBottom: '1px solid #000' }}>
+                      <th colSpan={2} style={{ padding: '3px', fontWeight: '700', textAlign: 'center' }}>대여 조건</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td style={{ width: '40%', background: '#fafafa', padding: '3px 6px', border: '1px solid #000', fontWeight: '700' }}>• 약정주행거리</td>
+                      <td style={{ width: '60%', padding: '3px 6px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>
+                        {firstOption?.opt.mileage ? firstOption.opt.mileage.toLocaleString() + ' km/년' : '30,000 km/년'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style={{ background: '#fafafa', padding: '3px 6px', border: '1px solid #000', fontWeight: '700' }}>• 중도해지 수수료율</td>
+                      <td style={{ padding: '3px 6px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>35%</td>
+                    </tr>
+                    <tr>
+                      <td style={{ background: '#fafafa', padding: '3px 6px', border: '1px solid #000', fontWeight: '700' }}>• 연체 이율</td>
+                      <td style={{ padding: '3px 6px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>연 25%</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                {/* 차량 관리 서비스 */}
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.66rem' }}>
+                  <thead>
+                    <tr style={{ background: '#dcdcdc', borderBottom: '1px solid #000' }}>
+                      <th colSpan={3} style={{ padding: '3px', fontWeight: '700', textAlign: 'center' }}>차량 관리 서비스</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td rowSpan={3} style={{ width: '22%', background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>기본제공 사항</td>
+                      <td style={{ width: '53%', padding: '2px 4px', border: '1px solid #000' }}>• 차량 법정 검사 대행</td>
+                      <td style={{ width: '25%', padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>가입</td>
+                    </tr>
+                    <tr>
+                      <td style={{ padding: '2px 4px', border: '1px solid #000' }}>• 차량사고시 사고처리 및 사고수리</td>
+                      <td style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>자기부담금</td>
+                    </tr>
+                    <tr>
+                      <td style={{ padding: '2px 4px', border: '1px solid #000' }}>• 차량사고/고장시 긴급 출동서비스</td>
+                      <td style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>5회/년</td>
+                    </tr>
+
+                    <tr style={{ background: '#dcdcdc', borderBottom: '1px solid #000' }}>
+                      <th colSpan={3} style={{ padding: '3px', fontWeight: '700', textAlign: 'center', borderTop: '1.5px solid #000', borderBottom: '1px solid #000' }}>정비 서비스</th>
+                    </tr>
+                    <tr>
+                      <td rowSpan={4} style={{ width: '22%', background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>서비스별 적용사항</td>
+                      <td style={{ padding: '2px 4px', border: '1px solid #000' }}>• 순회정비 차량을 이용한 정기 순회점검</td>
+                      <td style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>
+                        {firstOption?.opt.maintenancePlan === '가입' ? '가입' : '미가입'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style={{ padding: '2px 4px', border: '1px solid #000' }}>• 일반정비(고장수리) 서비스</td>
+                      <td style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>
+                        {firstOption?.opt.maintenancePlan === '가입' ? '가입' : '미가입'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style={{ padding: '2px 4px', border: '1px solid #000' }}>• 소모품 교환(오일류, 배터리, 기타)</td>
+                      <td style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>
+                        {firstOption?.opt.maintenancePlan === '가입' ? '가입' : '미가입'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style={{ padding: '2px 4px', border: '1px solid #000' }}>• 타이어 교체</td>
+                      <td style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>
+                        {firstOption?.opt.maintenancePlan === '가입' ? '4본 제공' : '미제공'}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* 7. Notes and Special Terms */}
+            <div style={{ display: 'flex', gap: '1.2rem', marginBottom: '0.5rem' }}>
+              <table style={{ width: '50%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.68rem' }}>
+                <thead>
+                  <tr style={{ background: '#dcdcdc', borderBottom: '1px solid #000' }}>
+                    <th style={{ padding: '3px', fontWeight: '700', textAlign: 'center' }}>비고</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style={{ padding: '5px 8px', border: '1px solid #000', height: '80px', verticalAlign: 'top', color: '#666' }}>
+                      {/* Memo space */}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <table style={{ width: '50%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.66rem' }}>
+                <thead>
+                  <tr style={{ background: '#dcdcdc', borderBottom: '1px solid #000' }}>
+                    <th style={{ padding: '3px', fontWeight: '700', textAlign: 'center' }}>특약사항</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style={{ padding: '5px 8px', border: '1px solid #000', height: '80px', verticalAlign: 'top', lineHeight: '1.4', color: '#333' }}>
+                      <div>• 개별소비세 관련 정부 정책 변경 이후 출고되는 차량의 렌탈료는 [개별소비세 변동 금액/계약 개월 수]만큼 변동됩니다.</div>
+                      <div style={{ marginTop: '2px' }}>• 전기차의 대차는 내연기관 차량으로 제공됩니다.</div>
+                      <div style={{ marginTop: '2px' }}>• 전기차 일반형/임반형 정비상품은 순회정비시, 소모품은 에어컨 필터, 와이퍼, 워셔액 교제만 가능하며, 그외 서비스(소독, 차량 생활물질, 스캐너 진단)는 희망시 제공됩니다.</div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* 8. Required Documents */}
+            <div style={{ border: '1px solid #000', padding: '4px 8px', fontSize: '0.68rem', marginBottom: '0.8rem', display: 'flex', gap: '0.4rem', lineHeight: '1.25' }}>
+              <div style={{ fontWeight: '800', whiteSpace: 'nowrap' }}>계약시 필요서류</div>
+              <div style={{ color: '#333' }}>
+                <strong>• 법인:</strong> 법인등기부등본(원본), 법인인감증명서(원본), 사업자등록증(사본), 사용인감사용시 사용인감계, 대리인 날인시 위임장, CMS통장사본
+              </div>
+            </div>
+
+            {/* 9. Signatures (Footer) */}
+            <div style={{ textAlign: 'center', marginTop: '0.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'baseline', gap: '1.2rem' }}>
+                <span style={{ fontSize: '1.1rem', fontWeight: '800', letterSpacing: '2px', color: '#111e38' }}>주식회사 렌트베네핏</span>
+                <span style={{ fontSize: '1.0rem', fontWeight: '800', color: '#111e38' }}>대표이사 신 동 일</span>
+              </div>
+              <div style={{ fontSize: '0.70rem', fontWeight: '800', letterSpacing: '3px', color: '#ad885c', marginTop: '0.2rem' }}>
+                TOTAL CAR PREMIUM SOLUTION
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

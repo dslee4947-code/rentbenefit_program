@@ -637,7 +637,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
     // 평소 상태일 때는 포맷팅해서 출력
     if (field === 'termYears') return stateValue || '';
     if (field === 'termMonths') return stateValue || '';
-    if (field === 'mileage' || field === 'monthlyMaintenanceFee') {
+    if (field === 'mileage' || field === 'monthlyMaintenanceFee' || field === 'tireUnitCost') {
       return stateValue !== undefined ? toCommaString(stateValue) : '';
     }
     
@@ -1558,7 +1558,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
         <div style={{ background: 'var(--bg-main)', padding: '1.2rem 1.5rem', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h4 style={{ fontWeight: '700', color: 'var(--text-bright)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <Settings size={18} /> {activeIndex}.3 정비와 주행거리 보험
+              <Settings size={18} /> {activeIndex}.3 정비와 주행거리 보험 ({selectedOpt?.name || '1안'} 설정)
             </h4>
             <button 
               type="button"
@@ -1974,6 +1974,34 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                         value={toCommaString(getCalculatedMaintenanceFee(opt, activeVehicle))} 
                         disabled 
                         style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px', background: '#f5f5f5', color: '#666', fontWeight: '600' }} 
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>타이어 등급</label>
+                      <select
+                        value={opt.tireType || 'standard'}
+                        onChange={(e) => {
+                          const type = e.target.value;
+                          const recTiresForOpt = getRecommendedTirePrices(activeVehicle.carModel);
+                          const price = type === 'premium' ? recTiresForOpt.premium : recTiresForOpt.standard;
+                          updateActiveVehicleOption(opt.id, { tireType: type, tireUnitCost: price });
+                        }}
+                        style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px', background: '#fff', color: '#333' }}
+                      >
+                        <option value="standard">일반형</option>
+                        <option value="premium">고급형</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>타이어 본당 비용 (원)</label>
+                      <input 
+                        type="text" 
+                        value={getInputValue(opt.id, 'tireUnitCost', opt.tireUnitCost)} 
+                        onChange={(e) => handleInputChange(opt.id, 'tireUnitCost', e.target.value)} 
+                        onFocus={() => handleFocus(opt.id, 'tireUnitCost')}
+                        onBlur={handleBlur}
+                        onKeyDown={handleKeyDown}
+                        style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px' }} 
                       />
                     </div>
                     <div>

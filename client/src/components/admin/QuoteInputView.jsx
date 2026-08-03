@@ -1090,7 +1090,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
         </div>
       </div>
 
-      {/* 등록비용, 금융 정보 & 렌트베네핏 총구입가 (차량 상세 설정) */}
+      {/* 등록비용, 금융 정보, 정비와 주행거리 보험 & 렌트베네핏 총구입가 (차량 상세 설정) */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
         {/* 등록비용 */}
         <div style={{ background: 'var(--bg-main)', padding: '1.2rem 1.5rem', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
@@ -1123,33 +1123,6 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
               <input 
                 type="text" 
                 value={toCommaString(selectedCalc.publicBond)} 
-                disabled 
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#f5f5f5', color: '#666', fontWeight: '600' }} 
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>보험 (원)</label>
-              <input 
-                type="text" 
-                value={activeInputKey === `${selectedVehicleId}-global-insuranceFee` ? activeInputValue : toCommaString(activeVehicle.globalInsuranceFee)} 
-                onChange={(e) => {
-                  setActiveInputValue(e.target.value);
-                  updateActiveVehicle({ globalInsuranceFee: parseNumber(e.target.value) });
-                }} 
-                onFocus={() => {
-                  setActiveInputKey(`${selectedVehicleId}-global-insuranceFee`);
-                  setActiveInputValue(activeVehicle.globalInsuranceFee.toString());
-                }}
-                onBlur={handleBlur}
-                onKeyDown={handleKeyDown}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff' }} 
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>보험(자차 보험비) (원)</label>
-              <input 
-                type="text" 
-                value={toCommaString(selectedCalc.ownCarInsuranceFee)} 
                 disabled 
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#f5f5f5', color: '#666', fontWeight: '600' }} 
               />
@@ -1247,10 +1220,124 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
           </div>
         </div>
 
-        {/* 5. 렌트베네핏 총구입가 */}
+        {/* 3. 정비와 주행거리 보험 */}
         <div style={{ background: 'var(--bg-main)', padding: '1.2rem 1.5rem', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
           <h4 style={{ fontWeight: '700', color: 'var(--text-bright)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <Settings size={18} /> {activeIndex}.3 렌트베네핏 총구입가
+            <Settings size={18} /> {activeIndex}.3 정비와 주행거리 보험
+          </h4>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.8rem' }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600' }}>정비 가입</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', cursor: 'pointer', color: 'var(--primary)', fontWeight: '600' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={activeVehicle.isMaintenanceEnabled} 
+                    onChange={(e) => updateActiveVehicle({ isMaintenanceEnabled: e.target.checked })} 
+                    style={{ cursor: 'pointer' }}
+                  />
+                  가입
+                </label>
+              </div>
+              <input 
+                type="text" 
+                value={activeVehicle.isMaintenanceEnabled ? "가입" : "미가입"} 
+                disabled 
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#f5f5f5', color: '#666', fontWeight: '600', marginTop: '0.2rem' }} 
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>월 정비비 (원)</label>
+              <input 
+                type="text" 
+                value={activeInputKey === `${selectedVehicleId}-global-monthlyMaintenanceFee` ? activeInputValue : toCommaString(activeVehicle.monthlyMaintenanceFee)} 
+                onChange={(e) => {
+                  setActiveInputValue(e.target.value);
+                  updateActiveVehicle({ monthlyMaintenanceFee: parseNumber(e.target.value) });
+                }} 
+                onFocus={() => {
+                  setActiveInputKey(`${selectedVehicleId}-global-monthlyMaintenanceFee`);
+                  setActiveInputValue(activeVehicle.monthlyMaintenanceFee.toString());
+                }}
+                onBlur={handleBlur}
+                onKeyDown={handleKeyDown}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }} 
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>제공 타이어 본수 (본)</label>
+              <input 
+                type="text" 
+                value={activeInputKey === `${selectedVehicleId}-global-tireCount` ? activeInputValue : toCommaString(activeVehicle.tireCount)} 
+                onChange={(e) => {
+                  setActiveInputValue(e.target.value);
+                  updateActiveVehicle({ tireCount: parseNumber(e.target.value) });
+                }} 
+                onFocus={() => {
+                  setActiveInputKey(`${selectedVehicleId}-global-tireCount`);
+                  setActiveInputValue(activeVehicle.tireCount.toString());
+                }}
+                onBlur={handleBlur}
+                onKeyDown={handleKeyDown}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }} 
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>연간 주행거리 (km)</label>
+              <input 
+                type="text" 
+                value={activeInputKey === `option-${selectedOpt?.id}-mileage` ? activeInputValue : toCommaString(selectedOpt?.mileage)} 
+                onChange={(e) => {
+                  setActiveInputValue(e.target.value);
+                  if (selectedOpt) {
+                    updateActiveVehicleOption(selectedOpt.id, { mileage: parseNumber(e.target.value) });
+                  }
+                }} 
+                onFocus={() => {
+                  if (selectedOpt) {
+                    setActiveInputKey(`option-${selectedOpt.id}-mileage`);
+                    setActiveInputValue(selectedOpt.mileage.toString());
+                  }
+                }}
+                onBlur={handleBlur}
+                onKeyDown={handleKeyDown}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }} 
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>보험 (원)</label>
+              <input 
+                type="text" 
+                value={activeInputKey === `${selectedVehicleId}-global-insuranceFee` ? activeInputValue : toCommaString(activeVehicle.globalInsuranceFee)} 
+                onChange={(e) => {
+                  setActiveInputValue(e.target.value);
+                  updateActiveVehicle({ globalInsuranceFee: parseNumber(e.target.value) });
+                }} 
+                onFocus={() => {
+                  setActiveInputKey(`${selectedVehicleId}-global-insuranceFee`);
+                  setActiveInputValue(activeVehicle.globalInsuranceFee.toString());
+                }}
+                onBlur={handleBlur}
+                onKeyDown={handleKeyDown}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }} 
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>보험(자차 보험비) (원)</label>
+              <input 
+                type="text" 
+                value={toCommaString(selectedCalc.ownCarInsuranceFee)} 
+                disabled 
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#f5f5f5', color: '#666', fontWeight: '600' }} 
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* 4. 렌트베네핏 총구입가 */}
+        <div style={{ background: 'var(--bg-main)', padding: '1.2rem 1.5rem', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+          <h4 style={{ fontWeight: '700', color: 'var(--text-bright)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <Settings size={18} /> {activeIndex}.4 렌트베네핏 총구입가
           </h4>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.8rem' }}>
             <div>
@@ -1347,26 +1434,6 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                 onBlur={handleBlur}
                 onKeyDown={handleKeyDown}
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }} 
-              />
-            </div>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600' }}>정비 가입</label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', cursor: 'pointer', color: 'var(--primary)', fontWeight: '600' }}>
-                  <input 
-                    type="checkbox" 
-                    checked={activeVehicle.isMaintenanceEnabled} 
-                    onChange={(e) => updateActiveVehicle({ isMaintenanceEnabled: e.target.checked })} 
-                    style={{ cursor: 'pointer' }}
-                  />
-                  가입
-                </label>
-              </div>
-              <input 
-                type="text" 
-                value={activeVehicle.isMaintenanceEnabled ? "가입" : "미가입"} 
-                disabled 
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#f5f5f5', color: '#666', fontWeight: '600', marginTop: '0.2rem' }} 
               />
             </div>
             <div>

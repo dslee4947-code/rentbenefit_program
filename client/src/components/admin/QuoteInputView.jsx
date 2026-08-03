@@ -244,7 +244,25 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
   const activeVehicle = vehicles.find(v => v.id === selectedVehicleId) || vehicles[0];
 
   const updateActiveVehicle = (fields) => {
-    setVehicles(prev => prev.map(v => v.id === selectedVehicleId ? { ...v, ...fields } : v));
+    setVehicles(prev => prev.map(v => {
+      if (v.id !== selectedVehicleId) return v;
+      
+      const nextVehicle = { ...v, ...fields };
+      const totalCarPrice = nextVehicle.carPrice + nextVehicle.carOptionPrice;
+      const autoType = totalCarPrice >= 70000000 ? 'premium' : 'standard';
+      
+      const previousTotal = v.carPrice + v.carOptionPrice;
+      const thresholdCrossed = (previousTotal >= 70000000) !== (totalCarPrice >= 70000000);
+      
+      if (thresholdCrossed) {
+        nextVehicle.options = nextVehicle.options.map(opt => ({
+          ...opt,
+          insuranceType: autoType
+        }));
+      }
+      
+      return nextVehicle;
+    }));
   };
 
   const updateActiveVehicleOption = (optionId, fields) => {
@@ -292,6 +310,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
 
   const handleAddOption = () => {
     const nextId = activeVehicle.options.length + 1;
+    const totalCarPrice = activeVehicle.carPrice + activeVehicle.carOptionPrice;
     const newOpt = {
       id: nextId,
       name: `${nextId}안`,
@@ -306,7 +325,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
       discountRate: 0.00,
       maintenancePlan: '가입',
       insuranceFeeAnnual: 800000,
-      insuranceType: 'standard',
+      insuranceType: totalCarPrice >= 70000000 ? 'premium' : 'standard',
       registrationAgencyFee: 100000,
       calcMode: 'manual',
       monthlyFeeInput: 0,

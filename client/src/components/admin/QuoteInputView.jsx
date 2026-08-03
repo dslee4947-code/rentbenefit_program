@@ -517,11 +517,12 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
     const calculatedMaintenanceFee = getCalculatedMaintenanceFee(opt, vehicle);
     const maintenanceFeeTotal = calculatedMaintenanceFee * rentPeriodMonths;
     
-    // 총구입원가 (E30)
+    // 총구입원가 (E30) - 옵션별 정비 가입 여부 적용
+    const optMaintenanceEnabled = opt.isMaintenanceEnabled !== undefined ? opt.isMaintenanceEnabled : isMaintenanceEnabled;
     let totalCost;
     const basicFees = ((globalInsuranceFee + ownCarInsuranceFee) * opt.termYears) + (carTaxAnnual * opt.termYears) + totalBuyPriceWithFinancing + globalRegistrationAgencyFee + publicBond + acquisitionTax + companyCommission + pandanbi + dealerCommission;
     
-    if (isMaintenanceEnabled) {
+    if (optMaintenanceEnabled) {
       totalCost = basicFees + maintenanceFeeTotal + tireCostTotal;
     } else {
       totalCost = basicFees;
@@ -1968,12 +1969,33 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                       </select>
                     </div>
                     <div>
-                      <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>월 정비비 (원)</label>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.15rem' }}>
+                        <label style={{ display: 'block', color: '#666' }}>월 정비비 (원)</label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.72rem', cursor: 'pointer', color: 'var(--primary)', fontWeight: '600' }}>
+                          <input 
+                            type="checkbox" 
+                            checked={opt.isMaintenanceEnabled !== false} 
+                            onChange={(e) => {
+                              updateActiveVehicleOption(opt.id, { isMaintenanceEnabled: e.target.checked });
+                            }} 
+                            style={{ cursor: 'pointer', transform: 'scale(0.95)' }}
+                          />
+                          포함
+                        </label>
+                      </div>
                       <input 
                         type="text" 
-                        value={toCommaString(getCalculatedMaintenanceFee(opt, activeVehicle))} 
+                        value={opt.isMaintenanceEnabled !== false ? toCommaString(getCalculatedMaintenanceFee(opt, activeVehicle)) : '0'} 
                         disabled 
-                        style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px', background: '#f5f5f5', color: '#666', fontWeight: '600' }} 
+                        style={{ 
+                          width: '100%', 
+                          padding: '0.2rem', 
+                          border: '1px solid #ccc', 
+                          borderRadius: '4px', 
+                          background: '#f5f5f5', 
+                          color: opt.isMaintenanceEnabled !== false ? '#666' : '#bbb', 
+                          fontWeight: '600' 
+                        }} 
                       />
                     </div>
                     <div>
@@ -3037,7 +3059,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                         </tr>
                         <tr style={{ background: '#fdfbfa', fontSize: '0.66rem', height: '1.2rem' }}>
                           <td style={{ padding: '2px 4px', border: '1px solid #000', color: '#555' }}>
-                            정비 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <strong>{opt.maintenancePlan || '가입'}</strong>
+                            정비 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <strong>{opt.isMaintenanceEnabled !== false ? '가입' : '미가입'}</strong>
                           </td>
                           <td colSpan={3} style={{ border: '1px solid #000' }}></td>
                           <td style={{ textAlign: 'right', padding: '2px 4px', border: '1px solid #000', color: '#555', fontWeight: '600' }}>

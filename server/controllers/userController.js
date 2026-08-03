@@ -50,6 +50,7 @@ export const createUser = async (req, res) => {
       name,
       password,
       user_type,
+      role: 'viewer', // Default new signups to viewer role
       address,
     });
 
@@ -83,6 +84,9 @@ export const updateUser = async (req, res) => {
       }
       if (req.body.user_type) {
         user.user_type = req.body.user_type;
+      }
+      if (req.body.role) {
+        user.role = req.body.role;
       }
       if (req.body.address !== undefined) {
         user.address = req.body.address;
@@ -145,6 +149,7 @@ export const loginUser = async (req, res) => {
         name: user.name,
         email: user.email,
         user_type: user.user_type,
+        role: user.role || 'viewer', // Include role in response
         address: user.address,
         token: generateToken(user._id),
       });

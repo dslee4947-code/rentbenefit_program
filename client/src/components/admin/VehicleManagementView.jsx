@@ -73,7 +73,7 @@ const getRowBgColor = (operation, index, isHovered = false, isSelected = false) 
   return isHovered ? '#e6f4ff' : (index % 2 === 0 ? '#ffffff' : '#fcfcfc'); // White vs Light Gray
 };
 
-function VehicleManagementView({ showToast }) {
+function VehicleManagementView({ showToast, currentUser }) {
   // Sub Tab: 'rent_benefit' (RENT BENefit 렌터카 DB) | 'benefit_car' (BENefit 차량 DB)
   const [subTab, setSubTab] = useState('rent_benefit');
 
@@ -602,6 +602,11 @@ function VehicleManagementView({ showToast }) {
       return false;
     }
 
+    if (currentUser?.role === 'viewer') {
+      if (showToast) showToast('수정 및 등록 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return false;
+    }
+
     try {
       const url = editingVehicle 
         ? `${API_BASE_URL}/api/vehicles/${editingVehicle._id}` 
@@ -611,7 +616,10 @@ function VehicleManagementView({ showToast }) {
 
       const res = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-User-Role': currentUser?.role || 'viewer'
+        },
         body: JSON.stringify(formData)
       });
 
@@ -655,10 +663,19 @@ function VehicleManagementView({ showToast }) {
   };
 
   const handleDeleteVehicle = async (id, carNumber) => {
+    if (currentUser?.role === 'viewer') {
+      if (showToast) showToast('수정 및 삭제 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
     if (!window.confirm(`정말로 차량 [${carNumber}] 대장 기록을 삭제하시겠습니까?`)) return;
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/vehicles/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE_URL}/api/vehicles/${id}`, { 
+        method: 'DELETE',
+        headers: {
+          'X-User-Role': currentUser?.role || 'viewer'
+        }
+      });
       const data = await res.json();
       if (data.success) {
         if (showToast) showToast(`차량 [${carNumber}] 삭제 완료`, 'info');
@@ -673,9 +690,18 @@ function VehicleManagementView({ showToast }) {
   };
 
   const handleSeedData = async () => {
+    if (currentUser?.role === 'viewer') {
+      if (showToast) showToast('수정 및 등록 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
     if (!window.confirm('전체 엑셀 시트 컬럼 구조의 샘플 데이터로 리셋하시겠습니까?')) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/api/vehicles/seed`, { method: 'POST' });
+      const res = await fetch(`${API_BASE_URL}/api/vehicles/seed`, { 
+        method: 'POST',
+        headers: {
+          'X-User-Role': currentUser?.role || 'viewer'
+        }
+      });
       const data = await res.json();
       if (data.success) {
         if (showToast) showToast(data.message, 'success');

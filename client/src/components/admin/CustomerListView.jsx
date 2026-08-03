@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import OutlookContactModal from './OutlookContactModal';
 
-function CustomerListView({ showToast }) {
+function CustomerListView({ showToast, currentUser }) {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -136,11 +136,18 @@ function CustomerListView({ showToast }) {
 
   // 2. 아웃룩 수동 동기화 실행
   const handleOutlookSync = async () => {
+    if (currentUser?.role === 'viewer') {
+      showToast?.('수정 및 등록 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
     try {
       setIsSyncing(true);
       showToast?.('아웃룩 전체 연락처(1.8만 건) 동기화를 진행 중입니다...', 'info');
       const res = await fetch(`${API_BASE_URL}/api/customers/sync-outlook`, {
         method: 'POST',
+        headers: {
+          'X-User-Role': currentUser?.role || 'viewer'
+        }
       });
       const data = await res.json();
 
@@ -195,6 +202,10 @@ function CustomerListView({ showToast }) {
   // 5. 고객 정보 저장 (생성/수정)
   const handleSaveCustomer = async (e) => {
     e.preventDefault();
+    if (currentUser?.role === 'viewer') {
+      showToast?.('수정 및 등록 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
     try {
       const payload = {
         name: formData.name,
@@ -215,13 +226,19 @@ function CustomerListView({ showToast }) {
       if (editingCustomer) {
         res = await fetch(`${API_BASE_URL}/api/customers/${editingCustomer._id}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-User-Role': currentUser?.role || 'viewer'
+          },
           body: JSON.stringify(payload)
         });
       } else {
         res = await fetch(`${API_BASE_URL}/api/customers`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-User-Role': currentUser?.role || 'viewer'
+          },
           body: JSON.stringify(payload)
         });
       }
@@ -241,10 +258,17 @@ function CustomerListView({ showToast }) {
 
   // 6. 고객 삭제
   const handleDeleteCustomer = async (id, name) => {
+    if (currentUser?.role === 'viewer') {
+      showToast?.('수정 및 삭제 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
     if (!window.confirm(`'${name}' 고객 정보를 삭제하시겠습니까?`)) return;
     try {
       const res = await fetch(`${API_BASE_URL}/api/customers/${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: {
+          'X-User-Role': currentUser?.role || 'viewer'
+        }
       });
       if (!res.ok) throw new Error('삭제에 실패했습니다.');
       showToast?.('고객 정보가 삭제되었습니다.', 'success');
@@ -753,9 +777,16 @@ function CustomerListView({ showToast }) {
           onFocus={() => handleFocusOutlookWindow(win.customer._id)}
           onClose={() => handleCloseOutlookWindow(win.customer._id)}
           onSave={async (id, updatedData) => {
+            if (currentUser?.role === 'viewer') {
+              showToast?.('수정 및 등록 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+              return;
+            }
             const res = await fetch(`${API_BASE_URL}/api/customers/${id}`, {
               method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 
+                'Content-Type': 'application/json',
+                'X-User-Role': currentUser?.role || 'viewer'
+              },
               body: JSON.stringify(updatedData)
             });
             if (!res.ok) {

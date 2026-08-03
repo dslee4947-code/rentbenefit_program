@@ -130,7 +130,7 @@ const getCalculatedMaintenanceFee = (opt, vehicle) => {
   return Math.floor((totalSum / termMonths) / 1000) * 1000;
 };
 
-function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
+function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, currentUser }) {
   const [customers, setCustomers] = useState([]);
   const [useExistingCustomer, setUseExistingCustomer] = useState(true);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
@@ -693,6 +693,10 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
   };
 
   const handleSaveQuote = async (convertToContractAfterSave = false) => {
+    if (currentUser?.role === 'viewer') {
+      showToast('수정 및 등록 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
     if (!validateForm()) return;
 
     // Get the currently selected option values (use first selected option as primary)
@@ -736,7 +740,10 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
 
       const response = await fetch(`${API_HOST}/api/quotes`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-User-Role': currentUser?.role || 'viewer'
+        },
         body: JSON.stringify(payload)
       });
 

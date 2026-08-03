@@ -30,6 +30,12 @@ const userSchema = new mongoose.Schema(
       enum: ['customer', 'admin'],
       default: 'customer',
     },
+    // 권한 역할 (admin, editor, viewer 중 하나, 기본값 viewer)
+    role: {
+      type: String,
+      enum: ['viewer', 'editor', 'admin'],
+      default: 'viewer'
+    },
     // 주소 (선택 사항)
     address: {
       type: String,
@@ -64,6 +70,6 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
-const User = mongoose.model('User', userSchema);
+const User = mongoose.models.User || mongoose.model('User', userSchema);
 
 export default User;

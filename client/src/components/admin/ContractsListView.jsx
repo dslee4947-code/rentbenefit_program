@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
-function ContractsListView({ setActiveTab, setPrefilledQuoteData, showToast }) {
+function ContractsListView({ setActiveTab, setPrefilledQuoteData, showToast, currentUser }) {
   const [contracts, setContracts] = useState([]);
   const [quotes, setQuotes] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -52,11 +52,18 @@ function ContractsListView({ setActiveTab, setPrefilledQuoteData, showToast }) {
   }, []);
 
   const handleDeleteContract = async (id) => {
+    if (currentUser?.role === 'viewer') {
+      showToast('수정 및 삭제 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
     if (!window.confirm('정말 이 계약서를 삭제하시겠습니까? 관련 차량 및 등록 일정들도 모두 일괄 삭제됩니다.')) return;
 
     try {
       const response = await fetch(`${API_HOST}/api/contracts/${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: {
+          'X-User-Role': currentUser?.role || 'viewer'
+        }
       });
 
       if (response.ok) {
@@ -71,11 +78,18 @@ function ContractsListView({ setActiveTab, setPrefilledQuoteData, showToast }) {
   };
 
   const handleDeleteQuote = async (id) => {
+    if (currentUser?.role === 'viewer') {
+      showToast('수정 및 삭제 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
     if (!window.confirm('정말 이 견적서를 삭제하시겠습니까?')) return;
 
     try {
       const response = await fetch(`${API_HOST}/api/quotes/${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: {
+          'X-User-Role': currentUser?.role || 'viewer'
+        }
       });
 
       if (response.ok) {
@@ -90,11 +104,18 @@ function ContractsListView({ setActiveTab, setPrefilledQuoteData, showToast }) {
   };
 
   const handleDeleteCustomer = async (id) => {
+    if (currentUser?.role === 'viewer') {
+      showToast('수정 및 삭제 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
     if (!window.confirm('정말 이 고객 정보를 삭제하시겠습니까? 해당 고객과 연동된 계약서/견적서 정보에 영향을 미칠 수 있습니다.')) return;
 
     try {
       const response = await fetch(`${API_HOST}/api/customers/${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: {
+          'X-User-Role': currentUser?.role || 'viewer'
+        }
       });
 
       if (response.ok) {
@@ -197,10 +218,17 @@ function ContractsListView({ setActiveTab, setPrefilledQuoteData, showToast }) {
       return;
     }
 
+    if (currentUser?.role === 'viewer') {
+      showToast('수정 및 등록 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
     try {
       const response = await fetch(`${API_HOST}/api/customers/bulk`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-User-Role': currentUser?.role || 'viewer'
+        },
         body: JSON.stringify({ customers: validData })
       });
 

@@ -5,10 +5,51 @@ import './App.css';
 // Import sub-components
 import Login from './components/Login.jsx';
 import AdminDashboard from './components/admin/AdminDashboard.jsx';
+import Signup from './components/Signup.jsx';
+import SignupSuccess from './components/SignupSuccess.jsx';
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loginView, setLoginView] = useState('login'); // 'login', 'signup', 'signup-success'
+  const [signupData, setSignupData] = useState({
+    email: '',
+    password: '',
+    name: '',
+    user_type: 'customer',
+    address: ''
+  });
+  const [showPassword, setShowPassword] = useState(false);
+  const [registeredUser, setRegisteredUser] = useState(null);
+
+  const API_HOST = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    if (!signupData.email || !signupData.password || !signupData.name) {
+      showToast('이메일, 비밀번호, 이름은 필수 항목입니다.', 'error');
+      return;
+    }
+    try {
+      const response = await fetch(`${API_HOST}/api/users`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(signupData)
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setRegisteredUser(data);
+        setLoginView('signup-success');
+      } else {
+        showToast(data.message || '회원가입에 실패했습니다.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('서버 연결 실패', 'error');
+    }
+  };
   
   // Toast notifications state
   const [toasts, setToasts] = useState([]);
@@ -88,13 +129,37 @@ function App() {
 
       {/* Main View Controller */}
       {!currentUser ? (
-        <Login 
-          setView={() => {}} 
-          showToast={showToast} 
-          onLoginSuccess={handleLoginSuccess}
-          toasts={toasts}
-          currentUser={currentUser}
-        />
+        <>
+          {loginView === 'login' && (
+            <Login 
+              setView={setLoginView} 
+              showToast={showToast} 
+              onLoginSuccess={handleLoginSuccess}
+              toasts={toasts}
+              currentUser={currentUser}
+            />
+          )}
+          {loginView === 'signup' && (
+            <Signup
+              signupData={signupData}
+              setSignupData={setSignupData}
+              handleRegister={handleRegister}
+              setView={setLoginView}
+              showPassword={showPassword}
+              setShowPassword={setShowPassword}
+              toasts={toasts}
+            />
+          )}
+          {loginView === 'signup-success' && (
+            <SignupSuccess
+              registeredName={signupData.name}
+              setView={setLoginView}
+              showToast={showToast}
+              registeredUser={registeredUser}
+              onLoginSuccess={handleLoginSuccess}
+            />
+          )}
+        </>
       ) : (
         <AdminDashboard 
           showToast={showToast}

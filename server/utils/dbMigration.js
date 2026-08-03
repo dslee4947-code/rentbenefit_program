@@ -1,5 +1,6 @@
 import Customer from '../models/Customer.js';
 import Contract from '../models/Contract.js';
+import User from '../models/User.js';
 
 export const runDatabaseMigration = async () => {
   try {
@@ -76,6 +77,14 @@ export const runDatabaseMigration = async () => {
       console.log(`Successfully migrated ${migratedContractsCount} contracts.`);
     } else {
       console.log('All contracts are already in the correct serial format.');
+    }
+
+    // 3. Migrate Users (Ensure admin account has role: 'admin')
+    const adminUser = await User.findOne({ email: 'admin@rentbenefit.co.kr' });
+    if (adminUser && adminUser.role !== 'admin') {
+      adminUser.role = 'admin';
+      await adminUser.save();
+      console.log('Migrated admin user: Assigned role = admin');
     }
 
     console.log('--- Database Migration Completed Successfully ---');

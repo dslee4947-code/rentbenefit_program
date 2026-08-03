@@ -3,7 +3,7 @@ import { Save, Plus, Trash2, FileSignature, ChevronDown, ChevronUp, ArrowLeft, U
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
-function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setActiveTab, showToast }) {
+function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setActiveTab, showToast, currentUser }) {
   const [customers, setCustomers] = useState([]);
   const [contracts, setContracts] = useState([]);
   
@@ -341,6 +341,11 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
   const handleRegisterContract = async (e) => {
     e.preventDefault();
 
+    if (currentUser?.role === 'viewer') {
+      showToast('수정 및 등록 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
+
     if (!isNewCustomer && !customerId) {
       showToast('검색창에서 고객을 선택해 주셔야 등록이 가능합니다.', 'error');
       return;
@@ -505,7 +510,10 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
 
       const response = await fetch(`${API_HOST}/api/contracts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-User-Role': currentUser?.role || 'viewer'
+        },
         body: JSON.stringify(payload)
       });
 

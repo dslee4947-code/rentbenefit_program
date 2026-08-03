@@ -6,6 +6,7 @@ import VehicleManagementView from './VehicleManagementView.jsx';
 import ContractsListView from './ContractsListView.jsx';
 import CalendarView from './CalendarView.jsx';
 import CustomerListView from './CustomerListView.jsx';
+import UserManagementView from './UserManagementView.jsx';
 
 import { 
   LayoutDashboard, 
@@ -18,13 +19,14 @@ import {
   UserCheck,
   Users,
   Menu,
-  X
+  X,
+  Key
 } from 'lucide-react';
 
 function AdminDashboard({ showToast, currentUser, onLogout }) {
   const getTabFromHash = () => {
     const hash = window.location.hash.replace('#/', '');
-    const validTabs = ['dashboard', 'customers', 'quote-input', 'contract-register', 'vehicles', 'contracts', 'calendar'];
+    const validTabs = ['dashboard', 'customers', 'quote-input', 'contract-register', 'vehicles', 'contracts', 'calendar', 'users'];
     return validTabs.includes(hash) ? hash : 'dashboard';
   };
 
@@ -56,6 +58,10 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
     { id: 'contracts', name: '계약 / 견적 목록', icon: <Receipt size={18} /> },
     { id: 'calendar', name: '일정표 캘린더', icon: <Calendar size={18} /> }
   ];
+
+  if (currentUser?.role === 'admin') {
+    menuItems.push({ id: 'users', name: '사용자 권한 관리', icon: <Key size={18} /> });
+  }
 
   const navigateToTab = (tabId) => {
     window.location.hash = `#/${tabId}`;
@@ -331,6 +337,7 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
               {activeTab === 'vehicles' && '렌트차량 DB 관리'}
               {activeTab === 'contracts' && '계약 / 견적서 목록'}
               {activeTab === 'calendar' && '캘린더 관리 일정표'}
+              {activeTab === 'users' && '사용자 권한 관리'}
             </h1>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '0.2rem' }}>
               {activeTab === 'dashboard' && '사내 프로그램의 실시간 차량 DB와 계약 일정 현황 요약입니다.'}
@@ -340,6 +347,7 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
               {activeTab === 'vehicles' && '전체 렌트 차량의 계약정보, 잔여일정, 담당 정비 내역을 상세 조회합니다.'}
               {activeTab === 'contracts' && '현재까지 등록된 모든 견적서 정보와 렌트 계약서 정보 리스트입니다.'}
               {activeTab === 'calendar' && '정기점검, 종합검사, 렌트만료, 계산서발행 예정일을 한눈에 보여주는 관리 일정표입니다.'}
+              {activeTab === 'users' && '가입된 사내 직원들의 권한(조회/수정 및 삭제/관리자)을 조정하고 승인합니다.'}
             </p>
           </div>
         </header>
@@ -364,6 +372,7 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
               setActiveTab={navigateToTab} 
               setPrefilledQuoteData={setPrefilledQuoteData}
               showToast={showToast}
+              currentUser={currentUser}
             />
           )}
 
@@ -373,12 +382,14 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
               setPrefilledQuoteData={setPrefilledQuoteData}
               setActiveTab={navigateToTab}
               showToast={showToast}
+              currentUser={currentUser}
             />
           )}
 
           {activeTab === 'vehicles' && (
             <VehicleManagementView 
               showToast={showToast} 
+              currentUser={currentUser}
             />
           )}
 
@@ -387,12 +398,21 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
               setActiveTab={navigateToTab}
               setPrefilledQuoteData={setPrefilledQuoteData}
               showToast={showToast}
+              currentUser={currentUser}
             />
           )}
 
           {activeTab === 'calendar' && (
             <CalendarView 
               showToast={showToast}
+              currentUser={currentUser}
+            />
+          )}
+
+          {activeTab === 'users' && currentUser?.role === 'admin' && (
+            <UserManagementView 
+              showToast={showToast}
+              currentUser={currentUser}
             />
           )}
         </div>

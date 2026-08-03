@@ -6,6 +6,7 @@ import {
   getScheduleNotifications,
   deleteSchedule
 } from '../controllers/scheduleController.js';
+import { checkWritePermission } from '../middleware/roleMiddleware.js';
 
 const router = express.Router();
 
@@ -17,7 +18,7 @@ router.route('/')
 
 router.route('/:id')
   .get(getScheduleById)
-  .put(updateSchedule)
-  .delete(deleteSchedule);
+  .put(checkWritePermission, updateSchedule)
+  .delete(checkWritePermission, deleteSchedule);
 
 export default router;

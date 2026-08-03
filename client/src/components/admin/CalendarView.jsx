@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Calendar, User, Info, DollarSign } from 'luc
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
-function CalendarView({ showToast }) {
+function CalendarView({ showToast, currentUser }) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -323,10 +323,17 @@ function CalendarView({ showToast }) {
               {selectedSchedule.status !== '완료' && (
                 <button 
                   onClick={async () => {
+                    if (currentUser?.role === 'viewer') {
+                      showToast('수정 및 완료 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+                      return;
+                    }
                     try {
                       const res = await fetch(`${API_HOST}/api/schedules/${selectedSchedule._id}`, {
                         method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 
+                          'Content-Type': 'application/json',
+                          'X-User-Role': currentUser?.role || 'viewer'
+                        },
                         body: JSON.stringify({ status: '완료' })
                       });
                       if (res.ok) {

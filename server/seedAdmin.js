@@ -22,6 +22,7 @@ const seedAdmin = async () => {
       name: '이두식',
       password: 'adminpassword123', // This will be automatically hashed by pre-save hook
       user_type: 'admin',
+      role: 'admin',
       address: '서울특별시 서초구 양재대로 11길 36'
     });
 

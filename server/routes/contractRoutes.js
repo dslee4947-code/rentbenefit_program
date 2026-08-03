@@ -6,16 +6,17 @@ import {
   updateContract,
   deleteContract
 } from '../controllers/contractController.js';
+import { checkWritePermission } from '../middleware/roleMiddleware.js';
 
 const router = express.Router();
 
 router.route('/')
   .get(getContracts)
-  .post(createContract);
+  .post(checkWritePermission, createContract);
 
 router.route('/:id')
   .get(getContractById)
-  .put(updateContract)
-  .delete(deleteContract);
+  .put(checkWritePermission, updateContract)
+  .delete(checkWritePermission, deleteContract);
 
 export default router;

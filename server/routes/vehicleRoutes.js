@@ -5,12 +5,13 @@ import {
   updateVehicle, 
   deleteVehicle 
 } from '../controllers/vehicleController.js';
+import { checkWritePermission } from '../middleware/roleMiddleware.js';
 
 const router = express.Router();
 
 router.get('/', getVehicles);
-router.post('/', createVehicle);
-router.put('/:id', updateVehicle);
-router.delete('/:id', deleteVehicle);
+router.post('/', checkWritePermission, createVehicle);
+router.put('/:id', checkWritePermission, updateVehicle);
+router.delete('/:id', checkWritePermission, deleteVehicle);
 
 export default router;

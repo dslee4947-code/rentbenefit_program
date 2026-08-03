@@ -8,20 +8,21 @@ import {
   bulkCreateCustomers,
   triggerOutlookSync
 } from '../controllers/customerController.js';
+import { checkWritePermission } from '../middleware/roleMiddleware.js';
 
 const router = express.Router();
 
-router.post('/bulk', bulkCreateCustomers);
-router.post('/sync-outlook', triggerOutlookSync);
+router.post('/bulk', checkWritePermission, bulkCreateCustomers);
+router.post('/sync-outlook', checkWritePermission, triggerOutlookSync);
 
 router.route('/')
   .get(getCustomers)
-  .post(createCustomer);
+  .post(checkWritePermission, createCustomer);
 
 router.route('/:id')
   .get(getCustomerById)
-  .put(updateCustomer)
-  .delete(deleteCustomer);
+  .put(checkWritePermission, updateCustomer)
+  .delete(checkWritePermission, deleteCustomer);
 
 
 export default router;

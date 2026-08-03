@@ -3236,25 +3236,27 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                       <td rowSpan={4} style={{ width: '22%', background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>서비스별 적용사항</td>
                       <td style={{ padding: '2px 4px', border: '1px solid #000' }}>• 순회정비 차량을 이용한 정기 순회점검</td>
                       <td style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>
-                        {firstOption?.opt.maintenancePlan === '가입' ? '가입' : '미가입'}
+                        {firstOption?.opt.isMaintenanceEnabled !== false ? '가입' : '미가입'}
                       </td>
                     </tr>
                     <tr>
                       <td style={{ padding: '2px 4px', border: '1px solid #000' }}>• 일반정비(고장수리) 서비스</td>
                       <td style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>
-                        {firstOption?.opt.maintenancePlan === '가입' ? '가입' : '미가입'}
+                        {firstOption?.opt.isMaintenanceEnabled !== false ? '가입' : '미가입'}
                       </td>
                     </tr>
                     <tr>
                       <td style={{ padding: '2px 4px', border: '1px solid #000' }}>• 소모품 교환(오일류, 배터리, 기타)</td>
                       <td style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>
-                        {firstOption?.opt.maintenancePlan === '가입' ? '가입' : '미가입'}
+                        {firstOption?.opt.isMaintenanceEnabled !== false ? '가입' : '미가입'}
                       </td>
                     </tr>
                     <tr>
                       <td style={{ padding: '2px 4px', border: '1px solid #000' }}>• 타이어 교체</td>
                       <td style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>
-                        {firstOption?.opt.maintenancePlan === '가입' ? '4본 제공' : '미제공'}
+                        {firstOption?.opt.isMaintenanceEnabled !== false 
+                          ? `${Math.floor(((firstOption?.opt.termYears || 4) * (firstOption?.opt.mileage || 20000)) / 60000) * 4}본 제공` 
+                          : '미제공'}
                       </td>
                     </tr>
                   </tbody>

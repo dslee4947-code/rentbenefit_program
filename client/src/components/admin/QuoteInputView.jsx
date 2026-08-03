@@ -136,6 +136,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
   const [activeInputValue, setActiveInputValue] = useState(''); // temporary input string
   const [createdBy, setCreatedBy] = useState('이두식');
   const [printFormType, setPrintFormType] = useState('comparison'); // 'comparison' or 'rental'
+  const [isMaintenanceDetailModalOpen, setIsMaintenanceDetailModalOpen] = useState(false);
 
   const activeVehicle = vehicles.find(v => v.id === selectedVehicleId) || vehicles[0];
 
@@ -1222,9 +1223,33 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
 
         {/* 3. 정비와 주행거리 보험 */}
         <div style={{ background: 'var(--bg-main)', padding: '1.2rem 1.5rem', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-          <h4 style={{ fontWeight: '700', color: 'var(--text-bright)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <Settings size={18} /> {activeIndex}.3 정비와 주행거리 보험
-          </h4>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h4 style={{ fontWeight: '700', color: 'var(--text-bright)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <Settings size={18} /> {activeIndex}.3 정비와 주행거리 보험
+            </h4>
+            <button 
+              type="button"
+              onClick={() => setIsMaintenanceDetailModalOpen(true)}
+              style={{
+                background: 'var(--primary-glow)',
+                color: 'var(--primary)',
+                border: '1px solid var(--primary)',
+                borderRadius: '6px',
+                padding: '0.25rem 0.6rem',
+                fontSize: '0.75rem',
+                fontWeight: '700',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.2rem'
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--primary)'; e.currentTarget.style.color = '#fff'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--primary-glow)'; e.currentTarget.style.color = 'var(--primary)'; }}
+            >
+              📋 상세내역
+            </button>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.8rem' }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1276,6 +1301,28 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                 onFocus={() => {
                   setActiveInputKey(`${selectedVehicleId}-global-tireCount`);
                   setActiveInputValue(activeVehicle.tireCount.toString());
+                }}
+                onBlur={handleBlur}
+                onKeyDown={handleKeyDown}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }} 
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>타이어 본당 비용 (원)</label>
+              <input 
+                type="text" 
+                value={activeInputKey === `option-${selectedOpt?.id}-tireUnitCost` ? activeInputValue : toCommaString(selectedOpt?.tireUnitCost)} 
+                onChange={(e) => {
+                  setActiveInputValue(e.target.value);
+                  if (selectedOpt) {
+                    updateActiveVehicleOption(selectedOpt.id, { tireUnitCost: parseNumber(e.target.value) });
+                  }
+                }} 
+                onFocus={() => {
+                  if (selectedOpt) {
+                    setActiveInputKey(`option-${selectedOpt.id}-tireUnitCost`);
+                    setActiveInputValue(selectedOpt.tireUnitCost.toString());
+                  }
                 }}
                 onBlur={handleBlur}
                 onKeyDown={handleKeyDown}
@@ -1617,19 +1664,6 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                         value={getInputValue(opt.id, 'residualAmount', toCommaString(Math.floor((totalCarPrice * opt.residualRate) / 1000) * 1000))} 
                         onChange={(e) => handleInputChange(opt.id, 'residualAmount', e.target.value)} 
                         onFocus={() => handleFocus(opt.id, 'residualAmount')}
-                        onBlur={handleBlur}
-                        onKeyDown={handleKeyDown}
-                        style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px' }} 
-                      />
-                    </div>
-
-                    <div style={{ gridColumn: 'span 2' }}>
-                      <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>타이어 본당 비용 (원)</label>
-                      <input 
-                        type="text" 
-                        value={getInputValue(opt.id, 'tireUnitCost', toCommaString(opt.tireUnitCost))} 
-                        onChange={(e) => handleInputChange(opt.id, 'tireUnitCost', e.target.value)} 
-                        onFocus={() => handleFocus(opt.id, 'tireUnitCost')}
                         onBlur={handleBlur}
                         onKeyDown={handleKeyDown}
                         style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px' }} 
@@ -2821,6 +2855,148 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
           </div>
         )}
       </div>
+
+      {/* 정비 상세내역 모달 */}
+      {isMaintenanceDetailModalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.6)',
+          zIndex: 1000,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            background: 'var(--bg-surface)',
+            borderRadius: '12px',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.25)',
+            width: '90%',
+            maxWidth: '850px',
+            maxHeight: '85vh',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            border: '1px solid var(--border-color)'
+          }}>
+            {/* 모달 헤더 */}
+            <div style={{
+              padding: '1.2rem 1.5rem',
+              borderBottom: '1px solid var(--border-color)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'var(--bg-main)'
+            }}>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '800', color: 'var(--text-bright)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                📋 정비 항목별 교환주기 및 금액 상세내역
+              </h3>
+              <button 
+                type="button" 
+                onClick={() => setIsMaintenanceDetailModalOpen(false)}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--text-muted)',
+                  fontSize: '1.2rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  padding: '0.2rem 0.5rem',
+                  borderRadius: '4px',
+                  lineHeight: 1
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-bright)'}
+                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* 모달 바디 (스크롤 가능한 테이블) */}
+            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.8rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                * SDI Benefit 정비 서비스 가입 시 제공 기준 표준 테이블 단가입니다.
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', border: '1px solid var(--border-color)' }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-main)', borderBottom: '2px solid var(--border-color)' }}>
+                    <th style={{ padding: '0.75rem 1rem', fontWeight: '700', color: 'var(--text-bright)', borderRight: '1px solid var(--border-color)', textAlign: 'left', width: '22%' }}>소모품</th>
+                    <th style={{ padding: '0.75rem 1rem', fontWeight: '700', color: 'var(--text-bright)', borderRight: '1px solid var(--border-color)', textAlign: 'left', width: '33%' }}>교환주기</th>
+                    <th style={{ padding: '0.75rem 1rem', fontWeight: '700', color: 'var(--text-bright)', borderRight: '1px solid var(--border-color)', textAlign: 'left', width: '25%' }}>부품내역</th>
+                    <th style={{ padding: '0.75rem 1rem', fontWeight: '700', color: 'var(--text-bright)', textAlign: 'right', width: '20%' }}>금액 (원)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { name: '엔진오일', cycle: '7,000~8,000km', desc: '오일필터+에어 클리너', price: '200,000' },
+                    { name: '에어컨 향균필터', cycle: '15,000~20,000km 또는 1년 도래시', desc: '향균필터', price: '40,000' },
+                    { name: '와이퍼', cycle: '1년 도래시', desc: '-', price: '25,000' },
+                    { name: '에어컨 가스', cycle: '1년 도래시', desc: '부족할 시', price: '250,000' },
+                    { name: '타이어 위치 교환', cycle: '20,000km', desc: '타이어 로테이션 + 휠 밸런스', price: '100,000' },
+                    { name: '타이어 공기압 보충', cycle: '매 점검시', desc: '-', price: '-' },
+                    { name: '타이어 교체', cycle: '50,000~70,000km', desc: '타이어*마모 한계선 도래 시 교체', price: '600,000' },
+                    { name: '연료 필터', cycle: '40,000km', desc: '-', price: '60,000' },
+                    { name: '앞 브레이크 패드 / 라이닝', cycle: '40,000km 또는 마모 시', desc: '앞 디스크 브레이크 패드', price: '150,000' },
+                    { name: '뒤 브레이크 패드 / 라이닝', cycle: '70,000km 또는 마모 시', desc: '뒤 브레이크 라이닝', price: '150,000' },
+                    { name: '오일류', cycle: '50,000~60,000km', desc: '변속기/브레이크/파워오일', price: '150,000' },
+                    { name: '밸브류', cycle: '50,000km', desc: '에어컨/파워/팬 벨트', price: '200,000' },
+                    { name: '전구류', cycle: '필요시', desc: '라이트/안개', price: '50,000' },
+                    { name: '베터리', cycle: '80,000~100,000km', desc: '베터리', price: '200,000' },
+                    { name: '점화플러그', cycle: '일반 40,000km / 백금 100,000km', desc: '점화 플러그, 배선', price: '50,000' },
+                    { name: '타이밍벨트/워터펌프', cycle: '80,000~90,000km', desc: '타이밍 벨트 세트', price: '267,450' },
+                    { name: '부동액', cycle: '100,000km 또는 필요시', desc: '부동액', price: '50,000' },
+                    { name: '기타 보충', cycle: '수시', desc: '-', price: '2,542,450' }
+                  ].map((row, idx) => (
+                    <tr 
+                      key={idx} 
+                      style={{ 
+                        borderBottom: '1px solid var(--border-color)',
+                        background: idx % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.01)'
+                      }}
+                    >
+                      <td style={{ padding: '0.65rem 1rem', fontWeight: '700', borderRight: '1px solid var(--border-color)', color: 'var(--text-main)' }}>{row.name}</td>
+                      <td style={{ padding: '0.65rem 1rem', borderRight: '1px solid var(--border-color)', color: '#444' }}>{row.cycle}</td>
+                      <td style={{ padding: '0.65rem 1rem', borderRight: '1px solid var(--border-color)', color: '#444' }}>{row.desc}</td>
+                      <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontWeight: '700', color: row.price === '-' ? '#999' : 'var(--text-bright)' }}>{row.price}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* 모달 푸터 */}
+            <div style={{
+              padding: '1rem 1.5rem',
+              borderTop: '1px solid var(--border-color)',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              background: 'var(--bg-main)'
+            }}>
+              <button 
+                type="button" 
+                onClick={() => setIsMaintenanceDetailModalOpen(false)}
+                style={{
+                  background: 'var(--primary)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '0.5rem 1.2rem',
+                  fontSize: '0.85rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                }}
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

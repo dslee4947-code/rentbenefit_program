@@ -35,6 +35,27 @@ const getVehicleColor = (index) => {
   return VEHICLE_COLORS[index % VEHICLE_COLORS.length];
 };
 
+const defaultMaintenanceItems = [
+  { name: '엔진오일', cycle: '7,000~8,000km', desc: '오일필터+에어 클리너', price: 200000, checked: true },
+  { name: '에어컨 향균필터', cycle: '15,000~20,000km 또는 1년 도래시', desc: '향균필터', price: 40000, checked: true },
+  { name: '와이퍼', cycle: '1년 도래시', desc: '-', price: 25000, checked: true },
+  { name: '에어컨 가스', cycle: '1년 도래시', desc: '부족할 시', price: 250000, checked: true },
+  { name: '타이어 위치 교환', cycle: '20,000km', desc: '타이어 로테이션 + 휠 밸런스', price: 100000, checked: true },
+  { name: '타이어 공기압 보충', cycle: '매 점검시', desc: '-', price: 0, checked: true },
+  { name: '타이어 교체', cycle: '50,000~70,000km', desc: '타이어*마모 한계선 도래 시 교체', price: 600000, checked: true },
+  { name: '연료 필터', cycle: '40,000km', desc: '-', price: 60000, checked: true },
+  { name: '앞 브레이크 패드 / 라이닝', cycle: '40,000km 또는 마모 시', desc: '앞 디스크 브레이크 패드', price: 150000, checked: true },
+  { name: '뒤 브레이크 패드 / 라이닝', cycle: '70,000km 또는 마모 시', desc: '뒤 브레이크 라이닝', price: 150000, checked: true },
+  { name: '오일류', cycle: '50,000~60,000km', desc: '변속기/브레이크/파워오일', price: 150000, checked: true },
+  { name: '밸브류', cycle: '50,000km', desc: '에어컨/파워/팬 벨트', price: 200000, checked: true },
+  { name: '전구류', cycle: '필요시', desc: '라이트/안개', price: 50000, checked: true },
+  { name: '베터리', cycle: '80,000~100,000km', desc: '베터리', price: 200000, checked: true },
+  { name: '점화플러그', cycle: '일반 40,000km / 백금 100,000km', desc: '점화 플러그, 배선', price: 50000, checked: true },
+  { name: '타이밍벨트/워터펌프', cycle: '80,000~90,000km', desc: '타이밍 벨트 세트', price: 267450, checked: true },
+  { name: '부동액', cycle: '100,000km 또는 필요시', desc: '부동액', price: 50000, checked: true },
+  { name: '기타 보충', cycle: '수시', desc: '-', price: 0, checked: true }
+];
+
 function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
   const [customers, setCustomers] = useState([]);
   const [useExistingCustomer, setUseExistingCustomer] = useState(true);
@@ -84,6 +105,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
     globalRegistrationAgencyFee: 100000,
     isPandanbiEnabled: true,
     isMaintenanceEnabled: true,
+    maintenanceItems: null,
     
     // Options specific to this vehicle comparison
     options: [
@@ -137,6 +159,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
   const [createdBy, setCreatedBy] = useState('이두식');
   const [printFormType, setPrintFormType] = useState('comparison'); // 'comparison' or 'rental'
   const [isMaintenanceDetailModalOpen, setIsMaintenanceDetailModalOpen] = useState(false);
+  const [subView, setSubView] = useState('quote'); // 'quote' or 'maintenance'
+  const [tempMaintenanceItems, setTempMaintenanceItems] = useState([]);
+  const [tempMonthlyMaintenanceFee, setTempMonthlyMaintenanceFee] = useState(0);
 
   const activeVehicle = vehicles.find(v => v.id === selectedVehicleId) || vehicles[0];
 
@@ -734,6 +759,203 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
     }
   });
 
+
+  const renderMaintenancePage = () => {
+    const items = tempMaintenanceItems.length > 0 ? tempMaintenanceItems : defaultMaintenanceItems;
+    
+    // Calculate total sum of checked items
+    const totalSum = items
+      .filter(item => item.checked)
+      .reduce((sum, item) => sum + (item.price || 0), 0);
+      
+    const termMonths = selectedOpt ? selectedOpt.termYears * 12 : 48;
+    const calculatedMonthly = Math.round(totalSum / termMonths);
+
+    const updateTempItem = (index, fields) => {
+      setTempMaintenanceItems(prev => prev.map((item, idx) => idx === index ? { ...item, ...fields } : item));
+    };
+
+    return (
+      <div style={{ background: 'var(--bg-surface)', padding: '2rem', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        {/* Header Title Area */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: '800', color: 'var(--text-bright)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              🛠️ 정비 항목별 교환주기 및 단가 조정
+            </h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.2rem' }}>
+              차량 {vehicles.findIndex(v => v.id === selectedVehicleId) + 1} ({activeVehicle.carModel || '차종 미지정'})의 정비 세부 항목을 선택하고 개별 단가를 직접 조정합니다.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: '0.6rem' }}>
+            <button
+              type="button"
+              onClick={() => {
+                // Apply the calculated (or edited) monthly fee and save the items list to the active vehicle
+                const finalMonthlyFee = tempMonthlyMaintenanceFee === 0 || tempMonthlyMaintenanceFee === calculatedMonthly ? calculatedMonthly : tempMonthlyMaintenanceFee;
+                updateActiveVehicle({
+                  maintenanceItems: items,
+                  monthlyMaintenanceFee: finalMonthlyFee
+                });
+                setSubView('quote');
+                showToast('정비 상세 내역과 월 정비비가 견적서에 적용되었습니다.', 'success');
+              }}
+              style={{
+                background: 'var(--primary)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '0.5rem 1.2rem',
+                fontSize: '0.88rem',
+                fontWeight: '700',
+                cursor: 'pointer',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+              }}
+            >
+              적용 및 돌아가기
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSubView('quote');
+              }}
+              style={{
+                background: 'var(--bg-main)',
+                color: 'var(--text-main)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '6px',
+                padding: '0.5rem 1.2rem',
+                fontSize: '0.88rem',
+                fontWeight: '700',
+                cursor: 'pointer'
+              }}
+            >
+              돌아가기
+            </button>
+          </div>
+        </div>
+
+        {/* Summary Card and Controls */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.2rem', background: 'var(--bg-main)', padding: '1.2rem 1.5rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+          <div>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: '600' }}>선택 항목 합계 (총 정비 원가)</span>
+            <h3 style={{ margin: '0.2rem 0 0 0', fontSize: '1.5rem', fontWeight: '800', color: 'var(--text-bright)' }}>
+              {toCommaString(totalSum)} 원
+            </h3>
+          </div>
+          <div>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: '600' }}>나누는 계약 기간</span>
+            <h3 style={{ margin: '0.2rem 0 0 0', fontSize: '1.5rem', fontWeight: '800', color: '#fa8c16' }}>
+              {termMonths} 개월 ({selectedOpt?.name || '1안'} 기준)
+            </h3>
+          </div>
+          <div>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: '600' }}>계산된 월 정비비</span>
+            <h3 style={{ margin: '0.2rem 0 0 0', fontSize: '1.5rem', fontWeight: '800', color: 'var(--primary)' }}>
+              {toCommaString(calculatedMonthly)} 원 / 월
+            </h3>
+          </div>
+          <div>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>최종 적용 월 정비비 (원)</span>
+            <input 
+              type="text"
+              value={toCommaString(tempMonthlyMaintenanceFee === 0 ? calculatedMonthly : tempMonthlyMaintenanceFee)}
+              onChange={(e) => {
+                setTempMonthlyMaintenanceFee(parseNumber(e.target.value));
+              }}
+              style={{
+                width: '100%',
+                padding: '0.4rem 0.6rem',
+                border: '1px solid var(--border-color)',
+                borderRadius: '6px',
+                fontSize: '1rem',
+                fontWeight: '700',
+                color: 'var(--text-bright)',
+                background: '#fff'
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Consumables Table */}
+        <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+            <thead>
+              <tr style={{ background: 'var(--bg-main)', borderBottom: '2px solid var(--border-color)' }}>
+                <th style={{ padding: '0.8rem 1rem', width: '8%', textAlign: 'center', borderRight: '1px solid var(--border-color)' }}>
+                  <input 
+                    type="checkbox"
+                    checked={items.every(item => item.checked)}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setTempMaintenanceItems(prev => prev.map(item => ({ ...item, checked })));
+                    }}
+                    style={{ transform: 'scale(1.15)', cursor: 'pointer' }}
+                  />
+                </th>
+                <th style={{ padding: '0.8rem 1rem', fontWeight: '700', color: 'var(--text-bright)', borderRight: '1px solid var(--border-color)', textAlign: 'left', width: '22%' }}>소모품</th>
+                <th style={{ padding: '0.8rem 1rem', fontWeight: '700', color: 'var(--text-bright)', borderRight: '1px solid var(--border-color)', textAlign: 'left', width: '30%' }}>교환주기</th>
+                <th style={{ padding: '0.8rem 1rem', fontWeight: '700', color: 'var(--text-bright)', borderRight: '1px solid var(--border-color)', textAlign: 'left', width: '25%' }}>부품내역</th>
+                <th style={{ padding: '0.8rem 1rem', fontWeight: '700', color: 'var(--text-bright)', textAlign: 'right', width: '15%' }}>금액 (원)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((row, idx) => (
+                <tr 
+                  key={idx} 
+                  style={{ 
+                    borderBottom: '1px solid var(--border-color)',
+                    background: row.checked ? 'transparent' : 'rgba(0,0,0,0.02)',
+                    transition: 'background 0.2s'
+                  }}
+                >
+                  <td style={{ padding: '0.65rem 1rem', textAlign: 'center', borderRight: '1px solid var(--border-color)' }}>
+                    <input 
+                      type="checkbox"
+                      checked={row.checked}
+                      onChange={(e) => {
+                        updateTempItem(idx, { checked: e.target.checked });
+                      }}
+                      style={{ transform: 'scale(1.15)', cursor: 'pointer' }}
+                    />
+                  </td>
+                  <td style={{ padding: '0.65rem 1rem', fontWeight: '700', borderRight: '1px solid var(--border-color)', color: row.checked ? 'var(--text-main)' : 'var(--text-muted)' }}>{row.name}</td>
+                  <td style={{ padding: '0.65rem 1rem', borderRight: '1px solid var(--border-color)', color: row.checked ? '#444' : 'var(--text-muted)' }}>{row.cycle}</td>
+                  <td style={{ padding: '0.65rem 1rem', borderRight: '1px solid var(--border-color)', color: row.checked ? '#444' : 'var(--text-muted)' }}>{row.desc}</td>
+                  <td style={{ padding: '0.4rem 1rem', textAlign: 'right' }}>
+                    <input 
+                      type="text"
+                      disabled={!row.checked}
+                      value={toCommaString(row.price)}
+                      onChange={(e) => {
+                        updateTempItem(idx, { price: parseNumber(e.target.value) });
+                      }}
+                      style={{
+                        padding: '0.3rem 0.5rem',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '4px',
+                        fontSize: '0.85rem',
+                        fontWeight: '700',
+                        textAlign: 'right',
+                        width: '120px',
+                        background: row.checked ? '#fff' : '#f5f5f5',
+                        color: row.checked ? 'var(--text-bright)' : '#999'
+                      }}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  if (subView === 'maintenance') {
+    return renderMaintenancePage();
+  }
+
   const getCellStyles = (idx, isEvenRow = false, extraStyles = {}) => {
     return {
       background: isEvenRow ? '#f9f8f6' : '#ffffff',
@@ -1229,7 +1451,12 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
             </h4>
             <button 
               type="button"
-              onClick={() => setIsMaintenanceDetailModalOpen(true)}
+              onClick={() => {
+                const items = activeVehicle.maintenanceItems || defaultMaintenanceItems;
+                setTempMaintenanceItems(items.map(item => ({ ...item })));
+                setTempMonthlyMaintenanceFee(activeVehicle.monthlyMaintenanceFee || 0);
+                setSubView('maintenance');
+              }}
               style={{
                 background: 'var(--primary-glow)',
                 color: 'var(--primary)',
@@ -2855,148 +3082,6 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
           </div>
         )}
       </div>
-
-      {/* 정비 상세내역 모달 */}
-      {isMaintenanceDetailModalOpen && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.6)',
-          zIndex: 1000,
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          backdropFilter: 'blur(4px)'
-        }}>
-          <div style={{
-            background: 'var(--bg-surface)',
-            borderRadius: '12px',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.25)',
-            width: '90%',
-            maxWidth: '850px',
-            maxHeight: '85vh',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            border: '1px solid var(--border-color)'
-          }}>
-            {/* 모달 헤더 */}
-            <div style={{
-              padding: '1.2rem 1.5rem',
-              borderBottom: '1px solid var(--border-color)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              background: 'var(--bg-main)'
-            }}>
-              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '800', color: 'var(--text-bright)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                📋 정비 항목별 교환주기 및 금액 상세내역
-              </h3>
-              <button 
-                type="button" 
-                onClick={() => setIsMaintenanceDetailModalOpen(false)}
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  color: 'var(--text-muted)',
-                  fontSize: '1.2rem',
-                  fontWeight: '700',
-                  cursor: 'pointer',
-                  padding: '0.2rem 0.5rem',
-                  borderRadius: '4px',
-                  lineHeight: 1
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-bright)'}
-                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* 모달 바디 (스크롤 가능한 테이블) */}
-            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1 }}>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.8rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                * SDI Benefit 정비 서비스 가입 시 제공 기준 표준 테이블 단가입니다.
-              </div>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', border: '1px solid var(--border-color)' }}>
-                <thead>
-                  <tr style={{ background: 'var(--bg-main)', borderBottom: '2px solid var(--border-color)' }}>
-                    <th style={{ padding: '0.75rem 1rem', fontWeight: '700', color: 'var(--text-bright)', borderRight: '1px solid var(--border-color)', textAlign: 'left', width: '22%' }}>소모품</th>
-                    <th style={{ padding: '0.75rem 1rem', fontWeight: '700', color: 'var(--text-bright)', borderRight: '1px solid var(--border-color)', textAlign: 'left', width: '33%' }}>교환주기</th>
-                    <th style={{ padding: '0.75rem 1rem', fontWeight: '700', color: 'var(--text-bright)', borderRight: '1px solid var(--border-color)', textAlign: 'left', width: '25%' }}>부품내역</th>
-                    <th style={{ padding: '0.75rem 1rem', fontWeight: '700', color: 'var(--text-bright)', textAlign: 'right', width: '20%' }}>금액 (원)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    { name: '엔진오일', cycle: '7,000~8,000km', desc: '오일필터+에어 클리너', price: '200,000' },
-                    { name: '에어컨 향균필터', cycle: '15,000~20,000km 또는 1년 도래시', desc: '향균필터', price: '40,000' },
-                    { name: '와이퍼', cycle: '1년 도래시', desc: '-', price: '25,000' },
-                    { name: '에어컨 가스', cycle: '1년 도래시', desc: '부족할 시', price: '250,000' },
-                    { name: '타이어 위치 교환', cycle: '20,000km', desc: '타이어 로테이션 + 휠 밸런스', price: '100,000' },
-                    { name: '타이어 공기압 보충', cycle: '매 점검시', desc: '-', price: '-' },
-                    { name: '타이어 교체', cycle: '50,000~70,000km', desc: '타이어*마모 한계선 도래 시 교체', price: '600,000' },
-                    { name: '연료 필터', cycle: '40,000km', desc: '-', price: '60,000' },
-                    { name: '앞 브레이크 패드 / 라이닝', cycle: '40,000km 또는 마모 시', desc: '앞 디스크 브레이크 패드', price: '150,000' },
-                    { name: '뒤 브레이크 패드 / 라이닝', cycle: '70,000km 또는 마모 시', desc: '뒤 브레이크 라이닝', price: '150,000' },
-                    { name: '오일류', cycle: '50,000~60,000km', desc: '변속기/브레이크/파워오일', price: '150,000' },
-                    { name: '밸브류', cycle: '50,000km', desc: '에어컨/파워/팬 벨트', price: '200,000' },
-                    { name: '전구류', cycle: '필요시', desc: '라이트/안개', price: '50,000' },
-                    { name: '베터리', cycle: '80,000~100,000km', desc: '베터리', price: '200,000' },
-                    { name: '점화플러그', cycle: '일반 40,000km / 백금 100,000km', desc: '점화 플러그, 배선', price: '50,000' },
-                    { name: '타이밍벨트/워터펌프', cycle: '80,000~90,000km', desc: '타이밍 벨트 세트', price: '267,450' },
-                    { name: '부동액', cycle: '100,000km 또는 필요시', desc: '부동액', price: '50,000' },
-                    { name: '기타 보충', cycle: '수시', desc: '-', price: '2,542,450' }
-                  ].map((row, idx) => (
-                    <tr 
-                      key={idx} 
-                      style={{ 
-                        borderBottom: '1px solid var(--border-color)',
-                        background: idx % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.01)'
-                      }}
-                    >
-                      <td style={{ padding: '0.65rem 1rem', fontWeight: '700', borderRight: '1px solid var(--border-color)', color: 'var(--text-main)' }}>{row.name}</td>
-                      <td style={{ padding: '0.65rem 1rem', borderRight: '1px solid var(--border-color)', color: '#444' }}>{row.cycle}</td>
-                      <td style={{ padding: '0.65rem 1rem', borderRight: '1px solid var(--border-color)', color: '#444' }}>{row.desc}</td>
-                      <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontWeight: '700', color: row.price === '-' ? '#999' : 'var(--text-bright)' }}>{row.price}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* 모달 푸터 */}
-            <div style={{
-              padding: '1rem 1.5rem',
-              borderTop: '1px solid var(--border-color)',
-              display: 'flex',
-              justifyContent: 'flex-end',
-              background: 'var(--bg-main)'
-            }}>
-              <button 
-                type="button" 
-                onClick={() => setIsMaintenanceDetailModalOpen(false)}
-                style={{
-                  background: 'var(--primary)',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  padding: '0.5rem 1.2rem',
-                  fontSize: '0.85rem',
-                  fontWeight: '700',
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                }}
-              >
-                닫기
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

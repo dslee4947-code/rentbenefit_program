@@ -198,6 +198,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
         discountRate: 0.00,
         maintenancePlan: '가입',
         insuranceFeeAnnual: 800000,
+        insuranceType: 'standard',
         registrationAgencyFee: 100000,
         calcMode: 'manual',
         monthlyFeeInput: id === 1 ? 996000 : 0,
@@ -218,6 +219,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
         discountRate: 0.00,
         maintenancePlan: '가입',
         insuranceFeeAnnual: 800000,
+        insuranceType: 'standard',
         registrationAgencyFee: 100000,
         calcMode: 'manual',
         monthlyFeeInput: 0,
@@ -304,6 +306,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
       discountRate: 0.00,
       maintenancePlan: '가입',
       insuranceFeeAnnual: 800000,
+      insuranceType: 'standard',
       registrationAgencyFee: 100000,
       calcMode: 'manual',
       monthlyFeeInput: 0,
@@ -1733,6 +1736,19 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
               </select>
             </div>
             <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>보험 등급</label>
+              <select
+                value={selectedOpt?.insuranceType || 'standard'}
+                onChange={(e) => {
+                  updateActiveVehicleOption(selectedOpt.id, { insuranceType: e.target.value });
+                }}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }}
+              >
+                <option value="standard">일반형</option>
+                <option value="premium">고급형</option>
+              </select>
+            </div>
+            <div>
               <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>보험 (원)</label>
               <input 
                 type="text" 
@@ -2025,6 +2041,19 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                         onKeyDown={handleKeyDown}
                         style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px' }} 
                       />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>보험 등급</label>
+                      <select
+                        value={opt.insuranceType || 'standard'}
+                        onChange={(e) => {
+                          updateActiveVehicleOption(opt.id, { insuranceType: e.target.value });
+                        }}
+                        style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px', background: '#fff', color: '#333' }}
+                      >
+                        <option value="standard">일반형</option>
+                        <option value="premium">고급형</option>
+                      </select>
                     </div>
                     <div>
                       <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>기간 (년수)</label>
@@ -3158,15 +3187,21 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast }) {
                     </tr>
                     <tr>
                       <td style={{ background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>대 물</td>
-                      <td colSpan={3} style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>2 억 원</td>
+                      <td colSpan={3} style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>
+                        {firstOption?.opt.insuranceType === 'premium' ? '5 억 원' : '2 억 원'}
+                      </td>
                     </tr>
                     <tr>
                       <td style={{ background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>자 기 신 체</td>
-                      <td colSpan={3} style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>사상 1억 / 부상 1500만</td>
+                      <td colSpan={3} style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>
+                        {firstOption?.opt.insuranceType === 'premium' ? '사상 2억 / 부상 3000만' : '사상 1억 / 부상 1500만'}
+                      </td>
                     </tr>
                     <tr>
                       <td style={{ background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>자기부담금(CMD)</td>
-                      <td colSpan={3} style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>30만원</td>
+                      <td colSpan={3} style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>
+                        {firstOption?.opt.insuranceType === 'premium' ? '50만원' : '30만원'}
+                      </td>
                     </tr>
                     <tr>
                       <td style={{ background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>무보험차상해</td>

@@ -518,7 +518,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <div style={{ fontWeight: '700', fontSize: '0.78rem', color: '#d81b60', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
               <MapPin size={13} />
-              <span>주소</span>
+              <span>주소 정보</span>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: '0.5rem' }}>
@@ -532,7 +532,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
                 />
               </div>
               <div>
-                <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>주소 (B)</label>
+                <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>대표 주소 (B)</label>
                 <input
                   type="text"
                   value={formData.address}
@@ -540,6 +540,26 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
                   style={inputStyle}
                 />
               </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>근무처 주소 (Business Address)</label>
+              <input
+                type="text"
+                value={formData.businessAddress}
+                onChange={e => handleChange('businessAddress', e.target.value)}
+                style={inputStyle}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>집 주소 (Home Address)</label>
+              <input
+                type="text"
+                value={formData.homeAddress}
+                onChange={e => handleChange('homeAddress', e.target.value)}
+                style={inputStyle}
+              />
             </div>
           </div>
         </div>
@@ -629,9 +649,21 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
                   </div>
                 )}
 
-                {formData.address && (
+                {formData.businessAddress && (
+                  <div style={{ fontSize: '0.72rem', color: '#606266', display: 'flex', alignItems: 'flex-start', gap: '0.3rem', marginTop: '0.1rem' }}>
+                    <MapPin size={12} style={{ color: '#0078d4', flexShrink: 0, marginTop: '2px' }} />
+                    <span><strong>근무처:</strong> {formData.businessAddress}</span>
+                  </div>
+                )}
+                {formData.homeAddress && (
                   <div style={{ fontSize: '0.72rem', color: '#606266', display: 'flex', alignItems: 'flex-start', gap: '0.3rem', marginTop: '0.1rem' }}>
                     <MapPin size={12} style={{ color: '#d81b60', flexShrink: 0, marginTop: '2px' }} />
+                    <span><strong>집:</strong> {formData.homeAddress}</span>
+                  </div>
+                )}
+                {!formData.businessAddress && !formData.homeAddress && formData.address && (
+                  <div style={{ fontSize: '0.72rem', color: '#606266', display: 'flex', alignItems: 'flex-start', gap: '0.3rem', marginTop: '0.1rem' }}>
+                    <MapPin size={12} style={{ color: '#78909c', flexShrink: 0, marginTop: '2px' }} />
                     <span>{formData.address}</span>
                   </div>
                 )}

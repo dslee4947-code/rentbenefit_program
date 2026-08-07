@@ -143,6 +143,24 @@ export const updateCustomer = async (req, res) => {
       customer.bizNoTransfer = req.body.bizNoTransfer !== undefined ? req.body.bizNoTransfer : customer.bizNoTransfer;
       customer.bizAddress = req.body.bizAddress !== undefined ? req.body.bizAddress : customer.bizAddress;
 
+      // Outlook Detailed Fields
+      if (req.body.surname !== undefined) customer.surname = req.body.surname;
+      if (req.body.givenName !== undefined) customer.givenName = req.body.givenName;
+      if (req.body.companyName !== undefined) customer.companyName = req.body.companyName;
+      if (req.body.department !== undefined) customer.department = req.body.department;
+      if (req.body.jobTitle !== undefined) customer.jobTitle = req.body.jobTitle;
+      if (req.body.displayName !== undefined) customer.displayName = req.body.displayName;
+      if (req.body.mobilePhone !== undefined) customer.mobilePhone = req.body.mobilePhone;
+      if (req.body.businessPhone !== undefined) customer.businessPhone = req.body.businessPhone;
+      if (req.body.homePhone !== undefined) customer.homePhone = req.body.homePhone;
+      if (req.body.faxNumber !== undefined) customer.faxNumber = req.body.faxNumber;
+      if (req.body.webPage !== undefined) customer.webPage = req.body.webPage;
+      if (req.body.postalCode !== undefined) customer.postalCode = req.body.postalCode;
+      if (req.body.businessAddress !== undefined) customer.businessAddress = req.body.businessAddress;
+      if (req.body.homeAddress !== undefined) customer.homeAddress = req.body.homeAddress;
+      if (req.body.notes !== undefined) customer.notes = req.body.notes;
+      if (req.body.outlookCategory !== undefined) customer.outlookCategory = req.body.outlookCategory;
+
       const updatedCustomer = await customer.save();
       res.json(updatedCustomer);
     } else {

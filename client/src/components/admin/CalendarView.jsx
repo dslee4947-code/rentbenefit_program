@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Calendar, User, Info, DollarSign } from 'lucide-react';
 
-const API_HOST = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+const API_HOST = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
 
 function CalendarView({ showToast, currentUser }) {
   const [currentDate, setCurrentDate] = useState(new Date());

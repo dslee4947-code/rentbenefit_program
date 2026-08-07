@@ -12,3 +12,5 @@ Thumbs.db
 # Agent/IDE files
 .gemini/
 .agents/
+.omc/
+

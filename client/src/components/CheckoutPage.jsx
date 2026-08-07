@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, CreditCard, Building2, Landmark, MapPin, User, Phone, Mail, FileText, CheckCircle, Car, Calendar, ShieldCheck } from 'lucide-react';
 
-const API_HOST = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+const API_HOST = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
 function CheckoutPage({ cart, cartTotal, currentUser, onBack, showToast, onOrderComplete }) {
   const [form, setForm] = useState({
     name: currentUser?.name || '',

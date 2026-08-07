@@ -238,7 +238,7 @@ function VehicleManagementView({ showToast, currentUser }) {
   const [hoveredCard, setHoveredCard] = useState(null);
   const [limit, setLimit] = useState(10000);
 
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
 
   useEffect(() => {
     const timer = setTimeout(() => {

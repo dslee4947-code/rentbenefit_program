@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Phone, MapPin, User, FileText, CheckCircle, Clock, XCircle, CreditCard, ShoppingBag, ChevronDown, ChevronUp, Info } from 'lucide-react';
 
-const API_HOST = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+const API_HOST = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
 const API_ORDERS_URL = `${API_HOST}/api/orders`;
 
 function MyOrdersView({ currentUser, showToast, setView, onOrderCancelled }) {

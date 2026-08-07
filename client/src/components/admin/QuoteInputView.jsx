@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Sparkles, Save, ArrowRight, UserPlus, Users, Car, Coins, Settings, HelpCircle, CheckCircle, Plus, Trash2 } from 'lucide-react';
+import html2pdf from 'html2pdf.js';
 
-const API_HOST = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+const API_HOST = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
 
 // Financial PMT Function (matching Excel PMT)
 function PMT(rate, nper, pv) {
@@ -236,6 +237,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
   const [activeInputValue, setActiveInputValue] = useState(''); // temporary input string
   const [createdBy, setCreatedBy] = useState('이두식');
   const [printFormType, setPrintFormType] = useState('comparison'); // 'comparison' or 'rental'
+  const [savingToStore, setSavingToStore] = useState(false);
   const [isMaintenanceDetailModalOpen, setIsMaintenanceDetailModalOpen] = useState(false);
   const [subView, setSubView] = useState('quote'); // 'quote' or 'maintenance'
   const [tempMaintenanceItems, setTempMaintenanceItems] = useState([]);
@@ -874,6 +876,66 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
     }
   });
 
+  // 1안~4안은 세로(A4 portrait), 5안 이상은 가로(A4 landscape)로 1페이지에 맞춰 인쇄
+  const isComparisonLandscape = printFormType === 'comparison' && displaySelectedOptions.length >= 5;
+
+  // 현재 화면의 견적서를 PDF로 만들어 회사 SharePoint 문서함(RENT 사업부)에 저장
+  const handleSaveToDocumentStore = async () => {
+    const element = document.getElementById('print-comparison-area');
+    if (!element) return;
+
+    setSavingToStore(true);
+    try {
+      const docTypeLabel = printFormType === 'comparison' ? '비교견적서' : '견적서';
+      const customerLabel = (selectedCustomer?.companyName || displayCustomerName || '미지정고객').trim();
+      const fileName = `${docTypeLabel}_${customerLabel}_${todayDateStr}.pdf`;
+
+      const pdfBlob = await html2pdf()
+        .set({
+          margin: 5,
+          filename: fileName,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: {
+            scale: 2,
+            useCORS: true,
+            // 화면에만 보이는 탭 전환 버튼 등(.no-print)은 캡처에서 제외
+            ignoreElements: (el) => el.classList && el.classList.contains('no-print')
+          },
+          jsPDF: {
+            unit: 'mm',
+            format: 'a4',
+            orientation: isComparisonLandscape ? 'landscape' : 'portrait'
+          }
+        })
+        .from(element)
+        .outputPdf('blob');
+
+      const formData = new FormData();
+      formData.append('file', pdfBlob, fileName);
+      formData.append('businessLine', 'rental'); // 렌터카 계약 관련 문서 -> RENT 계정 SharePoint 폴더
+      formData.append('customerName', customerLabel);
+      formData.append('docType', docTypeLabel);
+      formData.append('fileName', fileName);
+
+      const res = await fetch(`${API_HOST}/api/documents/upload`, {
+        method: 'POST',
+        headers: { 'X-User-Role': currentUser?.role || 'viewer' },
+        body: formData
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        showToast('문서함에 저장되었습니다.', 'success');
+      } else {
+        showToast(data.message || '문서함 저장에 실패했습니다.', 'error');
+      }
+    } catch (err) {
+      console.error('Save to document store error:', err);
+      showToast('PDF 생성 또는 저장 중 오류가 발생했습니다.', 'error');
+    } finally {
+      setSavingToStore(false);
+    }
+  };
 
   const renderMaintenancePage = () => {
     // Determine dynamic tire count and cost for selected option
@@ -2469,7 +2531,21 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
           </div>
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={() => {
+              // 브라우저 인쇄 헤더(문서 제목)를 "RENT BENefit | 프리미엄 렌터카" 대신
+              // 이 견적서를 식별하기 좋은 제목으로 잠시 바꿔서 인쇄한다.
+              const originalTitle = document.title;
+              const printTitle = printFormType === 'comparison'
+                ? `차량 조건비교표_${displayCustomerName}_${todayDateStr}`
+                : `장기렌터카 견적서_${displayCustomerName}_${todayDateStr}`;
+              document.title = printTitle;
+              const restoreTitle = () => {
+                document.title = originalTitle;
+                window.removeEventListener('afterprint', restoreTitle);
+              };
+              window.addEventListener('afterprint', restoreTitle);
+              window.print();
+            }}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -2486,6 +2562,28 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             }}
           >
             인쇄하기 / PDF 다운로드
+          </button>
+          <button
+            type="button"
+            onClick={handleSaveToDocumentStore}
+            disabled={savingToStore}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              background: savingToStore ? '#94a3b8' : '#107c41',
+              color: '#fff',
+              border: 'none',
+              padding: '0.6rem 1.2rem',
+              borderRadius: '8px',
+              fontWeight: '700',
+              cursor: savingToStore ? 'not-allowed' : 'pointer',
+              boxShadow: '0 4px 12px rgba(16,124,65,0.25)',
+              transition: 'var(--transition-smooth)',
+              marginLeft: '0.6rem'
+            }}
+          >
+            {savingToStore ? '문서함에 저장 중...' : '📁 문서함에 저장'}
           </button>
         </div>
 
@@ -2565,8 +2663,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
           /* Print Overrides */
           @media print {
             @page {
-              size: A4 portrait;
-              margin: 8mm 8mm 8mm 8mm !important;
+              size: A4 ${printFormType === 'comparison' && isComparisonLandscape ? 'landscape' : 'portrait'};
+              margin: 0 !important; /* 브라우저 기본 헤더/푸터 강제 제거 */
             }
             body {
               background: #fff !important;
@@ -2575,13 +2673,14 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
               padding: 0 !important;
             }
             /* Hide dashboard components during print */
-            aside, header, nav, footer, button, .no-print {
+            aside, header, nav, footer, button, .no-print,
+            body .desktop-sidebar, body .mobile-header {
               display: none !important;
             }
             .quote-input-container > :not(.comparison-sheet-section) {
               display: none !important;
             }
-            main {
+            main, body .main-content, body .admin-container {
               padding: 0 !important;
               margin: 0 !important;
               overflow: visible !important;
@@ -2593,20 +2692,53 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
               width: 100% !important;
               border: none !important;
               box-shadow: none !important;
-              padding: 0 !important;
+              padding: 8mm !important; /* 마진 0 대응 본문 여백 추가 */
               margin: 0 !important;
               background: #fff !important;
+              box-sizing: border-box !important;
+            }
+            /* 1페이지 강제 고정을 위한 여백/폰트 축소 (5안 이상 가로 인쇄 시 더 컴팩트하게) */
+            .comparison-doc-header {
+              margin-top: 0 !important;
+              margin-bottom: ${isComparisonLandscape ? '0.4rem' : '0.8rem'} !important;
+              padding-bottom: ${isComparisonLandscape ? '0.3rem' : '0.4rem'} !important;
+              gap: 0.6rem !important;
+            }
+            .comparison-doc-logo {
+              height: ${isComparisonLandscape ? '22px' : '28px'} !important;
+            }
+            .comparison-doc-kicker {
+              font-size: 0.55rem !important;
+            }
+            .comparison-doc-title {
+              font-size: ${isComparisonLandscape ? '1.15rem' : '1.4rem'} !important;
+            }
+            .customer-info-bar {
+              margin-bottom: ${isComparisonLandscape ? '0.4rem' : '0.6rem'} !important;
+              font-size: 0.82rem !important;
+            }
+            .comparison-doc-footer {
+              margin-top: 0.5rem !important;
+              padding-top: 0.4rem !important;
+              font-size: 0.65rem !important;
+            }
+            .comparison-table-wrapper {
+              margin-top: 0 !important;
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
             }
             .comparison-table-modern {
               width: 100% !important;
               border-top: 3px solid #111e38 !important;
               border-bottom: 3px solid #111e38 !important;
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
             }
             .comparison-table-modern th, .comparison-table-modern td {
               border-bottom: 1px solid #e9e6e0 !important;
               border-right: 1px solid #ad885c !important;
-              padding: 10px 12px !important;
-              font-size: 10pt !important;
+              padding: ${isComparisonLandscape ? '5px 8px' : '7px 10px'} !important;
+              font-size: ${isComparisonLandscape ? '8pt' : '9.5pt'} !important;
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
             }
@@ -2617,6 +2749,16 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             .comparison-table-modern th {
               background-color: #111e38 !important;
               color: #fff !important;
+            }
+            .comparison-th-group, .comparison-th-corner {
+              padding: ${isComparisonLandscape ? '0.35rem 0.4rem' : '0.55rem 0.4rem'} !important;
+              font-size: ${isComparisonLandscape ? '8.5pt' : '10pt'} !important;
+            }
+            .comparison-th-option {
+              padding: ${isComparisonLandscape ? '0.35rem 0.4rem' : '0.5rem 0.4rem'} !important;
+            }
+            .comparison-th-option div {
+              margin-bottom: 0 !important;
             }
             .comparison-table-modern td.row-header {
               text-align: center !important;
@@ -2645,31 +2787,80 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
               display: inline !important;
             }
 
-            /* Print size optimizations for long-term rental quote sheet */
+            /* 장기렌터카 견적서 1페이지 강제 최적화 - 웹 뷰 느낌 그대로 꽉 차게 */
             .rental-print-area {
-              width: 100% !important;
               max-width: 100% !important;
-              padding: 0 !important;
-              margin: 0 auto !important;
-              font-size: 6.8pt !important;
-              line-height: 1.15 !important;
+              padding: 8mm 8mm 6mm 8mm !important; /* 실제 상하 여백 축소 */
+              margin: 0 !important;
+              font-size: 8.0pt !important; /* 8.2pt -> 8.0pt */
+              line-height: 1.20 !important; /* 줄간격 축소 */
+              display: flex !important;
+              flex-direction: column !important;
+              justify-content: space-between !important;
+              height: 280mm !important; /* 297mm -> 280mm 로 강제 지정하여 한 장 고정 */
+              box-sizing: border-box !important;
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+            }
+            .rental-print-area h2 {
+              font-size: 1.4rem !important; /* 타이틀 축소 */
+              margin-top: 0 !important;
+              margin-bottom: 0 !important;
             }
             .rental-print-area table {
-              width: 100% !important;
-              margin-bottom: 2px !important;
-              border-collapse: collapse !important;
+              font-size: 7.5pt !important; /* 테이블 글자 축소 */
             }
-            .rental-print-area td, .rental-print-area th {
-              padding: 2px 3px !important;
+            .rental-print-area th, .rental-print-area td {
+              padding: 2.2px 3.5px !important; /* 셀 패딩 축소 */
+            }
+            .rental-print-area .row-header {
+              font-size: 7.5pt !important;
+            }
+            /* 신용 정보 고지 박스 */
+            .rental-print-area div[style*="background: #fafafa"],
+            .rental-print-area div[style*="background: rgb(250, 250, 250)"] {
+              padding: 3px 8px !important;
               font-size: 6.5pt !important;
-              border: 1px solid #000 !important;
+              line-height: 1.25 !important;
             }
-            .rental-print-area tr {
-              height: auto !important;
+            /* 주의사항 박스 */
+            .rental-print-area div[style*="background: #fdfbfa"],
+            .rental-print-area div[style*="background: rgb(253, 251, 250)"] {
+              padding: 3px 8px !important;
+              font-size: 6.5pt !important;
+              line-height: 1.25 !important;
             }
-            .rental-print-area div {
-              margin-bottom: 1px !important;
-              line-height: 1.15 !important;
+            /* 대당 / 차량소비자가격 문구 */
+            .rental-print-area div[style*="font-size: 0.62rem"] {
+              font-size: 6.2pt !important;
+            }
+            /* 보험/대여조건/차량관리/특약사항 그리드 */
+            .rental-print-area div[style*="display: flex; gap: 1.2rem"],
+            .rental-print-area div[style*="display: flex; gap: 1.2rem; margin-bottom: 0.5rem"] {
+              gap: 0.6rem !important; /* 간격 축소 */
+            }
+            /* 메모 비고란/특약사항 높이 조절 */
+            .rental-print-area td[style*="height: 80px"] {
+              height: 40px !important; /* 비고란 높이 대폭 축소 */
+            }
+            /* 계약시 필요서류 박스 */
+            .rental-print-area div[style*="border: 1px solid rgb(0, 0, 0)"], 
+            .rental-print-area div[style*="border: 1px solid #000"] {
+              padding: 3px 8px !important;
+              font-size: 6.5pt !important;
+            }
+            /* 푸터(서명란) 마진 */
+            .rental-print-area div[style*="text-align: center; margin-top: 0.5rem"] span[style*="font-size: 1.1rem"] {
+              font-size: 1.05rem !important;
+            }
+            .rental-print-area div[style*="text-align: center; margin-top: 0.5rem"] span[style*="font-size: 1.0rem"] {
+              font-size: 0.95rem !important;
+            }
+            /* flex space 배치를 위해 불필요하게 겹치는 직계 마진 및 여백 상쇄 */
+            .rental-print-area > table,
+            .rental-print-area > div {
+              margin-top: 0 !important;
+              margin-bottom: 0 !important;
             }
           }
         `}} />
@@ -2677,15 +2868,18 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
         {/* PDF Layout Content */}
         {/* PDF Layout Content */}
         {printFormType === 'comparison' ? (
-          <div style={{ maxWidth: '900px', margin: '0 auto', background: '#fff', padding: '10px' }}>
+          <div style={{ maxWidth: isComparisonLandscape ? '100%' : '900px', margin: '0 auto', background: '#fff', padding: '10px' }}>
             {/* Document Title Header */}
-            <div style={{ textAlign: 'center', marginBottom: '2.5rem', marginTop: '0.5rem' }}>
-              <div style={{ color: '#ad885c', fontSize: '0.8rem', fontWeight: '800', letterSpacing: '3px', marginBottom: '0.4rem', textTransform: 'uppercase' }}>
-                Vehicle Condition Comparison
+            <div className="comparison-doc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isComparisonLandscape ? '0.8rem' : '1.5rem', marginTop: '0.3rem', borderBottom: '2px solid #ad885c', paddingBottom: '0.6rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '150px' }}>
+                <span style={{ fontSize: '1.1rem', fontWeight: '800', color: '#111e38' }}>(주)렌트베네핏</span>
               </div>
-              <h2 style={{ fontWeight: '800', fontSize: '2.2rem', color: '#111e38', margin: 0, letterSpacing: '1px', borderBottom: '2px solid #ad885c', paddingBottom: '1rem', display: 'inline-block', width: '100%' }}>
+              <h2 className="comparison-doc-title" style={{ fontWeight: '800', fontSize: '1.7rem', color: '#111e38', margin: 0, letterSpacing: '1px', flex: 1, textAlign: 'center' }}>
                 차량 조건비교표
               </h2>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '150px' }}>
+                <img src="http://www.sdibenefit.com/images/logo.png" alt="RENT BENefit" className="comparison-doc-logo" style={{ height: '32px', width: 'auto', objectFit: 'contain' }} />
+              </div>
             </div>
 
             {/* Customer & Date Info Bar */}
@@ -2729,17 +2923,18 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                 <thead>
                   {/* Row 1: Vehicle model colspans */}
                   <tr style={{ background: '#111e38', color: '#fff' }}>
-                    <th rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '15%', borderBottom: '1px solid #ad885c', textAlign: 'center', borderRight: '1px solid #ad885c' }}>구 분</th>
+                    <th className="comparison-th-corner" rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '15%', borderBottom: '1px solid #ad885c', textAlign: 'center', borderRight: '1px solid #ad885c' }}>구 분</th>
                     {vehicleColSpans.map((group, idx) => {
                       return (
-                        <th 
-                          key={idx} 
-                          colSpan={group.span} 
-                          style={{ 
-                            background: '#111e38', 
-                            color: '#fff', 
-                            fontWeight: '800', 
-                            fontSize: '1rem', 
+                        <th
+                          key={idx}
+                          colSpan={group.span}
+                          className="comparison-th-group"
+                          style={{
+                            background: '#111e38',
+                            color: '#fff',
+                            fontWeight: '800',
+                            fontSize: '1rem',
                             padding: '1.2rem 0.5rem',
                             borderBottom: '1px solid #ad885c',
                             borderRight: '1px solid #ad885c',
@@ -2751,21 +2946,22 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                         </th>
                       );
                     })}
-                    <th rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '15%', borderBottom: '1px solid #ad885c', textAlign: 'center' }}>비고</th>
+                    <th className="comparison-th-corner" rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '15%', borderBottom: '1px solid #ad885c', textAlign: 'center' }}>비고</th>
                   </tr>
                   {/* Row 2: Options descriptions */}
                   <tr style={{ background: '#111e38', color: '#fff' }}>
                     {displaySelectedOptions.map(({ opt }, idx) => {
                       return (
-                        <th 
-                          key={idx} 
-                          style={{ 
-                            background: '#111e38', 
-                            borderBottom: '1px solid #ad885c', 
+                        <th
+                          key={idx}
+                          className="comparison-th-option"
+                          style={{
+                            background: '#111e38',
+                            borderBottom: '1px solid #ad885c',
                             borderRight: '1px solid #ad885c',
-                            padding: '1rem 0.5rem', 
-                            fontSize: '0.8rem', 
-                            fontWeight: '700', 
+                            padding: '1rem 0.5rem',
+                            fontSize: '0.8rem',
+                            fontWeight: '700',
                             color: '#fff',
                             lineHeight: '1.5',
                             textAlign: 'center'
@@ -2988,19 +3184,20 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             </div>
           </div>
         ) : (
-          <div className="rental-print-area" style={{ maxWidth: '900px', margin: '0 auto', background: '#fff', padding: '10px 15px', color: '#000', fontFamily: 'sans-serif', fontSize: '0.76rem' }}>
+          <div className="rental-print-area" style={{ maxWidth: '900px', margin: '0 auto', background: '#fff', padding: '10px 15px', color: '#000', fontFamily: 'sans-serif', fontSize: '0.76rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxSizing: 'border-box' }}>
             {/* 1. Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.0rem', borderBottom: '2.5px double #000', paddingBottom: '0.5rem' }}>
-              <div style={{ fontSize: '1.0rem', fontWeight: '800', color: '#111e38', width: '130px' }}>(주)렌트베네핏</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', borderBottom: '2.5px double #000', paddingBottom: '0.6rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '150px' }}>
+                <span style={{ fontSize: '1.1rem', fontWeight: '800', color: '#111e38' }}>(주)렌트베네핏</span>
+              </div>
               <h2 style={{ fontSize: '1.8rem', fontWeight: '800', color: '#111e38', margin: 0, letterSpacing: '2px', flex: 1, textAlign: 'center' }}>장기렌터카 견적서</h2>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '130px' }}>
-                <img src="http://www.sdibenefit.com/images/logo.png" alt="RENT BENefit" style={{ maxWidth: '100px', height: 'auto' }} />
-                <span style={{ fontSize: '0.55rem', fontWeight: '800', color: '#ad885c', letterSpacing: '1px', marginTop: '1px' }}>RENT BENefit</span>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '150px' }}>
+                <img src="http://www.sdibenefit.com/images/logo.png" alt="RENT BENefit" style={{ maxWidth: '120px', height: 'auto' }} />
               </div>
             </div>
 
             {/* 2. Customer & Document Meta Info */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1.0rem', marginBottom: '0.6rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1.0rem', marginBottom: '0.3rem' }}>
               {/* 왼쪽 테이블: 고객 및 차량 정보 */}
               <table style={{ width: '50%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.74rem' }}>
                 <tbody>
@@ -3073,14 +3270,14 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             </div>
 
             {/* 3. Credit Information Notice */}
-            <div style={{ background: '#fafafa', border: '1px solid #adadad', padding: '4px 10px', fontSize: '0.68rem', color: '#333', marginBottom: '0.6rem', borderRadius: '4px', lineHeight: '1.3' }}>
+            <div style={{ background: '#fafafa', border: '1px solid #adadad', padding: '4px 10px', fontSize: '0.68rem', color: '#333', marginBottom: '0.3rem', borderRadius: '4px', lineHeight: '1.3' }}>
               <div style={{ fontWeight: '700', textAlign: 'center', marginBottom: '1px' }}>• 대출액 10억 이하인 경우 및 최근 1개년 재무제표 미제출시에 한함 •</div>
               <div>1. 기업의 신용도 판단 목적으로 대표자의 개인신용정보를 조회할 경우, 렌트베네핏은 해당 기업의 대표자에게 조회 사실 및 이유 등을 사전 고지하여야 합니다.</div>
               <div>2. 렌트베네핏에 장기 견적을 요청한 업무담당자께서는 귀사의 대표자에게 신용조회가 발생할 수 있음을 반드시 사전 보고해 주시기 바랍니다.</div>
             </div>
 
             {/* 4. Main Rental Details Table */}
-            <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.74rem', marginBottom: '0.2rem' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.74rem', marginBottom: '0.1rem' }}>
               <thead>
                 <tr style={{ background: '#dcdcdc', borderBottom: '1.5px solid #000' }}>
                   <th style={{ width: '6%', padding: '4px 2px', border: '1px solid #000', fontWeight: '700', textAlign: 'center' }}>구분</th>
@@ -3159,12 +3356,12 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
               </tbody>
             </table>
 
-            <div style={{ textAlign: 'right', fontSize: '0.62rem', color: '#555', marginBottom: '0.4rem', fontWeight: '600' }}>
+            <div style={{ textAlign: 'right', fontSize: '0.62rem', color: '#555', marginBottom: '0.2rem', fontWeight: '600' }}>
               대당 / 차량소비자가격 * 옵션 및 VAT포함 / 월대여료 : VAT포함
             </div>
 
             {/* 5. Fine Print / Guidelines */}
-            <div style={{ background: '#fdfbfa', border: '1px dashed #ad885c', padding: '4px 8px', fontSize: '0.66rem', color: '#555', marginBottom: '0.5rem', lineHeight: '1.35' }}>
+            <div style={{ background: '#fdfbfa', border: '1px dashed #ad885c', padding: '4px 8px', fontSize: '0.66rem', color: '#555', marginBottom: '0.3rem', lineHeight: '1.35' }}>
               <div>• 상기 견적 금액은 운용대수(계약대수/차량보유대수), 차량가 변동 또는 정부 시책에 따라 변동될 수 있습니다.</div>
               <div>• 상기 견적 중 선납금을 선택하신 경우는 선납금액을 계약기간으로 균등하게 나눈 금액을 월대여료에서 차감하고 청구됩니다.</div>
               <div>• 차량 등급별 세부 옵션 사항을 반드시 확인하시기 바라며, 각 차종의 세부 옵션 사항은 차량제조사 홈페이지에서 확인이 가능합니다.</div>
@@ -3172,7 +3369,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             </div>
 
             {/* 6. Rental and Insurance Clauses Grid */}
-            <div style={{ display: 'flex', gap: '1.2rem', marginBottom: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.3rem' }}>
               {/* 왼쪽 블록: 대여료 포함사항 & 보험가입내용 */}
               <div style={{ width: '50%', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                 {/* 원대여료 포함사항 */}
@@ -3242,7 +3439,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
               </div>
 
               {/* 오른쪽 블록: 대여조건 & 차량관리/정비서비스 */}
-              <div style={{ width: '50%', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              <div style={{ width: '50%', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                 {/* 대여 조건 */}
                 <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.68rem' }}>
                   <thead>
@@ -3326,7 +3523,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             </div>
 
             {/* 7. Notes and Special Terms */}
-            <div style={{ display: 'flex', gap: '1.2rem', marginBottom: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.3rem' }}>
               <table style={{ width: '50%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.68rem' }}>
                 <thead>
                   <tr style={{ background: '#dcdcdc', borderBottom: '1px solid #000' }}>
@@ -3361,7 +3558,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             </div>
 
             {/* 8. Required Documents */}
-            <div style={{ border: '1px solid #000', padding: '4px 8px', fontSize: '0.68rem', marginBottom: '0.8rem', display: 'flex', gap: '0.4rem', lineHeight: '1.25' }}>
+            <div style={{ border: '1px solid #000', padding: '4px 8px', fontSize: '0.68rem', marginBottom: '0.4rem', display: 'flex', gap: '0.4rem', lineHeight: '1.25' }}>
               <div style={{ fontWeight: '800', whiteSpace: 'nowrap' }}>계약시 필요서류</div>
               <div style={{ color: '#333' }}>
                 <strong>• 법인:</strong> 법인등기부등본(원본), 법인인감증명서(원본), 사업자등록증(사본), 사용인감사용시 사용인감계, 대리인 날인시 위임장, CMS통장사본
@@ -3369,7 +3566,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             </div>
 
             {/* 9. Signatures (Footer) */}
-            <div style={{ textAlign: 'center', marginTop: '0.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.1rem' }}>
+            <div style={{ textAlign: 'center', marginTop: '0.2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.1rem' }}>
               <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'baseline', gap: '1.2rem' }}>
                 <span style={{ fontSize: '1.1rem', fontWeight: '800', letterSpacing: '2px', color: '#111e38' }}>주식회사 렌트베네핏</span>
                 <span style={{ fontSize: '1.0rem', fontWeight: '800', color: '#111e38' }}>대표이사 신 동 일</span>

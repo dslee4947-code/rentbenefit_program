@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Search, Receipt, Coins, Users, Trash2, ArrowRight, Upload, AlertCircle, CheckCircle, X, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
-const API_HOST = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+const API_HOST = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
 
 function ContractsListView({ setActiveTab, setPrefilledQuoteData, showToast, currentUser }) {
   const [contracts, setContracts] = useState([]);

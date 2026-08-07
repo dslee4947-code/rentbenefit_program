@@ -8,6 +8,8 @@ import customerRoutes from './routes/customerRoutes.js';
 import quoteRoutes from './routes/quoteRoutes.js';
 import contractRoutes from './routes/contractRoutes.js';
 import scheduleRoutes from './routes/scheduleRoutes.js';
+import invoiceRoutes from './routes/invoiceRoutes.js';
+import documentRoutes from './routes/documentRoutes.js';
 
 // Load environment variables
 dotenv.config();
@@ -82,6 +84,8 @@ app.use('/api/customers', customerRoutes);
 app.use('/api/quotes', quoteRoutes);
 app.use('/api/contracts', contractRoutes);
 app.use('/api/schedules', scheduleRoutes);
+app.use('/api/invoices', invoiceRoutes);
+app.use('/api/documents', documentRoutes);
 
 
 // Error handling middleware

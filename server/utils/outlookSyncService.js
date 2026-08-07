@@ -123,8 +123,16 @@ export const syncOutlookContacts = async () => {
     }
 
     // 3. DB bulkWrite 배치 업데이트 (1,000개씩 청크 분할 고속 저장)
-    const currentCount = await Customer.countDocuments();
-    let newCustomerSeq = currentCount + 1;
+    const customersWithId = await Customer.find({ customerId: /^CUST\d+$/ }, { customerId: 1 });
+    let maxSeq = 0;
+    for (const c of customersWithId) {
+      const numStr = c.customerId.replace('CUST', '');
+      const num = parseInt(numStr, 10);
+      if (!isNaN(num) && num > maxSeq) {
+        maxSeq = num;
+      }
+    }
+    let newCustomerSeq = maxSeq + 1;
 
     const chunkSize = 1000;
     let totalAdded = 0;

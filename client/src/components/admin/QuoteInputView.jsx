@@ -139,7 +139,10 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [customerSearchResults, setCustomerSearchResults] = useState([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  
+  const [customerQuotes, setCustomerQuotes] = useState([]); // 선택된 고객의 지난 견적 목록
+  const [loadingCustomerQuotes, setLoadingCustomerQuotes] = useState(false);
+  const [showQuoteHistory, setShowQuoteHistory] = useState(false);
+
   // New Customer Form State
   const [newCustomer, setNewCustomer] = useState({
     name: '',
@@ -396,6 +399,144 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
 
     return () => clearTimeout(delayDebounceFn);
   }, [customerSearchQuery]);
+
+  // 고객이 선택되면 그 고객의 지난 견적 목록을 불러온다 ("불러오기" 드롭다운용)
+  useEffect(() => {
+    if (!useExistingCustomer || !selectedCustomerId) {
+      setCustomerQuotes([]);
+      setShowQuoteHistory(false);
+      return;
+    }
+    setLoadingCustomerQuotes(true);
+    fetch(`${API_HOST}/api/quotes?customerId=${selectedCustomerId}`)
+      .then(res => res.json())
+      .then(data => setCustomerQuotes(Array.isArray(data) ? data : []))
+      .catch(err => console.error('Failed to fetch customer quotes', err))
+      .finally(() => setLoadingCustomerQuotes(false));
+  }, [selectedCustomerId, useExistingCustomer]);
+
+  // 지난 견적을 선택하면 그 내용 그대로 하단 입력 필드에 불러온다
+  const handleLoadQuote = (quote) => {
+    // Reconstruct specs from quote.vehicleSpec
+    let parsedSpec = {
+      carOptionsName: '-',
+      fuelType: '가솔린',
+      cc: 2500,
+      deliveryPeriod: '-',
+      exteriorColor: '-',
+      interiorColor: '-'
+    };
+    if (quote.vehicleSpec) {
+      const parts = quote.vehicleSpec.split(' / ');
+      if (parts.length > 0) parsedSpec.carOptionsName = parts[0];
+      parts.forEach(part => {
+        if (part.startsWith('연료: ')) {
+          parsedSpec.fuelType = part.replace('연료: ', '');
+        } else if (part.startsWith('배기량: ')) {
+          const ccStr = part.replace('배기량: ', '').replace('cc', '');
+          parsedSpec.cc = Number(ccStr) || 2500;
+        } else if (part.startsWith('납기: ')) {
+          parsedSpec.deliveryPeriod = part.replace('납기: ', '');
+        } else if (part.startsWith('외장: ')) {
+          parsedSpec.exteriorColor = part.replace('외장: ', '');
+        } else if (part.startsWith('내장: ')) {
+          parsedSpec.interiorColor = part.replace('내장: ', '');
+        }
+      });
+    }
+
+    const totalCarPrice = quote.totalPrice || 0;
+    const basePrice = quote.pricing?.basePrice || totalCarPrice;
+    const carOptionPrice = Math.max(0, totalCarPrice - basePrice);
+
+    const restoredOptions = (quote.monthlyEstimates && quote.monthlyEstimates.length > 0)
+      ? quote.monthlyEstimates.map((est, index) => {
+          const id = index + 1;
+          const isPrimary = est.termMonths === quote.pricing?.paymentTerm;
+          
+          const depositRate = (isPrimary && totalCarPrice > 0 && quote.pricing?.deposit !== undefined)
+            ? (quote.pricing.deposit / totalCarPrice)
+            : (id === 1 ? 0.30 : 0.00);
+          const advancePaymentRate = (isPrimary && totalCarPrice > 0 && quote.pricing?.advancePayment !== undefined)
+            ? (quote.pricing.advancePayment / totalCarPrice)
+            : 0.00;
+          const residualRate = (isPrimary && totalCarPrice > 0 && quote.pricing?.takeoverPrice !== undefined)
+            ? (quote.pricing.takeoverPrice / totalCarPrice)
+            : 0.55;
+
+          return {
+            id,
+            name: est.name || `${id}안`,
+            companyName: est.companyName || '',
+            termYears: (est.termMonths || 48) / 12,
+            mileage: id === 1 ? 30000 : 20000,
+            residualRate,
+            depositRate,
+            advancePaymentRate,
+            dealerIncentiveRate: 0.00,
+            tireUnitCost: id === 1 ? 160000 : 240000,
+            discountRate: 0.00,
+            maintenancePlan: '가입',
+            insuranceFeeAnnual: 800000,
+            insuranceType: totalCarPrice >= 70000000 ? 'premium' : 'standard',
+            registrationAgencyFee: quote.pricing?.registrationAgencyFee || 100000,
+            calcMode: 'manual',
+            monthlyFeeInput: est.monthlyFee || 0,
+            targetProfitInput: 0
+          };
+        })
+      : [
+          {
+            id: 1,
+            name: '1안',
+            companyName: '',
+            termYears: 4,
+            mileage: 30000,
+            residualRate: 0.55,
+            depositRate: 0.30,
+            advancePaymentRate: 0.00,
+            dealerIncentiveRate: 0.00,
+            tireUnitCost: 160000,
+            tireType: 'standard',
+            discountRate: 0.00,
+            maintenancePlan: '가입',
+            insuranceFeeAnnual: 800000,
+            insuranceType: 'standard',
+            registrationAgencyFee: 100000,
+            calcMode: 'manual',
+            monthlyFeeInput: quote.pricing?.monthlyFee || 0,
+            targetProfitInput: 0
+          }
+        ];
+
+    // Find the primary selected option id
+    const selectedOptionIds = quote.pricing?.paymentTerm 
+      ? [restoredOptions.find(o => o.termYears * 12 === quote.pricing.paymentTerm)?.id || 1]
+      : [1];
+
+    setVehicles(prev => prev.map(v => {
+      if (v.id !== selectedVehicleId) return v;
+      return {
+        ...v,
+        carModel: quote.vehicleModel,
+        carOptionsName: parsedSpec.carOptionsName,
+        carPrice: basePrice,
+        carOptionPrice: carOptionPrice,
+        discountPrice: quote.pricing?.discount || 0,
+        fuelType: parsedSpec.fuelType,
+        cc: parsedSpec.cc,
+        deliveryPeriod: parsedSpec.deliveryPeriod,
+        exteriorColor: parsedSpec.exteriorColor,
+        interiorColor: parsedSpec.interiorColor,
+        consignmentFee: quote.pricing?.deliveryFee || 360000,
+        globalRegistrationAgencyFee: quote.pricing?.registrationAgencyFee || 100000,
+        options: restoredOptions,
+        selectedOptionIds: selectedOptionIds
+      };
+    }));
+
+    showToast('지난 견적 정보를 하단 필드에 성공적으로 불러왔습니다.', 'success');
+  };
 
   // 4. 수식 계산 로직 (Formulas implementation)
   const calculateOptionValues = (opt, vehicle = activeVehicle) => {
@@ -694,18 +835,42 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
     return true;
   };
 
-  const handleSaveQuote = async (convertToContractAfterSave = false) => {
-    if (currentUser?.role === 'viewer') {
-      showToast('수정 및 등록 권한이 없습니다. 관리자에게 문의하세요.', 'error');
-      return;
-    }
-    if (!validateForm()) return;
+  // 저장 가능한 최소 조건(고객 정보 + 차종)만 조용히 체크 - 인쇄/문서함저장 시 자동 저장용 (토스트 없이 스킵 가능)
+  const isFormValidForSave = () => {
+    if (useExistingCustomer && !selectedCustomerId) return false;
+    if (!useExistingCustomer && (!newCustomer.name.trim() || !newCustomer.bizNo.trim())) return false;
+    if (!activeVehicle.carModel || !activeVehicle.carModel.trim()) return false;
+    return true;
+  };
+
+  // 현재 견적 내용을 DB에 저장한다. silent=true면 검증 실패/에러를 조용히 무시한다(인쇄·문서함저장 시 백그라운드 자동저장용).
+  const saveQuoteRecord = async ({ silent = false } = {}) => {
+    if (silent ? !isFormValidForSave() : !validateForm()) return null;
 
     // Get the currently selected option values (use first selected option as primary)
     const selectedOptionIds = activeVehicle.selectedOptionIds || (activeVehicle.selectedOptionId ? [activeVehicle.selectedOptionId] : [1]);
     const primarySelectedId = selectedOptionIds[0] || 1;
     const selectedOpt = activeVehicle.options.find(o => o.id === primarySelectedId) || activeVehicle.options[0];
     const calculated = calculateOptionValues(selectedOpt, activeVehicle);
+
+    // 나중에 "불러오기"로 계약서 등록에 바로 연결할 수 있도록 가격 상세를 항상 함께 저장한다
+    const pricing = {
+      basePrice: activeVehicle.carPrice,
+      discount: calculated.discountAmount,
+      supplyPrice: calculated.netVehiclePrice,
+      deliveryFee: activeVehicle.consignmentFee,
+      acquisitionTax: calculated.acquisitionTax,
+      publicBond: calculated.publicBond,
+      commission: calculated.companyCommission,
+      deposit: calculated.deposit,
+      advancePayment: calculated.advancePayment,
+      takeoverPrice: calculated.takeoverPrice,
+      monthlyFee: calculated.monthlyLeaseFee,
+      paymentTerm: selectedOpt.termYears * 12,
+      pandanbi: calculated.pandanbi,
+      individualConsumptionTax: calculated.carTaxAnnual * selectedOpt.termYears,
+      registrationAgencyFee: activeVehicle.globalRegistrationAgencyFee
+    };
 
     try {
       const payload = {
@@ -737,12 +902,13 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             companyName: opt.companyName
           };
         }),
+        pricing,
         createdBy
       };
 
       const response = await fetch(`${API_HOST}/api/quotes`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'X-User-Role': currentUser?.role || 'viewer'
         },
@@ -751,56 +917,172 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
 
       if (response.ok) {
         const savedQuote = await response.json();
-        showToast('견적서가 저장되었습니다.', 'success');
-
-        if (convertToContractAfterSave) {
-          // Pass prefilled data with pricing info of the selected option
-          const prefilledData = {
-            ...savedQuote,
-            totalPrice: calculated.totalCarPrice,
-            monthlyEstimates: [
-              { 
-                termMonths: selectedOpt.termYears * 12, 
-                monthlyFee: calculated.monthlyLeaseFee,
-                name: selectedOpt.name,
-                companyName: selectedOpt.companyName
-              }
-            ],
-            // Custom option details to prefill pricing section
-            pricing: {
-              basePrice: activeVehicle.carPrice,
-              discount: calculated.discountAmount,
-              supplyPrice: calculated.netVehiclePrice,
-              deliveryFee: activeVehicle.consignmentFee,
-              acquisitionTax: calculated.acquisitionTax,
-              publicBond: calculated.publicBond,
-              commission: calculated.companyCommission,
-              deposit: calculated.deposit,
-              advancePayment: calculated.advancePayment,
-              takeoverPrice: calculated.takeoverPrice,
-              monthlyFee: calculated.monthlyLeaseFee,
-              paymentTerm: selectedOpt.termYears * 12,
-              pandanbi: calculated.pandanbi,
-              individualConsumptionTax: calculated.carTaxAnnual * selectedOpt.termYears,
-              registrationAgencyFee: activeVehicle.globalRegistrationAgencyFee
-            }
-          };
-          setPrefilledQuoteData(prefilledData);
-          setActiveTab('contract-register');
-        } else {
-          // Trigger print preview of the comparison sheet first, then go to contracts list
-          setTimeout(() => {
-            window.print();
-            setActiveTab('contracts');
-          }, 800);
-        }
-      } else {
+        if (!silent) showToast('견적서가 저장되었습니다.', 'success');
+        return { savedQuote, calculated, selectedOpt, pricing };
+      }
+      if (!silent) {
         const err = await response.json();
         showToast(err.message || '견적서 저장에 실패했습니다.', 'error');
       }
+      return null;
     } catch (err) {
       console.error(err);
-      showToast('서버 통신 오류', 'error');
+      if (!silent) showToast('서버 통신 오류', 'error');
+      return null;
+    }
+  };
+
+  const handleSaveQuote = async (convertToContractAfterSave = false) => {
+    if (currentUser?.role === 'viewer') {
+      showToast('수정 및 등록 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
+
+    const result = await saveQuoteRecord({ silent: false });
+    if (!result) return;
+    const { savedQuote, calculated, selectedOpt, pricing } = result;
+
+    if (convertToContractAfterSave) {
+      // Pass prefilled data with pricing info of the selected option
+      const prefilledData = {
+        ...savedQuote,
+        totalPrice: calculated.totalCarPrice,
+        monthlyEstimates: [
+          {
+            termMonths: selectedOpt.termYears * 12,
+            monthlyFee: calculated.monthlyLeaseFee,
+            name: selectedOpt.name,
+            companyName: selectedOpt.companyName
+          }
+        ],
+        pricing
+      };
+      setPrefilledQuoteData(prefilledData);
+      setActiveTab('contract-register');
+    } else {
+      // Trigger print preview of the comparison sheet first, then go to contracts list
+      setTimeout(() => {
+        window.print();
+        setActiveTab('contracts');
+      }, 800);
+    }
+  };
+
+  const handleFinalSelection = async (opt, vehicle, calc) => {
+    if (currentUser?.role === 'viewer') {
+      showToast('등록 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
+
+    if (!selectedCustomerId && useExistingCustomer) {
+      showToast('고객을 선택해주세요.', 'error');
+      return;
+    }
+
+    if (!useExistingCustomer && (!newCustomer.name.trim() || !newCustomer.bizNo.trim())) {
+      showToast('신규 고객명과 사업자/주민번호는 필수입니다.', 'error');
+      return;
+    }
+
+    const customerName = selectedCustomer 
+      ? (selectedCustomer.surname || selectedCustomer.name || '').trim()
+      : (newCustomer.name || '').trim();
+    const customerBizNo = selectedCustomer
+      ? (selectedCustomer.bizNo || '')
+      : (newCustomer.bizNo || '');
+
+    const carNumberInput = window.prompt(
+      `[최종선택] 렌트차량 DB에 이 견적 정보를 등록합니다.\n차량번호를 입력해주세요 (선택사항, 없을 경우 빈칸으로 진행):`
+    );
+    
+    // User cancelled the prompt
+    if (carNumberInput === null) return;
+
+    // Prepare vehicle data payload
+    const totalCarPrice = vehicle.carPrice + vehicle.carOptionPrice;
+    
+    const payload = {
+      // 1. 기본 정보
+      category: '신차 장기',
+      operation: '장기렌트',
+      contractCompany: customerName,
+      manager: currentUser?.name || createdBy || '',
+      managerPhone: selectedCustomer?.contactPhone || selectedCustomer?.mobilePhone || newCustomer.contactPhone || '',
+      carModel: vehicle.carModel,
+      carSpec: `${vehicle.carOptionsName} / 연료: ${vehicle.fuelType} / 배기량: ${vehicle.cc}cc / 납기: ${vehicle.deliveryPeriod} / 외장: ${vehicle.exteriorColor} / 내장: ${vehicle.interiorColor}`,
+      carPrice: totalCarPrice,
+      color: `${vehicle.exteriorColor || '-'} (내장: ${vehicle.interiorColor || '-'})`,
+      fuelType: vehicle.fuelType,
+      carNumber: carNumberInput.trim(),
+      options: vehicle.carOptionsName,
+      cc: vehicle.cc ? `${vehicle.cc}cc` : '',
+      regDate: todayDateStr,
+
+      // 2. 계약 & 운행 정보
+      contractDate: todayDateStr,
+      deliveryDate: todayDateStr,
+      rentPeriodYears: `${opt.termYears}년`,
+      rentEndDate: new Date(new Date().setFullYear(new Date().getFullYear() + opt.termYears)).toISOString().substring(0, 10),
+      mileage: opt.mileage || 0,
+      practicalManager: customerName,
+      practicalPhone: selectedCustomer?.contactPhone || selectedCustomer?.mobilePhone || newCustomer.contactPhone || '',
+      rentStartDate: todayDateStr,
+      contractNo: `RB-${todayDateStr.replace(/-/g, '').substring(2)}-${customerName.slice(0, 2).replace(/\s/g, '') || '01'}`,
+
+      // 3. 차량가격 및 등록 제비용
+      basePrice: vehicle.carPrice,
+      discountAmount: vehicle.discountPrice || 0,
+      supplyAmount: calc.netVehiclePrice,
+      consignmentFee: vehicle.consignmentFee || 0,
+      acquisitionTax: calc.acquisitionTax || 0,
+      bond: calc.publicBond || 0,
+      regAgencyFee: vehicle.globalRegistrationAgencyFee || 0,
+      commission: calc.companyCommission || 0,
+      sellingAdminExpense: calc.pandanbi || 0,
+
+      // 4. 보험 & 정비 정보
+      insuranceFee: vehicle.globalInsuranceFee || 0,
+      ownCarInsuranceFee: calc.ownCarInsuranceFee || 0,
+      deductible: opt.insuranceType === 'premium' ? 500000 : 300000,
+      insuranceType: opt.insuranceType === 'premium' ? '고급형(임직원)' : '일반형(임직원)',
+      emergencyService: '가입',
+      tireType: opt.tireType === 'premium' ? '고급형' : '일반형',
+      tireCost: calc.tireCostTotal || 0,
+      carTax: '월대여료 포함',
+
+      // 5. 금융 & 납입/할부 정보
+      monthlyPayment: calc.monthlyLeaseFee,
+      paymentPeriod: `${opt.termYears * 12}`,
+      totalMonthlyPayment: calc.monthlyLeaseFee * opt.termYears * 12,
+      deposit: calc.deposit,
+      advancePayment: calc.advancePayment,
+      acquisitionValue: calc.takeoverPrice,
+      residualRateP: `${Math.round(opt.residualRate * 100)}%`,
+      bizOrRegNo: customerBizNo,
+
+      status: 'rented'
+    };
+
+    try {
+      const response = await fetch(`${API_HOST}/api/vehicles`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Role': currentUser?.role || 'viewer'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        showToast('최종선택 차량이 렌트차량 DB에 성공적으로 등록되었습니다.', 'success');
+        setActiveTab('vehicles');
+      } else {
+        const err = await response.json();
+        showToast(err.message || '렌트차량 DB 등록에 실패했습니다.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('서버 통신 오류가 발생했습니다.', 'error');
     }
   };
 
@@ -879,25 +1161,35 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
   // 1안~4안은 세로(A4 portrait), 5안 이상은 가로(A4 landscape)로 1페이지에 맞춰 인쇄
   const isComparisonLandscape = printFormType === 'comparison' && displaySelectedOptions.length >= 5;
 
-  // 현재 화면의 견적서를 PDF로 만들어 회사 SharePoint 문서함(RENT 사업부)에 저장
+  // 현재 화면의 견적서를 PDF로 만들어 로컬 원드라이브 폴더에 직접 저장
   const handleSaveToDocumentStore = async () => {
     const element = document.getElementById('print-comparison-area');
     if (!element) return;
 
+    saveQuoteRecord({ silent: true }); // 나중에 "불러오기" 할 수 있도록 백그라운드로 저장
     setSavingToStore(true);
+    // PDF 캡처용 스타일 클래스 임시 추가
+    element.classList.add('html2pdf-active');
+    if (isComparisonLandscape) {
+      element.classList.add('is-landscape');
+    }
+
     try {
       const docTypeLabel = printFormType === 'comparison' ? '비교견적서' : '견적서';
-      const customerLabel = (selectedCustomer?.companyName || displayCustomerName || '미지정고객').trim();
+      const customerLabel = (displayCustomerName || '미지정고객').trim();
       const fileName = `${docTypeLabel}_${customerLabel}_${todayDateStr}.pdf`;
 
+      // html2pdf 실행
       const pdfBlob = await html2pdf()
         .set({
-          margin: 5,
+          margin: 0, // 0mm 마진 적용 (1:1 매핑)
           filename: fileName,
-          image: { type: 'jpeg', quality: 0.98 },
+          image: { type: 'png' }, // 무손실 PNG (JPEG 압축으로 인한 표 선 뭉개짐 방지)
           html2canvas: {
-            scale: 2,
+            scale: 2, // 해상도 배율
             useCORS: true,
+            // 주의: foreignObjectRendering:true는 표 선 두께 버그는 고치지만 복잡한 레이아웃에서
+            // 캡처 자체가 빈 페이지로 나오는 경우가 있어 사용하지 않음 (기본(canvas) 렌더링 방식 유지)
             // 화면에만 보이는 탭 전환 버튼 등(.no-print)은 캡처에서 제외
             ignoreElements: (el) => el.classList && el.classList.contains('no-print')
           },
@@ -912,12 +1204,12 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
 
       const formData = new FormData();
       formData.append('file', pdfBlob, fileName);
-      formData.append('businessLine', 'rental'); // 렌터카 계약 관련 문서 -> RENT 계정 SharePoint 폴더
+      formData.append('businessLine', 'rental');
       formData.append('customerName', customerLabel);
       formData.append('docType', docTypeLabel);
       formData.append('fileName', fileName);
 
-      const res = await fetch(`${API_HOST}/api/documents/upload`, {
+      const res = await fetch(`${API_HOST}/api/documents/save-local`, {
         method: 'POST',
         headers: { 'X-User-Role': currentUser?.role || 'viewer' },
         body: formData
@@ -925,14 +1217,18 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
       const data = await res.json();
 
       if (data.success) {
-        showToast('문서함에 저장되었습니다.', 'success');
+        const displayPath = `CEO\\RENT\\${customerLabel}`;
+        showToast(`[${displayPath}\\${data.fileName}] 문서함(원드라이브)에 성공적으로 저장되었습니다.`, 'success');
       } else {
         showToast(data.message || '문서함 저장에 실패했습니다.', 'error');
       }
     } catch (err) {
       console.error('Save to document store error:', err);
-      showToast('PDF 생성 또는 저장 중 오류가 발생했습니다.', 'error');
+      showToast('PDF 생성 또는 로컬 저장 중 오류가 발생했습니다.', 'error');
     } finally {
+      // PDF 캡처 완료 후 원래 스타일 복구
+      element.classList.remove('html2pdf-active');
+      element.classList.remove('is-landscape');
       setSavingToStore(false);
     }
   };
@@ -1335,6 +1631,51 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                 <div>
                   <strong>사업자/주민번호:</strong> {selectedCustomer.bizNo || '-'}
                 </div>
+              </div>
+            )}
+
+            {selectedCustomer && customerQuotes.length > 0 && (
+              <div style={{ marginTop: '0.6rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowQuoteHistory(!showQuoteHistory)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '0.4rem',
+                    background: 'none', border: 'none', color: 'var(--primary)',
+                    fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer', padding: '0.2rem 0'
+                  }}
+                >
+                  {showQuoteHistory ? '▲' : '▼'} 이 고객의 지난 견적 {customerQuotes.length}건 불러오기
+                </button>
+                {showQuoteHistory && (
+                  <div style={{ marginTop: '0.4rem', border: '1px solid #d9d9d9', borderRadius: '6px', background: '#fff', overflow: 'hidden' }}>
+                    {customerQuotes.map(q => (
+                      <div
+                        key={q._id}
+                        onClick={() => handleLoadQuote(q)}
+                        style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          padding: '0.6rem 0.9rem', borderBottom: '1px solid #f0f0f0',
+                          cursor: 'pointer', fontSize: '0.82rem'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = '#f6f8fb'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                      >
+                        <div>
+                          <span style={{ color: '#8c8c8c', marginRight: '0.6rem' }}>{new Date(q.createdAt).toLocaleDateString('ko-KR')}</span>
+                          <span style={{ fontWeight: '700' }}>{q.vehicleModel}</span>
+                          {q.status === '계약전환' && (
+                            <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', background: '#e6f7ff', color: '#1890ff', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>계약전환됨</span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                          <span style={{ color: 'var(--primary)', fontWeight: '700' }}>{(q.totalPrice || 0).toLocaleString()}원</span>
+                          <ArrowRight size={14} color="#8c8c8c" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -2323,6 +2664,34 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                       <span style={{ fontWeight: '600' }}>{(calc.profitRate * 100).toFixed(2)}%</span>
                     </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      await handleFinalSelection(opt, activeVehicle, calc);
+                    }}
+                    style={{
+                      marginTop: '0.6rem',
+                      background: 'var(--primary)',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '0.5rem',
+                      fontSize: '0.85rem',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.3rem',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                      transition: 'background 0.2s'
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--primary-dark, #0050b3)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--primary)'; }}
+                  >
+                    <CheckCircle size={15} /> 최종선택
+                  </button>
                 </div>
               </div>
             );
@@ -2532,12 +2901,11 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
           <button
             type="button"
             onClick={() => {
-              // 브라우저 인쇄 헤더(문서 제목)를 "RENT BENefit | 프리미엄 렌터카" 대신
-              // 이 견적서를 식별하기 좋은 제목으로 잠시 바꿔서 인쇄한다.
+              saveQuoteRecord({ silent: true }); // 나중에 "불러오기" 할 수 있도록 백그라운드로 저장
               const originalTitle = document.title;
               const printTitle = printFormType === 'comparison'
-                ? `차량 조건비교표_${displayCustomerName}_${todayDateStr}`
-                : `장기렌터카 견적서_${displayCustomerName}_${todayDateStr}`;
+                ? `비교견적서_${displayCustomerName}_${todayDateStr}`
+                : `견적서_${displayCustomerName}_${todayDateStr}`;
               document.title = printTitle;
               const restoreTitle = () => {
                 document.title = originalTitle;
@@ -2640,6 +3008,160 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
           }
           .print-only {
             display: none;
+          }
+
+          /* html2pdf-active overrides to match print layout and force 1 page */
+          .comparison-sheet-section.html2pdf-active {
+            border: none !important;
+            box-shadow: none !important;
+            padding: 8mm !important; /* 브라우저 인쇄와 동일한 8mm 마진 확보 */
+            margin: 0 !important;
+            width: 794px !important; /* A4 가로 픽셀 (96dpi 기준 210mm) */
+            min-width: 794px !important;
+            max-width: 794px !important;
+            background: #fff !important;
+            box-sizing: border-box !important;
+            border-radius: 0 !important;
+          }
+          
+          /* 가로 모드 (비교견적서 5안 이상) */
+          .comparison-sheet-section.html2pdf-active.is-landscape {
+            width: 1123px !important; /* A4 세로 픽셀 (96dpi 기준 297mm) */
+            min-width: 1123px !important;
+            max-width: 1123px !important;
+            padding: 8mm !important;
+          }
+
+          .html2pdf-active .no-print {
+            display: none !important;
+          }
+          
+          /* Comparison Quote (Portrait or Landscape) */
+          .html2pdf-active .comparison-doc-header {
+            margin-top: 0 !important;
+            margin-bottom: 0.5rem !important;
+            padding-bottom: 0.4rem !important;
+            gap: 0.6rem !important;
+          }
+          .html2pdf-active .comparison-doc-logo {
+            height: 25px !important;
+          }
+          .html2pdf-active .comparison-doc-kicker {
+            font-size: 0.55rem !important;
+          }
+          .html2pdf-active .comparison-doc-title {
+            font-size: 1.25rem !important;
+          }
+          .html2pdf-active .customer-info-bar {
+            margin-bottom: 0.5rem !important;
+            font-size: 0.85rem !important;
+          }
+          .html2pdf-active .comparison-doc-footer {
+            margin-top: 0.5rem !important;
+            padding-top: 0.4rem !important;
+            font-size: 0.65rem !important;
+          }
+          .html2pdf-active .comparison-table-wrapper {
+            margin-top: 0 !important;
+          }
+          .html2pdf-active .comparison-table-modern {
+            width: 100% !important;
+            border-top: 3px solid #111e38 !important;
+            border-bottom: 3px solid #111e38 !important;
+          }
+          .html2pdf-active .comparison-table-modern th,
+          .html2pdf-active .comparison-table-modern td {
+            border-bottom: 1px solid #e9e6e0 !important;
+            border-right: 1px solid #ad885c !important;
+            padding: 5px 8px !important;
+            font-size: 8.5pt !important;
+          }
+          .html2pdf-active .row-header {
+            padding-left: 5px !important;
+            padding-right: 5px !important;
+          }
+
+          /* Single/Long-term Rental Quote (Portrait) */
+          .html2pdf-active .rental-print-area {
+            max-width: 100% !important;
+            width: 100% !important;
+            padding: 8mm 8mm 6mm 8mm !important; /* 실제 상하 여백 축소 */
+            margin: 0 !important;
+            font-size: 8.0pt !important; /* 8.2pt -> 8.0pt */
+            line-height: 1.20 !important; /* 줄간격 축소 */
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+            height: 280mm !important; /* 297mm -> 280mm 로 강제 지정하여 한 장 고정 */
+            box-sizing: border-box !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif !important;
+            color: #000000 !important;
+            -webkit-font-smoothing: antialiased !important;
+            -moz-osx-font-smoothing: grayscale !important;
+            text-rendering: optimizeLegibility !important;
+          }
+          .html2pdf-active .rental-print-area * {
+            color: #000000 !important;
+          }
+          .html2pdf-active .rental-print-area h2 {
+            font-size: 1.4rem !important; /* 타이틀 축소 */
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
+          }
+          .html2pdf-active .rental-print-area table {
+            font-size: 7.5pt !important; /* 테이블 글자 축소 */
+            /* border-collapse는 캡처 시 인접 셀 테두리가 겹쳐 두꺼워 보이는 html2canvas 버그가 있어
+               separate + spacing 0으로 대체 (시각적으로는 collapse와 동일하게 한 줄로 보임) */
+            border-collapse: separate !important;
+            border-spacing: 0 !important;
+            border: 1.5px solid #000000 !important; /* 화면과 동일하게 외곽 테두리는 두껍게 */
+          }
+          .html2pdf-active .rental-print-area th,
+          .html2pdf-active .rental-print-area td {
+            padding: 2.2px 3.5px !important; /* 셀 패딩 축소 */
+            border: 1px solid #000000 !important; /* 화면과 동일하게 내부 격자선 적용 */
+          }
+          .html2pdf-active .rental-print-area .row-header {
+            font-size: 7.5pt !important;
+          }
+          .html2pdf-active .rental-print-area div[style*="background: #fafafa"],
+          .html2pdf-active .rental-print-area div[style*="background: rgb(250, 250, 250)"] {
+            padding: 3px 8px !important;
+            font-size: 6.5pt !important;
+            line-height: 1.25 !important;
+          }
+          .html2pdf-active .rental-print-area div[style*="background: #fdfbfa"],
+          .html2pdf-active .rental-print-area div[style*="background: rgb(253, 251, 250)"] {
+            padding: 3px 8px !important;
+            font-size: 6.5pt !important;
+            line-height: 1.25 !important;
+          }
+          .html2pdf-active .rental-print-area div[style*="font-size: 0.62rem"] {
+            font-size: 6.2pt !important;
+          }
+          .html2pdf-active .rental-print-area div[style*="display: flex; gap: 1.2rem"],
+          .html2pdf-active .rental-print-area div[style*="display: flex; gap: 1.2rem; margin-bottom: 0.5rem"] {
+            gap: 0.6rem !important; /* 간격 축소 */
+          }
+          .html2pdf-active .rental-print-area td[style*="height: 80px"] {
+            height: 40px !important; /* 비고란 높이 대폭 축소 */
+          }
+          .html2pdf-active .rental-print-area div[style*="border: 1px solid rgb(0, 0, 0)"], 
+          .html2pdf-active .rental-print-area div[style*="border: 1px solid #000"] {
+            padding: 3px 8px !important;
+            font-size: 6.5pt !important;
+          }
+          .html2pdf-active .rental-print-area div[style*="text-align: center; margin-top: 0.5rem"] span[style*="font-size: 1.1rem"] {
+            font-size: 1.05rem !important;
+          }
+          .html2pdf-active .rental-print-area div[style*="text-align: center; margin-top: 0.5rem"] span[style*="font-size: 1.0rem"] {
+            font-size: 0.95rem !important;
+          }
+          .html2pdf-active .rental-print-area > div {
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
           }
 
           /* Mobile responsiveness optimization */
@@ -2809,9 +3331,13 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             }
             .rental-print-area table {
               font-size: 7.5pt !important; /* 테이블 글자 축소 */
+              border-collapse: collapse !important;
+              border: 1.5px solid #000000 !important; /* 화면과 동일하게 외곽 테두리는 두껍게 */
             }
-            .rental-print-area th, .rental-print-area td {
+            .rental-print-area th,
+            .rental-print-area td {
               padding: 2.2px 3.5px !important; /* 셀 패딩 축소 */
+              border: 1px solid #000000 !important; /* 화면과 동일하게 내부 격자선 적용 */
             }
             .rental-print-area .row-header {
               font-size: 7.5pt !important;
@@ -2878,7 +3404,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                 차량 조건비교표
               </h2>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '150px' }}>
-                <img src="http://www.sdibenefit.com/images/logo.png" alt="RENT BENefit" className="comparison-doc-logo" style={{ height: '32px', width: 'auto', objectFit: 'contain' }} />
+                <img src="/logo.png" alt="RENT BENefit" className="comparison-doc-logo" style={{ height: '32px', width: 'auto', objectFit: 'contain' }} />
               </div>
             </div>
 
@@ -3184,7 +3710,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             </div>
           </div>
         ) : (
-          <div className="rental-print-area" style={{ maxWidth: '900px', margin: '0 auto', background: '#fff', padding: '10px 15px', color: '#000', fontFamily: 'sans-serif', fontSize: '0.76rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxSizing: 'border-box' }}>
+          <div className="rental-print-area" style={{ maxWidth: '900px', margin: '0 auto', background: '#fff', padding: '10px 15px', color: '#000', fontFamily: "'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif", fontSize: '0.76rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxSizing: 'border-box' }}>
             {/* 1. Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', borderBottom: '2.5px double #000', paddingBottom: '0.6rem' }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '150px' }}>
@@ -3192,7 +3718,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
               </div>
               <h2 style={{ fontSize: '1.8rem', fontWeight: '800', color: '#111e38', margin: 0, letterSpacing: '2px', flex: 1, textAlign: 'center' }}>장기렌터카 견적서</h2>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '150px' }}>
-                <img src="http://www.sdibenefit.com/images/logo.png" alt="RENT BENefit" style={{ maxWidth: '120px', height: 'auto' }} />
+                <img src="/logo.png" alt="RENT BENefit" style={{ maxWidth: '120px', height: 'auto' }} />
               </div>
             </div>
 

@@ -1,49 +1,165 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  FileText, 
-  Search, 
-  Plus, 
-  Trash2, 
-  Printer, 
-  ArrowLeft, 
-  CheckCircle2, 
-  AlertCircle, 
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import {
+  FileText,
+  Search,
+  Plus,
+  Trash2,
+  Printer,
+  ArrowLeft,
+  CheckCircle2,
+  AlertCircle,
   Calendar,
   DollarSign,
   User,
   Car,
-  Upload
+  Upload,
+  Building2,
+  ChevronDown,
+  ChevronRight,
+  Database,
+  ListChecks
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import html2pdf from 'html2pdf.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
 
+// 렌터카 DB(Vehicle)를 법인(계약사)별로 묶고, 같은 법인 안에서도 계약번호(같은 계약/출고 건)별로 다시 묶는다.
+// 계약번호가 비어있는 차량은 서로 다른 시점에 계약된 것일 수 있어 차량번호 기준으로 각각 독립된 건으로 취급한다.
+function groupVehiclesByCompanyAndContract(vehicles) {
+  const companies = {};
+  vehicles.forEach(v => {
+    // 원본 데이터에 같은 법인이 "회사명_1", "회사명_2"... 처럼 차량별 순번이 붙어 저장된 경우가 많아
+    // 끝의 "_숫자" 접미사를 제거해야 같은 법인끼리 정상적으로 묶인다.
+    const companyName = (v.contractCompany || '').trim().replace(/_\d+$/, '') || '미지정 법인';
+    if (!companies[companyName]) companies[companyName] = {};
+    const contractNo = (v.contractNo || '').trim();
+    const batchKey = contractNo || `단독-${v.carNumber || v._id}`;
+    if (!companies[companyName][batchKey]) {
+      companies[companyName][batchKey] = { batchKey, contractNo: contractNo || null, vehicles: [] };
+    }
+    companies[companyName][batchKey].vehicles.push(v);
+  });
+
+  return Object.entries(companies).map(([companyName, batches]) => {
+    const batchList = Object.values(batches).sort((a, b) => (a.contractNo || '').localeCompare(b.contractNo || ''));
+    const totalMonthly = batchList.reduce((sum, b) => sum + b.vehicles.reduce((s, v) => s + (v.monthlyPayment || 0), 0), 0);
+    const totalVehicles = batchList.reduce((sum, b) => sum + b.vehicles.length, 0);
+    return { companyName, batches: batchList, totalMonthly, totalVehicles };
+  }).sort((a, b) => a.companyName.localeCompare(b.companyName));
+}
+
+// 차량 1대의 계약기간 전체에 대한 월별 납부 스케줄을 계산한다 (DB에 저장하지 않고 매번 계산)
+function computeMonthlySchedule(vehicle) {
+  const monthlyFee = vehicle.monthlyPayment || 0;
+  const startStr = vehicle.rentStartDate || vehicle.deliveryDate || vehicle.contractDate || '';
+  const start = startStr ? new Date(startStr) : null;
+  const validStart = start && !isNaN(start.getTime());
+
+  let months = parseInt(vehicle.rentPeriodYears, 10) * 12;
+  if (!months || isNaN(months)) months = 60;
+
+  if (validStart && vehicle.rentEndDate) {
+    const end = new Date(vehicle.rentEndDate);
+    if (!isNaN(end.getTime())) {
+      const diffMonths = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+      if (diffMonths > 0) months = diffMonths;
+    }
+  }
+
+  const rows = [];
+  for (let i = 1; i <= months; i++) {
+    let dateLabel = '-';
+    if (validStart) {
+      const d = new Date(start);
+      d.setMonth(d.getMonth() + i);
+      dateLabel = d.toISOString().substring(0, 10);
+    }
+    rows.push({ no: i, date: dateLabel, monthlyFee });
+  }
+  return rows;
+}
+
+// 법인 -> 계약번호(건) 트리. "렌터카 DB에서 생성" 청구서 화면과 "월 대여료 현황" 화면에서 공용으로 사용.
+function CompanyBatchTree({ groups, expandedCompany, onToggleCompany, selectedBatchKey, onSelectBatch }) {
+  if (groups.length === 0) {
+    return <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>렌터카 DB에 등록된 차량이 없습니다.</div>;
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+      {groups.map(group => (
+        <div key={group.companyName}>
+          <div
+            onClick={() => onToggleCompany(group.companyName)}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem',
+              padding: '0.55rem 0.6rem', borderRadius: '6px', cursor: 'pointer',
+              background: expandedCompany === group.companyName ? 'var(--primary-glow)' : 'var(--bg-main)',
+              border: '1px solid var(--border-color)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
+              {expandedCompany === group.companyName ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              <Building2 size={14} style={{ flexShrink: 0 }} />
+              <span style={{ fontWeight: '700', fontSize: '0.85rem', color: 'var(--text-bright)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.companyName}</span>
+            </div>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', flexShrink: 0 }}>차량 {group.totalVehicles}대</span>
+          </div>
+          {expandedCompany === group.companyName && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', margin: '0.3rem 0 0.5rem 1.4rem' }}>
+              {group.batches.map(batch => (
+                <div
+                  key={batch.batchKey}
+                  onClick={() => onSelectBatch(group.companyName, batch)}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem',
+                    padding: '0.45rem 0.6rem', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem',
+                    background: selectedBatchKey === batch.batchKey ? 'var(--primary)' : 'transparent',
+                    color: selectedBatchKey === batch.batchKey ? '#fff' : 'var(--text-main)',
+                    border: `1px solid ${selectedBatchKey === batch.batchKey ? 'var(--primary)' : 'var(--border-color)'}`
+                  }}
+                >
+                  <span>{batch.contractNo ? `계약번호: ${batch.contractNo}` : '계약번호 없음 (개별 건)'}</span>
+                  <span style={{ opacity: 0.85, flexShrink: 0 }}>차량 {batch.vehicles.length}대</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function BillingView({ showToast, currentUser }) {
-  // Tabs: 'list' | 'create'
+  // Page-level tab: '청구서' | '월대여료 현황'
+  const [pageTab, setPageTab] = useState('invoice');
+
+  // Tabs: 'list' | 'create' | 'db-generate'
   const [activeSubTab, setActiveSubTab] = useState('list');
   const [invoices, setInvoices] = useState([]);
   const [contracts, setContracts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  
+
   // Modal state for selecting contract
   const [showContractModal, setShowContractModal] = useState(false);
   const [contractSearchQuery, setContractSearchQuery] = useState('');
-  
+
   // Refs
   const excelInputRef = useRef(null);
-  
+
   // Selected billing details
   const [selectedContract, setSelectedContract] = useState(null);
   const [billingMonth, setBillingMonth] = useState('');
   const [invoiceDate, setInvoiceDate] = useState('');
   const [dueDate, setDueDate] = useState('');
-  
+
   // Invoice items state
   const [items, setItems] = useState([
     { desc: '', supplyPrice: 0, vat: 0, total: 0 }
   ]);
-  
+
   // Bank settings
   const [bankName, setBankName] = useState('국민은행');
   const [bankAccount, setBankAccount] = useState('431801-01-235453');
@@ -53,6 +169,142 @@ function BillingView({ showToast, currentUser }) {
   // Invoice Detail view modal
   const [viewingInvoice, setViewingInvoice] = useState(null);
 
+  // 렌터카 DB 기반 청구서 생성 / 월대여료 현황 - 법인/계약번호 트리 공용 상태
+  const [billingVehicles, setBillingVehicles] = useState([]);
+  const [expandedCompany, setExpandedCompany] = useState(null);
+  const [selectedBatch, setSelectedBatch] = useState(null); // { companyName, vehicles, contractNo }
+  const [dbForm, setDbForm] = useState({
+    billingMonth: '', invoiceDate: '', dueDate: '',
+    prevUnpaid: 0, prevOverpaid: 0, maintenanceFee: 0, fineFee: 0,
+    nthPay: 1, bankName: '신한은행', bankAccount: '', virtualAccount: '', email: ''
+  });
+
+  const companyGroups = useMemo(() => groupVehiclesByCompanyAndContract(billingVehicles), [billingVehicles]);
+
+  // 선택된 법인의 실제 원드라이브(RENT) 폴더명 매핑 상태
+  const [companyFolder, setCompanyFolder] = useState(null); // { folderName } or null(미등록)
+  const [checkingFolder, setCheckingFolder] = useState(false);
+  const [folderInputMode, setFolderInputMode] = useState('existing'); // 'existing' | 'auto'
+  const [folderNameInput, setFolderNameInput] = useState('');
+  const [pdfInvoice, setPdfInvoice] = useState(null); // PDF 캡처용 숨김 렌더 대상 청구서
+
+  useEffect(() => {
+    if (!selectedBatch) {
+      setCompanyFolder(null);
+      setFolderNameInput('');
+      return;
+    }
+    const bizNo = selectedBatch.vehicles[0]?.bizOrRegNo || '';
+    setCheckingFolder(true);
+    fetch(`${API_HOST}/api/company-folders/lookup?companyName=${encodeURIComponent(selectedBatch.companyName)}&bizNo=${encodeURIComponent(bizNo)}`)
+      .then(res => res.json())
+      .then(data => {
+        setCompanyFolder(data.folder || null);
+        setFolderNameInput('');
+        setFolderInputMode('existing');
+      })
+      .catch(err => console.error(err))
+      .finally(() => setCheckingFolder(false));
+  }, [selectedBatch]);
+
+  const getPaymentDayLabel = (vehicle) => {
+    const raw = vehicle?.monthlyFeePayDay || '';
+    if (raw.includes('말일')) return '말일';
+    const m = raw.match(/(\d+)\s*일/);
+    return m ? `${m[1]}일` : '25일';
+  };
+
+  // 법인 폴더명을 확정(기존 폴더명 입력 또는 신규 자동 생성)하고 표준 하위 폴더 구조를 만든다
+  const resolveCompanyFolder = async () => {
+    if (!selectedBatch) return null;
+    if (companyFolder) return companyFolder;
+
+    const bizNo = selectedBatch.vehicles[0]?.bizOrRegNo || '';
+    const isAuto = folderInputMode === 'auto';
+    if (!isAuto && !folderNameInput.trim()) {
+      showToast('기존 원드라이브 폴더명을 입력하거나 "새 폴더 자동 생성"을 선택해 주세요.', 'error');
+      return null;
+    }
+
+    try {
+      const res = await fetch(`${API_HOST}/api/company-folders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-User-Role': currentUser?.role || 'viewer' },
+        body: JSON.stringify({
+          companyName: selectedBatch.companyName,
+          bizNo,
+          folderName: isAuto ? '' : folderNameInput.trim(),
+          autoCreate: isAuto,
+          paymentDay: getPaymentDayLabel(selectedBatch.vehicles[0])
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCompanyFolder(data.folder);
+        return data.folder;
+      }
+      showToast(data.message || '폴더 등록 실패', 'error');
+      return null;
+    } catch (err) {
+      showToast('폴더 등록 중 오류가 발생했습니다.', 'error');
+      return null;
+    }
+  };
+
+  // 방금 생성된 청구서를 PDF로 만들어 법인 폴더의 "02.청구서" 하위 폴더에 저장한다
+  const invoicePdfRef = useRef(null);
+  const generateAndSaveInvoicePdf = async (invoiceId, folderName, companyName) => {
+    try {
+      const res = await fetch(`${API_HOST}/api/invoices/${invoiceId}`);
+      const fullInvoice = await res.json();
+      setPdfInvoice(fullInvoice);
+
+      // InvoiceTemplate이 렌더링될 때까지 잠깐 대기
+      await new Promise(resolve => setTimeout(resolve, 150));
+
+      const element = invoicePdfRef.current;
+      if (!element) return;
+
+      const fileName = `청구서_${companyName}_${fullInvoice.billingMonth}.pdf`;
+      const pdfBlob = await html2pdf()
+        .set({
+          margin: 5,
+          filename: fileName,
+          image: { type: 'png' },
+          html2canvas: { scale: 2, useCORS: true },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        })
+        .from(element)
+        .outputPdf('blob');
+
+      const formData = new FormData();
+      formData.append('file', pdfBlob, fileName);
+      formData.append('businessLine', 'rental');
+      formData.append('companyFolderName', folderName);
+      formData.append('customerName', companyName);
+      formData.append('docType', '청구서');
+      formData.append('fileName', fileName);
+
+      const uploadRes = await fetch(`${API_HOST}/api/documents/save-local`, {
+        method: 'POST',
+        headers: { 'X-User-Role': currentUser?.role || 'viewer' },
+        body: formData
+      });
+      const uploadData = await uploadRes.json();
+
+      if (uploadData.success) {
+        showToast(`청구서 PDF가 [RENT\\${folderName}\\02.청구서]에 저장되었습니다.`, 'success');
+      } else {
+        showToast(uploadData.message || '청구서 PDF 저장 실패', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('청구서 PDF 생성/저장 중 오류가 발생했습니다.', 'error');
+    } finally {
+      setPdfInvoice(null);
+    }
+  };
+
   // Initialize dates
   useEffect(() => {
     const today = new Date();
@@ -60,14 +312,32 @@ function BillingView({ showToast, currentUser }) {
     const mm = String(today.getMonth() + 1).padStart(2, '0');
     setBillingMonth(`${yyyy}-${mm}`);
     setInvoiceDate(today.toISOString().substring(0, 10));
-    
+
     // Default due date: 25th of current month
     const defaultDue = new Date(yyyy, today.getMonth(), 25);
     setDueDate(defaultDue.toISOString().substring(0, 10));
-    
+    setDbForm(prev => ({ ...prev, billingMonth: `${yyyy}-${mm}`, invoiceDate: today.toISOString().substring(0, 10), dueDate: defaultDue.toISOString().substring(0, 10) }));
+
     fetchInvoices();
     fetchContracts();
+    fetchBillingVehicles();
   }, []);
+
+  const fetchBillingVehicles = async () => {
+    try {
+      const res = await fetch(`${API_HOST}/api/vehicles?limit=1000`);
+      if (res.ok) {
+        const data = await res.json();
+        setBillingVehicles(data.vehicles || []);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleSelectBatch = (companyName, batch) => {
+    setSelectedBatch({ companyName, contractNo: batch.contractNo, vehicles: batch.vehicles });
+  };
 
   const fetchInvoices = async () => {
     try {
@@ -489,6 +759,79 @@ function BillingView({ showToast, currentUser }) {
     }
   };
 
+  // 렌터카 DB에서 선택한 법인/계약번호 묶음으로 청구서를 자동 생성한다 (엑셀 업로드와 동일한 결제금액 내역서 양식)
+  const handleGenerateFromDb = async () => {
+    if (!selectedBatch) {
+      showToast('법인과 계약 건을 먼저 선택해 주세요.', 'error');
+      return;
+    }
+
+    // 저장할 법인 폴더를 먼저 확정 (미등록이면 입력받은 값으로 등록 + 표준 하위 폴더 생성)
+    const folder = await resolveCompanyFolder();
+    if (!folder) return;
+
+    const vehicles = selectedBatch.vehicles;
+    const totalRent = vehicles.reduce((sum, v) => sum + (v.monthlyPayment || 0), 0);
+    const { prevUnpaid, prevOverpaid, maintenanceFee, fineFee } = dbForm;
+    const totalAmount = totalRent + prevUnpaid - prevOverpaid + maintenanceFee + fineFee;
+    const totalSupply = Math.round(totalAmount / 1.1);
+    const totalVatAmt = totalAmount - totalSupply;
+
+    const genItems = [];
+    if (totalRent > 0) genItems.push({ desc: '당월 렌트료 합계', supplyPrice: Math.round(totalRent / 1.1), vat: totalRent - Math.round(totalRent / 1.1), total: totalRent });
+    if (prevUnpaid > 0) genItems.push({ desc: '전월 미제공금액', supplyPrice: Math.round(prevUnpaid / 1.1), vat: prevUnpaid - Math.round(prevUnpaid / 1.1), total: prevUnpaid });
+    if (prevOverpaid > 0) genItems.push({ desc: '전월 초과입금액', supplyPrice: -Math.round(prevOverpaid / 1.1), vat: -(prevOverpaid - Math.round(prevOverpaid / 1.1)), total: -prevOverpaid });
+    if (maintenanceFee > 0) genItems.push({ desc: '정기점검 비용', supplyPrice: Math.round(maintenanceFee / 1.1), vat: maintenanceFee - Math.round(maintenanceFee / 1.1), total: maintenanceFee });
+    if (fineFee > 0) genItems.push({ desc: '범칙금 / 과태료', supplyPrice: Math.round(fineFee / 1.1), vat: fineFee - Math.round(fineFee / 1.1), total: fineFee });
+    if (genItems.length === 0) genItems.push({ desc: '장기렌터카 대여료', supplyPrice: totalSupply, vat: totalVatAmt, total: totalAmount });
+
+    try {
+      const res = await fetch(`${API_HOST}/api/invoices`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-User-Role': currentUser?.role || 'viewer' },
+        body: JSON.stringify({
+          customerName: selectedBatch.companyName,
+          billingMonth: dbForm.billingMonth,
+          invoiceDate: dbForm.invoiceDate,
+          dueDate: dbForm.dueDate,
+          items: genItems,
+          totalSupplyPrice: totalSupply,
+          totalVat: totalVatAmt,
+          totalAmount,
+          bankName: dbForm.bankName,
+          bankAccount: dbForm.bankAccount,
+          bankHolder: selectedBatch.companyName,
+          remarks: dbForm.virtualAccount ? `입금전용계좌: ${dbForm.virtualAccount}` : '',
+          createdBy: currentUser?.name || '시스템',
+          prevUnpaid, prevOverpaid, maintenanceFee, fineFee,
+          firstMonthFee: 0,
+          lastMonthFee: 0,
+          nthPay: dbForm.nthPay,
+          withdrawDate: dbForm.dueDate,
+          virtualAccount: dbForm.virtualAccount,
+          email: dbForm.email,
+          vehicles: vehicles.map(v => ({ carNo: v.carNumber, monthlyRent: v.monthlyPayment || 0, deliveryDate: v.deliveryDate || null })),
+          invoiceType: 'excel_payment'
+        })
+      });
+
+      if (res.ok) {
+        const createdInvoice = await res.json();
+        showToast(`[${selectedBatch.companyName}] 청구서가 렌터카 DB 기준으로 생성되었습니다.`, 'success');
+        await generateAndSaveInvoicePdf(createdInvoice._id, folder.folderName, selectedBatch.companyName);
+        setSelectedBatch(null);
+        setDbForm(prev => ({ ...prev, prevUnpaid: 0, prevOverpaid: 0, maintenanceFee: 0, fineFee: 0, virtualAccount: '', email: '' }));
+        setActiveSubTab('list');
+        fetchInvoices();
+      } else {
+        const errorData = await res.json();
+        showToast(errorData.message || '청구서 생성 실패', 'error');
+      }
+    } catch (err) {
+      showToast('서버 저장 중 오류가 발생했습니다.', 'error');
+    }
+  };
+
   const handleDeleteInvoice = async (id) => {
     if (!window.confirm('정말 이 청구서 이력을 삭제하시겠습니까?')) return;
     try {
@@ -573,10 +916,37 @@ function BillingView({ showToast, currentUser }) {
         }
       `}} />
 
+      <div className="no-print" style={{ display: 'flex', gap: '0.6rem', marginBottom: '1.2rem' }}>
+        <button
+          onClick={() => setPageTab('invoice')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '0.4rem',
+            padding: '0.65rem 1.3rem', borderRadius: '8px', border: 'none', fontWeight: '800', fontSize: '0.92rem', cursor: 'pointer',
+            background: pageTab === 'invoice' ? 'var(--primary)' : 'var(--bg-main)',
+            color: pageTab === 'invoice' ? '#fff' : 'var(--text-muted)'
+          }}
+        >
+          <FileText size={16} /> 청구서
+        </button>
+        <button
+          onClick={() => setPageTab('schedule')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '0.4rem',
+            padding: '0.65rem 1.3rem', borderRadius: '8px', border: 'none', fontWeight: '800', fontSize: '0.92rem', cursor: 'pointer',
+            background: pageTab === 'schedule' ? 'var(--primary)' : 'var(--bg-main)',
+            color: pageTab === 'schedule' ? '#fff' : 'var(--text-muted)'
+          }}
+        >
+          <ListChecks size={16} /> 월 대여료 현황
+        </button>
+      </div>
+
+      {pageTab === 'invoice' && (
+      <>
       <div className="billing-view-content no-print">
         <div className="tab-buttons-container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem', marginBottom: '1.5rem' }}>
           <div style={{ display: 'flex', gap: '1rem' }}>
-            <button 
+            <button
               onClick={() => { setActiveSubTab('list'); setViewingInvoice(null); }}
               style={{
                 padding: '0.6rem 1.2rem',
@@ -591,7 +961,7 @@ function BillingView({ showToast, currentUser }) {
             >
               청구 이력 목록
             </button>
-            <button 
+            <button
               onClick={() => { setActiveSubTab('create'); setViewingInvoice(null); }}
               style={{
                 padding: '0.6rem 1.2rem',
@@ -605,6 +975,22 @@ function BillingView({ showToast, currentUser }) {
               }}
             >
               수동 청구서 발행
+            </button>
+            <button
+              onClick={() => { setActiveSubTab('db-generate'); setViewingInvoice(null); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.35rem',
+                padding: '0.6rem 1.2rem',
+                borderRadius: '6px',
+                border: 'none',
+                fontWeight: '700',
+                cursor: 'pointer',
+                background: activeSubTab === 'db-generate' ? 'var(--primary-glow)' : 'transparent',
+                color: activeSubTab === 'db-generate' ? 'var(--primary)' : 'var(--text-muted)',
+                transition: 'all 0.2s'
+              }}
+            >
+              <Database size={15} /> 렌터카 DB에서 생성
             </button>
           </div>
 
@@ -914,6 +1300,160 @@ function BillingView({ showToast, currentUser }) {
           </form>
         )}
 
+        {activeSubTab === 'db-generate' && (
+          <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '1.5rem', alignItems: 'flex-start' }}>
+            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1rem', maxHeight: '640px', overflowY: 'auto' }}>
+              <h4 style={{ margin: '0 0 0.8rem 0', fontSize: '0.9rem', fontWeight: '800', color: 'var(--text-bright)' }}>법인 / 계약 건 선택</h4>
+              <CompanyBatchTree
+                groups={companyGroups}
+                expandedCompany={expandedCompany}
+                onToggleCompany={(name) => setExpandedCompany(prev => prev === name ? null : name)}
+                selectedBatchKey={selectedBatch ? (selectedBatch.contractNo || `단독-${selectedBatch.vehicles[0]?.carNumber}`) : null}
+                onSelectBatch={handleSelectBatch}
+              />
+            </div>
+
+            {!selectedBatch ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '300px', color: 'var(--text-muted)', fontSize: '0.88rem', border: '1px dashed var(--border-color)', borderRadius: '8px' }}>
+                왼쪽에서 법인과 계약 건을 선택하면 차량 목록이 자동으로 채워집니다.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+                <div style={{ background: 'var(--bg-main)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  <div style={{ fontWeight: '800', color: 'var(--text-bright)', fontSize: '1rem' }}>{selectedBatch.companyName}</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                    {selectedBatch.contractNo ? `계약번호: ${selectedBatch.contractNo}` : '계약번호 없음 (개별 건)'} · 차량 {selectedBatch.vehicles.length}대
+                  </div>
+                </div>
+
+                <div style={{ background: '#fff', borderRadius: '8px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.83rem', color: '#333' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border-color)', fontWeight: '700', color: '#1e293b' }}>
+                        <th style={{ padding: '0.6rem', textAlign: 'left' }}>차량번호</th>
+                        <th style={{ padding: '0.6rem', textAlign: 'left' }}>차종</th>
+                        <th style={{ padding: '0.6rem', textAlign: 'right' }}>월 렌트료</th>
+                        <th style={{ padding: '0.6rem', textAlign: 'left' }}>인도일</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedBatch.vehicles.map(v => (
+                        <tr key={v._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '0.6rem', fontWeight: '700' }}>{v.carNumber}</td>
+                          <td style={{ padding: '0.6rem' }}>{v.carModel}</td>
+                          <td style={{ padding: '0.6rem', textAlign: 'right', color: 'var(--primary)', fontWeight: '700' }}>{(v.monthlyPayment || 0).toLocaleString()}원</td>
+                          <td style={{ padding: '0.6rem' }}>{v.deliveryDate || '-'}</td>
+                        </tr>
+                      ))}
+                      <tr style={{ background: 'var(--bg-surface)', fontWeight: '700' }}>
+                        <td colSpan={2} style={{ padding: '0.6rem', textAlign: 'center' }}>당월 렌트료 합계</td>
+                        <td style={{ padding: '0.6rem', textAlign: 'right', color: 'var(--primary)' }}>
+                          {selectedBatch.vehicles.reduce((s, v) => s + (v.monthlyPayment || 0), 0).toLocaleString()}원
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style={{ background: 'var(--bg-main)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  <h4 style={{ margin: '0 0 0.6rem 0', fontSize: '0.9rem', fontWeight: '800', color: 'var(--text-bright)' }}>원드라이브 저장 위치</h4>
+                  {checkingFolder ? (
+                    <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>폴더 정보를 확인하는 중...</div>
+                  ) : companyFolder ? (
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>
+                      <span style={{ fontWeight: '700', color: 'var(--primary)' }}>RENT\{companyFolder.folderName}\02.청구서\</span> 에 저장됩니다.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                        이 법인의 원드라이브 폴더가 아직 등록되지 않았습니다. 기존에 만들어둔 폴더가 있으면 그 이름을 그대로 입력해 주세요.
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.6rem' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                          <input type="radio" checked={folderInputMode === 'existing'} onChange={() => setFolderInputMode('existing')} /> 기존 폴더명 입력
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                          <input type="radio" checked={folderInputMode === 'auto'} onChange={() => setFolderInputMode('auto')} /> 새 폴더 자동 생성 ({getPaymentDayLabel(selectedBatch.vehicles[0])}_{selectedBatch.companyName})
+                        </label>
+                      </div>
+                      {folderInputMode === 'existing' && (
+                        <input
+                          type="text"
+                          value={folderNameInput}
+                          onChange={(e) => setFolderNameInput(e.target.value)}
+                          placeholder="예: 25일_(주)한촌_정보연대표님 S500"
+                          style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.85rem', background: 'var(--bg-surface)', color: 'var(--text-main)' }}
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', background: 'var(--bg-main)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.2rem' }}>청구 대상 월</label>
+                    <input type="month" value={dbForm.billingMonth} onChange={(e) => setDbForm({ ...dbForm, billingMonth: e.target.value })} style={{ width: '100%', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.85rem', background: 'var(--bg-surface)', color: 'var(--text-main)' }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.2rem' }}>작성일</label>
+                    <input type="date" value={dbForm.invoiceDate} onChange={(e) => setDbForm({ ...dbForm, invoiceDate: e.target.value })} style={{ width: '100%', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.85rem', background: 'var(--bg-surface)', color: 'var(--text-main)' }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.2rem' }}>결제일 / 출금일</label>
+                    <input type="date" value={dbForm.dueDate} onChange={(e) => setDbForm({ ...dbForm, dueDate: e.target.value })} style={{ width: '100%', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.85rem', background: 'var(--bg-surface)', color: 'var(--text-main)' }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.2rem' }}>전월 미결제금액</label>
+                    <input type="number" value={dbForm.prevUnpaid} onChange={(e) => setDbForm({ ...dbForm, prevUnpaid: parseInt(e.target.value) || 0 })} style={{ width: '100%', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.85rem', background: 'var(--bg-surface)', color: 'var(--text-main)' }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.2rem' }}>전월 초과입금액</label>
+                    <input type="number" value={dbForm.prevOverpaid} onChange={(e) => setDbForm({ ...dbForm, prevOverpaid: parseInt(e.target.value) || 0 })} style={{ width: '100%', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.85rem', background: 'var(--bg-surface)', color: 'var(--text-main)' }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.2rem' }}>정기점검 비용</label>
+                    <input type="number" value={dbForm.maintenanceFee} onChange={(e) => setDbForm({ ...dbForm, maintenanceFee: parseInt(e.target.value) || 0 })} style={{ width: '100%', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.85rem', background: 'var(--bg-surface)', color: 'var(--text-main)' }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.2rem' }}>범칙금 / 과태료</label>
+                    <input type="number" value={dbForm.fineFee} onChange={(e) => setDbForm({ ...dbForm, fineFee: parseInt(e.target.value) || 0 })} style={{ width: '100%', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.85rem', background: 'var(--bg-surface)', color: 'var(--text-main)' }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.2rem' }}>납입회차</label>
+                    <input type="number" min="1" value={dbForm.nthPay} onChange={(e) => setDbForm({ ...dbForm, nthPay: parseInt(e.target.value) || 1 })} style={{ width: '100%', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.85rem', background: 'var(--bg-surface)', color: 'var(--text-main)' }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.2rem' }}>거래은행</label>
+                    <input type="text" value={dbForm.bankName} onChange={(e) => setDbForm({ ...dbForm, bankName: e.target.value })} style={{ width: '100%', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.85rem', background: 'var(--bg-surface)', color: 'var(--text-main)' }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.2rem' }}>계좌번호(출금)</label>
+                    <input type="text" value={dbForm.bankAccount} onChange={(e) => setDbForm({ ...dbForm, bankAccount: e.target.value })} style={{ width: '100%', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.85rem', background: 'var(--bg-surface)', color: 'var(--text-main)' }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.2rem' }}>입금전용계좌</label>
+                    <input type="text" value={dbForm.virtualAccount} onChange={(e) => setDbForm({ ...dbForm, virtualAccount: e.target.value })} placeholder="부산은행 / 101-2077-5994-03" style={{ width: '100%', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.85rem', background: 'var(--bg-surface)', color: 'var(--text-main)' }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.2rem' }}>담당자 E-Mail</label>
+                    <input type="email" value={dbForm.email} onChange={(e) => setDbForm({ ...dbForm, email: e.target.value })} style={{ width: '100%', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.85rem', background: 'var(--bg-surface)', color: 'var(--text-main)' }} />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.8rem' }}>
+                  <button type="button" onClick={() => setSelectedBatch(null)} style={{ background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border-color)', padding: '0.6rem 1.5rem', borderRadius: '6px', fontSize: '0.9rem', fontWeight: '600', cursor: 'pointer' }}>
+                    취소
+                  </button>
+                  <button type="button" onClick={handleGenerateFromDb} style={{ background: 'var(--primary)', color: '#fff', border: 'none', padding: '0.6rem 1.8rem', borderRadius: '6px', fontSize: '0.9rem', fontWeight: '700', cursor: 'pointer' }}>
+                    청구서 생성 및 발행
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {viewingInvoice && (
           <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', background: '#fff', padding: '1.5rem', marginTop: '1.5rem', color: '#000' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #cbd5e1', paddingBottom: '0.8rem', marginBottom: '1rem' }}>
@@ -943,6 +1483,14 @@ function BillingView({ showToast, currentUser }) {
       {viewingInvoice && (
         <div className="invoice-print-container">
           <InvoiceTemplate invoice={viewingInvoice} />
+        </div>
+      )}
+
+      {pdfInvoice && (
+        <div style={{ position: 'fixed', left: '-9999px', top: 0, width: '800px', background: '#fff', padding: '20px' }}>
+          <div ref={invoicePdfRef}>
+            <InvoiceTemplate invoice={pdfInvoice} />
+          </div>
         </div>
       )}
 
@@ -991,6 +1539,67 @@ function BillingView({ showToast, currentUser }) {
               )}
             </div>
           </div>
+        </div>
+      )}
+      </>
+      )}
+
+      {pageTab === 'schedule' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '1.5rem', alignItems: 'flex-start' }}>
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1rem', maxHeight: '640px', overflowY: 'auto' }}>
+            <h4 style={{ margin: '0 0 0.8rem 0', fontSize: '0.9rem', fontWeight: '800', color: 'var(--text-bright)' }}>법인 / 계약 건 선택</h4>
+            <CompanyBatchTree
+              groups={companyGroups}
+              expandedCompany={expandedCompany}
+              onToggleCompany={(name) => setExpandedCompany(prev => prev === name ? null : name)}
+              selectedBatchKey={selectedBatch ? (selectedBatch.contractNo || `단독-${selectedBatch.vehicles[0]?.carNumber}`) : null}
+              onSelectBatch={handleSelectBatch}
+            />
+          </div>
+
+          {!selectedBatch ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '300px', color: 'var(--text-muted)', fontSize: '0.88rem', border: '1px dashed var(--border-color)', borderRadius: '8px', background: 'var(--bg-surface)' }}>
+              왼쪽에서 법인과 계약 건을 선택하면 차량별 월별 납부 스케줄이 표시됩니다.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              {selectedBatch.vehicles.map(v => {
+                const schedule = computeMonthlySchedule(v);
+                return (
+                  <div key={v._id} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.4rem 1rem', padding: '1rem', background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', fontSize: '0.8rem' }}>
+                      <div><span style={{ color: 'var(--text-muted)' }}>차량번호</span><div style={{ fontWeight: '700' }}>{v.carNumber}</div></div>
+                      <div><span style={{ color: 'var(--text-muted)' }}>차종</span><div style={{ fontWeight: '700' }}>{v.carModel}</div></div>
+                      <div><span style={{ color: 'var(--text-muted)' }}>월 렌트료</span><div style={{ fontWeight: '700', color: 'var(--primary)' }}>{(v.monthlyPayment || 0).toLocaleString()}원</div></div>
+                      <div><span style={{ color: 'var(--text-muted)' }}>렌트기간</span><div style={{ fontWeight: '700' }}>{v.rentPeriodYears || '-'}년</div></div>
+                      <div><span style={{ color: 'var(--text-muted)' }}>인도일</span><div style={{ fontWeight: '700' }}>{v.deliveryDate || '-'}</div></div>
+                      <div><span style={{ color: 'var(--text-muted)' }}>렌트 종료</span><div style={{ fontWeight: '700' }}>{v.rentEndDate || '-'}</div></div>
+                    </div>
+                    <div style={{ maxHeight: '260px', overflowY: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', color: '#333' }}>
+                        <thead style={{ position: 'sticky', top: 0 }}>
+                          <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border-color)', fontWeight: '700', color: '#1e293b' }}>
+                            <th style={{ padding: '0.5rem', textAlign: 'center', width: '70px' }}>회차</th>
+                            <th style={{ padding: '0.5rem', textAlign: 'center' }}>날짜</th>
+                            <th style={{ padding: '0.5rem', textAlign: 'right' }}>월 렌트료</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {schedule.map(row => (
+                            <tr key={row.no} style={{ borderBottom: '1px solid #f1f5f9', background: '#fff' }}>
+                              <td style={{ padding: '0.4rem', textAlign: 'center' }}>{row.no}</td>
+                              <td style={{ padding: '0.4rem', textAlign: 'center' }}>{row.date}</td>
+                              <td style={{ padding: '0.4rem', textAlign: 'right' }}>{row.monthlyFee.toLocaleString()}원</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -6,11 +6,14 @@ import Customer from '../models/Customer.js';
 // @access  Public
 export const getQuotes = async (req, res) => {
   try {
-    const { search, status } = req.query;
+    const { search, status, customerId } = req.query;
     let query = {};
 
     if (status) {
       query.status = status;
+    }
+    if (customerId) {
+      query.customer = customerId;
     }
 
     const quotes = await Quote.find(query)
@@ -64,6 +67,7 @@ export const createQuote = async (req, res) => {
       vehicleSpec,
       totalPrice,
       monthlyEstimates,
+      pricing,
       createdBy
     } = req.body;
 
@@ -103,6 +107,7 @@ export const createQuote = async (req, res) => {
       vehicleSpec,
       totalPrice,
       monthlyEstimates,
+      pricing,
       createdBy
     });
 

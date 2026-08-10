@@ -1021,7 +1021,7 @@ function VehicleManagementView({ showToast, currentUser }) {
             <option value="장기렌트">장기렌트</option>
             <option value="사고대차">사고대차</option>
             <option value="계약변경">계약변경</option>
-            <option value="계약완료">계약완료</option>
+            <option value="계약종료">계약종료</option>
           </select>
         </div>
       </div>
@@ -1538,7 +1538,7 @@ function VehicleManagementView({ showToast, currentUser }) {
                         <option value="사고대차">사고대차</option>
                         <option value="계약진행중">계약진행중</option>
                         <option value="계약변경">계약변경</option>
-                        <option value="계약완료">계약완료</option>
+                        <option value="계약종료">계약종료</option>
                       </select>
                     </div>
                     <div>

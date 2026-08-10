@@ -240,9 +240,11 @@ export const getVehicleById = async (req, res) => {
 // 3. Create New Vehicle
 export const createVehicle = async (req, res) => {
   try {
-    const existing = await Vehicle.findOne({ carNumber: req.body.carNumber });
-    if (existing) {
-      return res.status(400).json({ success: false, message: '이미 등록된 차량번호입니다.' });
+    if (req.body.carNumber && req.body.carNumber.trim()) {
+      const existing = await Vehicle.findOne({ carNumber: req.body.carNumber.trim() });
+      if (existing) {
+        return res.status(400).json({ success: false, message: '이미 등록된 차량번호입니다.' });
+      }
     }
 
     if (!req.body.no) {

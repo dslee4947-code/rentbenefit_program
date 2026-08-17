@@ -59,26 +59,8 @@ function Login({
         showToast(data.message || '로그인에 실패했습니다.', 'error');
       }
     } catch (error) {
-      console.error('Backend offline, simulating login locally', error);
-      // 백엔드가 꺼져 있는 경우 데모용 로컬 가상 로그인 성공 처리
-      const dummyUser = {
-        _id: 'dummy123',
-        name: '데모 사용자',
-        email: email,
-        user_type: 'customer',
-        token: 'dummy-jwt-token'
-      };
-
-      // 💾 Remember me 처리
-      if (rememberMe) {
-        localStorage.setItem('rememberedEmail', email);
-      } else {
-        localStorage.removeItem('rememberedEmail');
-      }
-
-      alert(`${dummyUser.name}님, 로그인이 완료되었습니다. 환영합니다.`);
-      onLoginSuccess(dummyUser);
-      setView('main');
+      console.error('Login request failed', error);
+      showToast('서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.', 'error');
     } finally {
       setIsLoading(false);
     }

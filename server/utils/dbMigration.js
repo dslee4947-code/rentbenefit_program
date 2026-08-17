@@ -87,6 +87,34 @@ export const runDatabaseMigration = async () => {
       console.log('Migrated admin user: Assigned role = admin');
     }
 
+    // 4. Migrate Users (Grandfather in accounts created before the approval-based
+    // signup system existed - without this, the new required/status fields would
+    // lock every pre-existing account out of login)
+    const legacyUsers = await User.find({
+      $or: [
+        { status: { $exists: false } },
+        { phone: { $exists: false } },
+        { department: { $exists: false } },
+        { agreedToTerms: { $exists: false } },
+      ],
+    });
+    let migratedUsersCount = 0;
+    for (const legacyUser of legacyUsers) {
+      if (!legacyUser.status || legacyUser.status === 'PENDING') {
+        legacyUser.status = 'ACTIVE';
+      }
+      if (!legacyUser.phone) legacyUser.phone = '미등록';
+      if (!legacyUser.department) legacyUser.department = '미등록';
+      if (!legacyUser.agreedToTerms) legacyUser.agreedToTerms = true;
+      await legacyUser.save();
+      migratedUsersCount++;
+    }
+    if (migratedUsersCount > 0) {
+      console.log(`Migrated ${migratedUsersCount} legacy user(s): backfilled status/phone/department/agreedToTerms.`);
+    } else {
+      console.log('All users already have status/phone/department/agreedToTerms.');
+    }
+
     console.log('--- Database Migration Completed Successfully ---');
   } catch (error) {
     console.error('Error during database migration:', error.message);

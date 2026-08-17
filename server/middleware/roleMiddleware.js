@@ -15,12 +15,12 @@ export const checkWritePermission = (req, res, next) => {
   next();
 };
 
+// req.user는 protect 미들웨어가 JWT를 검증한 뒤 주입한 실제 DB 유저이며,
+// 클라이언트가 임의로 조작할 수 있는 헤더 값이 아니다.
 export const checkAdminPermission = (req, res, next) => {
-  const userRole = req.headers['x-user-role'] || 'viewer';
-
-  if (userRole !== 'admin') {
-    return res.status(403).json({ 
-      message: '관리자 권한이 필요합니다.' 
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({
+      message: '관리자 권한이 필요합니다.'
     });
   }
 

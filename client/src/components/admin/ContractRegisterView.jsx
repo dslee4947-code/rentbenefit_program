@@ -3,7 +3,7 @@ import { Save, Plus, Trash2, FileSignature, ChevronDown, ChevronUp, ArrowLeft, U
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
 
-function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setActiveTab, showToast, currentUser }) {
+function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefilledContractData, setPrefilledContractData, setActiveTab, showToast, currentUser }) {
   const [customers, setCustomers] = useState([]);
   const [contracts, setContracts] = useState([]);
   
@@ -24,10 +24,10 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
   };
 
   // 1. Customer Input States (Search/Autocomplete vs New Customer Mode)
-  const [isNewCustomer, setIsNewCustomer] = useState(false);
   const [customerId, setCustomerId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isNewCustomer, setIsNewCustomer] = useState(false);
   
   const [customerName, setCustomerName] = useState('');
   const [customerBizNo, setCustomerBizNo] = useState('');
@@ -68,11 +68,12 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
   const [vehicleSpec, setVehicleSpec] = useState('');
   const [vehicleYear, setVehicleYear] = useState(new Date().getFullYear());
   const [vehicleColor, setVehicleColor] = useState('');
+  const [vehicleColorInterior, setVehicleColorInterior] = useState('');
   const [vehicleFuelType, setVehicleFuelType] = useState('가솔린');
   const [vehicleCc, setVehicleCc] = useState('');
   const [vehicleVin, setVehicleVin] = useState('');
   const [vehiclePlateNo, setVehiclePlateNo] = useState('');
-  const [vehicleOptions, setVehicleOptions] = useState([]);
+  const [vehicleOptions, setVehicleOptions] = useState('');
   const [releaseAddress, setReleaseAddress] = useState('');
   const [dealer, setDealer] = useState('');
   const [salesRep, setSalesRep] = useState('');
@@ -99,31 +100,38 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
     cost2: ''
   });
 
+  // New States for presets and quantity
+  const [contractQuantity, setContractQuantity] = useState('1');
+  const [insurancePreset, setInsurancePreset] = useState('보험1');
+  const [maintenancePreset, setMaintenancePreset] = useState('미포함');
+
   // Vehicle Insurance
   const [insurance, setInsurance] = useState({
-    company: '',
+    company: '가입',
     startDate: '',
     fee: '',
     selfCoverage: '',
-    driverAge: '',
-    liabilityLimit: '',
-    propertyLimit: '',
-    personalInjury: '',
-    uninsuredInjury: '',
-    deductible: '',
-    type: '',
-    emergencyCall: '',
+    driverAge: '만26세이상',
+    liabilityLimit: '무제한',
+    propertyLimit: '2억원',
+    personalInjury: '자상 1억/부상 1500만',
+    uninsuredInjury: '2억원/ 1인당',
+    deductible: '30만원',
+    type: '임직원',
+    emergencyCall: '포함',
     accidentRepair: '',
     generalMaintenance: ''
   });
 
   // Vehicle Maintenance
   const [maintenance, setMaintenance] = useState({
-    consumables: '',
-    tireCount: '',
+    consumables: '미가입',
+    tireCount: '미가입',
     tireSpec: '',
     tireCost: '',
-    regularCheck: ''
+    regularCheck: '미가입',
+    emergencyService: '미가입',
+    generalMaintenance: '미가입'
   });
 
   // Vehicle Tax
@@ -143,8 +151,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
     interestRate: ''
   });
 
-  // Option list tags helper
-  const [optionInput, setOptionInput] = useState('');
+
 
   // 4. Pricing details
   const [pricing, setPricing] = useState({
@@ -177,20 +184,218 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
   // 5. Gifts sub list
   const [gifts, setGifts] = useState([{ name: '', price: '' }]);
 
-  // Fetch Customers and Contracts, then auto-load details
+  // Preset handlers for Insurance and Maintenance (called on direct user change)
+  const applyInsurancePreset = (preset) => {
+    if (preset === '보험1') {
+      setInsurance({
+        liabilityLimit: '무제한',
+        propertyLimit: '2억원',
+        personalInjury: '자상 1억/부상 1500만',
+        deductible: '30만원',
+        uninsuredInjury: '2억원/ 1인당',
+        emergencyCall: '포함'
+      });
+    } else if (preset === '보험2') {
+      setInsurance({
+        liabilityLimit: '무제한',
+        propertyLimit: '5억원',
+        personalInjury: '자상 2억/부상 3000만',
+        deductible: '50만원',
+        uninsuredInjury: '2억원/ 1인당',
+        emergencyCall: '포함'
+      });
+    }
+  };
+
+  const applyMaintenancePreset = (preset) => {
+    if (preset === '포함') {
+      setMaintenance({
+        consumables: '가입',
+        tireCount: '계약 기간 동안 4본 제공',
+        regularCheck: '가입',
+        emergencyService: '가입',
+        generalMaintenance: '가입'
+      });
+    } else {
+      setMaintenance({
+        consumables: '미가입',
+        tireCount: '미가입',
+        regularCheck: '미가입',
+        emergencyService: '미가입',
+        generalMaintenance: '미가입'
+      });
+    }
+  };
+
+  // 1. Prefill / Edit Mode handler for Contracts
+  useEffect(() => {
+    if (!prefilledContractData) return;
+
+    // 1-1. Customer Info
+    const cust = prefilledContractData.customer || {};
+    setCustomerId(cust._id || '');
+    setCustomerName(cust.name || '');
+    setCustomerBizNo(cust.bizNo || '');
+    setCustomerCeoName(cust.ceoName || '');
+    setCustomerBizNoTransfer(cust.bizNoTransfer || '');
+    setCustomerBizAddress(cust.bizAddress || '');
+    setCustomerEmail(cust.email || '');
+    setCustomerBankName(cust.bank?.name || '');
+    setCustomerBankAccount(cust.bank?.account || '');
+    setCustomerBankHolder(cust.bank?.holder || '');
+    setIsNewCustomer(false);
+
+    // 1-2. Main Contract Fields
+    if (prefilledContractData.contractDate) {
+      const dateObj = new Date(prefilledContractData.contractDate);
+      if (!isNaN(dateObj.getTime())) {
+        const yyyy = dateObj.getFullYear();
+        const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const dd = String(dateObj.getDate()).padStart(2, '0');
+        setContractDate(`${yyyy}-${mm}-${dd}`);
+      } else {
+        setContractDate('');
+      }
+    } else {
+      setContractDate('');
+    }
+    setTermMonths(String(prefilledContractData.termMonths || '24'));
+    setManagerOps(prefilledContractData.managerOps || '');
+    setManagerOpsPhone(prefilledContractData.managerOpsPhone || '');
+    setFinesEmail(prefilledContractData.finesEmail || '');
+    setFinesEmail2(prefilledContractData.finesEmail2 || '');
+    setStatus(prefilledContractData.status || '진행중');
+
+    // 1-3. Pricing Info
+    if (prefilledContractData.pricing) {
+      setPricing(prev => ({
+        ...prev,
+        ...prefilledContractData.pricing
+      }));
+    }
+
+    // 1-4. Vehicle Info
+    const veh = prefilledContractData.vehicle || {};
+    setVehicleModel(veh.model || veh.carModel || '');
+    setVehicleSpec(veh.spec || veh.carSpec || '');
+    setVehiclePrice(veh.vehiclePrice || veh.carPrice || '');
+    setVehicleFuelType(veh.fuelType || '가솔린');
+    setVehicleColor(veh.color || '');
+    setVehicleColorInterior(veh.interiorColor || '');
+    setVehicleOptions(veh.options || '');
+    setMileage(veh.mileage !== undefined ? String(veh.mileage) : '');
+
+    // 1-5. Insurance Flat Field to Nested State Reverse Mapping
+    const propertyLimit = veh.propertyDamage || '2억원';
+    if (propertyLimit === '5억원' || propertyLimit === '5억') {
+      setInsurancePreset('보험2');
+    } else {
+      setInsurancePreset('보험1');
+    }
+
+    setInsurance({
+      liabilityLimit: veh.personalInjury1 || '무제한',
+      propertyLimit: veh.propertyDamage || '2억원',
+      personalInjury: veh.personalInjury2 || '자상 1억/부상 1500만',
+      deductible: veh.deductible ? (veh.deductible >= 500000 ? '50만원' : '30만원') : '30만원',
+      uninsuredInjury: veh.uninsuredCarInjury || '2억원/ 1인당',
+      emergencyCall: veh.emergencyService || '포함'
+    });
+
+    // 1-6. Maintenance Flat Field to Nested State Reverse Mapping
+    const consumables = veh.consumablesExchange || '미가입';
+    if (consumables === '가입' || consumables === '포함') {
+      setMaintenancePreset('포함');
+    } else {
+      setMaintenancePreset('미포함');
+    }
+
+    setMaintenance({
+      consumables: veh.consumablesExchange || '미가입',
+      tireCount: veh.tireCount || '미가입',
+      regularCheck: veh.regularCheckup || '미가입',
+      emergencyService: veh.emergencyService || '미가입',
+      generalMaintenance: veh.generalMaintenance || '미가입'
+    });
+
+    if (prefilledContractData.gifts) {
+      setGifts(prefilledContractData.gifts);
+    }
+  }, [prefilledContractData]);
+
+  // Fetch Customers, Contracts, and Vehicles, then merge corporate lists
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [resCustomers, resContracts] = await Promise.all([
-          fetch(`${API_HOST}/api/customers`),
-          fetch(`${API_HOST}/api/contracts`)
+        const [resCustomers, resContracts, resVehicles] = await Promise.all([
+          fetch(`${API_HOST}/api/customers?all=true`),
+          fetch(`${API_HOST}/api/contracts`),
+          fetch(`${API_HOST}/api/vehicles?limit=10000`)
         ]);
         
         let customerData = [];
         if (resCustomers.ok) {
           customerData = await resCustomers.json();
-          setCustomers(customerData);
+          customerData = Array.isArray(customerData) ? customerData : (customerData.customers || []);
         }
+        
+        let vehicleData = [];
+        if (resVehicles.ok) {
+          const vehicleJson = await resVehicles.json();
+          vehicleData = Array.isArray(vehicleJson) ? vehicleJson : (vehicleJson.vehicles || []);
+        }
+
+        // 1. 차량 DB 데이터로부터 계약사(법인) 고유 정보 추출
+        const companyMap = new Map();
+        vehicleData.forEach(v => {
+          if (!v.contractCompany || !v.contractCompany.trim()) return;
+          const compName = v.contractCompany.trim();
+          
+          if (!companyMap.has(compName)) {
+            companyMap.set(compName, {
+              _id: `VEH-COMP-${compName}`,
+              customerId: '', // 차량 DB에서 온 임시 데이터이므로 빈 ID 지정
+              name: compName,
+              bizNo: v.bizOrRegNo || '',
+              ceoName: '',
+              address: v.bizAddress || '',
+              contactName: v.manager || '',
+              contactPhone: v.managerPhone || '',
+              email: v.fineEmail || '',
+              bank: {
+                name: v.bank || '',
+                account: v.accountNo || '',
+                holder: v.accountHolder || ''
+              },
+              bizNoTransfer: v.corporateRegNo || '',
+              bizAddress: v.bizAddress || '',
+              source: 'vehicle_db'
+            });
+          } else {
+            // 더 풍부한 데이터가 있으면 갱신
+            const existing = companyMap.get(compName);
+            if (!existing.bizNo && v.bizOrRegNo) existing.bizNo = v.bizOrRegNo;
+            if (!existing.address && v.bizAddress) {
+              existing.address = v.bizAddress;
+              existing.bizAddress = v.bizAddress;
+            }
+            if (!existing.contactName && v.manager) {
+              existing.contactName = v.manager;
+              existing.contactPhone = v.managerPhone;
+            }
+            if (!existing.email && v.fineEmail) existing.email = v.fineEmail;
+            if (!existing.bank.name && v.bank) {
+              existing.bank.name = v.bank;
+              existing.bank.account = v.accountNo;
+              existing.bank.holder = v.accountHolder;
+            }
+            if (!existing.bizNoTransfer && v.corporateRegNo) existing.bizNoTransfer = v.corporateRegNo;
+            companyMap.set(compName, existing);
+          }
+        });
+
+        // 2. 고객 DB를 배제하고 오직 차량 DB에서 추출한 계약사(법인) 목록만 검색 풀에 적재
+        setCustomers(Array.from(companyMap.values()));
         
         if (resContracts.ok) {
           const contractData = await resContracts.json();
@@ -198,14 +403,13 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
         }
         
         if (prefilledQuoteData) {
-          const quoteCustId = prefilledQuoteData.customer?._id || prefilledQuoteData.customer || '';
-          setCustomerId(quoteCustId);
-          setIsNewCustomer(false);
-          
-          const cust = customerData.find(c => c._id === quoteCustId);
+           const quoteCustId = prefilledQuoteData.customer?._id || prefilledQuoteData.customer || '';
+           setCustomerId(quoteCustId);
+           
+           const cust = customerData.find(c => c._id === quoteCustId);
           if (cust) {
             populateCustomerFields(cust);
-            setSearchQuery(`[${cust.customerId || 'ID 없음'}] ${cust.name} (${cust.bizNo})`);
+            setSearchQuery(cust.name);
           }
           
           setVehicleModel(prefilledQuoteData.vehicleModel || '');
@@ -239,17 +443,20 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
               }
             }
           }
-        } else if (customerData.length > 0) {
-          setCustomerId(customerData[0]._id);
-          populateCustomerFields(customerData[0]);
-          setSearchQuery(`[${customerData[0].customerId || 'ID 없음'}] ${customerData[0].name} (${customerData[0].bizNo})`);
+        } else if (prefilledContractData) {
+          // 계약 수정 모드인 경우 자동 법인 주입 제외
+        } else if (companyMap.size > 0) {
+          const firstComp = Array.from(companyMap.values())[0];
+          setCustomerId(firstComp._id);
+          populateCustomerFields(firstComp);
+          setSearchQuery(firstComp.name);
         }
       } catch (err) {
         console.error('Failed to load initial data', err);
       }
     };
     fetchData();
-  }, [prefilledQuoteData]);
+  }, [prefilledQuoteData, prefilledContractData]);
 
   const populateCustomerFields = (cust) => {
     setCustomerName(cust.name || '');
@@ -281,20 +488,70 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
     setCustomerBizAddress('');
   };
 
-  const handleToggleCustomerMode = (isNew) => {
-    setIsNewCustomer(isNew);
-    if (isNew) {
-      setCustomerId('');
-      clearCustomerFields();
-      setSearchQuery('');
-    } else {
-      if (customers.length > 0) {
-        setCustomerId(customers[0]._id);
-        populateCustomerFields(customers[0]);
-        setSearchQuery(`[${customers[0].customerId || 'ID 없음'}] ${customers[0].name} (${customers[0].bizNo})`);
-      }
-    }
+  const resetAllStates = () => {
+    setCustomerId('');
+    setSearchQuery('');
+    setShowSuggestions(false);
+    setIsNewCustomer(false);
+    
+    setCustomerName('');
+    setCustomerBizNo('');
+    setCustomerCeoName('');
+    setCustomerBizNoTransfer('');
+    setCustomerBizAddress('');
+    setCustomerEmail('');
+    setCustomerBankName('');
+    setCustomerBankAccount('');
+    setCustomerBankHolder('');
+
+    setContractDate('');
+    setTermMonths('24');
+    setManagerOps('홍길동');
+    setManagerOpsPhone('');
+    setFinesEmail('');
+    setFinesEmail2('');
+    
+    setVehicleModel('');
+    setVehicleSpec('');
+    setVehiclePrice('');
+    setVehicleFuelType('가솔린');
+    setVehicleColor('');
+    setVehicleColorInterior('');
+    setVehicleOptions('');
+    setMileage('');
+
+    setInsurancePreset('보험1');
+    setMaintenancePreset('미포함');
+
+    setPricing({
+      basePrice: '',
+      discount: '',
+      supplyPrice: '',
+      deliveryFee: '',
+      acquisitionTax: '',
+      publicBond: '',
+      stampFee: '',
+      plateFee: '',
+      registrationAgencyFee: '',
+      commission: '',
+      deposit: '',
+      advancePayment: '',
+      takeoverPrice: '',
+      monthlyFee: '',
+      billingDay: '10',
+      invoiceDay: '10',
+      penaltyRate: '10',
+      overdueRate: '15',
+      paymentTerm: '',
+      monthlyFeeTotal: '',
+      pandanbi: '',
+      individualConsumptionTax: ''
+    });
+
+    setGifts([{ name: '', price: '' }]);
   };
+
+
 
   const handlePricingChange = (field, value) => {
     setPricing(prev => ({
@@ -324,19 +581,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
     setGifts(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleAddOption = (e) => {
-    if (e.key === 'Enter' && optionInput.trim()) {
-      e.preventDefault();
-      if (!vehicleOptions.includes(optionInput.trim())) {
-        setVehicleOptions(prev => [...prev, optionInput.trim()]);
-      }
-      setOptionInput('');
-    }
-  };
 
-  const handleRemoveOption = (opt) => {
-    setVehicleOptions(prev => prev.filter(o => o !== opt));
-  };
 
   const handleRegisterContract = async (e) => {
     e.preventDefault();
@@ -366,10 +611,6 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
       showToast('차종 / 사양을 입력해주세요.', 'error');
       return;
     }
-    if (!vehicleVin.trim()) {
-      showToast('차대번호(VIN)를 입력해주세요.', 'error');
-      return;
-    }
     if (!pricing.monthlyFee) {
       showToast('월 렌트료는 필수 입력값입니다.', 'error');
       return;
@@ -379,11 +620,14 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
       const payload = {
         isNewCustomer,
         customerId: isNewCustomer ? undefined : customerId,
+        quantity: Number(contractQuantity),
+        insurancePreset,
+        maintenancePreset,
         customerInfo: {
           name: customerName,
           bizNo: customerBizNo,
           ceoName: customerCeoName,
-          address: customerAddress,
+          address: customerBizAddress,
           contactName: customerContactName,
           contactPhone: customerContactPhone,
           email: customerEmail || 'no-email@rentbenefit.co.kr',
@@ -396,24 +640,24 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
           bizAddress: customerBizAddress
         },
         quoteId: prefilledQuoteData?._id || undefined,
-        leaseCompany,
+        leaseCompany: undefined,
         contractDate,
-        deliveryDate: deliveryDate || undefined,
+        deliveryDate: undefined,
         termMonths: Number(termMonths),
-        branch,
-        managerMain,
-        managerMainPhone,
+        branch: undefined,
+        managerMain: undefined,
+        managerMainPhone: undefined,
         managerOps,
         managerOpsPhone,
-        status,
+        status: '진행중',
         
-        rentPeriodYears: rentPeriodYears ? Number(rentPeriodYears) : undefined,
-        rentStartDate: rentStartDate || undefined,
-        rentPeriodDays: rentPeriodDays ? Number(rentPeriodDays) : undefined,
-        remainingPeriodCalc,
+        rentPeriodYears: undefined,
+        rentStartDate: undefined,
+        rentPeriodDays: undefined,
+        remainingPeriodCalc: undefined,
         finesEmail,
         finesEmail2,
-        corporateRegistrationNo,
+        corporateRegistrationNo: undefined,
 
         pricing: {
           basePrice: pricing.basePrice ? Number(pricing.basePrice) : undefined,
@@ -432,8 +676,8 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
           monthlyFee: Number(pricing.monthlyFee),
           billingDay: pricing.billingDay ? Number(pricing.billingDay) : undefined,
           invoiceDay: pricing.invoiceDay ? Number(pricing.invoiceDay) : undefined,
-          penaltyRate: pricing.penaltyRate ? Number(pricing.penaltyRate) : undefined,
-          overdueRate: pricing.overdueRate ? Number(pricing.overdueRate) : undefined,
+          penaltyRate: pricing.penaltyRate ? Number(pricing.penaltyRate) : 35,
+          overdueRate: pricing.overdueRate ? Number(pricing.overdueRate) : 25,
           
           paymentTerm: pricing.paymentTerm ? Number(pricing.paymentTerm) : undefined,
           monthlyFeeTotal: pricing.monthlyFeeTotal ? Number(pricing.monthlyFeeTotal) : undefined,
@@ -446,55 +690,30 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
         vehicleInfo: {
           model: vehicleModel,
           spec: vehicleSpec,
-          year: vehicleYear ? Number(vehicleYear) : undefined,
+          year: undefined,
           color: vehicleColor,
+          colorInterior: vehicleColorInterior,
           fuelType: vehicleFuelType,
-          cc: vehicleCc ? Number(vehicleCc) : undefined,
-          vin: vehicleVin,
-          plateNo: vehiclePlateNo,
+          cc: undefined,
+          vin: 'VIN_AUTO_' + Date.now(),
+          plateNo: undefined,
           options: vehicleOptions,
-          releaseAddress,
-          dealer,
-          salesRep,
-          showroom,
+          releaseAddress: undefined,
+          dealer: undefined,
+          salesRep: undefined,
+          showroom: undefined,
           
-          classification,
-          operationType,
+          classification: undefined,
+          operationType: undefined,
           vehiclePrice: vehiclePrice ? Number(vehiclePrice) : undefined,
-          registrationDate: registrationDate || undefined,
-          mileage: mileage ? Number(mileage) : undefined,
+          registrationDate: undefined,
+          mileage: undefined,
           
-          accessories,
-          registrationCosts: {
-            cost1: registrationCosts.cost1 ? Number(registrationCosts.cost1) : undefined,
-            cost2: registrationCosts.cost2 ? Number(registrationCosts.cost2) : undefined
-          },
-          insurance: {
-            company: insurance.company,
-            startDate: insurance.startDate || undefined,
-            fee: insurance.fee ? Number(insurance.fee) : undefined,
-            selfCoverage: insurance.selfCoverage ? Number(insurance.selfCoverage) : undefined,
-            driverAge: insurance.driverAge,
-            liabilityLimit: insurance.liabilityLimit,
-            propertyLimit: insurance.propertyLimit,
-            personalInjury: insurance.personalInjury,
-            uninsuredInjury: insurance.uninsuredInjury,
-            deductible: insurance.deductible,
-            type: insurance.type,
-            emergencyCall: insurance.emergencyCall,
-            accidentRepair: insurance.accidentRepair,
-            generalMaintenance: insurance.generalMaintenance
-          },
-          maintenance: {
-            consumables: maintenance.consumables,
-            tireCount: maintenance.tireCount,
-            tireSpec: maintenance.tireSpec,
-            tireCost: maintenance.tireCost ? Number(maintenance.tireCost) : undefined,
-            regularCheck: maintenance.regularCheck
-          },
-          tax: {
-            carTax: tax.carTax ? Number(tax.carTax) : undefined
-          },
+          accessories: undefined,
+          registrationCosts: undefined,
+          insurance: insurance,
+          maintenance: maintenance,
+          tax: undefined,
           loan: {
             source: loan.source,
             executionDate: loan.executionDate || undefined,
@@ -508,8 +727,12 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
         }
       };
 
-      const response = await fetch(`${API_HOST}/api/contracts`, {
-        method: 'POST',
+      const isEditMode = !!prefilledContractData;
+      const url = isEditMode ? `${API_HOST}/api/contracts/${prefilledContractData._id}` : `${API_HOST}/api/contracts`;
+      const method = isEditMode ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method: method,
         headers: { 
           'Content-Type': 'application/json',
           'X-User-Role': currentUser?.role || 'viewer'
@@ -518,14 +741,18 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
       });
 
       if (response.ok) {
-        showToast('계약서가 성공적으로 등록되었으며 일정이 자동 생성되었습니다!', 'success');
+        showToast(isEditMode ? '계약서가 성공적으로 수정되었습니다!' : '계약서가 성공적으로 등록되었으며 일정이 자동 생성되었습니다!', 'success');
         if (prefilledQuoteData) {
           setPrefilledQuoteData(null);
         }
+        if (prefilledContractData) {
+          setPrefilledContractData(null);
+        }
+        resetAllStates();
         setActiveTab('contracts');
       } else {
         const err = await response.json();
-        showToast(err.message || '계약 등록 실패', 'error');
+        showToast(err.message || '계약 저장 실패', 'error');
       }
     } catch (err) {
       showToast('서버 저장 실패', 'error');
@@ -534,11 +761,10 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
 
   const handleCancelPrefill = () => {
     setPrefilledQuoteData(null);
-    setIsNewCustomer(false);
     if (customers.length > 0) {
       setCustomerId(customers[0]._id);
       populateCustomerFields(customers[0]);
-      setSearchQuery(`[${customers[0].customerId || 'ID 없음'}] ${customers[0].name} (${customers[0].bizNo})`);
+      setSearchQuery(customers[0].name);
     } else {
       setCustomerId('');
       clearCustomerFields();
@@ -579,13 +805,13 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
     
     const qClean = searchQuery.toLowerCase().replace(/[-\s]/g, '');
     const suggestionMap = new Map();
-
+ 
     // 1. Direct Customer match (name, customerId, bizNo, contactName)
     customers.forEach(c => {
-      const nameClean = (c.name || '').toLowerCase().replace(/[-\s]/g, '');
-      const cIdClean = (c.customerId || '').toLowerCase().replace(/[-\s]/g, '');
-      const bizClean = (c.bizNo || '').replace(/[-\s]/g, '');
-      const contactClean = (c.contactName || '').toLowerCase().replace(/[-\s]/g, '');
+      const nameClean = String(c.name || '').toLowerCase().replace(/[-\s]/g, '');
+      const cIdClean = String(c.customerId || '').toLowerCase().replace(/[-\s]/g, '');
+      const bizClean = String(c.bizNo || '').replace(/[-\s]/g, '');
+      const contactClean = String(c.contactName || '').toLowerCase().replace(/[-\s]/g, '');
       
       if (nameClean.includes(qClean) || cIdClean.includes(qClean) || bizClean.includes(qClean) || contactClean.includes(qClean)) {
         suggestionMap.set(c._id, {
@@ -594,35 +820,33 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
         });
       }
     });
-
+ 
     // 2. Contract-level matching (vehicle plateNo, vehicle vin, contract manager, contractNo)
     contracts.forEach(con => {
-      if (!con.customer) return;
-      const custObj = con.customer;
+      const compName = con.leaseCompany || con.vehicle?.contractCompany || '';
+      if (!compName) return;
       
-      const cId = custObj._id || custObj; // populated vs plain ID
-      const actualCustomer = typeof custObj === 'object' ? custObj : customers.find(c => c._id === cId);
-      
+      const actualCustomer = customers.find(c => c.name === compName.trim());
       if (!actualCustomer) return;
-
+ 
       const hasMatch = suggestionMap.has(actualCustomer._id);
       
       const vPlate = con.vehicle?.plateNo || '';
-      const vPlateClean = vPlate.toLowerCase().replace(/[-\s]/g, '');
+      const vPlateClean = String(vPlate).toLowerCase().replace(/[-\s]/g, '');
       
       const vVin = con.vehicle?.vin || '';
-      const vVinClean = vVin.toLowerCase().replace(/[-\s]/g, '');
+      const vVinClean = String(vVin).toLowerCase().replace(/[-\s]/g, '');
       
       const vModel = con.vehicle?.model || '';
       
       const conNo = con.contractNo || '';
-      const conNoClean = conNo.toLowerCase().replace(/[-\s]/g, '');
+      const conNoClean = String(conNo).toLowerCase().replace(/[-\s]/g, '');
       
       const mMain = con.managerMain || '';
-      const mMainClean = mMain.toLowerCase().replace(/[-\s]/g, '');
+      const mMainClean = String(mMain).toLowerCase().replace(/[-\s]/g, '');
       
       const mOps = con.managerOps || '';
-      const mOpsClean = mOps.toLowerCase().replace(/[-\s]/g, '');
+      const mOpsClean = String(mOps).toLowerCase().replace(/[-\s]/g, '');
       
       let reason = '';
       if (vPlateClean.includes(qClean)) {
@@ -636,7 +860,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
       } else if (conNoClean.includes(qClean)) {
         reason = `계약번호: ${conNo}`;
       }
-
+ 
       if (reason) {
         // If not already in suggestions or if Direct Match, we keep it but can show this reason
         if (!hasMatch) {
@@ -647,12 +871,12 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
         }
       }
     });
-
+ 
     return Array.from(suggestionMap.values()).slice(0, 3);
   };
 
   // Render input fields easily
-  const renderInput = (label, type, value, onChange, placeholder = '', required = false) => (
+  const renderInput = (label, type, value, onChange, placeholder = '', required = false, disabled = false) => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
       <label style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-main)' }}>
         {label} {required && <span style={{ color: 'var(--error)' }}>*</span>}
@@ -663,12 +887,22 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
         onChange={(e) => onChange(e.target.value)} 
         placeholder={placeholder}
         required={required}
-        style={{ width: '100%', padding: '0.45rem 0.6rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} 
+        disabled={disabled}
+        style={{ 
+          width: '100%', 
+          padding: '0.45rem 0.6rem', 
+          border: '1px solid var(--border-color)', 
+          borderRadius: '6px', 
+          fontSize: '0.85rem',
+          backgroundColor: disabled ? '#f5f5f5' : '#fff',
+          color: disabled ? '#8c8c8c' : 'var(--text-bright)',
+          cursor: disabled ? 'not-allowed' : 'text'
+        }} 
       />
     </div>
   );
 
-  const renderSelect = (label, value, onChange, options, required = false) => (
+  const renderSelect = (label, value, onChange, options, required = false, disabled = false) => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
       <label style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-main)' }}>
         {label} {required && <span style={{ color: 'var(--error)' }}>*</span>}
@@ -677,7 +911,17 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
         value={value} 
         onChange={(e) => onChange(e.target.value)} 
         required={required}
-        style={{ width: '100%', padding: '0.45rem 0.6rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff' }}
+        disabled={disabled}
+        style={{ 
+          width: '100%', 
+          padding: '0.45rem 0.6rem', 
+          border: '1px solid var(--border-color)', 
+          borderRadius: '6px', 
+          fontSize: '0.85rem', 
+          background: disabled ? '#f5f5f5' : '#fff',
+          color: disabled ? '#8c8c8c' : 'var(--text-bright)',
+          cursor: disabled ? 'not-allowed' : 'pointer'
+        }}
       >
         {options.map(opt => (
           <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -692,7 +936,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
       {/* Page Header */}
       <div style={{ background: '#fff', padding: '1.2rem 1.5rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-premium)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h3 style={{ fontSize: '1.3rem', fontWeight: '700', color: 'var(--text-bright)', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-          <FileSignature style={{ color: 'var(--primary)' }} /> 통합 계약 정보 등록 (116개 전체 정보)
+          <FileSignature style={{ color: 'var(--primary)' }} /> 계약 내용
         </h3>
         
         {prefilledQuoteData && (
@@ -709,169 +953,198 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
             </button>
           </div>
         )}
+
+        {prefilledContractData && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <span style={{ fontSize: '0.8rem', color: '#2563eb', background: '#dbeafe', padding: '0.3rem 0.6rem', borderRadius: '4px', fontWeight: '600' }}>
+              ✍️ 계약서 수정 모드
+            </span>
+            <button 
+              type="button" 
+              onClick={() => {
+                setPrefilledContractData(null);
+                resetAllStates();
+                setActiveTab('contracts');
+              }}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', background: 'none', border: 'none', color: 'var(--error)', fontSize: '0.8rem', fontWeight: '600', cursor: 'pointer' }}
+            >
+              <ArrowLeft size={12} /> 수정 취소
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Accordion 1: 고객 선택 및 정보 */}
+      {/* Accordion 1: 고객 정보 */}
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: 'var(--shadow-premium)' }}>
         <div 
           onClick={() => toggleSection('customer')}
           style={{ padding: '1rem 1.5rem', background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
         >
-          <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.95rem' }}>1. 계약 고객 지정 및 상세 정보</span>
+          <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.95rem' }}>고객 정보</span>
           {expanded.customer ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
         </div>
         
         {expanded.customer && (
           <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
             
-            {/* Toggle Switch to choose select existing vs new */}
-            <div style={{ display: 'flex', gap: '0.5rem', background: 'var(--bg-main)', padding: '0.4rem', borderRadius: '8px', border: '1px solid var(--border-color)', alignSelf: 'flex-start' }}>
-              <button
-                type="button"
-                onClick={() => handleToggleCustomerMode(false)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem', border: 'none',
-                  background: !isNewCustomer ? '#fff' : 'transparent',
-                  color: !isNewCustomer ? 'var(--primary)' : 'var(--text-main)',
-                  fontWeight: !isNewCustomer ? '700' : '500',
-                  borderRadius: '6px', cursor: 'pointer', boxShadow: !isNewCustomer ? 'var(--shadow-premium)' : 'none',
-                  fontSize: '0.8rem', transition: 'all 0.2s'
+            {/* New Customer Toggle Checkbox */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem', background: 'var(--bg-main)', padding: '0.6rem 0.8rem', borderRadius: '6px', border: '1px solid var(--border-color)', width: 'fit-content' }}>
+              <input 
+                type="checkbox" 
+                id="isNewCustomerCheckbox"
+                checked={isNewCustomer}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setIsNewCustomer(checked);
+                  setCustomerId('');
+                  clearCustomerFields();
+                  setSearchQuery('');
                 }}
+                style={{ width: '16px', height: '16px', accentColor: 'var(--primary)', cursor: 'pointer' }}
+              />
+              <label 
+                htmlFor="isNewCustomerCheckbox" 
+                style={{ fontSize: '0.8rem', fontWeight: '700', color: isNewCustomer ? 'var(--primary)' : 'var(--text-main)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', userSelect: 'none' }}
               >
-                <Users size={14} /> 기존 고객 검색
-              </button>
-              <button
-                type="button"
-                onClick={() => handleToggleCustomerMode(true)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem', border: 'none',
-                  background: isNewCustomer ? '#fff' : 'transparent',
-                  color: isNewCustomer ? 'var(--primary)' : 'var(--text-main)',
-                  fontWeight: isNewCustomer ? '700' : '500',
-                  borderRadius: '6px', cursor: 'pointer', boxShadow: isNewCustomer ? 'var(--shadow-premium)' : 'none',
-                  fontSize: '0.8rem', transition: 'all 0.2s'
-                }}
-              >
-                <UserPlus size={14} /> 신규 고객 직접 추가
-              </button>
+                📝 신규 법인 직접 추가 (기존 DB에 등록되지 않은 신규 법인인 경우 체크)
+              </label>
             </div>
 
-            {/* Autocomplete Search input (only for existing customer) */}
-            {!isNewCustomer && (
-              <div style={{ maxWidth: '450px', position: 'relative' }}>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '0.3rem', color: 'var(--text-main)' }}>기존 고객 검색 *</label>
-                <div style={{ position: 'relative' }}>
-                  <input 
-                    type="text" 
-                    placeholder="고객명, ID, 사업자번호, 차량번호, 담당자 검색..." 
-                    value={searchQuery}
-                    onChange={(e) => {
-                      setSearchQuery(e.target.value);
-                      setShowSuggestions(true);
-                      // Clear selected customer if user starts typing a new query
-                      if (customerId) {
-                        setCustomerId('');
-                        clearCustomerFields();
-                      }
+            {/* Autocomplete Search input */}
+            <div style={{ maxWidth: '450px', position: 'relative', opacity: isNewCustomer ? 0.6 : 1, transition: 'opacity 0.2s' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '0.3rem', color: 'var(--text-main)' }}>계약사 / 법인명 검색 *</label>
+              <div style={{ position: 'relative' }}>
+                <input 
+                  type="text" 
+                  placeholder={isNewCustomer ? "신규 법인 추가 모드 활성화됨 (아래에 직접 기입하세요)" : "계약사/법인명 검색..."} 
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setCustomerName(e.target.value);
+                    setShowSuggestions(true);
+                    if (customerId) {
+                      setCustomerId('');
+                      clearCustomerFields();
+                    }
+                  }}
+                  onFocus={() => !isNewCustomer && setShowSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowSuggestions(false), 220)}
+                  required={!isNewCustomer && !customerId}
+                  disabled={isNewCustomer}
+                  style={{ 
+                    width: '100%', 
+                    padding: '0.5rem 0.8rem', 
+                    border: '1px solid var(--border-color)', 
+                    borderRadius: '6px', 
+                    fontSize: '0.85rem',
+                    backgroundColor: isNewCustomer ? '#f5f5f5' : '#fff',
+                    cursor: isNewCustomer ? 'not-allowed' : 'text'
+                  }} 
+                />
+                {searchQuery && !isNewCustomer && (
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      setSearchQuery('');
+                      setCustomerId('');
+                      clearCustomerFields();
                     }}
-                    onFocus={() => setShowSuggestions(true)}
-                    onBlur={() => setTimeout(() => setShowSuggestions(false), 220)}
-                    required={!isNewCustomer && !customerId}
-                    style={{ width: '100%', padding: '0.5rem 0.8rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} 
-                  />
-                  {searchQuery && (
-                    <button 
-                      type="button" 
-                      onClick={() => {
-                        setSearchQuery('');
-                        setCustomerId('');
-                        clearCustomerFields();
-                      }}
-                      style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 'bold' }}
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-
-                {/* Suggestions List (Max 3 items, supports multi-attribute match) */}
-                {showSuggestions && searchQuery.trim() !== '' && (
-                  <ul style={{
-                    position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 99,
-                    background: '#fff', border: '1px solid var(--border-color)', borderRadius: '6px',
-                    boxShadow: 'var(--shadow-premium)', listStyle: 'none', padding: 0, margin: '4px 0 0 0',
-                    overflow: 'hidden'
-                  }}>
-                    {(() => {
-                      const suggestions = getSuggestions();
-
-                      if (suggestions.length === 0) {
-                        return (
-                          <li style={{ padding: '0.6rem 0.8rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                            검색 결과가 없습니다.
-                          </li>
-                        );
-                      }
-
-                      return suggestions.map(item => {
-                        const c = item.customer;
-                        return (
-                          <li 
-                            key={c._id}
-                            onClick={() => {
-                              setCustomerId(c._id);
-                              populateCustomerFields(c);
-                              setSearchQuery(`[${c.customerId || 'ID 없음'}] ${c.name} (${c.bizNo})`);
-                              setShowSuggestions(false);
-                            }}
-                            style={{
-                              padding: '0.6rem 0.8rem', cursor: 'pointer', fontSize: '0.8rem',
-                              borderBottom: '1px solid var(--bg-main)', background: '#fff',
-                              transition: 'background 0.2s', display: 'flex', flexDirection: 'column', gap: '0.2rem'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-main)'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                              <span style={{ fontWeight: '600', color: 'var(--text-bright)' }}>{c.name}</span>
-                              <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>[{c.customerId || 'ID 없음'}]</span>
-                            </div>
-                            <div style={{ fontSize: '0.7rem', color: 'var(--primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <span>{c.bizNo}</span>
-                              <span style={{ background: 'var(--primary-glow)', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: '600', fontSize: '0.65rem', border: '1px solid var(--primary-glow-border)' }}>
-                                {item.reason}
-                              </span>
-                            </div>
-                          </li>
-                        );
-                      });
-                    })()}
-                  </ul>
+                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 'bold' }}
+                  >
+                    ×
+                  </button>
                 )}
               </div>
-            )}
 
-            {/* Customer Details - Auto Populated and Editable / New customer entry */}
-            <div style={{ background: 'var(--bg-main)', padding: '1.2rem', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-              <h5 style={{ fontWeight: '700', color: 'var(--text-bright)', margin: 0 }}>
-                {isNewCustomer ? '📝 신규 고객 정보 직접 입력 (저장 시 DB에 신규 등록)' : '🔎 고객 상세 정보 (변경 시 기존 고객 정보가 업데이트됩니다)'}
+              {/* Suggestions List */}
+              {showSuggestions && searchQuery.trim() !== '' && (
+                <ul style={{
+                  position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 99,
+                  background: '#fff', border: '1px solid var(--border-color)', borderRadius: '6px',
+                  boxShadow: 'var(--shadow-premium)', listStyle: 'none', padding: 0, margin: '4px 0 0 0',
+                  overflow: 'hidden'
+                }}>
+                  {(() => {
+                    const suggestions = getSuggestions();
+                    if (suggestions.length === 0) {
+                      return (
+                        <li style={{ padding: '0.6rem 0.8rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          검색 결과가 없습니다.
+                        </li>
+                      );
+                    }
+                    return suggestions.map(item => {
+                      const c = item.customer;
+                      return (
+                        <li 
+                          key={c._id}
+                          onClick={() => {
+                            setCustomerId(c._id);
+                            populateCustomerFields(c);
+                            setSearchQuery(c.name);
+                            setShowSuggestions(false);
+                          }}
+                          style={{
+                            padding: '0.6rem 0.8rem', cursor: 'pointer', fontSize: '0.8rem',
+                            borderBottom: '1px solid var(--bg-main)', background: '#fff',
+                            transition: 'background 0.2s', display: 'flex', flexDirection: 'column', gap: '0.2rem'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-main)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                            <span style={{ fontWeight: '600', color: 'var(--text-bright)' }}>{c.name}</span>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>[{c.customerId || 'ID 없음'}]</span>
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>{c.bizNo}</span>
+                            <span style={{ background: 'var(--primary-glow)', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: '600', fontSize: '0.65rem', border: '1px solid var(--primary-glow-border)' }}>
+                              {item.reason}
+                            </span>
+                          </div>
+                        </li>
+                      );
+                    });
+                  })()}
+                </ul>
+              )}
+            </div>
+
+            {/* Customer Details */}
+            <div style={{ background: '#fff', padding: '1.5rem', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              <h5 style={{ fontWeight: '700', color: 'var(--text-bright)', margin: 0, fontSize: '0.95rem', borderBottom: '2px solid var(--bg-main)', paddingBottom: '0.6rem' }}>
+                {isNewCustomer ? '📝 신규 법인 정보 직접 입력' : '🏢 선택된 법인 상세 정보 (수정은 렌트차량 DB에서만 가능합니다)'}
               </h5>
               
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginTop: '0.5rem' }}>
-                {renderInput('고객명 (개인/법인명) *', 'text', customerName, setCustomerName, '예: 주식회사 에스벤네핏', true)}
-                {renderInput('사업자/주민번호 *', 'text', customerBizNo, setCustomerBizNo, '예: 123-45-67890 또는 950101-1234567', true)}
-                {renderInput('대표자명 (법인의 경우)', 'text', customerCeoName, setCustomerCeoName)}
-                {renderInput('고객 주소', 'text', customerAddress, setCustomerAddress, '기본 주소')}
-                {renderInput('담당자명', 'text', customerContactName, setCustomerContactName)}
-                {renderInput('담당자 연락처', 'text', customerContactPhone, setCustomerContactPhone, '010-XXXX-XXXX')}
-                {renderInput('이메일', 'email', customerEmail, setCustomerEmail, 'email@example.com')}
-                
-                {renderInput('자동이체 은행', 'text', customerBankName, setCustomerBankName, '예: 신한은행')}
-                {renderInput('자동이체 계좌번호', 'text', customerBankAccount, setCustomerBankAccount, '계좌번호 입력')}
-                {renderInput('자동이체 예금주', 'text', customerBankHolder, setCustomerBankHolder)}
-                
-                {renderInput('사업자/주민번호 (이체용 식별번호)', 'text', customerBizNoTransfer, setCustomerBizNoTransfer, '이체 등록 시 필요한 주민/사업자번호')}
-                {renderInput('사업자 주소 (이체용 주소)', 'text', customerBizAddress, setCustomerBizAddress, '세금계산서 주소와 다를 경우')}
+              {/* 사업자등록증 정보 영역 */}
+              <div style={{ background: 'var(--bg-main)', padding: '1.2rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.8rem' }}>
+                  <span style={{ display: 'inline-block', width: '4px', height: '14px', backgroundColor: 'var(--primary)', borderRadius: '2px' }}></span>
+                  <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.85rem' }}>📄 사업자등록증 정보</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+                  {renderInput('고객명 (개인/법인명) *', 'text', customerName, setCustomerName, '예: 주식회사 에스벤네핏', true, !isNewCustomer)}
+                  {renderInput('사업자/주민번호 *', 'text', customerBizNo, setCustomerBizNo, '예: 123-45-67890 또는 950101-1234567', true, !isNewCustomer)}
+                  {renderInput('대표자명', 'text', customerCeoName, setCustomerCeoName, '', false, !isNewCustomer)}
+                  {renderInput('법인등록번호', 'text', customerBizNoTransfer, setCustomerBizNoTransfer, '법인등록번호 입력', false, !isNewCustomer)}
+                  <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1fr 3fr', gap: '1rem' }}>
+                    {renderInput('이메일', 'email', customerEmail, setCustomerEmail, 'email@example.com', false, !isNewCustomer)}
+                    {renderInput('주소', 'text', customerBizAddress, setCustomerBizAddress, '주소 입력', false, !isNewCustomer)}
+                  </div>
+                </div>
+              </div>
+
+              {/* 통장사본 정보 영역 */}
+              <div style={{ background: 'var(--bg-main)', padding: '1.2rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.8rem' }}>
+                  <span style={{ display: 'inline-block', width: '4px', height: '14px', backgroundColor: '#e28743', borderRadius: '2px' }}></span>
+                  <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.85rem' }}>🏦 통장사본 정보</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+                  {renderInput('자동이체 은행', 'text', customerBankName, setCustomerBankName, '예: 신한은행', false, !isNewCustomer)}
+                  {renderInput('자동이체 계좌번호', 'text', customerBankAccount, setCustomerBankAccount, '계좌번호 입력', false, !isNewCustomer)}
+                  {renderInput('자동이체 예금주', 'text', customerBankHolder, setCustomerBankHolder, '', false, !isNewCustomer)}
+                </div>
               </div>
             </div>
 
@@ -879,63 +1152,13 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
         )}
       </div>
 
-      {/* Accordion 2: 계약 기본 정보 */}
-      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: 'var(--shadow-premium)' }}>
-        <div 
-          onClick={() => toggleSection('contract')}
-          style={{ padding: '1rem 1.5rem', background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
-        >
-          <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.95rem' }}>2. 계약 및 관리 사원 정보</span>
-          {expanded.contract ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-        </div>
-        
-        {expanded.contract && (
-          <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-              {renderInput('리스사 / 계약사', 'text', leaseCompany, setLeaseCompany, '예: 현대캐피탈, 메리츠 등')}
-              {renderInput('계약일 *', 'date', contractDate, setContractDate, '', true)}
-              {renderInput('차량 인도 날짜', 'date', deliveryDate, setDeliveryDate)}
-              
-              {renderSelect('렌트 기간 (개월) *', termMonths, setTermMonths, [
-                { value: '12', label: '12개월' },
-                { value: '24', label: '24개월' },
-                { value: '36', label: '36개월' },
-                { value: '48', label: '48개월' },
-                { value: '60', label: '60개월' }
-              ], true)}
-
-              {renderInput('렌트 기간 (연 단위)', 'number', rentPeriodYears, setRentPeriodYears, '예: 2')}
-              {renderInput('렌트료 개시일', 'date', rentStartDate, setRentStartDate)}
-              {renderInput('렌트 기간 일수', 'number', rentPeriodDays, setRentPeriodDays, '예: 730')}
-              {renderInput('남은 기간 계산', 'text', remainingPeriodCalc, setRemainingPeriodCalc, '예: 24개월 남음')}
-
-              {renderInput('지점', 'text', branch, setBranch)}
-              {renderInput('책임담당자', 'text', managerMain, setManagerMain)}
-              {renderInput('책임담당자 연락처', 'text', managerMainPhone, setManagerMainPhone, '010-XXXX-XXXX')}
-              {renderInput('실무담당자', 'text', managerOps, setManagerOps)}
-              {renderInput('실무담당자 연락처', 'text', managerOpsPhone, setManagerOpsPhone, '010-XXXX-XXXX')}
-
-              {renderInput('범칙금 수신 E-MAIL 1', 'email', finesEmail, setFinesEmail, 'fines@example.com')}
-              {renderInput('범칙금 수신 E-MAIL 2', 'email', finesEmail2, setFinesEmail2, 'backup@example.com')}
-              {renderInput('법인/식별번호', 'text', corporateRegistrationNo, setCorporateRegistrationNo, '예: 110111-XXXXXXX')}
-              
-              {renderSelect('계약 상태', status, setStatus, [
-                { value: '진행중', label: '진행중' },
-                { value: '종료', label: '종료' },
-                { value: '중도해지', label: '중도해지' }
-              ])}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Accordion 3: 차량 정보 및 사양 */}
+      {/* Accordion 2: 차량 정보 (두 번째로 이동, 타이틀 "차량 정보") */}
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: 'var(--shadow-premium)' }}>
         <div 
           onClick={() => toggleSection('vehicle')}
           style={{ padding: '1rem 1.5rem', background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
         >
-          <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.95rem' }}>3. 차량 정보 및 추가 사양</span>
+          <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.95rem' }}>차량 정보</span>
           {expanded.vehicle ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
         </div>
         
@@ -945,9 +1168,6 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
               {renderInput('차종 *', 'text', vehicleModel, setVehicleModel, '예: Ray, 그랜저', true)}
               {renderInput('차량 사양', 'text', vehicleSpec, setVehicleSpec, '예: 하이브리드 프레스티지')}
               {renderInput('차량가 (원)', 'number', vehiclePrice, setVehiclePrice, '예: 32000000')}
-              {renderInput('연식 (년)', 'number', vehicleYear, setVehicleYear)}
-              {renderInput('색상', 'text', vehicleColor, setVehicleColor, '예: 스노우 화이트')}
-              
               {renderSelect('유종', vehicleFuelType, setVehicleFuelType, [
                 { value: '가솔린', label: '가솔린' },
                 { value: '디젤', label: '디젤' },
@@ -955,231 +1175,149 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
                 { value: '하이브리드', label: '하이브리드' },
                 { value: '전기', label: '전기' }
               ])}
-
-              {renderInput('배기량 (cc)', 'number', vehicleCc, setVehicleCc, '예: 1598')}
-              {renderInput('차대번호 (VIN) *', 'text', vehicleVin, setVehicleVin, '17자리 필수', true)}
-              {renderInput('차량번호', 'text', vehiclePlateNo, setVehiclePlateNo, '예: 125하5497')}
-              {renderInput('등록일', 'date', registrationDate, setRegistrationDate)}
-              {renderInput('운행 거리 (km)', 'number', mileage, setMileage, '예: 25000')}
-              {renderInput('출고지 주소', 'text', releaseAddress, setReleaseAddress, '차량 출고 주소')}
-              {renderInput('딜러사', 'text', dealer, setDealer, '예: 현대자동차 대리점')}
-              {renderInput('담당 영업 사원', 'text', salesRep, setSalesRep, '영업사원 이름')}
-              {renderInput('전시장', 'text', showroom, setShowroom, '예: 서초 전시장')}
+              {renderInput('외장 색상', 'text', vehicleColor, setVehicleColor, '예: 스노우 화이트')}
+              {renderInput('내장 색상', 'text', vehicleColorInterior, setVehicleColorInterior, '예: 블랙 가죽')}
               
-              {renderInput('구분 (엑셀 No/구분)', 'text', classification, setClassification, '예: Ray-029')}
-              {renderInput('운영 구분', 'text', operationType, setOperationType, '예: 사고대차, 영업용')}
-            </div>
-
-            {/* Nested block: 악세서리 장착 (블랙박스, 선팅 등) */}
-            <div style={{ background: 'var(--bg-main)', padding: '1.2rem', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-              <h5 style={{ fontWeight: '700', color: 'var(--text-bright)', margin: '0 0 0.5rem 0' }}>악세서리 및 편의 옵션</h5>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-                {renderInput('블랙박스 모델', 'text', accessories.blackbox, (val) => handleNestedChange(setAccessories, 'blackbox', val), '예: 엠피온')}
-                {renderInput('블랙박스 상세정보', 'text', accessories.blackboxInfo, (val) => handleNestedChange(setAccessories, 'blackboxInfo', val))}
-                {renderInput('선팅 브랜드', 'text', accessories.tinting, (val) => handleNestedChange(setAccessories, 'tinting', val), '예: 루마')}
-                {renderInput('선팅 세부 농도/사양', 'text', accessories.tintingInfo, (val) => handleNestedChange(setAccessories, 'tintingInfo', val), '예: 전면 35%/측후면 15%')}
-              </div>
-            </div>
-
-            {/* Vehicle Options Tags */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <label style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-main)' }}>차량 개별 추가 옵션 태그 (Enter 키로 등록)</label>
-              <input 
-                type="text" 
-                placeholder="예: 네비게이션, 선루프 입력 후 Enter" 
-                value={optionInput}
-                onChange={(e) => setOptionInput(e.target.value)}
-                onKeyDown={handleAddOption}
-                style={{ width: '100%', padding: '0.45rem 0.6rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }}
-              />
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-                {vehicleOptions.map(opt => (
-                  <span key={opt} style={{ background: 'var(--primary-glow)', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                    {opt}
-                    <button type="button" onClick={() => handleRemoveOption(opt)} style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.7rem' }}>×</button>
-                  </span>
-                ))}
+              {/* 옵션 (두 번째 줄에 길게 추가) */}
+              <div style={{ gridColumn: '1 / -1' }}>
+                {renderInput('옵션', 'text', vehicleOptions, setVehicleOptions, '차량 개별 추가 옵션 입력 (예: 선루프, 네비게이션 등)')}
               </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Accordion 4: 상세 계약 금액 (PRICING) */}
+      {/* Accordion 3: 계약 내용 */}
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: 'var(--shadow-premium)' }}>
         <div 
-          onClick={() => toggleSection('pricing')}
+          onClick={() => toggleSection('contract')}
           style={{ padding: '1rem 1.5rem', background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
         >
-          <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.95rem' }}>4. 상세 계약 금액 설정 (PRICING)</span>
-          {expanded.pricing ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+          <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.95rem' }}>계약 내용</span>
+          {expanded.contract ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
         </div>
         
-        {expanded.pricing && (
+        {expanded.contract && (
           <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '0.3rem', color: 'var(--text-main)' }}>월 납입금 * (원)</label>
-                <input 
-                  type="number" 
-                  required 
-                  value={pricing.monthlyFee} 
-                  onChange={(e) => handlePricingChange('monthlyFee', e.target.value)} 
-                  style={{ width: '100%', padding: '0.45rem 0.6rem', border: '1px solid var(--primary)', borderRadius: '6px', fontSize: '0.85rem' }} 
-                />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+              
+              {/* 1번째 행: 렌트 기간 & 수량 & 약정주행거리 (만단위 선택 셀렉트) */}
+              <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                {renderSelect('렌트 기간 (개월)', termMonths, setTermMonths, [
+                  { value: '12', label: '12개월' },
+                  { value: '24', label: '24개월' },
+                  { value: '36', label: '36개월' },
+                  { value: '48', label: '48개월' },
+                  { value: '60', label: '60개월' },
+                  { value: '72', label: '72개월' }
+                ], true)}
+                {renderInput('수량', 'number', contractQuantity, setContractQuantity, '수량 입력')}
+                {renderSelect('연간 약정 주행거리 (km)', mileage || '20000', setMileage, [
+                  { value: '10000', label: '10,000 km' },
+                  { value: '20000', label: '20,000 km' },
+                  { value: '30000', label: '30,000 km' },
+                  { value: '40000', label: '40,000 km' }
+                ])}
               </div>
 
-              {renderInput('기본가격 (원)', 'number', pricing.basePrice, (val) => handlePricingChange('basePrice', val))}
-              {renderInput('할인금액 (원)', 'number', pricing.discount, (val) => handlePricingChange('discount', val))}
-              {renderInput('공급가액 (원)', 'number', pricing.supplyPrice, (val) => handlePricingChange('supplyPrice', val))}
-              {renderInput('탁송료 (원)', 'number', pricing.deliveryFee, (val) => handlePricingChange('deliveryFee', val))}
-              {renderInput('취득세 (원)', 'number', pricing.acquisitionTax, (val) => handlePricingChange('acquisitionTax', val))}
-              {renderInput('공채 (원)', 'number', pricing.publicBond, (val) => handlePricingChange('publicBond', val))}
-              {renderInput('인지대/증지대 (원)', 'number', pricing.stampFee, (val) => handlePricingChange('stampFee', val))}
-              {renderInput('번호판대 (원)', 'number', pricing.plateFee, (val) => handlePricingChange('plateFee', val))}
-              {renderInput('등록대행료 (원)', 'number', pricing.registrationAgencyFee, (val) => handlePricingChange('registrationAgencyFee', val))}
-              {renderInput('수수료 (원)', 'number', pricing.commission, (val) => handlePricingChange('commission', val))}
-              {renderInput('보증금 (원)', 'number', pricing.deposit, (val) => handlePricingChange('deposit', val))}
-              {renderInput('선수금 (원)', 'number', pricing.advancePayment, (val) => handlePricingChange('advancePayment', val))}
-              {renderInput('인수가 (원)', 'number', pricing.takeoverPrice, (val) => handlePricingChange('takeoverPrice', val))}
-              
-              {renderInput('대여료 결제일 (일)', 'number', pricing.billingDay, (val) => handlePricingChange('billingDay', val), '예: 10')}
-              {renderInput('계산서발행일 (일)', 'number', pricing.invoiceDay, (val) => handlePricingChange('invoiceDay', val), '예: 10')}
-              {renderInput('위약금률 (%)', 'number', pricing.penaltyRate, (val) => handlePricingChange('penaltyRate', val))}
-              {renderInput('연체이율 (%)', 'number', pricing.overdueRate, (val) => handlePricingChange('overdueRate', val))}
-              
-              {renderInput('할부/대여 기간 (개월)', 'number', pricing.paymentTerm, (val) => handlePricingChange('paymentTerm', val), '예: 60')}
-              {renderInput('월 납입금 계 (원)', 'number', pricing.monthlyFeeTotal, (val) => handlePricingChange('monthlyFeeTotal', val))}
-              {renderInput('판관비 (원)', 'number', pricing.pandanbi, (val) => handlePricingChange('pandanbi', val))}
-              {renderInput('개별소비세 (원)', 'number', pricing.individualConsumptionTax, (val) => handlePricingChange('individualConsumptionTax', val))}
-            </div>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', background: 'var(--bg-main)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-              {renderInput('등록 비용 계 (원)', 'number', registrationCosts.cost1, (val) => handleNestedChange(setRegistrationCosts, 'cost1', val))}
-              {renderInput('부대 비용 계2 (원)', 'number', registrationCosts.cost2, (val) => handleNestedChange(setRegistrationCosts, 'cost2', val))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Accordion 5: 보험 상세 설정 */}
-      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: 'var(--shadow-premium)' }}>
-        <div 
-          onClick={() => toggleSection('insurance')}
-          style={{ padding: '1rem 1.5rem', background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
-        >
-          <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.95rem' }}>5. 보험 상세 설정</span>
-          {expanded.insurance ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-        </div>
-        
-        {expanded.insurance && (
-          <div style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-            {renderInput('보험 회사', 'text', insurance.company, (val) => handleNestedChange(setInsurance, 'company', val), '예: 현대해상')}
-            {renderInput('보험 가입일', 'date', insurance.startDate, (val) => handleNestedChange(setInsurance, 'startDate', val))}
-            {renderInput('보험료 (원)', 'number', insurance.fee, (val) => handleNestedChange(setInsurance, 'fee', val))}
-            {renderInput('자차 보험비 (원)', 'number', insurance.selfCoverage, (val) => handleNestedChange(setInsurance, 'selfCoverage', val))}
-            {renderInput('운전자 연령 제한', 'text', insurance.driverAge, (val) => handleNestedChange(setInsurance, 'driverAge', val), '예: 만26세 이상')}
-            {renderInput('대인 보장 한도', 'text', insurance.liabilityLimit, (val) => handleNestedChange(setInsurance, 'liabilityLimit', val), '예: 무한')}
-            {renderInput('대물 보장 한도', 'text', insurance.propertyLimit, (val) => handleNestedChange(setInsurance, 'propertyLimit', val), '예: 3억원')}
-            {renderInput('자기신체사고 (자손)', 'text', insurance.personalInjury, (val) => handleNestedChange(setInsurance, 'personalInjury', val), '예: 1억원')}
-            {renderInput('무보험차상해', 'text', insurance.uninsuredInjury, (val) => handleNestedChange(setInsurance, 'uninsuredInjury', val), '예: 2억원')}
-            {renderInput('고객 자기부담금', 'text', insurance.deductible, (val) => handleNestedChange(setInsurance, 'deductible', val), '예: 30만원')}
-            {renderInput('보험 종류', 'text', insurance.type, (val) => handleNestedChange(setInsurance, 'type', val), '예: 누구나')}
-            {renderInput('긴급출동 횟수', 'text', insurance.emergencyCall, (val) => handleNestedChange(setInsurance, 'emergencyCall', val), '예: 5회/년')}
-            {renderInput('사고수리 가입 여부', 'text', insurance.accidentRepair, (val) => handleNestedChange(setInsurance, 'accidentRepair', val), '예: 가입, 미가입')}
-            {renderInput('일반정비 가입 여부', 'text', insurance.generalMaintenance, (val) => handleNestedChange(setInsurance, 'generalMaintenance', val), '예: 가입(소모품포함)')}
-          </div>
-        )}
-      </div>
-
-      {/* Accordion 6: 정비 및 타이어 관리 */}
-      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: 'var(--shadow-premium)' }}>
-        <div 
-          onClick={() => toggleSection('maintenance')}
-          style={{ padding: '1rem 1.5rem', background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
-        >
-          <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.95rem' }}>6. 정비 및 소모품/타이어 관리</span>
-          {expanded.maintenance ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-        </div>
-        
-        {expanded.maintenance && (
-          <div style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-            {renderInput('소모품 교환 조항', 'text', maintenance.consumables, (val) => handleNestedChange(setMaintenance, 'consumables', val), '예: 사용자 부담')}
-            {renderInput('제공 타이어 본수', 'text', maintenance.tireCount, (val) => handleNestedChange(setMaintenance, 'tireCount', val), '예: 4본/2년')}
-            {renderInput('타이어 사양', 'text', maintenance.tireSpec, (val) => handleNestedChange(setMaintenance, 'tireSpec', val), '예: 금호 205/55R16')}
-            {renderInput('타이어 비용 (원)', 'number', maintenance.tireCost, (val) => handleNestedChange(setMaintenance, 'tireCost', val))}
-            {renderInput('정기 점검 조건', 'text', maintenance.regularCheck, (val) => handleNestedChange(setMaintenance, 'regularCheck', val), '예: 6개월 방문')}
-            {renderInput('자동차세 금액 (원)', 'number', tax.carTax, (val) => handleNestedChange(setTax, 'carTax', val))}
-          </div>
-        )}
-      </div>
-
-      {/* Accordion 7: 할부 금융 정보 */}
-      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: 'var(--shadow-premium)' }}>
-        <div 
-          onClick={() => toggleSection('loan')}
-          style={{ padding: '1rem 1.5rem', background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
-        >
-          <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.95rem' }}>7. 할부 금융 및 자금 실행 설정</span>
-          {expanded.loan ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-        </div>
-        
-        {expanded.loan && (
-          <div style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-            {renderInput('차용처 / 금융사', 'text', loan.source, (val) => handleNestedChange(setLoan, 'source', val), '예: 신한카드, 현금')}
-            {renderInput('실행일', 'date', loan.executionDate, (val) => handleNestedChange(setLoan, 'executionDate', val))}
-            {renderInput('할부 이용 금액 (원)', 'number', loan.amount, (val) => handleNestedChange(setLoan, 'amount', val))}
-            {renderInput('할부 기간 (개월)', 'number', loan.term, (val) => handleNestedChange(setLoan, 'term', val))}
-            {renderInput('월 할부금 (원)', 'number', loan.monthlyPayment, (val) => handleNestedChange(setLoan, 'monthlyPayment', val))}
-            {renderInput('월 할부금 계 (원)', 'number', loan.monthlyPaymentTotal, (val) => handleNestedChange(setLoan, 'monthlyPaymentTotal', val))}
-            {renderInput('할부 총 이자 (원)', 'number', loan.totalInterest, (val) => handleNestedChange(setLoan, 'totalInterest', val))}
-            {renderInput('할부 금리 (%)', 'number', loan.interestRate, (val) => handleNestedChange(setLoan, 'interestRate', val), '예: 5.8')}
-          </div>
-        )}
-      </div>
-
-      {/* Accordion 8: 지급 사은품 정보 */}
-      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: 'var(--shadow-premium)' }}>
-        <div 
-          onClick={() => toggleSection('gifts')}
-          style={{ padding: '1rem 1.5rem', background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
-        >
-          <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.95rem' }}>8. 사은품 관리 (GIFT)</span>
-          {expanded.gifts ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-        </div>
-        
-        {expanded.gifts && (
-          <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button 
-                type="button" 
-                onClick={handleAddGift} 
-                style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', background: '#3b82f6', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '600' }}
-              >
-                <Plus size={12} /> 추가
-              </button>
-            </div>
-            {gifts.map((gift, index) => (
-              <div key={index} style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                <input 
-                  type="text" 
-                  placeholder="사은품명 (예: 루마썬팅)" 
-                  value={gift.name} 
-                  onChange={(e) => handleGiftChange(index, 'name', e.target.value)} 
-                  style={{ flex: 2, padding: '0.45rem 0.6rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} 
-                />
-                <input 
-                  type="number" 
-                  placeholder="가격 (원)" 
-                  value={gift.price} 
-                  onChange={(e) => handleGiftChange(index, 'price', e.target.value)} 
-                  style={{ flex: 1, padding: '0.45rem 0.6rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} 
-                />
-                <button type="button" onClick={() => handleRemoveGift(index)} style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}>
-                  <Trash2 size={16} />
-                </button>
+              {/* 2번째 행: 월 렌트료, 보증금, 선수금, 인수가 */}
+              <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginTop: '0.2rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '0.3rem', color: 'var(--text-main)' }}>월 렌트료</label>
+                  <input 
+                    type="number" 
+                    required 
+                    value={pricing.monthlyFee} 
+                    onChange={(e) => handlePricingChange('monthlyFee', e.target.value)} 
+                    style={{ width: '100%', padding: '0.45rem 0.6rem', border: '1px solid var(--primary)', borderRadius: '6px', fontSize: '0.85rem' }} 
+                  />
+                </div>
+                {renderInput('보증금 (원)', 'number', pricing.deposit, (val) => handlePricingChange('deposit', val))}
+                {renderInput('선수금 (원)', 'number', pricing.advancePayment, (val) => handlePricingChange('advancePayment', val))}
+                {renderInput('인수가 (원)', 'number', pricing.takeoverPrice, (val) => handlePricingChange('takeoverPrice', val))}
               </div>
-            ))}
+
+              {/* 일반 계약 세부 정보: 계약일, 담당자, 연락처 */}
+              <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem', marginTop: '0.2rem' }}>
+                {renderInput('계약일', 'date', contractDate, setContractDate, '', true)}
+                {renderInput('계약 담당자', 'text', managerOps, setManagerOps)}
+                {renderInput('계약 담당자 연락처', 'text', managerOpsPhone, setManagerOpsPhone, '010-XXXX-XXXX')}
+              </div>
+
+              {/* 하단 세부 정보: 이메일 1, 이메일 2, 연체이율, 위약금 */}
+              <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginTop: '0.2rem' }}>
+                {renderInput('범칙금 수신 E-MAIL 1', 'email', finesEmail, setFinesEmail, 'fines@example.com')}
+                {renderInput('범칙금 수신 E-MAIL 2', 'email', finesEmail2, setFinesEmail2, 'backup@example.com')}
+                {renderInput('연체이율 (%)', 'number', pricing.overdueRate, (val) => handlePricingChange('overdueRate', val), '미입력 시 기본 25%')}
+                {renderInput('위약금 (%)', 'number', pricing.penaltyRate, (val) => handlePricingChange('penaltyRate', val), '미입력 시 기본 35%')}
+              </div>
+
+              {/* 3번째 행: 보험 사항 서브 섹션 */}
+              <div style={{ gridColumn: '1 / -1', background: 'var(--bg-main)', padding: '1.2rem', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span style={{ display: 'inline-block', width: '4px', height: '14px', backgroundColor: '#e28743', borderRadius: '2px' }}></span>
+                    <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.85rem' }}>🛡️ 보험 사항</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-main)' }}>보험 구분:</span>
+                    <select 
+                      value={insurancePreset} 
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setInsurancePreset(val);
+                        applyInsurancePreset(val);
+                      }} 
+                      style={{ padding: '0.3rem 0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem', background: '#fff' }}
+                    >
+                      <option value="보험1">보험 1 (일반차량)</option>
+                      <option value="보험2">보험 2 (고급차량)</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+                  {renderInput('대인', 'text', insurance.liabilityLimit, () => {}, '', false, true)}
+                  {renderInput('대물', 'text', insurance.propertyLimit, () => {}, '', false, true)}
+                  {renderInput('자기손해', 'text', insurance.personalInjury, () => {}, '', false, true)}
+                  {renderInput('자기부담금', 'text', insurance.deductible, () => {}, '', false, true)}
+                  {renderInput('무보험차상해', 'text', insurance.uninsuredInjury, () => {}, '', false, true)}
+                  {renderInput('긴급출동', 'text', insurance.emergencyCall, () => {}, '', false, true)}
+                </div>
+              </div>
+
+              {/* 4번째 행: 정비 서비스 서브 섹션 */}
+              <div style={{ gridColumn: '1 / -1', background: 'var(--bg-main)', padding: '1.2rem', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '0.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span style={{ display: 'inline-block', width: '4px', height: '14px', backgroundColor: '#107c41', borderRadius: '2px' }}></span>
+                    <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.85rem' }}>🔧 정비 서비스</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-main)' }}>정비 서비스 여부:</span>
+                    <select 
+                      value={maintenancePreset} 
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setMaintenancePreset(val);
+                        applyMaintenancePreset(val);
+                      }} 
+                      style={{ padding: '0.3rem 0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem', background: '#fff' }}
+                    >
+                      <option value="미포함">미포함</option>
+                      <option value="포함">포함</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+                  {renderInput('긴급 출동서비스', 'text', maintenance.emergencyService, () => {}, '', false, true)}
+                  {renderInput('순회정비', 'text', maintenance.regularCheck, () => {}, '', false, true)}
+                  {renderInput('일반정비', 'text', maintenance.generalMaintenance, () => {}, '', false, true)}
+                  {renderInput('소모품 교환', 'text', maintenance.consumables, () => {}, '', false, true)}
+                  {renderInput('타이어 교체', 'text', maintenance.tireCount, () => {}, '', false, true)}
+                </div>
+              </div>
+
+            </div>
           </div>
         )}
       </div>
@@ -1188,7 +1326,12 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
         <button 
           type="button" 
-          onClick={() => setActiveTab('contracts')} 
+          onClick={() => {
+            if (prefilledContractData) setPrefilledContractData(null);
+            if (prefilledQuoteData) setPrefilledQuoteData(null);
+            resetAllStates();
+            setActiveTab('contracts');
+          }} 
           style={{ background: '#fff', border: '1px solid var(--border-color)', padding: '0.6rem 1.5rem', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '0.85rem' }}
         >
           <MenuCancelText>취소</MenuCancelText>
@@ -1197,7 +1340,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, setAc
           type="submit" 
           style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--primary)', color: '#fff', border: 'none', padding: '0.6rem 1.5rem', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem' }}
         >
-          <Save size={16} /> 통합 계약서 등록 완료
+          <Save size={16} /> 저장
         </button>
       </div>
 

@@ -15,19 +15,35 @@ function App() {
   const [signupData, setSignupData] = useState({
     email: '',
     password: '',
+    passwordConfirm: '',
     name: '',
-    user_type: 'customer',
-    address: ''
+    phone: '',
+    department: '',
+    applyReason: '',
+    address: '',
+    agreeTerms: false
   });
   const [showPassword, setShowPassword] = useState(false);
-  const [registeredUser, setRegisteredUser] = useState(null);
 
   const API_HOST = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
 
   const handleRegister = async (e) => {
     e.preventDefault();
-    if (!signupData.email || !signupData.password || !signupData.name) {
-      showToast('이메일, 비밀번호, 이름은 필수 항목입니다.', 'error');
+    if (!signupData.email || !signupData.password || !signupData.name || !signupData.phone || !signupData.department) {
+      showToast('이메일, 비밀번호, 이름, 연락처, 소속은 필수 항목입니다.', 'error');
+      return;
+    }
+    if (signupData.password !== signupData.passwordConfirm) {
+      showToast('비밀번호가 일치하지 않습니다.', 'error');
+      return;
+    }
+    const passwordPolicy = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>_\-]).{8,}$/;
+    if (!passwordPolicy.test(signupData.password)) {
+      showToast('비밀번호는 영문, 숫자, 특수문자를 포함하여 8자 이상이어야 합니다.', 'error');
+      return;
+    }
+    if (!signupData.agreeTerms) {
+      showToast('이용약관 및 개인정보 수집·이용에 동의해주세요.', 'error');
       return;
     }
     try {
@@ -36,11 +52,19 @@ function App() {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(signupData)
+        body: JSON.stringify({
+          email: signupData.email,
+          password: signupData.password,
+          name: signupData.name,
+          phone: signupData.phone,
+          department: signupData.department,
+          applyReason: signupData.applyReason,
+          address: signupData.address,
+          agreedToTerms: signupData.agreeTerms
+        })
       });
       const data = await response.json();
       if (response.ok) {
-        setRegisteredUser(data);
         setLoginView('signup-success');
       } else {
         showToast(data.message || '회원가입에 실패했습니다.', 'error');
@@ -59,7 +83,32 @@ function App() {
     const savedUser = localStorage.getItem('currentUser');
     if (savedUser) {
       try {
-        setCurrentUser(JSON.parse(savedUser));
+        const parsedUser = JSON.parse(savedUser);
+        setCurrentUser(parsedUser);
+
+        // 캐시된 role/status가 서버 최신 상태와 다를 수 있으므로(예: 다른 관리자가 권한을 변경한 경우)
+        // 로그인 이후 서버에서 최신 정보를 재확인하여 항상 동기화한다.
+        if (parsedUser?.token) {
+          fetch(`${API_HOST}/api/users/me`, {
+            headers: { 'Authorization': `Bearer ${parsedUser.token}` }
+          })
+            .then(async (response) => {
+              if (response.status === 401) {
+                // 토큰이 만료/무효화된 경우 세션 종료
+                localStorage.removeItem('currentUser');
+                setCurrentUser(null);
+                return;
+              }
+              if (!response.ok) return; // 일시적 오류 시 캐시된 세션 유지
+              const data = await response.json();
+              const refreshed = { ...parsedUser, ...data };
+              setCurrentUser(refreshed);
+              localStorage.setItem('currentUser', JSON.stringify(refreshed));
+            })
+            .catch(() => {
+              // 네트워크 오류 시 캐시된 세션 유지
+            });
+        }
       } catch (err) {
         console.error('Failed to parse saved user', err);
       }
@@ -82,9 +131,21 @@ function App() {
     localStorage.setItem('currentUser', JSON.stringify(user));
   };
 
+  const handleUpdateCurrentUser = (updatedFields) => {
+    setCurrentUser(prev => {
+      const merged = { ...prev, ...updatedFields };
+      localStorage.setItem('currentUser', JSON.stringify(merged));
+      return merged;
+    });
+  };
+
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem('currentUser');
+    setLoginView('login');
+    // 관리자 화면의 해시 라우트(#/users 등)가 남아있으면 로그인 화면 진입 후에도
+    // 흔적이 남으므로 로그아웃 시 초기화한다.
+    window.location.hash = '';
     showToast('로그아웃 되었습니다.', 'info');
   };
 
@@ -154,17 +215,15 @@ function App() {
             <SignupSuccess
               registeredName={signupData.name}
               setView={setLoginView}
-              showToast={showToast}
-              registeredUser={registeredUser}
-              onLoginSuccess={handleLoginSuccess}
             />
           )}
         </>
       ) : (
-        <AdminDashboard 
+        <AdminDashboard
           showToast={showToast}
           currentUser={currentUser}
           onLogout={handleLogout}
+          onUpdateUser={handleUpdateCurrentUser}
         />
       )}
     </div>

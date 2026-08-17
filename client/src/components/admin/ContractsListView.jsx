@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Receipt, Coins, Users, Trash2, ArrowRight, Upload, AlertCircle, CheckCircle, X, Download } from 'lucide-react';
+import { Search, Receipt, Coins, Users, Trash2, ArrowRight, Upload, AlertCircle, CheckCircle, X, Download, Edit } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
 
-function ContractsListView({ setActiveTab, setPrefilledQuoteData, showToast, currentUser }) {
+function ContractsListView({ setActiveTab, setPrefilledQuoteData, setPrefilledContractData, showToast, currentUser }) {
   const [contracts, setContracts] = useState([]);
   const [quotes, setQuotes] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -75,6 +75,16 @@ function ContractsListView({ setActiveTab, setPrefilledQuoteData, showToast, cur
     } catch (err) {
       showToast('서버 연결 오류', 'error');
     }
+  };
+
+  const handleEditContract = (contract) => {
+    if (setPrefilledContractData) {
+      setPrefilledContractData(contract);
+    }
+    if (setPrefilledQuoteData) {
+      setPrefilledQuoteData(null);
+    }
+    setActiveTab('contract-register');
   };
 
   const handleDeleteQuote = async (id) => {
@@ -397,33 +407,36 @@ function ContractsListView({ setActiveTab, setPrefilledQuoteData, showToast, cur
             <thead>
               <tr style={{ background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-bright)', fontWeight: '700' }}>
                 <th style={{ padding: '0.8rem' }}>계약번호</th>
+                <th style={{ padding: '0.8rem' }}>대표자</th>
                 <th style={{ padding: '0.8rem' }}>고객명</th>
-                <th style={{ padding: '0.8rem' }}>차량코드</th>
                 <th style={{ padding: '0.8rem' }}>차종</th>
-                <th style={{ padding: '0.8rem' }}>계약사</th>
                 <th style={{ padding: '0.8rem' }}>계약일</th>
-                <th style={{ padding: '0.8rem' }}>만료일</th>
                 <th style={{ padding: '0.8rem' }}>월 렌트료</th>
                 <th style={{ padding: '0.8rem', width: '60px' }}>관리</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan="9" style={{ textAlign: 'center', padding: '2rem' }}>로딩 중...</td></tr>
+                <tr><td colSpan="7" style={{ textAlign: 'center', padding: '2rem' }}>로딩 중...</td></tr>
               ) : filteredContracts.length === 0 ? (
-                <tr><td colSpan="9" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>등록된 계약서가 없습니다.</td></tr>
+                <tr><td colSpan="7" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>등록된 계약서가 없습니다.</td></tr>
               ) : (
                 filteredContracts.map(c => (
                   <tr key={c._id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <td style={{ padding: '0.8rem', fontWeight: '700' }}>{c.contractNo}</td>
+                    <td style={{ padding: '0.8rem' }}>{c.customer?.ceoName || '-'}</td>
                     <td style={{ padding: '0.8rem' }}>{c.customer?.name || '-'}</td>
-                    <td style={{ padding: '0.8rem', color: 'var(--primary)', fontWeight: '600' }}>{c.vehicle?.code || '-'}</td>
-                    <td style={{ padding: '0.8rem' }}>{c.vehicle?.model || '-'}</td>
-                    <td style={{ padding: '0.8rem' }}>{c.leaseCompany || '-'}</td>
+                    <td style={{ padding: '0.8rem' }}>{c.vehicle?.carModel || '-'}</td>
                     <td style={{ padding: '0.8rem' }}>{new Date(c.contractDate).toLocaleDateString()}</td>
-                    <td style={{ padding: '0.8rem' }}>{c.endDate ? new Date(c.endDate).toLocaleDateString() : '-'}</td>
                     <td style={{ padding: '0.8rem', fontWeight: '700' }}>{c.pricing?.monthlyFee?.toLocaleString()}원</td>
-                    <td style={{ padding: '0.8rem' }}>
+                    <td style={{ padding: '0.8rem', display: 'flex', gap: '0.8rem', alignItems: 'center' }}>
+                      <button 
+                        onClick={() => handleEditContract(c)}
+                        style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer' }}
+                        title="계약서 수정"
+                      >
+                        <Edit size={16} />
+                      </button>
                       <button 
                         onClick={() => handleDeleteContract(c._id)}
                         style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}

@@ -16,18 +16,24 @@ import {
   Calendar,
   CreditCard,
   Shield,
-  Gift
+  Gift,
+  Car,
+  Coins
 } from 'lucide-react';
 
 const getTabForField = (field) => {
   const basicFields = [
     'carNumber', 'carModel', 'category', 'operation', 'contractCompany', 'manager', 
-    'managerPhone', 'carSpec', 'carPrice', 'year', 'color', 'fuelType', 'vin', 'options', 'cc', 'regDate'
+    'managerPhone', 'carSpec', 'carPrice', 'year', 'color', 'fuelType', 'vin', 'options', 'cc', 'regDate',
+    // 견적서 정보 입력 필드 추가
+    'contractNo', 'rentPeriodYears', 'paymentPeriod', 'monthlyPayment', 'deposit', 'advancePayment', 'acquisitionValue',
+    'driverAge', 'insuranceType', 'personalInjury1', 'propertyDamage', 'personalInjury2', 'deductible', 'uninsuredCarInjury', 'emergencyService',
+    'regularCheckup', 'generalMaintenance', 'consumablesExchange', 'tireType'
   ];
   const contractFields = [
-    'contractDate', 'deliveryDate', 'rentPeriodYears', 'rentEndDate', 'remainingPeriod', 
+    'contractDate', 'deliveryDate', 'rentEndDate', 'remainingPeriod', 
     'mileage', 'practicalManager', 'practicalPhone', 'branch', 'deliveryAddress', 
-    'rentStartDate', 'rentPeriodDays', 'remainingPeriodCalc', 'contractNo'
+    'rentStartDate', 'rentPeriodDays', 'remainingPeriodCalc'
   ];
   const priceFields = [
     'basePrice', 'discountAmount', 'supplyAmount', 'consignmentFee', 'mandatoryInsuranceFee', 
@@ -35,16 +41,13 @@ const getTabForField = (field) => {
     'dashcam', 'dashcamInfo', 'tinting', 'tintingInfo', 'regCost1', 'regCost2'
   ];
   const insuranceFields = [
-    'insuranceCompany', 'insuranceStartDate', 'insuranceFee', 'ownCarInsuranceFee', 'driverAge', 
-    'personalInjury1', 'propertyDamage', 'personalInjury2', 'uninsuredCarInjury', 'deductible', 
-    'insuranceType', 'emergencyService', 'accidentRepair', 'generalMaintenance', 'consumablesExchange', 
-    'tireCount', 'tireType', 'tireCost', 'carTax', 'tire', 'regularCheckup'
+    'insuranceCompany', 'insuranceStartDate', 'insuranceFee', 'ownCarInsuranceFee',
+    'accidentRepair', 'tireCount', 'tireCost', 'carTax', 'tire'
   ];
   const financeFields = [
     'lender', 'executionDate', 'installmentAmount', 'installmentPeriod', 'monthlyInstallment', 
     'totalMonthlyInstallment', 'totalInterest', 'interestRate', 'monthlyFeePayDay', 'invoiceDate', 
-    'monthlyPayment', 'paymentPeriod', 'totalMonthlyPayment', 'deposit', 'advancePayment', 
-    'acquisitionValue', 'residualRateP', 'interest2', 'fineEmail', 'managerMobile'
+    'totalMonthlyPayment', 'residualRateP', 'interest2', 'fineEmail', 'managerMobile'
   ];
   
   if (basicFields.includes(field)) return 'basic';
@@ -949,7 +952,7 @@ function VehicleManagementView({ showToast, currentUser }) {
             <Search size={17} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
             <input
               type="text"
-              placeholder="차량번호, 차종, 계약사, 책임담당자, 실무자 검색..."
+              placeholder="차량번호, 차종, 계약사, 대표자, 계약 담당자 검색..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{
@@ -1071,8 +1074,8 @@ function VehicleManagementView({ showToast, currentUser }) {
                 <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '90px' }}>구분</th>
                 <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '80px' }}>운영</th>
                 <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '130px' }}>계약사</th>
-                <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '100px' }}>책임담당자</th>
-                <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '110px' }}>연락처</th>
+                <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '100px' }}>대표자</th>
+                <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '110px' }}>대표자 연락처</th>
                 <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '120px' }}>차종</th>
                 <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '150px' }}>차량 사양</th>
                 <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '110px' }}>차량가</th>
@@ -1090,8 +1093,8 @@ function VehicleManagementView({ showToast, currentUser }) {
                 <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '100px' }}>렌트 종료</th>
                 <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '90px' }}>남은 기간</th>
                 <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '100px' }}>운행 거리</th>
-                <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '100px' }}>실무담당자</th>
-                <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '110px' }}>실무 연락처</th>
+                <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '100px' }}>계약 담당자</th>
+                <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '110px' }}>계약 담당 연락처</th>
                 <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '90px' }}>지점</th>
                 <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '150px' }}>출고지 주소</th>
                 <th style={{ padding: '0.65rem 0.8rem', border: '1px solid #ffd591', position: 'sticky', top: 0, background: '#fff2e8', zIndex: 2, minWidth: '110px' }}>렌트료 개시일</th>
@@ -1521,100 +1524,225 @@ function VehicleManagementView({ showToast, currentUser }) {
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
               <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
 
-                {/* 탭 1: 기본 정보 */}
+                {/* 탭 1: 기본 정보 & 견적 정보 */}
                 {modalTab === 'basic' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>운영 (필수)*</label>
-                      <select 
-                        name="operation" 
-                        value={formData.operation} 
-                        onChange={handleFormChange} 
-                        required
-                        style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#ffffff' }}
-                      >
-                        <option value="" disabled hidden>운영 선택</option>
-                        <option value="장기렌트">장기렌트</option>
-                        <option value="사고대차">사고대차</option>
-                        <option value="계약진행중">계약진행중</option>
-                        <option value="계약변경">계약변경</option>
-                        <option value="계약종료">계약종료</option>
-                      </select>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                    
+                    {/* 섹션 1: 차량 및 계약사 정보 */}
+                    <div style={{
+                      background: '#ffffff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '12px',
+                      padding: '1.5rem',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.2rem', borderBottom: '2px solid #107c41', paddingBottom: '0.5rem' }}>
+                        <Car size={18} color="#107c41" />
+                        <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '800', color: '#107c41' }}>1. 차량 및 계약사 정보</h4>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>운영 (필수)*</label>
+                          <select 
+                            name="operation" 
+                            value={formData.operation} 
+                            onChange={handleFormChange} 
+                            required
+                            style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#ffffff' }}
+                          >
+                            <option value="" disabled hidden>운영 선택</option>
+                            <option value="장기렌트">장기렌트</option>
+                            <option value="사고대차">사고대차</option>
+                            <option value="계약진행중">계약진행중</option>
+                            <option value="계약변경">계약변경</option>
+                            <option value="계약종료">계약종료</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>차량 번호</label>
+                          <input type="text" name="carNumber" value={formData.carNumber} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>차종 / 모델명</label>
+                          <input type="text" name="carModel" value={formData.carModel} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>구분</label>
+                          <input 
+                            type="text" 
+                            name="category" 
+                            value={editingVehicle ? formData.category : (formData.category || '차종 등록 시 자동 부여')} 
+                            disabled
+                            style={{ 
+                              width: '100%', 
+                              padding: '0.5rem', 
+                              borderRadius: '4px', 
+                              border: '1px solid #ccc', 
+                              backgroundColor: '#f5f5f5', 
+                              cursor: 'not-allowed',
+                              color: '#8c8c8c'
+                            }} 
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>계약사 / 법인명</label>
+                          <input type="text" name="contractCompany" value={formData.contractCompany} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                           <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>대표자</label>
+                           <input type="text" name="manager" value={formData.manager} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                         </div>
+                         <div>
+                           <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>대표자 연락처</label>
+                           <input type="text" name="managerPhone" value={formData.managerPhone} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                         </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>차량 사양</label>
+                          <input type="text" name="carSpec" value={formData.carSpec} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>차량가 (원)</label>
+                          <input type="number" name="carPrice" value={formData.carPrice} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>연식</label>
+                          <input type="text" name="year" value={formData.year} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>색상</label>
+                          <input type="text" name="color" value={formData.color} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>유종</label>
+                          <input type="text" name="fuelType" value={formData.fuelType} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>차대 번호</label>
+                          <input type="text" name="vin" value={formData.vin} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>옵션</label>
+                          <input type="text" name="options" value={formData.options} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>CC (배기량)</label>
+                          <input type="text" name="cc" value={formData.cc} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>등록일</label>
+                          <input type="date" name="regDate" value={formData.regDate} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>차량 번호</label>
-                      <input type="text" name="carNumber" value={formData.carNumber} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+
+                    {/* 섹션 2: 견적 및 대여 조건 */}
+                    <div style={{
+                      background: '#ffffff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '12px',
+                      padding: '1.5rem',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.2rem', borderBottom: '2px solid #0f766e', paddingBottom: '0.5rem' }}>
+                        <Coins size={18} color="#0f766e" />
+                        <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '800', color: '#0f766e' }}>2. 견적 및 대여 조건</h4>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>계약번호 / 견적번호</label>
+                          <input type="text" name="contractNo" value={formData.contractNo} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>렌트 기간 (Y)</label>
+                          <input type="text" name="rentPeriodYears" value={formData.rentPeriodYears} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>납입 기간 (M)</label>
+                          <input type="text" name="paymentPeriod" value={formData.paymentPeriod} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>월 납입금 / 대여료 (원)</label>
+                          <input type="number" name="monthlyPayment" value={formData.monthlyPayment} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>보증금 (원)</label>
+                          <input type="number" name="deposit" value={formData.deposit} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>선수금 (원)</label>
+                          <input type="number" name="advancePayment" value={formData.advancePayment} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>인수가 (잔존가치, 원)</label>
+                          <input type="number" name="acquisitionValue" value={formData.acquisitionValue} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>차종 / 모델명</label>
-                      <input type="text" name="carModel" value={formData.carModel} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+
+                    {/* 섹션 3: 보험 및 정비 가입 내용 (견적 기준) */}
+                    <div style={{
+                      background: '#ffffff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '12px',
+                      padding: '1.5rem',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.2rem', borderBottom: '2px solid #1e3a8a', paddingBottom: '0.5rem' }}>
+                        <Shield size={18} color="#1e3a8a" />
+                        <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '800', color: '#1e3a8a' }}>3. 보험 및 정비 가입 내용</h4>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>운전자 연령</label>
+                          <input type="text" name="driverAge" value={formData.driverAge} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>보험종류 / 운전 범위</label>
+                          <input type="text" name="insuranceType" value={formData.insuranceType} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>대인 배상</label>
+                          <input type="text" name="personalInjury1" value={formData.personalInjury1} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>대물 배상</label>
+                          <input type="text" name="propertyDamage" value={formData.propertyDamage} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>자손 (자기신체사고)</label>
+                          <input type="text" name="personalInjury2" value={formData.personalInjury2} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>고객부담금 (CMD 면책금, 원)</label>
+                          <input type="number" name="deductible" value={formData.deductible} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>무보험차상해</label>
+                          <input type="text" name="uninsuredCarInjury" value={formData.uninsuredCarInjury} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>긴급출동</label>
+                          <input type="text" name="emergencyService" value={formData.emergencyService} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>정기점검 / 순회점검</label>
+                          <input type="text" name="regularCheckup" value={formData.regularCheckup} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>일반정비</label>
+                          <input type="text" name="generalMaintenance" value={formData.generalMaintenance} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>소모품교환</label>
+                          <input type="text" name="consumablesExchange" value={formData.consumablesExchange} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>타이어 교체</label>
+                          <input type="text" name="tireType" value={formData.tireType} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>구분</label>
-                      <input 
-                        type="text" 
-                        name="category" 
-                        value={editingVehicle ? formData.category : (formData.category || '차종 등록 시 자동 부여')} 
-                        disabled
-                        style={{ 
-                          width: '100%', 
-                          padding: '0.5rem', 
-                          borderRadius: '4px', 
-                          border: '1px solid #ccc', 
-                          backgroundColor: '#f5f5f5', 
-                          cursor: 'not-allowed',
-                          color: '#8c8c8c'
-                        }} 
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>계약사 / 법인명</label>
-                      <input type="text" name="contractCompany" value={formData.contractCompany} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>책임담당자</label>
-                      <input type="text" name="manager" value={formData.manager} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>책임담당자 연락처</label>
-                      <input type="text" name="managerPhone" value={formData.managerPhone} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>차량 사양</label>
-                      <input type="text" name="carSpec" value={formData.carSpec} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>차량가 (원)</label>
-                      <input type="number" name="carPrice" value={formData.carPrice} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>연식</label>
-                      <input type="text" name="year" value={formData.year} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>색상</label>
-                      <input type="text" name="color" value={formData.color} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>유종</label>
-                      <input type="text" name="fuelType" value={formData.fuelType} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>차대 번호</label>
-                      <input type="text" name="vin" value={formData.vin} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>옵션</label>
-                      <input type="text" name="options" value={formData.options} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>CC (배기량)</label>
-                      <input type="text" name="cc" value={formData.cc} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>등록일</label>
-                      <input type="date" name="regDate" value={formData.regDate} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
+
                   </div>
                 )}
 
@@ -1693,10 +1821,6 @@ function VehicleManagementView({ showToast, currentUser }) {
                         <input type="date" name="deliveryDate" value={formData.deliveryDate} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
                       </div>
                       <div>
-                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>렌트 기간 (Y)</label>
-                        <input type="text" name="rentPeriodYears" value={formData.rentPeriodYears} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                      </div>
-                      <div>
                         <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>렌트 종료일</label>
                         <input type="date" name="rentEndDate" value={formData.rentEndDate} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
                       </div>
@@ -1709,11 +1833,11 @@ function VehicleManagementView({ showToast, currentUser }) {
                         <input type="number" name="mileage" value={formData.mileage} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
                       </div>
                       <div>
-                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>실무담당자</label>
+                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>계약 담당자</label>
                         <input type="text" name="practicalManager" value={formData.practicalManager} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
                       </div>
                       <div>
-                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>실무담당자 연락처</label>
+                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>계약 담당자 연락처</label>
                         <input type="text" name="practicalPhone" value={formData.practicalPhone} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
                       </div>
                       <div>
@@ -1735,10 +1859,6 @@ function VehicleManagementView({ showToast, currentUser }) {
                       <div>
                         <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>남은 기간 계산</label>
                         <input type="text" name="remainingPeriodCalc" value={formData.remainingPeriodCalc} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                      </div>
-                      <div>
-                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>계약번호</label>
-                        <input type="text" name="contractNo" value={formData.contractNo} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
                       </div>
                     </div>
                   </div>
@@ -1838,64 +1958,16 @@ function VehicleManagementView({ showToast, currentUser }) {
                       <input type="number" name="ownCarInsuranceFee" value={formData.ownCarInsuranceFee} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>운전자 연령</label>
-                      <input type="text" name="driverAge" value={formData.driverAge} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>대인 배상</label>
-                      <input type="text" name="personalInjury1" value={formData.personalInjury1} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>대물 배상</label>
-                      <input type="text" name="propertyDamage" value={formData.propertyDamage} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>자손 (자기신체사고)</label>
-                      <input type="text" name="personalInjury2" value={formData.personalInjury2} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>무보험차상해</label>
-                      <input type="text" name="uninsuredCarInjury" value={formData.uninsuredCarInjury} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>고객부담금 (면책금, 원)</label>
-                      <input type="number" name="deductible" value={formData.deductible} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>보험종류</label>
-                      <input type="text" name="insuranceType" value={formData.insuranceType} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>긴급출동</label>
-                      <input type="text" name="emergencyService" value={formData.emergencyService} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
                       <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>타이어</label>
                       <input type="text" name="tire" value={formData.tire} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>정기점검</label>
-                      <input type="text" name="regularCheckup" value={formData.regularCheckup} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
                     </div>
                     <div>
                       <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>사고수리</label>
                       <input type="text" name="accidentRepair" value={formData.accidentRepair} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>일반정비</label>
-                      <input type="text" name="generalMaintenance" value={formData.generalMaintenance} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>소모품교환</label>
-                      <input type="text" name="consumablesExchange" value={formData.consumablesExchange} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
                       <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>타이어 본수</label>
                       <input type="text" name="tireCount" value={formData.tireCount} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>타이어(정비)</label>
-                      <input type="text" name="tireType" value={formData.tireType} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
                     </div>
                     <div>
                       <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>타이어비용 (원)</label>
@@ -1918,22 +1990,6 @@ function VehicleManagementView({ showToast, currentUser }) {
                     <div>
                       <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>월 대여료 결제일</label>
                       <input type="text" name="monthlyFeePayDay" value={formData.monthlyFeePayDay} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>월 납입금 (원)</label>
-                      <input type="number" name="monthlyPayment" value={formData.monthlyPayment} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>보증금 (원)</label>
-                      <input type="number" name="deposit" value={formData.deposit} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>선수금 (원)</label>
-                      <input type="number" name="advancePayment" value={formData.advancePayment} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>인수가 (잔존가치, 원)</label>
-                      <input type="number" name="acquisitionValue" value={formData.acquisitionValue} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
                     </div>
                     <div>
                       <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>범칙금 E-MAIL</label>
@@ -1974,10 +2030,6 @@ function VehicleManagementView({ showToast, currentUser }) {
                     <div>
                       <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>계산서발행일</label>
                       <input type="text" name="invoiceDate" value={formData.invoiceDate} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>납입기간</label>
-                      <input type="text" name="paymentPeriod" value={formData.paymentPeriod} onChange={handleFormChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }} />
                     </div>
                     <div>
                       <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '0.3rem' }}>월납입금 계 (원)</label>

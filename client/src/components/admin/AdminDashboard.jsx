@@ -8,13 +8,14 @@ import CalendarView from './CalendarView.jsx';
 import CustomerListView from './CustomerListView.jsx';
 import UserManagementView from './UserManagementView.jsx';
 import BillingView from './BillingView.jsx';
+import MyPageView from './MyPageView.jsx';
 
-import { 
-  LayoutDashboard, 
-  Coins, 
-  FileSignature, 
-  Car, 
-  Receipt, 
+import {
+  LayoutDashboard,
+  Coins,
+  FileSignature,
+  Car,
+  Receipt,
   Calendar,
   LogOut,
   UserCheck,
@@ -22,13 +23,14 @@ import {
   Menu,
   X,
   Key,
-  FileText
+  FileText,
+  Settings
 } from 'lucide-react';
 
-function AdminDashboard({ showToast, currentUser, onLogout }) {
+function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   const getTabFromHash = () => {
     const hash = window.location.hash.replace('#/', '');
-    const validTabs = ['dashboard', 'customers', 'quote-input', 'contract-register', 'vehicles', 'contracts', 'calendar', 'users', 'billing'];
+    const validTabs = ['dashboard', 'customers', 'quote-input', 'contract-register', 'vehicles', 'contracts', 'calendar', 'users', 'billing', 'mypage'];
     return validTabs.includes(hash) ? hash : 'dashboard';
   };
 
@@ -49,15 +51,39 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
   
   // Shared state to transfer data from Quote -> Contract Register
   const [prefilledQuoteData, setPrefilledQuoteData] = useState(null);
+  const [prefilledContractData, setPrefilledContractData] = useState(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [pendingUserCount, setPendingUserCount] = useState(0);
+
+  const API_HOST = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
+
+  useEffect(() => {
+    if (currentUser?.role !== 'admin' || !currentUser?.token) return;
+
+    const fetchPendingCount = async () => {
+      try {
+        const response = await fetch(`${API_HOST}/api/users/pending`, {
+          headers: { 'Authorization': `Bearer ${currentUser.token}` }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setPendingUserCount(data.length);
+        }
+      } catch (err) {
+        console.error('Failed to fetch pending user count', err);
+      }
+    };
+
+    fetchPendingCount();
+  }, [currentUser, activeTab]);
 
   const menuItems = [
     { id: 'dashboard', name: '통계 대시보드', icon: <LayoutDashboard size={18} /> },
     { id: 'customers', name: '고객 DB 관리', icon: <Users size={18} /> },
     { id: 'quote-input', name: '견적서', icon: <Coins size={18} /> },
     { id: 'contract-register', name: '계약서 등록', icon: <FileSignature size={18} /> },
-    { id: 'vehicles', name: '렌트차량 DB', icon: <Car size={18} /> },
     { id: 'contracts', name: '계약 / 견적 목록', icon: <Receipt size={18} /> },
+    { id: 'vehicles', name: '렌트차량 DB', icon: <Car size={18} /> },
     { id: 'billing', name: '장기렌트 청구서', icon: <FileText size={18} /> },
     { id: 'calendar', name: '일정표 캘린더', icon: <Calendar size={18} /> }
   ];
@@ -65,6 +91,7 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
   if (currentUser?.role === 'admin') {
     menuItems.push({ id: 'users', name: '사용자 권한 관리', icon: <Key size={18} /> });
   }
+  menuItems.push({ id: 'mypage', name: '마이페이지', icon: <Settings size={18} /> });
 
   const navigateToTab = (tabId) => {
     window.location.hash = `#/${tabId}`;
@@ -212,7 +239,14 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
                     }}
                   >
                     {item.icon}
-                    <span>{item.name}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      {item.name}
+                      {item.id === 'users' && pendingUserCount > 0 && (
+                        <span style={{ background: '#ff4d4f', color: '#fff', fontSize: '0.68rem', fontWeight: '700', borderRadius: '10px', padding: '0.1rem 0.4rem', lineHeight: 1.4 }}>
+                          {pendingUserCount}
+                        </span>
+                      )}
+                    </span>
                   </button>
                 );
               })}
@@ -342,6 +376,7 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
               {activeTab === 'billing' && '장기렌트 청구서'}
               {activeTab === 'calendar' && '캘린더 관리 일정표'}
               {activeTab === 'users' && '사용자 권한 관리'}
+              {activeTab === 'mypage' && '마이페이지'}
             </h1>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '0.2rem' }}>
               {activeTab === 'dashboard' && '사내 프로그램의 실시간 차량 DB와 계약 일정 현황 요약입니다.'}
@@ -353,6 +388,7 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
               {activeTab === 'billing' && '계약 건별 대여료 및 기타 추가 납입 항목을 취합하여 프리미엄 청구서를 발행 및 관리합니다.'}
               {activeTab === 'calendar' && '정기점검, 종합검사, 렌트만료, 계산서발행 예정일을 한눈에 보여주는 관리 일정표입니다.'}
               {activeTab === 'users' && '가입된 사내 직원들의 권한(조회/수정 및 삭제/관리자)을 조정하고 승인합니다.'}
+              {activeTab === 'mypage' && '내 계정의 비밀번호와 개인정보를 수정합니다.'}
             </p>
           </div>
         </header>
@@ -385,6 +421,8 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
             <ContractRegisterView 
               prefilledQuoteData={prefilledQuoteData}
               setPrefilledQuoteData={setPrefilledQuoteData}
+              prefilledContractData={prefilledContractData}
+              setPrefilledContractData={setPrefilledContractData}
               setActiveTab={navigateToTab}
               showToast={showToast}
               currentUser={currentUser}
@@ -402,6 +440,7 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
             <ContractsListView 
               setActiveTab={navigateToTab}
               setPrefilledQuoteData={setPrefilledQuoteData}
+              setPrefilledContractData={setPrefilledContractData}
               showToast={showToast}
               currentUser={currentUser}
             />
@@ -422,9 +461,17 @@ function AdminDashboard({ showToast, currentUser, onLogout }) {
           )}
 
           {activeTab === 'users' && currentUser?.role === 'admin' && (
-            <UserManagementView 
+            <UserManagementView
               showToast={showToast}
               currentUser={currentUser}
+            />
+          )}
+
+          {activeTab === 'mypage' && (
+            <MyPageView
+              showToast={showToast}
+              currentUser={currentUser}
+              onUpdateUser={onUpdateUser}
             />
           )}
         </div>

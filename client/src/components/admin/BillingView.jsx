@@ -80,60 +80,116 @@ function computeMonthlySchedule(vehicle) {
   return rows;
 }
 
-// 법인 -> 계약번호(건) 트리. "렌터카 DB에서 생성" 청구서 화면과 "월 대여료 현황" 화면에서 공용으로 사용.
+// 차량의 월 대여료 결제일(monthlyFeePayDay)을 정렬 가능한 값으로 변환한다. "말일"은 항상 마지막 순서로 취급.
+function getPaymentDaySortInfo(payDayRaw) {
+  const raw = (payDayRaw || '').trim();
+  if (raw.includes('말일')) return { sortValue: 32, label: '말일' };
+  const m = raw.match(/(\d+)\s*일/);
+  if (m) return { sortValue: parseInt(m[1], 10), label: `매월 ${m[1]}일` };
+  return { sortValue: 999, label: '결제일 미지정' };
+}
+
+// 법인 그룹 목록을 대표 차량(첫 배치의 첫 차량)의 결제일 기준으로 묶고, 결제일 오름차순으로 정렬한다.
+function groupCompaniesByPaymentDay(companyGroups) {
+  const buckets = {};
+  companyGroups.forEach(group => {
+    const representativeVehicle = group.batches[0]?.vehicles[0];
+    const { sortValue, label } = getPaymentDaySortInfo(representativeVehicle?.monthlyFeePayDay);
+    const key = `${sortValue}_${label}`;
+    if (!buckets[key]) buckets[key] = { sortValue, label, companyGroups: [] };
+    buckets[key].companyGroups.push(group);
+  });
+  return Object.values(buckets).sort((a, b) => a.sortValue - b.sortValue);
+}
+
+// 법인 1개 행 + 하위 계약번호 목록. "렌터카 DB에서 생성" 청구서 화면과 "월 대여료 현황" 화면에서 공용으로 사용.
+function CompanyEntry({ group, expandedCompany, onToggleCompany, selectedBatchKey, onSelectBatch }) {
+  return (
+    <div>
+      <div
+        onClick={() => onToggleCompany(group.companyName)}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem',
+          padding: '0.55rem 0.6rem', borderRadius: '6px', cursor: 'pointer',
+          background: expandedCompany === group.companyName ? 'var(--primary-glow)' : 'var(--bg-main)',
+          border: '1px solid var(--border-color)'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
+          {expandedCompany === group.companyName ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          <Building2 size={14} style={{ flexShrink: 0 }} />
+          <span style={{ fontWeight: '700', fontSize: '0.85rem', color: 'var(--text-bright)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.companyName}</span>
+        </div>
+        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', flexShrink: 0 }}>차량 {group.totalVehicles}대</span>
+      </div>
+      {expandedCompany === group.companyName && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', margin: '0.3rem 0 0.5rem 1.4rem' }}>
+          {group.batches.map(batch => (
+            <div
+              key={batch.batchKey}
+              onClick={() => onSelectBatch(group.companyName, batch)}
+              style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem',
+                padding: '0.45rem 0.6rem', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem',
+                background: selectedBatchKey === batch.batchKey ? 'var(--primary)' : 'transparent',
+                color: selectedBatchKey === batch.batchKey ? '#fff' : 'var(--text-main)',
+                border: `1px solid ${selectedBatchKey === batch.batchKey ? 'var(--primary)' : 'var(--border-color)'}`
+              }}
+            >
+              <span>{batch.contractNo ? `계약번호: ${batch.contractNo}` : '계약번호 없음 (개별 건)'}</span>
+              <span style={{ opacity: 0.85, flexShrink: 0 }}>차량 {batch.vehicles.length}대</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 법인 -> 계약번호(건) 트리 (법인명 검색 포함). "렌터카 DB에서 생성" 청구서 화면에서 사용.
 function CompanyBatchTree({ groups, expandedCompany, onToggleCompany, selectedBatchKey, onSelectBatch }) {
-  if (groups.length === 0) {
-    return <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>렌터카 DB에 등록된 차량이 없습니다.</div>;
-  }
+  const [companySearch, setCompanySearch] = useState('');
+  const filteredGroups = companySearch.trim()
+    ? groups.filter(g => g.companyName.toLowerCase().includes(companySearch.trim().toLowerCase()))
+    : groups;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-      {groups.map(group => (
-        <div key={group.companyName}>
-          <div
-            onClick={() => onToggleCompany(group.companyName)}
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem',
-              padding: '0.55rem 0.6rem', borderRadius: '6px', cursor: 'pointer',
-              background: expandedCompany === group.companyName ? 'var(--primary-glow)' : 'var(--bg-main)',
-              border: '1px solid var(--border-color)'
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
-              {expandedCompany === group.companyName ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              <Building2 size={14} style={{ flexShrink: 0 }} />
-              <span style={{ fontWeight: '700', fontSize: '0.85rem', color: 'var(--text-bright)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.companyName}</span>
-            </div>
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', flexShrink: 0 }}>차량 {group.totalVehicles}대</span>
-          </div>
-          {expandedCompany === group.companyName && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', margin: '0.3rem 0 0.5rem 1.4rem' }}>
-              {group.batches.map(batch => (
-                <div
-                  key={batch.batchKey}
-                  onClick={() => onSelectBatch(group.companyName, batch)}
-                  style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem',
-                    padding: '0.45rem 0.6rem', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem',
-                    background: selectedBatchKey === batch.batchKey ? 'var(--primary)' : 'transparent',
-                    color: selectedBatchKey === batch.batchKey ? '#fff' : 'var(--text-main)',
-                    border: `1px solid ${selectedBatchKey === batch.batchKey ? 'var(--primary)' : 'var(--border-color)'}`
-                  }}
-                >
-                  <span>{batch.contractNo ? `계약번호: ${batch.contractNo}` : '계약번호 없음 (개별 건)'}</span>
-                  <span style={{ opacity: 0.85, flexShrink: 0 }}>차량 {batch.vehicles.length}대</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+      <div style={{ position: 'relative', marginBottom: '0.4rem' }}>
+        <Search size={14} style={{ position: 'absolute', left: '9px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+        <input
+          type="text"
+          value={companySearch}
+          onChange={(e) => setCompanySearch(e.target.value)}
+          placeholder="법인명 검색..."
+          style={{
+            width: '100%', boxSizing: 'border-box', padding: '0.5rem 0.6rem 0.5rem 1.9rem',
+            border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.82rem',
+            outline: 'none', background: '#fff', color: '#333'
+          }}
+        />
+      </div>
+      {groups.length === 0 ? (
+        <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>렌터카 DB에 등록된 차량이 없습니다.</div>
+      ) : filteredGroups.length === 0 ? (
+        <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>검색 결과가 없습니다.</div>
+      ) : filteredGroups.map(group => (
+        <CompanyEntry
+          key={group.companyName}
+          group={group}
+          expandedCompany={expandedCompany}
+          onToggleCompany={onToggleCompany}
+          selectedBatchKey={selectedBatchKey}
+          onSelectBatch={onSelectBatch}
+        />
       ))}
     </div>
   );
 }
 
 function BillingView({ showToast, currentUser }) {
-  // Page-level tab: '청구서' | '월대여료 현황'
-  const [pageTab, setPageTab] = useState('invoice');
+  // Page-level tab: '청구서' | '월대여료 현황' - 월대여료 현황을 첫 화면으로 노출
+  const [pageTab, setPageTab] = useState('schedule');
 
   // Tabs: 'list' | 'create' | 'db-generate'
   const [activeSubTab, setActiveSubTab] = useState('list');
@@ -180,6 +236,15 @@ function BillingView({ showToast, currentUser }) {
   });
 
   const companyGroups = useMemo(() => groupVehiclesByCompanyAndContract(billingVehicles), [billingVehicles]);
+
+  // 월 대여료 현황 탭 전용: 법인명 검색 + 결제일 오름차순 그룹핑
+  const [scheduleCompanySearch, setScheduleCompanySearch] = useState('');
+  const scheduleFilteredCompanyGroups = useMemo(() => {
+    if (!scheduleCompanySearch.trim()) return companyGroups;
+    const q = scheduleCompanySearch.trim().toLowerCase();
+    return companyGroups.filter(g => g.companyName.toLowerCase().includes(q));
+  }, [companyGroups, scheduleCompanySearch]);
+  const scheduleDayGroups = useMemo(() => groupCompaniesByPaymentDay(scheduleFilteredCompanyGroups), [scheduleFilteredCompanyGroups]);
 
   // 선택된 법인의 실제 원드라이브(RENT) 폴더명 매핑 상태
   const [companyFolder, setCompanyFolder] = useState(null); // { folderName } or null(미등록)
@@ -918,17 +983,6 @@ function BillingView({ showToast, currentUser }) {
 
       <div className="no-print" style={{ display: 'flex', gap: '0.6rem', marginBottom: '1.2rem' }}>
         <button
-          onClick={() => setPageTab('invoice')}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '0.4rem',
-            padding: '0.65rem 1.3rem', borderRadius: '8px', border: 'none', fontWeight: '800', fontSize: '0.92rem', cursor: 'pointer',
-            background: pageTab === 'invoice' ? 'var(--primary)' : 'var(--bg-main)',
-            color: pageTab === 'invoice' ? '#fff' : 'var(--text-muted)'
-          }}
-        >
-          <FileText size={16} /> 청구서
-        </button>
-        <button
           onClick={() => setPageTab('schedule')}
           style={{
             display: 'flex', alignItems: 'center', gap: '0.4rem',
@@ -938,6 +992,17 @@ function BillingView({ showToast, currentUser }) {
           }}
         >
           <ListChecks size={16} /> 월 대여료 현황
+        </button>
+        <button
+          onClick={() => setPageTab('invoice')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '0.4rem',
+            padding: '0.65rem 1.3rem', borderRadius: '8px', border: 'none', fontWeight: '800', fontSize: '0.92rem', cursor: 'pointer',
+            background: pageTab === 'invoice' ? 'var(--primary)' : 'var(--bg-main)',
+            color: pageTab === 'invoice' ? '#fff' : 'var(--text-muted)'
+          }}
+        >
+          <FileText size={16} /> 청구서
         </button>
       </div>
 
@@ -1547,14 +1612,51 @@ function BillingView({ showToast, currentUser }) {
       {pageTab === 'schedule' && (
         <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '1.5rem', alignItems: 'flex-start' }}>
           <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1rem', maxHeight: '640px', overflowY: 'auto' }}>
-            <h4 style={{ margin: '0 0 0.8rem 0', fontSize: '0.9rem', fontWeight: '800', color: 'var(--text-bright)' }}>법인 / 계약 건 선택</h4>
-            <CompanyBatchTree
-              groups={companyGroups}
-              expandedCompany={expandedCompany}
-              onToggleCompany={(name) => setExpandedCompany(prev => prev === name ? null : name)}
-              selectedBatchKey={selectedBatch ? (selectedBatch.contractNo || `단독-${selectedBatch.vehicles[0]?.carNumber}`) : null}
-              onSelectBatch={handleSelectBatch}
-            />
+            <h4 style={{ margin: '0 0 0.8rem 0', fontSize: '0.9rem', fontWeight: '800', color: 'var(--text-bright)' }}>법인 / 계약 건 선택 (결제일 오름차순)</h4>
+            <div style={{ position: 'relative', marginBottom: '0.6rem' }}>
+              <Search size={14} style={{ position: 'absolute', left: '9px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                type="text"
+                value={scheduleCompanySearch}
+                onChange={(e) => setScheduleCompanySearch(e.target.value)}
+                placeholder="법인명 검색..."
+                style={{
+                  width: '100%', boxSizing: 'border-box', padding: '0.5rem 0.6rem 0.5rem 1.9rem',
+                  border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.82rem',
+                  outline: 'none', background: '#fff', color: '#333'
+                }}
+              />
+            </div>
+            {companyGroups.length === 0 ? (
+              <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>렌터카 DB에 등록된 차량이 없습니다.</div>
+            ) : scheduleDayGroups.length === 0 ? (
+              <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>검색 결과가 없습니다.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+                {scheduleDayGroups.map(dayGroup => (
+                  <div key={dayGroup.label}>
+                    <div style={{
+                      fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)',
+                      padding: '0.25rem 0.1rem', marginBottom: '0.35rem', borderBottom: '1px solid var(--border-color)'
+                    }}>
+                      결제일 {dayGroup.label} ({dayGroup.companyGroups.length}개 법인)
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                      {dayGroup.companyGroups.map(group => (
+                        <CompanyEntry
+                          key={group.companyName}
+                          group={group}
+                          expandedCompany={expandedCompany}
+                          onToggleCompany={(name) => setExpandedCompany(prev => prev === name ? null : name)}
+                          selectedBatchKey={selectedBatch ? (selectedBatch.contractNo || `단독-${selectedBatch.vehicles[0]?.carNumber}`) : null}
+                          onSelectBatch={handleSelectBatch}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {!selectedBatch ? (
@@ -1567,13 +1669,26 @@ function BillingView({ showToast, currentUser }) {
                 const schedule = computeMonthlySchedule(v);
                 return (
                   <div key={v._id} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.4rem 1rem', padding: '1rem', background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', fontSize: '0.8rem' }}>
-                      <div><span style={{ color: 'var(--text-muted)' }}>차량번호</span><div style={{ fontWeight: '700' }}>{v.carNumber}</div></div>
-                      <div><span style={{ color: 'var(--text-muted)' }}>차종</span><div style={{ fontWeight: '700' }}>{v.carModel}</div></div>
+                    <div style={{ padding: '0.7rem 1rem', background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.85rem', letterSpacing: '0.5px' }}>
+                      계약 내용 - {v.contractCompany ? v.contractCompany.replace(/_\d+$/, '') : '미지정 법인'} / {v.carNumber || '-'}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem 1rem', padding: '1rem', background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', fontSize: '0.8rem' }}>
+                      <div><span style={{ color: 'var(--text-muted)' }}>고객명</span><div style={{ fontWeight: '700' }}>{v.contractCompany ? v.contractCompany.replace(/_\d+$/, '') : '-'}</div></div>
+                      <div><span style={{ color: 'var(--text-muted)' }}>차량번호</span><div style={{ fontWeight: '700' }}>{v.carNumber || '-'}</div></div>
+                      <div><span style={{ color: 'var(--text-muted)' }}>차종</span><div style={{ fontWeight: '700' }}>{v.carModel || '-'}</div></div>
                       <div><span style={{ color: 'var(--text-muted)' }}>월 렌트료</span><div style={{ fontWeight: '700', color: 'var(--primary)' }}>{(v.monthlyPayment || 0).toLocaleString()}원</div></div>
+                      <div><span style={{ color: 'var(--text-muted)' }}>실행일</span><div style={{ fontWeight: '700' }}>{v.executionDate || '-'}</div></div>
                       <div><span style={{ color: 'var(--text-muted)' }}>렌트기간</span><div style={{ fontWeight: '700' }}>{v.rentPeriodYears || '-'}년</div></div>
+                      <div><span style={{ color: 'var(--text-muted)' }}>남은 기간</span><div style={{ fontWeight: '700' }}>{v.remainingPeriod || '-'}</div></div>
                       <div><span style={{ color: 'var(--text-muted)' }}>인도일</span><div style={{ fontWeight: '700' }}>{v.deliveryDate || '-'}</div></div>
                       <div><span style={{ color: 'var(--text-muted)' }}>렌트 종료</span><div style={{ fontWeight: '700' }}>{v.rentEndDate || '-'}</div></div>
+                      <div><span style={{ color: 'var(--text-muted)' }}>정기점검</span><div style={{ fontWeight: '700' }}>{v.regularCheckup || '-'}</div></div>
+                      <div><span style={{ color: 'var(--text-muted)' }}>은행</span><div style={{ fontWeight: '700' }}>{v.bank || '-'}</div></div>
+                      <div><span style={{ color: 'var(--text-muted)' }}>계좌번호</span><div style={{ fontWeight: '700' }}>{v.accountNo || '-'}</div></div>
+                      <div><span style={{ color: 'var(--text-muted)' }}>보증금</span><div style={{ fontWeight: '700' }}>{v.deposit ? v.deposit.toLocaleString() + '원' : '-'}</div></div>
+                      <div><span style={{ color: 'var(--text-muted)' }}>선수금</span><div style={{ fontWeight: '700' }}>{v.advancePayment ? v.advancePayment.toLocaleString() + '원' : '-'}</div></div>
+                      <div><span style={{ color: 'var(--text-muted)' }}>연체이자율</span><div style={{ fontWeight: '700' }}>{v.overdueInterestRate || '-'}</div></div>
+                      <div><span style={{ color: 'var(--text-muted)' }}>담당자 Email</span><div style={{ fontWeight: '700' }}>{v.fineEmail || '-'}</div></div>
                     </div>
                     <div style={{ maxHeight: '260px', overflowY: 'auto' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', color: '#333' }}>

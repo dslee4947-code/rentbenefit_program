@@ -1,7 +1,0 @@
-{
-  "tool_name": "PowerShell",
-  "tool_input_preview": "{\"command\":\"Stop-Process -Id 27160 -Force; Start-Sleep -Seconds 1; Get-NetTCPConnection -LocalPort 5000 -ErrorAction SilentlyContinue\",\"description\":\"Kill orphaned node process and confirm port 5000 i...",
-  "error": "Exit code 1",
-  "timestamp": "2026-07-23T08:31:54.603Z",
-  "retry_count": 1
-}

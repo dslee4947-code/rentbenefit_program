@@ -85,7 +85,7 @@ export const createContract = async (req, res) => {
       vehicleInfo // { model, spec, year, color, fuelType, cc, vin, plateNo, options, releaseAddress, dealer, salesRep, showroom }
     } = req.body;
 
-    if ((!customerId && !req.body.isNewCustomer) || !contractDate || !termMonths || !pricing || !vehicleInfo || !vehicleInfo.model || !vehicleInfo.vin) {
+    if ((!customerId && !req.body.isNewCustomer) || !contractDate || !termMonths || !pricing || !vehicleInfo || !vehicleInfo.model) {
       return res.status(400).json({ message: 'Missing required contract, customer, or vehicle fields' });
     }
 
@@ -96,30 +96,53 @@ export const createContract = async (req, res) => {
 
     const vehicle = await Vehicle.create({
       code: vehicleCode,
-      model: vehicleInfo.model,
-      spec: vehicleInfo.spec,
+      carModel: vehicleInfo.model,
+      carSpec: vehicleInfo.spec,
       year: vehicleInfo.year,
       color: vehicleInfo.color,
+      interiorColor: vehicleInfo.colorInterior || '',
       fuelType: vehicleInfo.fuelType,
       cc: vehicleInfo.cc,
-      vin: vehicleInfo.vin,
-      plateNo: vehicleInfo.plateNo,
-      options: vehicleInfo.options || [],
+      vin: vehicleInfo.vin || ('AUTO_VIN_' + Date.now()),
+      carNumber: vehicleInfo.plateNo || '',
+      options: vehicleInfo.options || '',
       releaseAddress: vehicleInfo.releaseAddress,
       dealer: vehicleInfo.dealer,
       salesRep: vehicleInfo.salesRep,
       showroom: vehicleInfo.showroom,
+      manager: req.body.customerInfo?.ceoName || '',
+      managerPhone: req.body.customerInfo?.contactPhone || '',
       
       // New columns mapping
-      classification: vehicleInfo.classification,
+      classification: vehicleCode,
       operationType: vehicleInfo.operationType,
-      vehiclePrice: vehicleInfo.vehiclePrice,
+      carPrice: vehicleInfo.vehiclePrice || 0,
       registrationDate: vehicleInfo.registrationDate,
       mileage: vehicleInfo.mileage,
+
+      // Flat mapping for Insurance
+      insuranceCompany: vehicleInfo.insurance?.company || '삼성화재',
+      driverAge: vehicleInfo.insurance?.driverAge || '만 26세 이상',
+      personalInjury1: vehicleInfo.insurance?.liabilityLimit || '무제한',
+      propertyDamage: vehicleInfo.insurance?.propertyLimit || '1억원',
+      personalInjury2: vehicleInfo.insurance?.personalInjury || '1억원',
+      uninsuredCarInjury: vehicleInfo.insurance?.uninsuredInjury || '2억원',
+      deductible: vehicleInfo.insurance?.deductible ? (
+        typeof vehicleInfo.insurance.deductible === 'number'
+          ? vehicleInfo.insurance.deductible
+          : (parseInt(String(vehicleInfo.insurance.deductible).replace(/[^0-9]/g, '')) * 10000 || 300000)
+      ) : 300000,
+      insuranceType: vehicleInfo.insurance?.type || '임직원특약',
+      emergencyService: vehicleInfo.maintenance?.emergencyService || vehicleInfo.insurance?.emergencyCall || '가입',
+      
+      // Flat mapping for Maintenance
+      regularCheckup: vehicleInfo.maintenance?.regularCheck || '미가입',
+      generalMaintenance: vehicleInfo.maintenance?.generalMaintenance || '미가입',
+      consumablesExchange: vehicleInfo.maintenance?.consumables || '미가입',
+      tireCount: vehicleInfo.maintenance?.tireCount || '미가입',
+      
       accessories: vehicleInfo.accessories || {},
       registrationCosts: vehicleInfo.registrationCosts || {},
-      insurance: vehicleInfo.insurance || {},
-      maintenance: vehicleInfo.maintenance || {},
       tax: vehicleInfo.tax || {},
       loan: vehicleInfo.loan || {}
     });
@@ -194,7 +217,7 @@ export const createContract = async (req, res) => {
       customer: finalCustomerId,
       quote: quoteId || null,
       leaseCompany,
-      contractDate,
+      contractDate: contractDateObj,
       deliveryDate,
       termMonths,
       branch,
@@ -217,6 +240,19 @@ export const createContract = async (req, res) => {
     });
 
     const savedContract = await contract.save(); // pre-save calculates endDate
+
+    // 3.5. Update associated vehicle details & mark as "계약진행중"
+    await Vehicle.findByIdAndUpdate(vehicle._id, {
+      operation: '계약진행중',
+      contractCompany: customer.name,
+      manager: customer.ceoName || '',
+      managerPhone: customer.contactPhone || '',
+      contractNo: contractNo,
+      contractDate: contractDate,
+      rentEndDate: savedContract.endDate ? savedContract.endDate.toISOString().split('T')[0] : '',
+      paymentPeriod: String(termMonths),
+      rentPeriodYears: String(Math.round(termMonths / 12))
+    });
 
     // 4. Auto-generate Schedules (SCHEDULE 자동 생성)
     const schedulesToCreate = [];
@@ -315,7 +351,7 @@ export const updateContract = async (req, res) => {
 
     if (contract) {
       contract.leaseCompany = req.body.leaseCompany !== undefined ? req.body.leaseCompany : contract.leaseCompany;
-      contract.contractDate = req.body.contractDate !== undefined ? req.body.contractDate : contract.contractDate;
+      contract.contractDate = req.body.contractDate !== undefined ? new Date(req.body.contractDate) : contract.contractDate;
       contract.deliveryDate = req.body.deliveryDate !== undefined ? req.body.deliveryDate : contract.deliveryDate;
       contract.termMonths = req.body.termMonths !== undefined ? req.body.termMonths : contract.termMonths;
       contract.branch = req.body.branch !== undefined ? req.body.branch : contract.branch;
@@ -342,7 +378,50 @@ export const updateContract = async (req, res) => {
 
       // Update associated vehicle if vehicleInfo is supplied
       if (req.body.vehicleInfo) {
-        await Vehicle.findByIdAndUpdate(contract.vehicle, req.body.vehicleInfo);
+        const vInfo = req.body.vehicleInfo;
+        const mappedVehicleInfo = {
+          carModel: vInfo.model,
+          carSpec: vInfo.spec,
+          carPrice: vInfo.vehiclePrice,
+          color: vInfo.color,
+          interiorColor: vInfo.colorInterior,
+          fuelType: vInfo.fuelType,
+          options: vInfo.options,
+          vin: vInfo.vin,
+          carNumber: vInfo.plateNo,
+          contractCompany: req.body.customerInfo?.name,
+          mileage: vInfo.mileage !== undefined ? Number(vInfo.mileage) : undefined,
+          manager: req.body.customerInfo?.ceoName,
+          managerPhone: req.body.customerInfo?.contactPhone,
+          
+          // 평면 보험 정보 매핑
+          insuranceCompany: vInfo.insurance?.company,
+          driverAge: vInfo.insurance?.driverAge,
+          personalInjury1: vInfo.insurance?.liabilityLimit,
+          propertyDamage: vInfo.insurance?.propertyLimit,
+          personalInjury2: vInfo.insurance?.personalInjury,
+          uninsuredCarInjury: vInfo.insurance?.uninsuredInjury,
+          deductible: vInfo.insurance?.deductible ? (
+            typeof vInfo.insurance.deductible === 'number' 
+              ? vInfo.insurance.deductible 
+              : (parseInt(String(vInfo.insurance.deductible).replace(/[^0-9]/g, '')) * 10000 || 300000)
+          ) : undefined,
+          insuranceType: vInfo.insurance?.type,
+          emergencyService: vInfo.maintenance?.emergencyService || vInfo.insurance?.emergencyCall,
+          
+          // 평면 정비 정보 매핑
+          regularCheckup: vInfo.maintenance?.regularCheck,
+          generalMaintenance: vInfo.maintenance?.generalMaintenance,
+          consumablesExchange: vInfo.maintenance?.consumables,
+          tireCount: vInfo.maintenance?.tireCount
+        };
+        // Clean undefined properties so we do not overwrite with null
+        Object.keys(mappedVehicleInfo).forEach(key => {
+          if (mappedVehicleInfo[key] === undefined) {
+            delete mappedVehicleInfo[key];
+          }
+        });
+        await Vehicle.findByIdAndUpdate(contract.vehicle, mappedVehicleInfo);
       }
 
       // Update associated customer if customerInfo is supplied

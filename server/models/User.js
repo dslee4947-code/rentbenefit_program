@@ -36,6 +36,40 @@ const userSchema = new mongoose.Schema(
       enum: ['viewer', 'editor', 'admin'],
       default: 'viewer'
     },
+    // 가입 승인 상태 (관리자 승인 전에는 PENDING, 로그인 불가)
+    status: {
+      type: String,
+      enum: ['PENDING', 'ACTIVE', 'REJECTED', 'SUSPENDED'],
+      default: 'PENDING',
+    },
+    // 거절 사유 (관리자가 가입을 거절한 경우 기록)
+    rejectionReason: {
+      type: String,
+      default: '',
+    },
+    // 연락처 (필수, 본인 확인 및 승인 알림용)
+    phone: {
+      type: String,
+      required: [true, 'Please add a phone number'],
+      trim: true,
+    },
+    // 소속 / 부서 / 직급 (필수, 관리자가 권한을 판단하는 기준)
+    department: {
+      type: String,
+      required: [true, 'Please add a department'],
+      trim: true,
+    },
+    // 가입 목적 / 신청 사유 (선택)
+    applyReason: {
+      type: String,
+      default: '',
+    },
+    // 서비스 이용약관 및 개인정보 수집 동의 (필수)
+    agreedToTerms: {
+      type: Boolean,
+      required: [true, 'Terms agreement is required'],
+      default: false,
+    },
     // 주소 (선택 사항)
     address: {
       type: String,

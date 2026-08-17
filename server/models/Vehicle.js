@@ -14,6 +14,7 @@ const VehicleSchema = new Schema({
   carPrice: { type: Number, default: 0 }, // 차량가
   year: { type: String, default: '2024년식' }, // 연식
   color: { type: String, default: '블랙' }, // 색상
+  interiorColor: { type: String, default: '' }, // 내장 색상
   fuelType: { type: String, default: '휘발유' }, // 유종
   vin: { type: String, default: '' }, // 차대 번호
   carNumber: { type: String, default: '' }, // 차량 번호 (계약별로 동일 번호 재사용 가능)

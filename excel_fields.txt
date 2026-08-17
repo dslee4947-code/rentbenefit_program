@@ -1,0 +1,138 @@
+[엑셀 대장 항목 정의 목록]
+- 각 항목은 "화면 표시 레이블 : 변수명" 형태로 작성되어 있습니다.
+- 수정하고 싶은 부분이 있다면 레이블이나 변수명을 수정하거나, 순서를 바꾸거나, 항목을 추가/삭제하여 이 파일을 저장하신 뒤 다시 알려주시면 코드에 그대로 반영하겠습니다.
+
+==================================================
+
+1. 차량/기본정보 (basic)
+- 운영 (필수)* : operation
+- 차량 번호 : carNumber
+- 차종 / 모델명 : carModel
+- 구분 : category
+- 계약사 / 법인명 : contractCompany
+- 책임담당자 : manager
+- 책임담당자 연락처 : managerPhone
+- 차량 사양 : carSpec
+- 차량가 (원) : carPrice
+- 연식 : year
+- 색상 : color
+- 유종 : fuelType
+- 차대 번호 : vin
+- 옵션 : options
+- CC (배기량) : cc
+- 등록일 : regDate
+
+==================================================
+
+2. 견적/계약정보 (contract)
+- 계약일 : contractDate
+- 인도 날짜 : deliveryDate
+- 렌트 기간 (Y) : rentPeriodYears
+- 렌트 종료일 : rentEndDate
+- 남은 기간 : remainingPeriod
+- 운행 거리 (km) : mileage
+- 실무담당자 : practicalManager
+- 실무담당자 연락처 : practicalPhone
+- 지점 : branch
+- 출고지 주소 : deliveryAddress
+- 렌트료 개시일 : rentStartDate
+- 렌트 기간 일수 : rentPeriodDays
+- 남은 기간 계산 : remainingPeriodCalc
+- 계약번호 : contractNo
+
+==================================================
+
+3. 가격/제비용 (price)
+- 기본가격 (원) : basePrice
+- 할인금액 (원) : discountAmount
+- 공급가액 (원) : supplyAmount
+- 탁송료 (원) : consignmentFee
+- 의무보험료 (원) : mandatoryInsuranceFee
+- 취득세 (원) : acquisitionTax
+- 공채 (원) : bond
+- 증지대 (원) : stampFee
+- 번호판대 (원) : plateFee
+- 등록대행료 (원) : regAgencyFee
+- 수수료 (원) : commission
+- 블랙박스 여부 : dashcam
+- 블랙박스 정보 : dashcamInfo
+- 선팅 여부 : tinting
+- 선팅 정보 : tintingInfo
+- 등록비용 (원) : regCost1
+- 등록비용2 (원) : regCost2
+
+==================================================
+
+4. 보험/정비정보 (insurance)
+- 보험 회사 : insuranceCompany
+- 보험가입일 : insuranceStartDate
+- 보험료 (원) : insuranceFee
+- 자차 보험비 (원) : ownCarInsuranceFee
+- 운전자 연령 : driverAge
+- 대인 배상 : personalInjury1
+- 대물 배상 : propertyDamage
+- 자손 (자기신체사고) : personalInjury2
+- 무보험차상해 : uninsuredCarInjury
+- 고객부담금 (면책금, 원) : deductible
+- 보험종류 : insuranceType
+- 긴급출동 : emergencyService
+- 타이어 : tire
+- 정기점검 : regularCheckup
+- 사고수리 : accidentRepair
+- 일반정비 : generalMaintenance
+- 소모품교환 : consumablesExchange
+- 타이어 본수 : tireCount
+- 타이어(정비) : tireType
+- 타이어비용 (원) : tireCost
+- 자동차세 : carTax
+
+==================================================
+
+5. 금융/납입정보 (finance)
+- 차용처 (금융사) : lender
+- 월 대여료 결제일 : monthlyFeePayDay
+- 월 납입금 (원) : monthlyPayment
+- 보증금 (원) : deposit
+- 선수금 (원) : advancePayment
+- 인수가 (잔존가치, 원) : acquisitionValue
+- 범칙금 E-MAIL : fineEmail
+- 담당자 휴대전화번호 : managerMobile
+- 실행일 : executionDate
+- 할부이용금액 (원) : installmentAmount
+- 할부기간 : installmentPeriod
+- 월할부금 (원) : monthlyInstallment
+- 월할부금 계 (원) : totalMonthlyInstallment
+- 총이자 (원) : totalInterest
+- 이자율 : interestRate
+- 계산서발행일 : invoiceDate
+- 납입기간 : paymentPeriod
+- 월납입금 계 (원) : totalMonthlyPayment
+- 잔존가치율 P : residualRateP
+- 금융 이자 : interest2
+
+==================================================
+
+6. 사은품/영업정보 (gifts)
+- 사은품 1 명칭 : gift1
+- 사은품 1 가격 : gift1Price
+- 딜러사 : dealerCompany
+- 담당영업사원 : salesRepresentative
+- 사업자/주민번호 : bizOrRegNo
+- 사업자 주소 : bizAddress
+- 사은품 2 명칭 : gift2
+- 사은품 2 가격 (원) : gift2Price
+- 사은품 3 명칭 : gift3
+- 사은품 3 가격 (원) : gift3Price
+- 사은품 4 명칭 : gift4
+- 사은품 4 가격 (원) : gift4Price
+- 사은품 5 명칭 : gift5
+- 사은품 5 가격 (원) : gift5Price
+- 총 사은품 가격 (원) : totalGiftPrice
+- 전시장 : showroom
+- 예금주명 : accountHolder
+- 은행 : bank
+- 계좌번호 : accountNo
+- 위약금률 : penaltyRate
+- 연체이율 : overdueInterestRate
+- 법인/식별번호 : corporateRegNo
+- 개별소비세 (원) : individualConsumptionTax

@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Car, 
-  FileText, 
-  Users, 
-  Calendar, 
-  AlertCircle, 
-  CheckCircle2, 
-  ChevronRight, 
+import React from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  Car,
+  FileText,
+  Users,
+  Calendar,
+  AlertCircle,
+  CheckCircle2,
+  ChevronRight,
   Bell,
   Clock,
   ArrowRight
@@ -14,53 +15,42 @@ import {
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
 
+const DEFAULT_STATS = {
+  vehiclesCount: 0,
+  customersCount: 0,
+  contractsCount: 0,
+  schedulesCount: 0
+};
+
+const fetchDashboardSummary = async () => {
+  const res = await fetch(`${API_HOST}/api/dashboard/summary`);
+  if (!res.ok) {
+    throw new Error('대시보드 데이터를 불러오는데 실패했습니다. (서버 연결을 확인하세요)');
+  }
+  return res.json();
+};
+
 function DashboardView({ setActiveTab, showToast }) {
-  const [stats, setStats] = useState({
-    vehiclesCount: 0,
-    customersCount: 0,
-    contractsCount: 0,
-    schedulesCount: 0
+  const queryClient = useQueryClient();
+
+  // staleTime keeps cached data visible instantly on re-entry, while a
+  // background refetch quietly brings it up to date.
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['dashboard-summary'],
+    queryFn: fetchDashboardSummary,
+    staleTime: 30 * 1000
   });
-  const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading] = useState(true);
 
-  const fetchDashboardData = async () => {
-    try {
-      setLoading(true);
-      // Fetch vehicles, customers, contracts, schedules to compute numbers
-      const [resVehicles, resCustomers, resContracts, resSchedules, resNotifications] = await Promise.all([
-        fetch(`${API_HOST}/api/vehicles`),
-        fetch(`${API_HOST}/api/customers`),
-        fetch(`${API_HOST}/api/contracts`),
-        fetch(`${API_HOST}/api/schedules`),
-        fetch(`${API_HOST}/api/schedules/notifications`)
-      ]);
-
-      const vehiclesData = resVehicles.ok ? await resVehicles.json() : { vehicles: [] };
-      const customersData = resCustomers.ok ? await resCustomers.json() : { customers: [] };
-      const contracts = resContracts.ok ? await resContracts.json() : [];
-      const schedules = resSchedules.ok ? await resSchedules.json() : [];
-      const notificationsData = resNotifications.ok ? await resNotifications.json() : [];
-
-      setStats({
-        vehiclesCount: vehiclesData.stats?.total || (vehiclesData.vehicles?.length || 0),
-        customersCount: customersData.stats?.total || (customersData.customers?.length || 0),
-        contractsCount: Array.isArray(contracts) ? contracts.filter(c => c.status === '진행중').length : 0,
-        schedulesCount: Array.isArray(schedules) ? schedules.filter(s => s.status === '예정').length : 0
-      });
-
-      setNotifications(notificationsData);
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+  React.useEffect(() => {
+    if (isError) {
       showToast('대시보드 데이터를 불러오는데 실패했습니다. (서버 연결을 확인하세요)', 'error');
-    } finally {
-      setLoading(false);
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isError]);
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
+  const stats = data?.stats || DEFAULT_STATS;
+  const notifications = data?.notifications || [];
+  const loading = isLoading && !data;
 
   const handleCompleteSchedule = async (scheduleId) => {
     try {
@@ -71,7 +61,7 @@ function DashboardView({ setActiveTab, showToast }) {
       });
       if (response.ok) {
         showToast('일정이 완료 처리되었습니다.', 'success');
-        fetchDashboardData(); // Refresh
+        queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       } else {
         showToast('일정 상태 수정 실패', 'error');
       }

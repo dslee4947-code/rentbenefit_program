@@ -138,14 +138,18 @@ const VehicleSchema = new Schema({
 }, { timestamps: true });
 
 // Search Index
-VehicleSchema.index({ 
-  carNumber: 'text', 
-  carModel: 'text', 
+VehicleSchema.index({
+  carNumber: 'text',
+  carModel: 'text',
   contractCompany: 'text',
   manager: 'text',
   practicalManager: 'text',
   contractNo: 'text'
 });
+
+// Dashboard/list filters query and group by `operation` and `status`
+VehicleSchema.index({ operation: 1 });
+VehicleSchema.index({ status: 1 });
 
 const Vehicle = mongoose.model('Vehicle', VehicleSchema);
 

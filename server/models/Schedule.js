@@ -14,5 +14,11 @@ const ScheduleSchema = new Schema({
   assignee: String,
 }, { timestamps: true });
 
+// Dashboard notifications query by `status` + `dueDate` range together;
+// deletes/joins query by `targetContract`/`targetVehicle`
+ScheduleSchema.index({ status: 1, dueDate: 1 });
+ScheduleSchema.index({ targetContract: 1 });
+ScheduleSchema.index({ targetVehicle: 1 });
+
 const Schedule = mongoose.model('Schedule', ScheduleSchema);
 export default Schedule;

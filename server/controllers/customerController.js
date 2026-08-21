@@ -253,4 +253,78 @@ export const triggerOutlookSync = async (req, res) => {
   }
 };
 
+// @desc    Lookup customer addresses by phone numbers
+// @route   POST /api/customers/lookup-addresses
+// @access  Private/Admin
+export const lookupCustomerAddresses = async (req, res) => {
+  try {
+    const { phones } = req.body;
+    if (!phones || !Array.isArray(phones)) {
+      return res.status(400).json({ message: 'Invalid payload: phones must be an array' });
+    }
+
+    // 1. Fetch only essential fields from DB to match in-memory (highly performant)
+    const customers = await Customer.find(
+      {},
+      'customerId name contactPhone mobilePhone businessPhone homePhone homeAddress businessAddress address bizAddress surname givenName companyName department jobTitle'
+    );
+
+    // 2. Clean phone number function
+    const cleanPhone = (phone) => {
+      if (!phone) return '';
+      let cleaned = phone.replace(/\D/g, ''); // keep only numbers
+      if (cleaned.startsWith('82')) {
+        cleaned = '0' + cleaned.slice(2);
+      }
+      return cleaned;
+    };
+
+    // 3. Map cleaned phone numbers to customers
+    const phoneMap = new Map();
+    for (const c of customers) {
+      const pFields = [c.contactPhone, c.mobilePhone, c.businessPhone, c.homePhone];
+      for (const p of pFields) {
+        const cp = cleanPhone(p);
+        if (cp && cp.length >= 7) { // Only map strings of length 7 or more
+          phoneMap.set(cp, c);
+        }
+      }
+    }
+
+    // 4. Look up each input phone number
+    const results = phones.map(inputPhone => {
+      const cp = cleanPhone(inputPhone);
+      const matched = cp ? phoneMap.get(cp) : null;
+      if (matched) {
+        return {
+          inputPhone,
+          matched: true,
+          customerId: matched.customerId,
+          name: matched.name,
+          surname: matched.surname || '',
+          givenName: matched.givenName || '',
+          companyName: matched.companyName || '',
+          department: matched.department || '',
+          jobTitle: matched.jobTitle || '',
+          matchedPhone: matched.mobilePhone || matched.contactPhone || matched.businessPhone || matched.homePhone || '',
+          homeAddress: matched.homeAddress || '',
+          businessAddress: matched.businessAddress || '',
+          address: matched.address || '',
+          bizAddress: matched.bizAddress || ''
+        };
+      } else {
+        return {
+          inputPhone,
+          matched: false
+        };
+      }
+    });
+
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+
 

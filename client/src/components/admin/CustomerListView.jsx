@@ -16,6 +16,7 @@ import {
   Eye
 } from 'lucide-react';
 import OutlookContactModal from './OutlookContactModal';
+import * as XLSX from 'xlsx';
 
 function CustomerListView({ showToast, currentUser }) {
   const [customers, setCustomers] = useState([]);
@@ -87,6 +88,13 @@ function CustomerListView({ showToast, currentUser }) {
     bankAccount: '',
     bankHolder: ''
   });
+
+  // Lookup Modal State
+  const [showLookupModal, setShowLookupModal] = useState(false);
+  const [lookupText, setLookupText] = useState('');
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupResults, setLookupResults] = useState([]);
+  const [lookupSummary, setLookupSummary] = useState(null);
 
   const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
 
@@ -278,6 +286,147 @@ function CustomerListView({ showToast, currentUser }) {
     }
   };
 
+  // 7. 연락처로 주소 조회 기능 관련 핸들러들
+  const handleExcelUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        
+        const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+        const extractedPhones = [];
+        for (const row of rawRows) {
+          for (const cell of row) {
+            if (cell && typeof cell === 'string') {
+              const digitsOnly = cell.replace(/\D/g, '');
+              if (digitsOnly.length >= 7 && digitsOnly.length <= 15) {
+                extractedPhones.push(cell.trim());
+              }
+            } else if (cell && typeof cell === 'number') {
+              const strCell = String(cell);
+              if (strCell.length >= 7 && strCell.length <= 15) {
+                extractedPhones.push(strCell);
+              }
+            }
+          }
+        }
+        
+        if (extractedPhones.length === 0) {
+          showToast?.('엑셀 파일에서 유효한 연락처를 찾을 수 없습니다.', 'error');
+          return;
+        }
+
+        const uniquePhones = [...new Set(extractedPhones)];
+        setLookupText(uniquePhones.join('\n'));
+        showToast?.(`엑셀에서 ${uniquePhones.length}개의 연락처를 추출했습니다.`, 'success');
+      } catch (err) {
+        showToast?.(`엑셀 파일을 읽는 도중 오류가 발생했습니다: ${err.message}`, 'error');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
+  };
+
+  const handlePerformLookup = async () => {
+    const lines = lookupText.split(/[\n,]+/).map(p => p.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      showToast?.('조회할 연락처를 입력하거나 엑셀 파일을 업로드해 주세요.', 'error');
+      return;
+    }
+
+    try {
+      setLookupLoading(true);
+      setLookupResults([]);
+      setLookupSummary(null);
+
+      const res = await fetch(`${API_BASE_URL}/api/customers/lookup-addresses`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ phones: lines })
+      });
+
+      if (!res.ok) {
+        throw new Error('주소 조회 요청에 실패했습니다.');
+      }
+
+      const data = await res.json();
+      setLookupResults(data);
+
+      const matchedCount = data.filter(r => r.matched).length;
+      setLookupSummary({
+        total: data.length,
+        matched: matchedCount,
+        unmatched: data.length - matchedCount
+      });
+      showToast?.('주소 조회가 완료되었습니다.', 'success');
+    } catch (err) {
+      showToast?.(err.message, 'error');
+    } finally {
+      setLookupLoading(false);
+    }
+  };
+
+  const handleDownloadExcel = () => {
+    if (lookupResults.length === 0) return;
+
+    try {
+      const excelRows = lookupResults.map((r) => {
+        return {
+          '연락처': r.inputPhone,
+          '아웃룩 고객명': r.matched ? (r.surname || r.name || '') : '',
+          '집주소': r.matched ? (r.homeAddress || '') : '',
+          '근무처 주소': r.matched ? (r.businessAddress || '') : ''
+        };
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(excelRows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, '주소 조회 결과');
+
+      // Autofit columns
+      const maxColWidths = [];
+      excelRows.forEach(row => {
+        Object.keys(row).forEach((key, colIndex) => {
+          const val = row[key] ? String(row[key]) : '';
+          const len = val.split('').reduce((acc, char) => acc + (char.charCodeAt(0) > 127 ? 2 : 1), 0);
+          maxColWidths[colIndex] = Math.max(maxColWidths[colIndex] || 12, len + 2);
+        });
+      });
+      worksheet['!cols'] = maxColWidths.map(w => ({ wch: w }));
+
+      XLSX.writeFile(workbook, `고객_주소_조회_결과_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      showToast?.('엑셀 파일이 다운로드되었습니다.', 'success');
+    } catch (err) {
+      showToast?.(`엑셀 저장 중 오류가 발생했습니다: ${err.message}`, 'error');
+    }
+  };
+
+  const handleDownloadTemplate = () => {
+    try {
+      const templateData = [
+        { '연락처': '010-1234-5678' },
+        { '연락처': '02-987-6543' },
+        { '연락처': '01011112222' }
+      ];
+      const worksheet = XLSX.utils.json_to_sheet(templateData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, '조회 양식');
+      worksheet['!cols'] = [{ wch: 20 }];
+      XLSX.writeFile(workbook, '고객_주소_조회_양식.xlsx');
+      showToast?.('양식 파일이 다운로드되었습니다.', 'success');
+    } catch (err) {
+      showToast?.(`양식 다운로드 중 오류가 발생했습니다: ${err.message}`, 'error');
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       
@@ -376,6 +525,27 @@ function CustomerListView({ showToast, currentUser }) {
           >
             <RefreshCw size={16} className={isSyncing ? 'spin-anim' : ''} />
             <span>{isSyncing ? '동기화 진행 중...' : '아웃룩 실시간 동기화'}</span>
+          </button>
+
+          <button
+            onClick={() => setShowLookupModal(true)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              padding: '0.65rem 1.2rem',
+              borderRadius: '8px',
+              border: '1px solid var(--border-color)',
+              background: 'var(--bg-main)',
+              color: 'var(--text-bright)',
+              fontWeight: '600',
+              cursor: 'pointer',
+              fontSize: '0.9rem',
+              transition: 'all 0.2s'
+            }}
+          >
+            <Building size={16} />
+            <span>연락처로 주소 조회 (엑셀)</span>
           </button>
 
           <button
@@ -761,6 +931,257 @@ function CustomerListView({ showToast, currentUser }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 연락처로 주소 조회 모달 */}
+      {showLookupModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.6)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1100,
+          backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            background: 'var(--bg-surface)',
+            padding: '2rem',
+            borderRadius: '12px',
+            border: '1px solid var(--border-color)',
+            width: '90%',
+            maxWidth: '850px',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1.5rem',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: '1.3rem', fontWeight: '800', color: 'var(--text-bright)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Building size={22} style={{ color: 'var(--primary)' }} />
+                <span>연락처로 고객 주소 조회 (집/근무처)</span>
+              </h3>
+              <button 
+                onClick={() => {
+                  setShowLookupModal(false);
+                  setLookupText('');
+                  setLookupResults([]);
+                  setLookupSummary(null);
+                }}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
+              고객 연락처 목록(전화번호)을 직접 입력하거나 엑셀 파일을 업로드해 보세요. 
+              데이터베이스(아웃룩 동기화 데이터 포함)의 모든 고객 연락처를 조회하여 <strong>집 주소</strong>와 <strong>근무처 주소</strong>를 매칭한 결과를 엑셀 파일로 저장할 수 있습니다.
+            </div>
+
+            {/* 입력 영역 */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+              {/* 엑셀 파일 업로드 */}
+              <div style={{ 
+                border: '1px dashed var(--border-color)', 
+                borderRadius: '8px', 
+                padding: '1.5rem', 
+                display: 'flex', 
+                flexDirection: 'column', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                gap: '0.8rem',
+                background: 'var(--bg-main)',
+                minHeight: '180px'
+              }}>
+                <div style={{ width: '45px', height: '45px', borderRadius: '50%', background: 'rgba(34, 197, 94, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Building size={22} style={{ color: '#22c55e' }} />
+                </div>
+                <span style={{ fontSize: '0.9rem', fontWeight: '600', color: 'var(--text-bright)' }}>엑셀 파일 가져오기</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+                  전화번호가 포함된 열이 있는<br />엑셀 파일(.xlsx, .xls)을 선택하세요.
+                </span>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    onClick={handleDownloadTemplate}
+                    type="button"
+                    style={{
+                      padding: '0.5rem 1rem',
+                      borderRadius: '6px',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      color: 'var(--text-muted)',
+                      fontSize: '0.85rem',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      border: '1px solid var(--border-color)',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)' }}
+                    onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)' }}
+                  >
+                    양식 다운로드
+                  </button>
+                  <label style={{
+                    padding: '0.5rem 1rem',
+                    borderRadius: '6px',
+                    background: 'rgba(34, 197, 94, 0.15)',
+                    color: '#22c55e',
+                    fontSize: '0.85rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    border: '1px solid rgba(34, 197, 94, 0.3)',
+                    transition: 'all 0.2s'
+                  }}>
+                    파일 선택
+                    <input 
+                      type="file" 
+                      accept=".xlsx, .xls" 
+                      onChange={handleExcelUpload} 
+                      style={{ display: 'none' }} 
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* 직접 붙여넣기 */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.9rem', fontWeight: '600', color: 'var(--text-bright)' }}>연락처 직접 붙여넣기</span>
+                <textarea
+                  rows={7}
+                  placeholder="예:&#13;010-1234-5678&#13;01098765432&#13;02-111-2222 (한 줄에 하나씩 입력)"
+                  value={lookupText}
+                  onChange={(e) => setLookupText(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--bg-main)',
+                    color: 'var(--text-bright)',
+                    fontSize: '0.85rem',
+                    fontFamily: 'monospace',
+                    resize: 'none'
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.8rem' }}>
+              <button
+                onClick={handlePerformLookup}
+                disabled={lookupLoading || !lookupText.trim()}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  padding: '0.7rem 1.5rem',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: 'var(--primary)',
+                  color: '#ffffff',
+                  fontWeight: '600',
+                  cursor: (lookupLoading || !lookupText.trim()) ? 'not-allowed' : 'pointer',
+                  fontSize: '0.9rem',
+                  opacity: (lookupLoading || !lookupText.trim()) ? 0.6 : 1
+                }}
+              >
+                {lookupLoading ? <RefreshCw size={16} className="spin-anim" /> : <Search size={16} />}
+                <span>{lookupLoading ? '조회 중...' : '주소 조회 실행'}</span>
+              </button>
+            </div>
+
+            {/* 결과 영역 */}
+            {lookupSummary && (
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.8rem' }}>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <div style={{ background: 'var(--bg-main)', padding: '0.5rem 1rem', borderRadius: '6px', fontSize: '0.85rem', border: '1px solid var(--border-color)' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>전체 입력:</span>{' '}
+                      <strong style={{ color: 'var(--text-bright)' }}>{lookupSummary.total}건</strong>
+                    </div>
+                    <div style={{ background: 'var(--bg-main)', padding: '0.5rem 1rem', borderRadius: '6px', fontSize: '0.85rem', border: '1px solid var(--border-color)' }}>
+                      <span style={{ color: '#22c55e' }}>매칭 성공:</span>{' '}
+                      <strong style={{ color: '#22c55e' }}>{lookupSummary.matched}건</strong>
+                    </div>
+                    <div style={{ background: 'var(--bg-main)', padding: '0.5rem 1rem', borderRadius: '6px', fontSize: '0.85rem', border: '1px solid var(--border-color)' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>매칭 실패:</span>{' '}
+                      <strong style={{ color: 'var(--text-muted)' }}>{lookupSummary.unmatched}건</strong>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleDownloadExcel}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      padding: '0.6rem 1.2rem',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: '#22c55e',
+                      color: '#ffffff',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    <span>엑셀 결과 다운로드 (.xlsx)</span>
+                  </button>
+                </div>
+
+                {/* 테이블 프리뷰 */}
+                <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
+                        <th style={{ padding: '0.6rem 0.8rem' }}>연락처</th>
+                        <th style={{ padding: '0.6rem 0.8rem' }}>상태</th>
+                        <th style={{ padding: '0.6rem 0.8rem' }}>아웃룩 고객명</th>
+                        <th style={{ padding: '0.6rem 0.8rem' }}>집주소</th>
+                        <th style={{ padding: '0.6rem 0.8rem' }}>근무처 주소</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lookupResults.slice(0, 5).map((r, i) => (
+                        <tr key={i} style={{ borderBottom: i < 4 && i < lookupResults.length - 1 ? '1px solid var(--border-color)' : 'none', color: 'var(--text-bright)' }}>
+                          <td style={{ padding: '0.6rem 0.8rem' }}>{r.inputPhone}</td>
+                          <td style={{ padding: '0.6rem 0.8rem' }}>
+                            <span style={{ 
+                              padding: '0.2rem 0.5rem', 
+                              borderRadius: '4px', 
+                              fontSize: '0.7rem', 
+                              fontWeight: 'bold', 
+                              background: r.matched ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                              color: r.matched ? '#22c55e' : '#ef4444'
+                            }}>
+                              {r.matched ? '성공' : '실패'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.6rem 0.8rem' }}>{r.surname || r.name || '-'}</td>
+                          <td style={{ padding: '0.6rem 0.8rem', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.homeAddress || '-'}</td>
+                          <td style={{ padding: '0.6rem 0.8rem', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.businessAddress || '-'}</td>
+                        </tr>
+                      ))}
+                      {lookupResults.length > 5 && (
+                        <tr>
+                          <td colSpan={5} style={{ padding: '0.6rem 0.8rem', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-main)' }}>
+                            외 {lookupResults.length - 5}건이 더 있습니다. 전체 결과는 상단의 엑셀 파일로 다운로드해 확인하세요.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

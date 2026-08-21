@@ -105,6 +105,49 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
   const [insurancePreset, setInsurancePreset] = useState('보험1');
   const [maintenancePreset, setMaintenancePreset] = useState('미포함');
 
+  // Excel upload states & handlers
+  const [excelFile, setExcelFile] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleExcelTemplateDownload = () => {
+    window.open(`${API_HOST}/api/contracts/template`, '_blank');
+  };
+
+  const handleExcelUpload = async () => {
+    if (!excelFile) {
+      showToast('업로드할 엑셀 파일을 선택해주세요.', 'error');
+      return;
+    }
+    
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', excelFile);
+
+    try {
+      const response = await fetch(`${API_HOST}/api/contracts/import`, {
+        method: 'POST',
+        headers: {
+          'X-User-Role': currentUser?.role || 'viewer'
+        },
+        body: formData
+      });
+
+      const result = await response.json();
+      if (response.ok) {
+        showToast(result.message || '엑셀 데이터가 성공적으로 등록되었습니다.', 'success');
+        setExcelFile(null);
+        setActiveTab('contracts');
+      } else {
+        showToast(result.message || '엑셀 업로드에 실패했습니다.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('서버 연결 실패', 'error');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   // Vehicle Insurance
   const [insurance, setInsurance] = useState({
     company: '가입',
@@ -973,6 +1016,134 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
           </div>
         )}
       </div>
+
+      {/* 엑셀 일괄 등록 섹션 */}
+      {!prefilledContractData && (
+        <div style={{ background: '#fff', padding: '1.5rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-premium)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--bg-main)', paddingBottom: '0.8rem' }}>
+            <div>
+              <h4 style={{ fontSize: '1rem', fontWeight: '700', color: 'var(--text-bright)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                📊 엑셀 계약 대장 일괄 등록
+              </h4>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                엑셀 파일의 행(Row) 데이터를 일괄 읽어와 데이터베이스에 차량, 법인고객, 계약 및 일정을 자동 생성합니다.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleExcelTemplateDownload}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                background: '#f0fdf4',
+                color: '#16a34a',
+                border: '1px solid #bbf7d0',
+                padding: '0.5rem 1rem',
+                borderRadius: '8px',
+                fontSize: '0.82rem',
+                fontWeight: '700',
+                cursor: 'pointer',
+                transition: 'background 0.2s'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = '#dcfce7'}
+              onMouseLeave={(e) => e.currentTarget.style.background = '#f0fdf4'}
+            >
+              📥 양식 다운로드
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div style={{ flex: 1, position: 'relative' }}>
+              <input
+                type="file"
+                accept=".xlsx, .xls"
+                onChange={(e) => setExcelFile(e.target.files[0])}
+                style={{ display: 'none' }}
+                id="excel-file-input"
+              />
+              <label
+                htmlFor="excel-file-input"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '2px dashed var(--border-color)',
+                  borderRadius: '8px',
+                  padding: '1.5rem',
+                  cursor: 'pointer',
+                  backgroundColor: 'var(--bg-main)',
+                  color: 'var(--text-main)',
+                  fontSize: '0.85rem',
+                  fontWeight: '600',
+                  textAlign: 'center',
+                  transition: 'border-color 0.2s, background-color 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--primary)';
+                  e.currentTarget.style.backgroundColor = '#f0f7ff';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--border-color)';
+                  e.currentTarget.style.backgroundColor = 'var(--bg-main)';
+                }}
+              >
+                {excelFile ? (
+                  <span style={{ color: 'var(--primary)', fontWeight: '700' }}>
+                    📎 {excelFile.name} ({Math.round(excelFile.size / 1024)} KB)
+                  </span>
+                ) : (
+                  '📄 클릭하여 엑셀 파일 선택 또는 파일을 여기에 놓으세요 (.xlsx, .xls)'
+                )}
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={handleExcelUpload}
+                disabled={!excelFile || isUploading}
+                style={{
+                  background: excelFile ? 'var(--primary)' : '#e5e7eb',
+                  color: excelFile ? '#fff' : '#9ca3af',
+                  border: 'none',
+                  padding: '0.65rem 1.5rem',
+                  borderRadius: '8px',
+                  fontWeight: '700',
+                  fontSize: '0.85rem',
+                  cursor: excelFile ? 'pointer' : 'not-allowed',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  justifyContent: 'center',
+                  minWidth: '100px',
+                  boxShadow: excelFile ? 'var(--shadow-premium)' : 'none'
+                }}
+              >
+                {isUploading ? '업로드 중...' : '📤 업로드'}
+              </button>
+              {excelFile && (
+                <button
+                  type="button"
+                  onClick={() => setExcelFile(null)}
+                  style={{
+                    background: '#f3f4f6',
+                    color: '#4b5563',
+                    border: '1px solid #d1d5db',
+                    padding: '0.35rem',
+                    borderRadius: '8px',
+                    fontSize: '0.78rem',
+                    fontWeight: '600',
+                    cursor: 'pointer'
+                  }}
+                >
+                  선택 취소
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Accordion 1: 고객 정보 */}
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: 'var(--shadow-premium)' }}>

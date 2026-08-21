@@ -54,6 +54,12 @@ const ContractSchema = new Schema({
   gifts: [{ name: String, price: Number }],
 }, { timestamps: true });
 
+// Dashboard/list filters query by `status`; populate joins query by `customer`/`vehicle`
+ContractSchema.index({ status: 1 });
+ContractSchema.index({ customer: 1 });
+ContractSchema.index({ vehicle: 1 });
+ContractSchema.index({ createdAt: -1 });
+
 ContractSchema.pre('save', function (next) {
   if (this.contractDate && this.termMonths) {
     const end = new Date(this.contractDate);

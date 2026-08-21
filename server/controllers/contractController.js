@@ -3,6 +3,7 @@ import Vehicle from '../models/Vehicle.js';
 import Customer from '../models/Customer.js';
 import Quote from '../models/Quote.js';
 import Schedule from '../models/Schedule.js';
+import XLSX from 'xlsx';
 
 // @desc    Get all contracts
 // @route   GET /api/contracts
@@ -464,3 +465,505 @@ export const deleteContract = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// Excel Column Definition mapping to match the Contract Registration Form fields
+const EXCEL_COLUMNS = [
+  // 1. 고객 정보
+  { key: 'contractCompany', label: '고객명 (개인/법인명) *' },
+  { key: 'bizOrRegNo', label: '사업자/주민번호 *' },
+  { key: 'ceoName', label: '대표자명' },
+  { key: 'corporateRegNo', label: '법인등록번호' },
+  { key: 'email', label: '이메일' },
+  { key: 'bizAddress', label: '주소' },
+  { key: 'bank', label: '자동이체 은행' },
+  { key: 'accountNo', label: '자동이체 계좌번호' },
+  { key: 'accountHolder', label: '자동이체 예금주' },
+  
+  // 2. 차량 정보
+  { key: 'carModel', label: '차종 *' },
+  { key: 'carSpec', label: '차량 사양' },
+  { key: 'carPrice', label: '차량가 (원)' },
+  { key: 'fuelType', label: '유종' },
+  { key: 'color', label: '외장 색상' },
+  { key: 'interiorColor', label: '내장 색상' },
+  { key: 'options', label: '옵션' },
+  
+  // 3. 계약 정보
+  { key: 'termMonths', label: '렌트 기간 (개월) *' },
+  { key: 'mileage', label: '연간 약정 주행거리 (km)' },
+  { key: 'monthlyPayment', label: '월 렌트료 *' },
+  { key: 'deposit', label: '보증금 (원)' },
+  { key: 'advancePayment', label: '선수금 (원)' },
+  { key: 'acquisitionValue', label: '인수가 (원)' },
+  { key: 'contractDate', label: '계약일 *' },
+  { key: 'practicalManager', label: '계약 담당자' },
+  { key: 'practicalPhone', label: '계약 담당자 연락처' },
+  { key: 'finesEmail', label: '범칙금 수신 E-MAIL 1' },
+  { key: 'finesEmail2', label: '범칙금 수신 E-MAIL 2' },
+  { key: 'overdueInterestRate', label: '연체이율 (%)' },
+  { key: 'penaltyRate', label: '위약금 (%)' }
+];
+
+// Helper to clean header for robust matching
+const cleanHeader = (str) => String(str || '').replace(/[\s*()（）[\]]/g, '').toLowerCase();
+
+// Headers & Aliases list for fuzzy/robust mapping
+const FIELD_MAPPINGS = [
+  { key: 'contractCompany', labels: ['고객명개인/법인명', '고객명', '법인명', '계약사', '계약사/법인명'] },
+  { key: 'bizOrRegNo', labels: ['사업자/주민번호', '사업자번호', '사업자등록번호', '주민번호'] },
+  { key: 'ceoName', labels: ['대표자명', '대표자'] },
+  { key: 'corporateRegNo', labels: ['법인등록번호', '법인식별번호', '법인번호'] },
+  { key: 'email', labels: ['이메일', '고객이메일', '이메일주소'] },
+  { key: 'bizAddress', labels: ['주소', '법인주소', '사업자주소'] },
+  { key: 'bank', labels: ['자동이체은행', '은행', '자동이체 은행'] },
+  { key: 'accountNo', labels: ['자동이체계좌번호', '계좌번호', '계좌', '자동이체 계좌번호'] },
+  { key: 'accountHolder', labels: ['자동이체예금주', '예금주명', '예금주', '자동이체 예금주'] },
+  
+  { key: 'carModel', labels: ['차종', '모델명', '차종/모델명'] },
+  { key: 'carSpec', labels: ['차량사양', '사양', '차량 사양'] },
+  { key: 'carPrice', labels: ['차량가원', '차량가', '차량가격', '차량가 (원)'] },
+  { key: 'fuelType', labels: ['유종', '유형'] },
+  { key: 'color', labels: ['외장색상', '외장색', '색상', '외장 색상'] },
+  { key: 'interiorColor', labels: ['내장색상', '내장색', '내장 색상'] },
+  { key: 'options', labels: ['옵션', '차량옵션'] },
+  
+  { key: 'termMonths', labels: ['렌트기간개월', '렌트기간', '기간개월', '대여기간', '기간', '렌트 기간 (개월)'] },
+  { key: 'mileage', labels: ['연간약정주행거리km', '연간약정주행거리', '약정주행거리', '주행거리', '연간 약정 주행거리 (km)'] },
+  { key: 'monthlyPayment', labels: ['월렌트료', '대여료', '월대여료', '렌트료', '월 렌트료'] },
+  { key: 'deposit', labels: ['보증금원', '보증금', '보증금 (원)'] },
+  { key: 'advancePayment', labels: ['선수금원', '선수금', '선수금 (원)'] },
+  { key: 'acquisitionValue', labels: ['인수가원', '인수가', '잔존가치', '인수가 (원)'] },
+  { key: 'contractDate', labels: ['계약일'] },
+  { key: 'practicalManager', labels: ['계약담당자', '담당자', '계약 담당자'] },
+  { key: 'practicalPhone', labels: ['계약담당자연락처', '담당자연락처', '연락처', '계약 담당자 연락처'] },
+  { key: 'finesEmail', labels: ['범칙금수신e-mail1', '범칙금수신email1', '범칙금이메일1', '범칙금수신이메일1', '범칙금 수신 E-MAIL 1'] },
+  { key: 'finesEmail2', labels: ['범칙금수신e-mail2', '범칙금수신email2', '범칙금이메일2', '범칙금수신이메일2', '범칙금 수신 E-MAIL 2'] },
+  { key: 'overdueInterestRate', labels: ['연체이율%', '연체이율', '연체이율 (%)'] },
+  { key: 'penaltyRate', labels: ['위약금률', '위약금%', '위약금률%', '위약금', '위약금 (%)'] }
+];
+
+// Helper: Excel date parsing
+const parseExcelDate = (val) => {
+  if (!val) return null;
+  if (val instanceof Date) return val;
+  if (typeof val === 'number') {
+    const date = new Date(Math.round((val - 25569) * 86400 * 1000));
+    return isNaN(date.getTime()) ? null : date;
+  }
+  const date = new Date(val);
+  return isNaN(date.getTime()) ? null : date;
+};
+
+// @desc    Download Excel sheet template matching database schema
+// @route   GET /api/contracts/template
+// @access  Public
+export const getContractTemplate = async (req, res) => {
+  try {
+    const headers = EXCEL_COLUMNS.map(col => col.label);
+    const data = [headers];
+    
+    const worksheet = XLSX.utils.aoa_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, '계약대장_양식');
+    
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="RentContract_Template.xlsx"');
+    res.send(buffer);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Import contracts via Excel file upload
+// @route   POST /api/contracts/import
+// @access  Public
+export const importContracts = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: '업로드된 파일이 없습니다.' });
+    }
+
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+    if (rawRows.length < 2) {
+      return res.status(400).json({ message: '엑셀 데이터가 비어 있습니다.' });
+    }
+
+    const headers = rawRows[0];
+    // Find the column index for each key based on the header text mapping
+    const colIndices = {};
+    headers.forEach((header, index) => {
+      if (!header) return;
+      const cleanH = cleanHeader(header);
+      const colDef = FIELD_MAPPINGS.find(def => def.labels.some(lbl => cleanHeader(lbl) === cleanH));
+      if (colDef) {
+        colIndices[colDef.key] = index;
+      }
+    });
+
+    // Fallback: If some headers were not matched, map them based on sequential index
+    EXCEL_COLUMNS.forEach((col, idx) => {
+      if (colIndices[col.key] === undefined) {
+        colIndices[col.key] = idx;
+      }
+    });
+
+    const dataRows = rawRows.slice(1);
+    let successCount = 0;
+
+    for (const row of dataRows) {
+      if (!row || row.length === 0) continue;
+
+      // Extract row data using resolved column indices
+      const rowData = {};
+      EXCEL_COLUMNS.forEach(col => {
+        const colIdx = colIndices[col.key];
+        const val = row[colIdx];
+        if (val !== undefined && val !== null) {
+          rowData[col.key] = val;
+        } else {
+          rowData[col.key] = '';
+        }
+      });
+
+      const {
+        contractCompany,
+        bizOrRegNo,
+        ceoName,
+        corporateRegNo,
+        email,
+        bizAddress,
+        bank,
+        accountNo,
+        accountHolder,
+        carModel,
+        carSpec,
+        carPrice,
+        fuelType,
+        color,
+        interiorColor,
+        options,
+        termMonths,
+        mileage,
+        monthlyPayment,
+        deposit,
+        advancePayment,
+        acquisitionValue,
+        contractDate,
+        practicalManager,
+        practicalPhone,
+        finesEmail,
+        finesEmail2,
+        overdueInterestRate,
+        penaltyRate
+      } = rowData;
+
+      // Essential fields validation
+      if (!contractCompany || !carModel) {
+        continue; // Skip rows that lack company name or car model
+      }
+
+      const finalBizNo = bizOrRegNo || `TEMP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+      // 1. Find or create Customer
+      let customer = await Customer.findOne({ bizNo: finalBizNo.trim() });
+      if (!customer) {
+        const custCount = await Customer.countDocuments();
+        const newCustId = `CUST${String(custCount + 1).padStart(3, '0')}`;
+        customer = await Customer.create({
+          customerId: newCustId,
+          name: contractCompany.trim(),
+          bizNo: finalBizNo.trim(),
+          ceoName: ceoName || '',
+          address: bizAddress || '',
+          contactName: practicalManager || ceoName || '',
+          contactPhone: practicalPhone || '',
+          email: email || finesEmail || 'no-email@rentbenefit.co.kr',
+          bank: {
+            name: bank || '',
+            account: accountNo || '',
+            holder: accountHolder || ''
+          },
+          bizNoTransfer: corporateRegNo || '',
+          bizAddress: bizAddress || ''
+        });
+      }
+
+      // 2. Resolve termMonths
+      const termMonthsValue = termMonths ? (parseInt(String(termMonths).replace(/[^0-9]/g, '')) || 36) : 36;
+      const contractDateObj = parseExcelDate(contractDate) || new Date();
+      
+      // 3. Generate contract number (always unique since template is simplified)
+      const cId = customer.customerId || 'CUST000';
+      const yy = String(contractDateObj.getFullYear()).slice(-2);
+      const mm = String(contractDateObj.getMonth() + 1).padStart(2, '0');
+      const prefix = `${cId}-${yy}${mm}-`;
+      const contractCount = await Contract.countDocuments({ contractNo: new RegExp('^' + prefix) });
+      const finalContractNo = `${prefix}${String(contractCount + 1).padStart(2, '0')}`;
+
+      // 4. Generate vehicle code and model
+      const cleanModelName = String(carModel).split(' ')[0].replace(/[^a-zA-Z가-힣0-9]/g, '') || 'VEH';
+      const vehicleCount = await Vehicle.countDocuments({ code: new RegExp('^' + cleanModelName + '-', 'i') });
+      const generatedVehicleCode = `${cleanModelName}-${String(vehicleCount + 1).padStart(3, '0')}`;
+
+      const vehicleData = {
+        code: generatedVehicleCode,
+        category: '장기',
+        operation: '계약진행중',
+        contractCompany: customer.name,
+        manager: customer.ceoName || '',
+        managerPhone: customer.contactPhone || '',
+        carModel: carModel,
+        carSpec: carSpec || '',
+        carPrice: carPrice ? Number(carPrice) : 0,
+        year: '2024년식', // Default
+        color: color || '',
+        interiorColor: interiorColor || '',
+        fuelType: fuelType || '가솔린',
+        vin: 'VIN_AUTO_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+        carNumber: '', // Will be added later in Vehicle DB edit modal
+        options: options || '',
+        cc: '',
+        regDate: '',
+        
+        contractDate: contractDate ? String(contractDate) : '',
+        deliveryDate: '',
+        rentPeriodYears: String(Math.round(termMonthsValue / 12)),
+        rentEndDate: '',
+        remainingPeriod: '',
+        mileage: mileage ? Number(mileage) : 0,
+        practicalManager: practicalManager || '',
+        practicalPhone: practicalPhone || '',
+        branch: '',
+        deliveryAddress: '',
+        rentStartDate: '',
+        rentPeriodDays: '',
+        remainingPeriodCalc: '',
+        contractNo: finalContractNo,
+        
+        basePrice: 0,
+        discountAmount: 0,
+        supplyAmount: 0,
+        consignmentFee: 0,
+        mandatoryInsuranceFee: 0,
+        acquisitionTax: 0,
+        bond: 0,
+        stampFee: 0,
+        plateFee: 0,
+        regAgencyFee: 0,
+        commission: 0,
+        dashcam: '설치',
+        dashcamInfo: '',
+        tinting: '시공',
+        tintingInfo: '',
+        regCost1: 0,
+        regCost2: 0,
+        
+        insuranceCompany: '삼성화재',
+        insuranceStartDate: '',
+        insuranceFee: 0,
+        ownCarInsuranceFee: 0,
+        tire: '',
+        regularCheckup: '',
+        driverAge: '만 26세 이상',
+        personalInjury1: '무제한',
+        propertyDamage: '2억원',
+        personalInjury2: '자상 1억/부상 1500만',
+        uninsuredCarInjury: '2억원',
+        deductible: 300000,
+        insuranceType: '임직원특약',
+        emergencyService: '가입',
+        accidentRepair: '',
+        generalMaintenance: '',
+        consumablesExchange: '',
+        tireCount: '',
+        tireType: '',
+        tireCost: 0,
+        carTax: '포함',
+        
+        lender: '',
+        executionDate: '',
+        installmentAmount: 0,
+        installmentPeriod: '',
+        monthlyInstallment: 0,
+        totalMonthlyInstallment: 0,
+        totalInterest: 0,
+        interestRate: '',
+        monthlyFeePayDay: '매월 25일',
+        invoiceDate: '매월 25일',
+        monthlyPayment: monthlyPayment ? Number(monthlyPayment) : 0,
+        paymentPeriod: String(termMonthsValue),
+        totalMonthlyPayment: 0,
+        deposit: deposit ? Number(deposit) : 0,
+        advancePayment: advancePayment ? Number(advancePayment) : 0,
+        acquisitionValue: acquisitionValue ? Number(acquisitionValue) : 0,
+        residualRateP: '',
+        interest2: '',
+        fineEmail: finesEmail || '',
+        managerMobile: '',
+        sellingAdminExpense: 0,
+        
+        gift1: '',
+        gift1Price: 0,
+        gift2: '',
+        gift2Price: 0,
+        gift3: '',
+        gift3Price: 0,
+        gift4: '',
+        gift4Price: 0,
+        gift5: '',
+        gift5Price: 0,
+        totalGiftPrice: 0,
+        dealerCompany: '',
+        salesRepresentative: '',
+        showroom: '',
+        accountHolder: accountHolder || '',
+        bank: bank || '',
+        accountNo: accountNo || '',
+        bizOrRegNo: finalBizNo || '',
+        bizAddress: bizAddress || '',
+        penaltyRate: penaltyRate ? String(penaltyRate) : '',
+        overdueInterestRate: overdueInterestRate ? String(overdueInterestRate) : '',
+        corporateRegNo: corporateRegNo || '',
+        individualConsumptionTax: 0,
+        status: 'rented'
+      };
+
+      const vehicle = await Vehicle.create(vehicleData);
+
+      const contractData = {
+        contractNo: finalContractNo,
+        vehicle: vehicle._id,
+        customer: customer._id,
+        leaseCompany: contractCompany || '',
+        contractDate: contractDateObj,
+        deliveryDate: null,
+        termMonths: termMonthsValue,
+        rentPeriodYears: Math.round(termMonthsValue / 12),
+        rentStartDate: null,
+        rentPeriodDays: null,
+        remainingPeriodCalc: '',
+        finesEmail: finesEmail || '',
+        finesEmail2: finesEmail2 || '',
+        corporateRegistrationNo: corporateRegNo || '',
+        status: '진행중',
+        pricing: {
+          basePrice: 0,
+          discount: 0,
+          supplyPrice: 0,
+          deliveryFee: 0,
+          acquisitionTax: 0,
+          publicBond: 0,
+          stampFee: 0,
+          plateFee: 0,
+          registrationAgencyFee: 0,
+          commission: 0,
+          deposit: deposit ? Number(deposit) : 0,
+          advancePayment: advancePayment ? Number(advancePayment) : 0,
+          takeoverPrice: acquisitionValue ? Number(acquisitionValue) : 0,
+          monthlyFee: monthlyPayment ? Number(monthlyPayment) : 0,
+          paymentTerm: termMonthsValue,
+          monthlyFeeTotal: 0,
+          billingDay: 25,
+          invoiceDay: 10,
+          penaltyRate: penaltyRate ? (parseFloat(String(penaltyRate).replace(/[^0-9.]/g, '')) || 35) : 35,
+          overdueRate: overdueInterestRate ? (parseFloat(String(overdueInterestRate).replace(/[^0-9.]/g, '')) || 25) : 25,
+          pandanbi: 0,
+          individualConsumptionTax: 0
+        },
+        gifts: []
+      };
+
+      const contractInstance = new Contract(contractData);
+      const savedContract = await contractInstance.save();
+
+      // Update vehicle with calculated contract end date
+      await Vehicle.findByIdAndUpdate(vehicle._id, {
+        rentEndDate: savedContract.endDate ? savedContract.endDate.toISOString().split('T')[0] : ''
+      });
+
+      // 5. Generate Schedules
+      const schedulesToCreate = [];
+
+      // Regular Maintenance: Every 6 months
+      const maintenanceIntervals = Math.floor(termMonthsValue / 6);
+      for (let i = 1; i <= maintenanceIntervals; i++) {
+        const maintenanceDate = new Date(contractDateObj);
+        maintenanceDate.setMonth(maintenanceDate.getMonth() + (i * 6));
+        schedulesToCreate.push({
+          type: '정기점검',
+          targetVehicle: vehicle._id,
+          targetContract: savedContract._id,
+          dueDate: maintenanceDate,
+          status: '예정',
+          assignee: practicalManager || ceoName || '담당자 미정'
+        });
+      }
+
+      // Vehicle Inspection
+      const inspectionDate = new Date(contractDateObj);
+      if (termMonthsValue >= 24) {
+        inspectionDate.setMonth(inspectionDate.getMonth() + 24);
+        schedulesToCreate.push({
+          type: '차량검사',
+          targetVehicle: vehicle._id,
+          targetContract: savedContract._id,
+          dueDate: inspectionDate,
+          status: '예정',
+          assignee: practicalManager || ceoName || '담당자 미정'
+        });
+      } else {
+        schedulesToCreate.push({
+          type: '차량검사',
+          targetVehicle: vehicle._id,
+          targetContract: savedContract._id,
+          dueDate: savedContract.endDate,
+          status: '예정',
+          assignee: practicalManager || ceoName || '담당자 미정'
+        });
+      }
+
+      // Rent Expiration
+      schedulesToCreate.push({
+        type: '렌트만료',
+        targetVehicle: vehicle._id,
+        targetContract: savedContract._id,
+        dueDate: savedContract.endDate,
+        status: '예정',
+        assignee: ceoName || practicalManager || '담당자 미정'
+      });
+
+      // Invoice Dispatch: Monthly on invoiceDay
+      const invoiceDay = savedContract.pricing.invoiceDay || contractDateObj.getDate();
+      for (let m = 1; m <= termMonthsValue; m++) {
+        const invoiceDate = new Date(contractDateObj);
+        invoiceDate.setMonth(invoiceDate.getMonth() + m - 1);
+        invoiceDate.setDate(invoiceDay);
+        schedulesToCreate.push({
+          type: '청구서발송',
+          targetVehicle: vehicle._id,
+          targetContract: savedContract._id,
+          dueDate: invoiceDate,
+          status: '예정',
+          assignee: practicalManager || '담당자 미정'
+        });
+      }
+
+      if (schedulesToCreate.length > 0) {
+        await Schedule.insertMany(schedulesToCreate);
+      }
+
+      successCount++;
+    }
+
+    res.status(200).json({ success: true, message: `성공적으로 ${successCount}건의 계약을 등록/갱신하였습니다.`, count: successCount });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+

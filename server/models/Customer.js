@@ -9,7 +9,7 @@ const CustomerSchema = new Schema({
   address: String,
   contactName: String, // 담당자명
   contactPhone: String, // 담당자 연락처
-  email: { type: String, required: true },
+  email: String, // 이메일 (Outlook 등 실제 이메일이 없는 고객은 필드 자체를 생략)
   bank: {
     name: String,
     account: String,

@@ -170,7 +170,6 @@ export const syncOutlookContacts = async () => {
         const addressStr = businessAddressStr || homeAddressStr;
         const postalCodeStr = bAddr.postalCode || hAddr.postalCode || '';
 
-        const bizNo = `OUTLOOK-${outlookId.slice(-12).toUpperCase()}`;
         const customerId = `CUST${String(newCustomerSeq + i + index).padStart(6, '0')}`;
         const outlookCategory = item._category || '기본 연락처';
 
@@ -210,7 +209,6 @@ export const syncOutlookContacts = async () => {
               },
               $setOnInsert: {
                 customerId,
-                bizNo,
                 ceoName: item.displayName || ''
               }
             },

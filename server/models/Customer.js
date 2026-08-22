@@ -4,7 +4,7 @@ const { Schema } = mongoose;
 const CustomerSchema = new Schema({
   customerId: { type: String, required: true, unique: true }, // 고객코드 예: CUST001
   name: { type: String, required: true }, // 개인/법인명
-  bizNo: { type: String, required: true }, // 사업자/주민번호
+  bizNo: String, // 사업자/주민번호 (Outlook 등 실제 사업자번호가 없는 고객은 필드 자체를 생략)
   ceoName: String, // 대표자명 (법인)
   address: String,
   contactName: String, // 담당자명

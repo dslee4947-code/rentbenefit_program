@@ -1,4 +1,4 @@
-import pdf from 'pdf-parse';
+import { PDFParse } from 'pdf-parse';
 
 /**
  * Extracts business registration certificate details from PDF or image files.
@@ -11,12 +11,15 @@ export const parseBusinessRegistration = async (fileBuffer, mimeType, originalNa
   let text = '';
 
   if (mimeType === 'application/pdf') {
+    const parser = new PDFParse({ data: fileBuffer });
     try {
-      const data = await pdf(fileBuffer);
+      const data = await parser.getText();
       text = data.text || '';
       console.log(`[OCR Service] Successfully extracted PDF text: ${text.length} chars`);
     } catch (err) {
       console.error('[OCR Service] PDF text extraction failed, falling back to mock OCR:', err);
+    } finally {
+      await parser.destroy();
     }
   }
 

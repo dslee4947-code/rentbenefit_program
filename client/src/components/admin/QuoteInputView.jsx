@@ -1684,7 +1684,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
               if (companies.length === 1) {
                 return (
                   <div style={{ marginTop: '0.6rem', background: '#f0f7ff', border: '1px solid #bbdefb', borderRadius: '6px', padding: '0.7rem 1rem', fontSize: '0.82rem', color: '#0056b3' }}>
-                    <strong>법인 건:</strong> {companies[0].companyId.name} 소속으로 진행됩니다.
+                    <strong>법인 건:</strong> {companies[0].companyId.name} {companies[0].companyId.bizNo ? `(${companies[0].companyId.bizNo})` : ''} 소속으로 진행됩니다.
                   </div>
                 );
               }
@@ -1701,7 +1701,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                   >
                     {companies.map((a) => (
                       <option key={a.companyId._id} value={a.companyId._id}>
-                        {a.companyId.name}{a.isPrimary ? ' (주 소속)' : ''}{a.role ? ` - ${a.role}` : ''}
+                        {a.companyId.name} {a.companyId.bizNo ? `(${a.companyId.bizNo})` : ''}{a.isPrimary ? ' (주 소속)' : ''}{a.role ? ` - ${a.role}` : ''}
                       </option>
                     ))}
                   </select>

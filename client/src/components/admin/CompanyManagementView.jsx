@@ -38,11 +38,43 @@ function CompanyManagementView({ showToast, currentUser }) {
   const [affiliatedCustomers, setAffiliatedCustomers] = useState([]);
   const [affiliatedLoading, setAffiliatedLoading] = useState(false);
 
+  // OCR 및 고객 검색을 위한 추가 상태
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const [customerSearchResults, setCustomerSearchResults] = useState([]);
+  const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
+
   // 검색어 디바운스
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchTerm), 300);
     return () => clearTimeout(timer);
   }, [searchTerm]);
+
+  // 고객 검색 자동완성 디바운스
+  useEffect(() => {
+    if (!customerSearchTerm.trim()) {
+      setCustomerSearchResults([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        setCustomerSearchLoading(true);
+        const res = await fetch(`${API_BASE_URL}/api/customers?search=${encodeURIComponent(customerSearchTerm.trim())}&limit=8`);
+        if (res.ok) {
+          const data = await res.json();
+          const results = data.customers || (Array.isArray(data) ? data : []);
+          setCustomerSearchResults(results);
+        }
+      } catch (err) {
+        console.error('Failed to search customers', err);
+      } finally {
+        setCustomerSearchLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [customerSearchTerm]);
 
   const fetchCompanies = async () => {
     try {
@@ -83,6 +115,8 @@ function CompanyManagementView({ showToast, currentUser }) {
     setEditingCompany(null);
     setFormData(EMPTY_FORM);
     setAffiliatedCustomers([]);
+    setCustomerSearchTerm('');
+    setCustomerSearchResults([]);
     setShowModal(true);
   };
 
@@ -99,7 +133,92 @@ function CompanyManagementView({ showToast, currentUser }) {
       folderName: company.folderName || '',
       memo: company.memo || ''
     });
+    setCustomerSearchTerm('');
+    setCustomerSearchResults([]);
     setShowModal(true);
+  };
+
+  // OCR 업로드 핸들러
+  const handleOcrUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      setOcrLoading(true);
+      const formDataObj = new FormData();
+      formDataObj.append('file', file);
+
+      const res = await fetch(`${API_BASE_URL}/api/companies/ocr`, {
+        method: 'POST',
+        headers: {
+          'X-User-Role': currentUser?.role || 'viewer'
+        },
+        body: formDataObj
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.message || '사업자등록증 분석에 실패했습니다.');
+      }
+
+      const data = await res.json();
+      
+      setFormData(prev => ({
+        ...prev,
+        name: data.name || prev.name,
+        bizNo: data.bizNo || prev.bizNo,
+        ceoName: data.ceoName || prev.ceoName,
+        address: data.address || prev.address,
+        bizType: data.bizType || prev.bizType
+      }));
+
+      showToast?.('사업자등록증 정보가 성공적으로 자동 입력되었습니다.', 'success');
+    } catch (err) {
+      showToast?.(err.message, 'error');
+    } finally {
+      setOcrLoading(false);
+      e.target.value = '';
+    }
+  };
+
+  // 고객 매칭 관리용 핸들러들
+  const handleAddCustomer = (customer) => {
+    if (affiliatedCustomers.some(c => c._id === customer._id)) {
+      showToast?.('이미 추가된 고객입니다.', 'warning');
+      return;
+    }
+
+    const isFirst = affiliatedCustomers.length === 0;
+
+    setAffiliatedCustomers(prev => [
+      ...prev,
+      {
+        _id: customer._id,
+        name: customer.name,
+        contactPhone: customer.contactPhone || customer.mobilePhone,
+        email: customer.email,
+        role: '담당자',
+        isPrimary: isFirst
+      }
+    ]);
+    setCustomerSearchTerm('');
+    setCustomerSearchResults([]);
+  };
+
+  const handleRemoveCustomer = (customerId) => {
+    setAffiliatedCustomers(prev => prev.filter(c => c._id !== customerId));
+  };
+
+  const handleRoleChange = (customerId, newRole) => {
+    setAffiliatedCustomers(prev => prev.map(c => 
+      c._id === customerId ? { ...c, role: newRole } : c
+    ));
+  };
+
+  const handlePrimaryChange = (customerId) => {
+    setAffiliatedCustomers(prev => prev.map(c => 
+      c._id === customerId ? { ...c, isPrimary: true } : { ...c, isPrimary: false }
+    ));
   };
 
   const handleSaveCompany = async (e) => {
@@ -115,7 +234,15 @@ function CompanyManagementView({ showToast, currentUser }) {
 
     try {
       setSaving(true);
-      const payload = { ...formData, name: formData.name.trim() };
+      const payload = { 
+        ...formData, 
+        name: formData.name.trim(),
+        customerAssociations: affiliatedCustomers.map(ac => ({
+          customerId: ac._id,
+          role: ac.role || '담당자',
+          isPrimary: !!ac.isPrimary
+        }))
+      };
 
       const res = editingCompany
         ? await fetch(`${API_BASE_URL}/api/companies/${editingCompany._id}`, {
@@ -163,7 +290,7 @@ function CompanyManagementView({ showToast, currentUser }) {
           <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
           <input
             type="text"
-            placeholder="법인명, 사업자번호 검색..."
+            placeholder="법인명, 사업자번호, 고객명 검색..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             style={{
@@ -336,6 +463,47 @@ function CompanyManagementView({ showToast, currentUser }) {
             </div>
 
             <form onSubmit={handleSaveCompany} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              
+              {/* 사업자등록증 OCR 업로드 영역 */}
+              <div style={{
+                border: '1.5px dashed var(--border-color)',
+                borderRadius: '8px',
+                padding: '1.2rem',
+                textAlign: 'center',
+                background: 'var(--bg-main)',
+                position: 'relative',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }} className="ocr-upload-container">
+                <label style={{ cursor: 'pointer', display: 'block', width: '100%', height: '100%' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', marginBottom: '0.3rem' }}>
+                    <Plus size={16} />
+                    사업자등록증 자동 완성 (PDF/이미지)
+                  </span>
+                  <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'block' }}>
+                    클릭하거나 파일을 드래그하여 사업자등록증을 업로드하세요
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    onChange={handleOcrUpload}
+                    style={{ display: 'none' }}
+                  />
+                </label>
+                {ocrLoading && (
+                  <div style={{
+                    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(0,0,0,0.75)', borderRadius: '8px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: '#fff', fontSize: '0.85rem', fontWeight: '600', gap: '0.5rem'
+                  }}>
+                    <div className="spinner" style={{ width: '16px', height: '16px', border: '2px solid #fff', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}></div>
+                    <style dangerouslySetInnerHTML={{__html: `@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}} />
+                    <span>사업자등록증 분석 중...</span>
+                  </div>
+                )}
+              </div>
+
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>
                 <div>
                   <label style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
@@ -441,68 +609,179 @@ function CompanyManagementView({ showToast, currentUser }) {
                 />
               </div>
 
-              {/* 소속 고객 목록 (신규 등록 시에는 표시하지 않음 - 아직 저장된 법인이 없으므로) */}
-              {editingCompany && (
-                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', marginTop: '0.3rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
+              {/* 소속 고객 관리 영역 */}
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', marginTop: '0.3rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                     <Users size={15} style={{ color: 'var(--text-muted)' }} />
                     <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text-bright)' }}>
                       소속 고객 {affiliatedCustomers.length > 0 && `(${affiliatedCustomers.length}명)`}
                     </span>
                   </div>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>* 주 소속은 고객당 한 개의 법인만 가능합니다</span>
+                </div>
 
-                  {affiliatedLoading ? (
-                    <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                      불러오는 중...
-                    </div>
-                  ) : affiliatedCustomers.length === 0 ? (
-                    <div style={{
-                      padding: '1rem',
-                      textAlign: 'center',
-                      color: 'var(--text-muted)',
-                      fontSize: '0.85rem',
+                {/* 고객 검색 자동완성 인풋 */}
+                <div style={{ position: 'relative', marginBottom: '0.8rem' }}>
+                  <input
+                    type="text"
+                    placeholder="매치할 고객명 검색..."
+                    value={customerSearchTerm}
+                    onChange={(e) => setCustomerSearchTerm(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '0.55rem 0.8rem',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-color)',
                       background: 'var(--bg-main)',
-                      borderRadius: '8px',
-                      border: '1px dashed var(--border-color)'
+                      color: 'var(--text-bright)',
+                      fontSize: '0.85rem'
+                    }}
+                  />
+                  
+                  {customerSearchTerm && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      background: 'var(--bg-surface)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '6px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                      zIndex: 10,
+                      maxHeight: '160px',
+                      overflowY: 'auto',
+                      marginTop: '2px'
                     }}>
-                      아직 이 법인에 소속된 고객이 없습니다. 고객 상세 화면에서 이 법인을 추가해 주세요.
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '180px', overflowY: 'auto' }}>
-                      {affiliatedCustomers.map((c) => (
-                        <div
-                          key={c._id}
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            padding: '0.5rem 0.7rem',
-                            borderRadius: '6px',
-                            background: 'var(--bg-main)',
-                            border: '1px solid var(--border-color)',
-                            fontSize: '0.82rem'
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
-                            {c.isPrimary && <Star size={13} style={{ color: '#f59e0b', flexShrink: 0 }} fill="#f59e0b" />}
-                            <span style={{ fontWeight: '600', color: 'var(--text-bright)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {c.name}
-                            </span>
-                            {c.role && (
-                              <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem', flexShrink: 0 }}>
-                                ({c.role})
-                              </span>
-                            )}
-                          </div>
-                          <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem', flexShrink: 0 }}>
-                            {c.contactPhone || c.email || '-'}
-                          </span>
+                      {customerSearchLoading ? (
+                        <div style={{ padding: '0.6rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                          검색 중...
                         </div>
-                      ))}
+                      ) : customerSearchResults.length === 0 ? (
+                        <div style={{ padding: '0.6rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                          검색 결과가 없습니다.
+                        </div>
+                      ) : (
+                        customerSearchResults.map(c => (
+                          <div
+                            key={c._id}
+                            onClick={() => handleAddCustomer(c)}
+                            style={{
+                              padding: '0.6rem 0.8rem',
+                              cursor: 'pointer',
+                              borderBottom: '1px solid var(--border-color)',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              fontSize: '0.82rem'
+                            }}
+                            className="outlook-row-hover"
+                          >
+                            <span style={{ fontWeight: '600', color: 'var(--text-bright)' }}>{c.name}</span>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{c.contactPhone || c.email || '연락처 없음'}</span>
+                          </div>
+                        ))
+                      )}
                     </div>
                   )}
                 </div>
-              )}
+
+                {/* 매칭된 소속 고객 리스트 */}
+                {affiliatedLoading ? (
+                  <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                    불러오는 중...
+                  </div>
+                ) : affiliatedCustomers.length === 0 ? (
+                  <div style={{
+                    padding: '1.2rem',
+                    textAlign: 'center',
+                    color: 'var(--text-muted)',
+                    fontSize: '0.85rem',
+                    background: 'var(--bg-main)',
+                    borderRadius: '8px',
+                    border: '1px dashed var(--border-color)'
+                  }}>
+                    연결된 고객이 없습니다. 위의 검색창에서 고객명을 검색하여 추가해 주세요.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto' }}>
+                    {affiliatedCustomers.map((c) => (
+                      <div
+                        key={c._id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '0.5rem 0.8rem',
+                          borderRadius: '6px',
+                          background: 'var(--bg-main)',
+                          border: '1px solid var(--border-color)',
+                          fontSize: '0.82rem',
+                          gap: '0.5rem'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0, flex: 2 }}>
+                          <span style={{ fontWeight: '600', color: 'var(--text-bright)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {c.name}
+                          </span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            ({c.contactPhone || '연락처 없음'})
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+                          {/* 역할 설정 */}
+                          <select
+                            value={c.role || '담당자'}
+                            onChange={(e) => handleRoleChange(c._id, e.target.value)}
+                            style={{
+                              padding: '0.2rem 0.4rem',
+                              borderRadius: '4px',
+                              border: '1px solid var(--border-color)',
+                              background: 'var(--bg-surface)',
+                              color: 'var(--text-bright)',
+                              fontSize: '0.78rem'
+                            }}
+                          >
+                            <option value="대표">대표</option>
+                            <option value="담당자">담당자</option>
+                            <option value="실사용자">실사용자</option>
+                          </select>
+
+                          {/* 주소속 설정 */}
+                          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', cursor: 'pointer', fontSize: '0.78rem', color: 'var(--text-main)', userSelect: 'none' }}>
+                            <input
+                              type="checkbox"
+                              checked={!!c.isPrimary}
+                              onChange={() => handlePrimaryChange(c._id)}
+                              style={{ cursor: 'pointer' }}
+                            />
+                            <span>주 소속</span>
+                          </label>
+
+                          {/* 제외 버튼 */}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCustomer(c._id)}
+                            style={{
+                              border: 'none',
+                              background: 'rgba(239, 68, 68, 0.1)',
+                              color: '#ef4444',
+                              padding: '0.2rem 0.4rem',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '0.75rem',
+                              fontWeight: '600'
+                            }}
+                          >
+                            제외
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.8rem', marginTop: '0.5rem' }}>
                 <button

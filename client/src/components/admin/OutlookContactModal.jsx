@@ -1,22 +1,30 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  X, 
-  Save, 
-  Trash2, 
-  Phone, 
-  Mail, 
-  Building, 
-  MapPin, 
-  Globe, 
-  User, 
-  Briefcase, 
-  FileText, 
+import {
+  X,
+  Save,
+  Trash2,
+  Phone,
+  Mail,
+  Building,
+  MapPin,
+  Globe,
+  User,
+  Briefcase,
+  FileText,
   Tag,
-  AlertTriangle
+  AlertTriangle,
+  Building2,
+  Search,
+  Plus,
+  Star
 } from 'lucide-react';
+import { formatBizNo } from '../../utils/format.js';
 
-function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTopWindow, onFocus, onClose, onSave, onDelete, showToast }) {
-  if (!customer) return null;
+const API_HOST = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
+
+function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTopWindow, onFocus, onClose, onSave, onDelete, showToast, currentUser }) {
+  // customer는 항상 존재함이 보장된다 (부모는 customer가 있을 때만 이 컴포넌트를 마운트함).
+  // React Hooks 규칙상 hook 호출 전에 조건부 early-return을 둘 수 없어 가드를 제거함.
 
   // 1. Initial State Definition
   const initialFormData = {
@@ -61,6 +69,192 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
       [field]: value
     }));
     setIsDirty(true);
+  };
+
+  // 3-b. 소속 법인 섹션 상태 (저장 버튼과 무관하게 즉시 반영됨)
+  const [companyAssociations, setCompanyAssociations] = useState([]);
+  const [companiesLoading, setCompaniesLoading] = useState(false);
+  const [companySearchTerm, setCompanySearchTerm] = useState('');
+  const [companySearchResults, setCompanySearchResults] = useState([]);
+  const [companySearching, setCompanySearching] = useState(false);
+  const [showAddCompanyPanel, setShowAddCompanyPanel] = useState(false);
+  const [newAssocRole, setNewAssocRole] = useState('');
+  const [newAssocIsPrimary, setNewAssocIsPrimary] = useState(false);
+  const [showInlineCreateForm, setShowInlineCreateForm] = useState(false);
+  const [inlineCompanyForm, setInlineCompanyForm] = useState({ name: '', bizType: '법인사업자', bizNo: '' });
+  const [companyActionLoading, setCompanyActionLoading] = useState(false);
+
+  const writeHeaders = {
+    'Content-Type': 'application/json',
+    'X-User-Role': currentUser?.role || 'viewer'
+  };
+
+  const fetchCompanyAssociations = async () => {
+    try {
+      setCompaniesLoading(true);
+      const res = await fetch(`${API_HOST}/api/customers/${customer._id}`);
+      if (!res.ok) throw new Error('소속 법인 정보를 불러오지 못했습니다.');
+      const data = await res.json();
+      setCompanyAssociations((data.companies || []).filter(a => a.companyId));
+    } catch (err) {
+      showToast?.(err.message, 'error');
+    } finally {
+      setCompaniesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCompanyAssociations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customer._id]);
+
+  // 법인 검색 (디바운스)
+  useEffect(() => {
+    if (!companySearchTerm.trim()) {
+      setCompanySearchResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        setCompanySearching(true);
+        const res = await fetch(`${API_HOST}/api/companies?search=${encodeURIComponent(companySearchTerm.trim())}`);
+        const data = await res.json();
+        setCompanySearchResults(Array.isArray(data) ? data : []);
+      } catch {
+        setCompanySearchResults([]);
+      } finally {
+        setCompanySearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [companySearchTerm]);
+
+  const resetAddCompanyPanel = () => {
+    setShowAddCompanyPanel(false);
+    setCompanySearchTerm('');
+    setCompanySearchResults([]);
+    setNewAssocRole('');
+    setNewAssocIsPrimary(false);
+    setShowInlineCreateForm(false);
+    setInlineCompanyForm({ name: '', bizType: '법인사업자', bizNo: '' });
+  };
+
+  const checkWritePermission = () => {
+    if (currentUser?.role === 'viewer') {
+      showToast?.('등록 및 수정 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return false;
+    }
+    return true;
+  };
+
+  // 기존 법인을 검색해서 소속 추가
+  const handleAddExistingCompany = async (companyId) => {
+    if (!checkWritePermission()) return;
+    try {
+      setCompanyActionLoading(true);
+      const res = await fetch(`${API_HOST}/api/customers/${customer._id}/companies`, {
+        method: 'POST',
+        headers: writeHeaders,
+        body: JSON.stringify({ companyId, role: newAssocRole, isPrimary: newAssocIsPrimary })
+      });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.message || '법인 추가에 실패했습니다.');
+      }
+      const updated = await res.json();
+      setCompanyAssociations((updated.companies || []).filter(a => a.companyId));
+      showToast?.('소속 법인이 추가되었습니다.', 'success');
+      resetAddCompanyPanel();
+    } catch (err) {
+      showToast?.(err.message, 'error');
+    } finally {
+      setCompanyActionLoading(false);
+    }
+  };
+
+  // 검색 결과에 원하는 법인이 없을 때: 그 자리에서 신규 법인을 만들고 바로 연결
+  const handleCreateAndAddCompany = async () => {
+    if (!checkWritePermission()) return;
+    if (!inlineCompanyForm.name.trim()) {
+      showToast?.('법인명은 필수입니다.', 'error');
+      return;
+    }
+    try {
+      setCompanyActionLoading(true);
+      const createRes = await fetch(`${API_HOST}/api/companies`, {
+        method: 'POST',
+        headers: writeHeaders,
+        body: JSON.stringify({
+          name: inlineCompanyForm.name.trim(),
+          bizType: inlineCompanyForm.bizType,
+          bizNo: inlineCompanyForm.bizNo
+        })
+      });
+      if (!createRes.ok) {
+        const errData = await createRes.json();
+        throw new Error(errData.message || '법인 등록에 실패했습니다.');
+      }
+      const createdCompany = await createRes.json();
+
+      const linkRes = await fetch(`${API_HOST}/api/customers/${customer._id}/companies`, {
+        method: 'POST',
+        headers: writeHeaders,
+        body: JSON.stringify({ companyId: createdCompany._id, role: newAssocRole, isPrimary: newAssocIsPrimary })
+      });
+      if (!linkRes.ok) {
+        const errData = await linkRes.json();
+        throw new Error(errData.message || '법인 연결에 실패했습니다.');
+      }
+      const updated = await linkRes.json();
+      setCompanyAssociations((updated.companies || []).filter(a => a.companyId));
+      showToast?.(`신규 법인 "${createdCompany.name}"을(를) 등록하고 연결했습니다.`, 'success');
+      resetAddCompanyPanel();
+    } catch (err) {
+      showToast?.(err.message, 'error');
+    } finally {
+      setCompanyActionLoading(false);
+    }
+  };
+
+  const handleRemoveCompany = async (companyId, companyName) => {
+    if (!checkWritePermission()) return;
+    if (!window.confirm(`'${companyName}' 소속을 해제하시겠습니까?`)) return;
+    try {
+      setCompanyActionLoading(true);
+      const res = await fetch(`${API_HOST}/api/customers/${customer._id}/companies/${companyId}`, {
+        method: 'DELETE',
+        headers: { 'X-User-Role': currentUser?.role || 'viewer' }
+      });
+      if (!res.ok) throw new Error('소속 해제에 실패했습니다.');
+      const updated = await res.json();
+      setCompanyAssociations((updated.companies || []).filter(a => a.companyId));
+      showToast?.('소속이 해제되었습니다.', 'success');
+    } catch (err) {
+      showToast?.(err.message, 'error');
+    } finally {
+      setCompanyActionLoading(false);
+    }
+  };
+
+  // 이미 연결된 법인을 주 소속으로 재지정 (한 고객당 한 곳만 유지되도록 서버에서 나머지 해제)
+  const handleSetPrimary = async (assoc) => {
+    if (!checkWritePermission()) return;
+    try {
+      setCompanyActionLoading(true);
+      const res = await fetch(`${API_HOST}/api/customers/${customer._id}/companies`, {
+        method: 'POST',
+        headers: writeHeaders,
+        body: JSON.stringify({ companyId: assoc.companyId._id, role: assoc.role, isPrimary: true })
+      });
+      if (!res.ok) throw new Error('주 소속 지정에 실패했습니다.');
+      const updated = await res.json();
+      setCompanyAssociations((updated.companies || []).filter(a => a.companyId));
+      showToast?.('주 소속으로 지정되었습니다.', 'success');
+    } catch (err) {
+      showToast?.(err.message, 'error');
+    } finally {
+      setCompanyActionLoading(false);
+    }
   };
 
   // 4. Save Handler
@@ -705,6 +899,220 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
               }}
             />
           </div>
+        </div>
+
+        {/* 소속 법인 섹션 (2컬럼 전체 폭 사용) */}
+        <div style={{
+          gridColumn: '1 / -1',
+          background: '#ffffff',
+          borderRadius: '6px',
+          border: '1px solid #e4e7ed',
+          padding: '1rem',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.7rem'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontWeight: '700', fontSize: '0.85rem', color: '#303133', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              <Building2 size={14} style={{ color: 'var(--primary, #367CFF)' }} />
+              <span>소속 법인{companyAssociations.length > 0 && ` (${companyAssociations.length}곳)`}</span>
+            </div>
+            {!showAddCompanyPanel && (
+              <button
+                type="button"
+                onClick={() => setShowAddCompanyPanel(true)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.3rem',
+                  padding: '0.35rem 0.7rem', borderRadius: '4px', border: '1px solid #bbdefb',
+                  background: '#f0f7ff', color: '#0078d4', fontWeight: '600', fontSize: '0.78rem', cursor: 'pointer'
+                }}
+              >
+                <Plus size={13} />
+                <span>법인 추가</span>
+              </button>
+            )}
+          </div>
+
+          {/* 연결된 법인 목록 */}
+          {companiesLoading ? (
+            <div style={{ padding: '0.8rem', textAlign: 'center', color: '#909399', fontSize: '0.8rem' }}>불러오는 중...</div>
+          ) : companyAssociations.length === 0 ? (
+            <div style={{ padding: '0.8rem', textAlign: 'center', color: '#909399', fontSize: '0.8rem', background: '#fafafa', borderRadius: '4px', border: '1px dashed #dcdfe6' }}>
+              소속된 법인이 없습니다.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              {companyAssociations.map((assoc) => (
+                <div
+                  key={assoc._id || assoc.companyId._id}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '0.5rem 0.7rem', borderRadius: '4px', background: '#fafbfc', border: '1px solid #e4e7ed', fontSize: '0.8rem'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+                    <button
+                      type="button"
+                      onClick={() => !assoc.isPrimary && handleSetPrimary(assoc)}
+                      title={assoc.isPrimary ? '주 소속' : '주 소속으로 지정'}
+                      disabled={companyActionLoading}
+                      style={{ border: 'none', background: 'transparent', cursor: assoc.isPrimary ? 'default' : 'pointer', padding: 0, display: 'flex' }}
+                    >
+                      <Star size={14} style={{ color: '#f59e0b' }} fill={assoc.isPrimary ? '#f59e0b' : 'none'} />
+                    </button>
+                    <span style={{ fontWeight: '700', color: '#1a1a1a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {assoc.companyId.name}
+                    </span>
+                    {assoc.companyId.bizType && (
+                      <span style={{ fontSize: '0.7rem', color: assoc.companyId.bizType === '개인사업자' ? '#f59e0b' : '#0078d4', background: assoc.companyId.bizType === '개인사업자' ? '#fff7e6' : '#f0f7ff', padding: '0.1rem 0.4rem', borderRadius: '10px', flexShrink: 0 }}>
+                        {assoc.companyId.bizType}
+                      </span>
+                    )}
+                    {assoc.role && <span style={{ color: '#606266', fontSize: '0.76rem', flexShrink: 0 }}>({assoc.role})</span>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveCompany(assoc.companyId._id, assoc.companyId.name)}
+                    disabled={companyActionLoading}
+                    title="소속 해제"
+                    style={{ border: 'none', background: 'transparent', color: '#f56c6c', cursor: 'pointer', padding: '0.2rem', flexShrink: 0 }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 법인 추가 패널: 검색 -> 선택 / 검색 결과 없으면 그 자리에서 신규 등록 */}
+          {showAddCompanyPanel && (
+            <div style={{ borderTop: '1px solid #ebeef5', paddingTop: '0.7rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <Search size={13} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: '#909399' }} />
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="법인명 또는 사업자번호 검색"
+                    value={companySearchTerm}
+                    onChange={(e) => { setCompanySearchTerm(e.target.value); setShowInlineCreateForm(false); }}
+                    style={{ ...inputStyle, paddingLeft: '1.8rem' }}
+                  />
+                </div>
+                <input
+                  type="text"
+                  placeholder="직책 (선택)"
+                  value={newAssocRole}
+                  onChange={(e) => setNewAssocRole(e.target.value)}
+                  style={{ ...inputStyle, width: '110px' }}
+                />
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.76rem', color: '#606266', whiteSpace: 'nowrap' }}>
+                  <input type="checkbox" checked={newAssocIsPrimary} onChange={(e) => setNewAssocIsPrimary(e.target.checked)} />
+                  주 소속
+                </label>
+                <button
+                  type="button"
+                  onClick={resetAddCompanyPanel}
+                  style={{ border: 'none', background: 'transparent', color: '#909399', cursor: 'pointer', padding: '0.2rem' }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {companySearchTerm.trim() && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '140px', overflowY: 'auto' }}>
+                  {companySearching ? (
+                    <div style={{ padding: '0.5rem', color: '#909399', fontSize: '0.78rem' }}>검색 중...</div>
+                  ) : companySearchResults.length > 0 ? (
+                    companySearchResults.map((co) => (
+                      <button
+                        type="button"
+                        key={co._id}
+                        onClick={() => handleAddExistingCompany(co._id)}
+                        disabled={companyActionLoading}
+                        style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%',
+                          padding: '0.5rem 0.7rem', borderRadius: '4px', border: '1px solid #e4e7ed', background: '#ffffff',
+                          cursor: 'pointer', fontSize: '0.8rem', textAlign: 'left'
+                        }}
+                      >
+                        <span style={{ fontWeight: '600', color: '#1a1a1a' }}>{co.name}</span>
+                        <span style={{ color: '#909399', fontSize: '0.75rem' }}>{co.bizNo || co.bizType || ''}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                      <div style={{ padding: '0.4rem 0.1rem', color: '#909399', fontSize: '0.78rem' }}>
+                        "{companySearchTerm}" 검색 결과가 없습니다.
+                      </div>
+                      {!showInlineCreateForm ? (
+                        <button
+                          type="button"
+                          onClick={() => { setShowInlineCreateForm(true); setInlineCompanyForm(prev => ({ ...prev, name: companySearchTerm.trim() })); }}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '0.3rem', alignSelf: 'flex-start',
+                            padding: '0.4rem 0.7rem', borderRadius: '4px', border: '1px solid #c8e6c9', background: '#f0fdf4',
+                            color: '#107c41', fontWeight: '600', fontSize: '0.78rem', cursor: 'pointer'
+                          }}
+                        >
+                          <Plus size={13} />
+                          <span>"{companySearchTerm}" 신규 법인으로 등록</span>
+                        </button>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', padding: '0.6rem', background: '#f0fdf4', borderRadius: '4px', border: '1px solid #c8e6c9' }}>
+                          <div style={{ display: 'flex', gap: '0.4rem' }}>
+                            <input
+                              type="text"
+                              placeholder="법인명 *"
+                              value={inlineCompanyForm.name}
+                              onChange={(e) => setInlineCompanyForm({ ...inlineCompanyForm, name: e.target.value })}
+                              style={{ ...inputStyle, flex: 1.4 }}
+                            />
+                            <select
+                              value={inlineCompanyForm.bizType}
+                              onChange={(e) => setInlineCompanyForm({ ...inlineCompanyForm, bizType: e.target.value })}
+                              style={{ ...inputStyle, flex: 1, cursor: 'pointer' }}
+                            >
+                              <option value="법인사업자">법인사업자</option>
+                              <option value="개인사업자">개인사업자</option>
+                            </select>
+                          </div>
+                          <input
+                            type="text"
+                            placeholder="사업자번호 (선택, 000-00-00000)"
+                            value={inlineCompanyForm.bizNo}
+                            onChange={(e) => setInlineCompanyForm({ ...inlineCompanyForm, bizNo: formatBizNo(e.target.value) })}
+                            maxLength={12}
+                            style={inputStyle}
+                          />
+                          <div style={{ display: 'flex', gap: '0.4rem' }}>
+                            <button
+                              type="button"
+                              onClick={handleCreateAndAddCompany}
+                              disabled={companyActionLoading}
+                              style={{
+                                padding: '0.4rem 0.8rem', borderRadius: '4px', border: 'none', background: '#107c41',
+                                color: '#fff', fontWeight: '600', fontSize: '0.78rem', cursor: 'pointer'
+                              }}
+                            >
+                              {companyActionLoading ? '등록 중...' : '등록하고 연결'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowInlineCreateForm(false)}
+                              style={{ padding: '0.4rem 0.8rem', borderRadius: '4px', border: '1px solid #dcdfe6', background: '#fff', color: '#606266', fontWeight: '600', fontSize: '0.78rem', cursor: 'pointer' }}
+                            >
+                              취소
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

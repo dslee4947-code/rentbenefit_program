@@ -11,6 +11,7 @@ import scheduleRoutes from './routes/scheduleRoutes.js';
 import invoiceRoutes from './routes/invoiceRoutes.js';
 import documentRoutes from './routes/documentRoutes.js';
 import companyFolderRoutes from './routes/companyFolderRoutes.js';
+import companyRoutes from './routes/companyRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 
 // Load environment variables
@@ -89,6 +90,7 @@ app.use('/api/schedules', scheduleRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/company-folders', companyFolderRoutes);
+app.use('/api/companies', companyRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
 

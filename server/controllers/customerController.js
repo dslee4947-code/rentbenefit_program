@@ -1,4 +1,5 @@
 import Customer from '../models/Customer.js';
+import Company from '../models/Company.js';
 
 // @desc    Get all customers
 // @route   GET /api/customers
@@ -77,7 +78,8 @@ export const getCustomers = async (req, res) => {
 // @access  Private/Admin
 export const getCustomerById = async (req, res) => {
   try {
-    const customer = await Customer.findById(req.params.id);
+    const customer = await Customer.findById(req.params.id)
+      .populate('companies.companyId', 'name bizNo bizType');
     if (customer) {
       res.json(customer);
     } else {
@@ -326,5 +328,69 @@ export const lookupCustomerAddresses = async (req, res) => {
   }
 };
 
+// @desc    Add (or update) a company affiliation for a customer.
+//          한 고객이 법인 여러 곳에 소속될 수 있음. isPrimary는 고객당 한 곳만
+//          허용되므로, true로 지정하면 기존 소속들의 isPrimary는 자동 해제된다.
+// @route   POST /api/customers/:id/companies
+// @access  Public
+export const addCustomerCompany = async (req, res) => {
+  try {
+    const { companyId, role, isPrimary } = req.body;
+    if (!companyId) {
+      return res.status(400).json({ message: 'companyId는 필수입니다.' });
+    }
+
+    const company = await Company.findById(companyId);
+    if (!company) {
+      return res.status(404).json({ message: '법인을 찾을 수 없습니다.' });
+    }
+
+    const customer = await Customer.findById(req.params.id);
+    if (!customer) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+
+    const primaryFlag = !!isPrimary;
+    if (primaryFlag) {
+      customer.companies.forEach((c) => { c.isPrimary = false; });
+    }
+
+    const existing = customer.companies.find((c) => c.companyId?.toString() === companyId);
+    if (existing) {
+      existing.role = role !== undefined ? role : existing.role;
+      existing.isPrimary = primaryFlag;
+    } else {
+      customer.companies.push({ companyId, role: role || '', isPrimary: primaryFlag });
+    }
+
+    await customer.save();
+    const populated = await Customer.findById(customer._id).populate('companies.companyId', 'name bizNo bizType');
+    res.json(populated);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Remove a company affiliation from a customer
+// @route   DELETE /api/customers/:id/companies/:companyId
+// @access  Public
+export const removeCustomerCompany = async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.params.id);
+    if (!customer) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+
+    customer.companies = customer.companies.filter(
+      (c) => c.companyId?.toString() !== req.params.companyId
+    );
+
+    await customer.save();
+    const populated = await Customer.findById(customer._id).populate('companies.companyId', 'name bizNo bizType');
+    res.json(populated);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
 
 

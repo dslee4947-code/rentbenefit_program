@@ -1220,6 +1220,7 @@ function CustomerListView({ showToast, currentUser }) {
           }}
           onDelete={(id, name) => handleDeleteCustomer(id, name)}
           showToast={showToast}
+          currentUser={currentUser}
         />
       ))}
     </div>

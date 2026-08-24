@@ -18,6 +18,7 @@ export const getQuotes = async (req, res) => {
 
     const quotes = await Quote.find(query)
       .populate('customer')
+      .populate('companyId', 'name bizNo bizType')
       .sort({ createdAt: -1 });
 
     if (search) {
@@ -25,7 +26,7 @@ export const getQuotes = async (req, res) => {
       const filteredQuotes = quotes.filter(quote => {
         const matchesCustomer = quote.customer && (
           quote.customer.name.toLowerCase().includes(search.toLowerCase()) ||
-          quote.customer.bizNo.includes(search)
+          (quote.customer.bizNo || '').includes(search)
         );
         const matchesModel = quote.vehicleModel.toLowerCase().includes(search.toLowerCase());
         return matchesCustomer || matchesModel;
@@ -44,7 +45,9 @@ export const getQuotes = async (req, res) => {
 // @access  Public
 export const getQuoteById = async (req, res) => {
   try {
-    const quote = await Quote.findById(req.params.id).populate('customer');
+    const quote = await Quote.findById(req.params.id)
+      .populate('customer')
+      .populate('companyId', 'name bizNo bizType');
     if (quote) {
       res.json(quote);
     } else {
@@ -63,6 +66,11 @@ export const createQuote = async (req, res) => {
     const {
       customerId, // Existing customer ID (optional if newCustomer provided)
       newCustomer, // Object containing new customer fields (optional)
+      partyType,
+      companyId,
+      customerName,
+      companyName,
+      companyBizNo,
       vehicleModel,
       vehicleSpec,
       totalPrice,
@@ -103,6 +111,11 @@ export const createQuote = async (req, res) => {
 
     const quote = await Quote.create({
       customer: linkedCustomerId,
+      partyType: partyType || '개인',
+      companyId: partyType === '법인' ? (companyId || undefined) : undefined,
+      customerName,
+      companyName: partyType === '법인' ? companyName : undefined,
+      companyBizNo: partyType === '법인' ? companyBizNo : undefined,
       vehicleModel,
       vehicleSpec,
       totalPrice,
@@ -111,7 +124,9 @@ export const createQuote = async (req, res) => {
       createdBy
     });
 
-    const populatedQuote = await Quote.findById(quote._id).populate('customer');
+    const populatedQuote = await Quote.findById(quote._id)
+      .populate('customer')
+      .populate('companyId', 'name bizNo bizType');
     res.status(201).json(populatedQuote);
   } catch (error) {
     res.status(500).json({ message: error.message });

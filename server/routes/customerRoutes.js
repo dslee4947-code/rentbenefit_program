@@ -7,7 +7,9 @@ import {
   deleteCustomer,
   bulkCreateCustomers,
   triggerOutlookSync,
-  lookupCustomerAddresses
+  lookupCustomerAddresses,
+  addCustomerCompany,
+  removeCustomerCompany
 } from '../controllers/customerController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
 
@@ -25,6 +27,9 @@ router.route('/:id')
   .get(getCustomerById)
   .put(checkWritePermission, updateCustomer)
   .delete(checkWritePermission, deleteCustomer);
+
+router.post('/:id/companies', checkWritePermission, addCustomerCompany);
+router.delete('/:id/companies/:companyId', checkWritePermission, removeCustomerCompany);
 
 
 

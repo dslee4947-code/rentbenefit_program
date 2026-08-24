@@ -136,6 +136,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
   const [useExistingCustomer, setUseExistingCustomer] = useState(true);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [partyType, setPartyType] = useState('개인'); // '개인' | '법인' - selectedCustomer.companies로 결정
+  const [selectedCompanyId, setSelectedCompanyId] = useState(''); // partyType이 '법인'일 때 어느 법인인지
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [customerSearchResults, setCustomerSearchResults] = useState([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -414,6 +416,24 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
       .catch(err => console.error('Failed to fetch customer quotes', err))
       .finally(() => setLoadingCustomerQuotes(false));
   }, [selectedCustomerId, useExistingCustomer]);
+
+  // 고객이 바뀌면 그 고객의 소속 법인 수에 따라 개인/법인 건을 자동 판정한다.
+  // 0곳: 개인, 1곳: 자동 선택, 2곳 이상: 주 소속을 기본값으로 (사용자가 드롭다운에서 바꿀 수 있음)
+  useEffect(() => {
+    const companies = (selectedCustomer?.companies || []).filter(a => a.companyId);
+    if (!useExistingCustomer || companies.length === 0) {
+      setPartyType('개인');
+      setSelectedCompanyId('');
+      return;
+    }
+    setPartyType('법인');
+    if (companies.length === 1) {
+      setSelectedCompanyId(companies[0].companyId._id);
+    } else {
+      const primary = companies.find(a => a.isPrimary);
+      setSelectedCompanyId((primary || companies[0]).companyId._id);
+    }
+  }, [selectedCustomer, useExistingCustomer]);
 
   // 지난 견적을 선택하면 그 내용 그대로 하단 입력 필드에 불러온다
   const handleLoadQuote = (quote) => {
@@ -889,6 +909,14 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             holder: newCustomer.bankHolder
           }
         } : undefined,
+        partyType: useExistingCustomer ? partyType : '개인',
+        companyId: (useExistingCustomer && partyType === '법인') ? selectedCompanyId : undefined,
+        // 스냅샷: 저장 시점의 고객명/법인명/사업자번호를 문서에 그대로 고정
+        customerName: useExistingCustomer
+          ? (selectedCustomer?.surname || selectedCustomer?.name || '').trim()
+          : (newCustomer.name || '').trim(),
+        companyName: selectedCompanyInfo?.name,
+        companyBizNo: selectedCompanyInfo?.bizNo,
         vehicleModel: activeVehicle.carModel,
         vehicleSpec: `${activeVehicle.carOptionsName} / 연료: ${activeVehicle.fuelType} / 배기량: ${activeVehicle.cc}cc / 납기: ${activeVehicle.deliveryPeriod} / 외장: ${activeVehicle.exteriorColor} / 내장: ${activeVehicle.interiorColor}`,
         totalPrice: calculated.totalCarPrice,
@@ -1125,9 +1153,18 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
         calc: calculateOptionValues(options[0], activeVehicle)
       }];
 
-  const displayCustomerName = selectedCustomer 
+  const selectedCompanyInfo = (partyType === '법인' && selectedCustomer && selectedCompanyId)
+    ? (selectedCustomer.companies || []).find(a => a.companyId?._id === selectedCompanyId)?.companyId
+    : null;
+
+  const rawCustomerName = selectedCustomer
     ? (selectedCustomer.surname || selectedCustomer.name || '').trim()
     : (newCustomer.name || '고객');
+
+  // 법인 건은 "㈜회사명 (담당자 홍길동)", 개인 건은 이름만 표기
+  const displayCustomerName = selectedCompanyInfo
+    ? `${selectedCompanyInfo.name} (담당자 ${rawCustomerName})`
+    : rawCustomerName;
 
   const todayDateStr = new Date().toISOString().substring(0, 10);
   const firstOption = displaySelectedOptions[0];
@@ -1569,13 +1606,19 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                         const surname = c.surname || c.name || '-';
                         const givenName = c.givenName || c.displayName || c.contactName || '-';
                         return (
-                          <tr 
+                          <tr
                             key={c._id}
                             onClick={() => {
                               setSelectedCustomerId(c._id);
                               setSelectedCustomer(c);
                               setCustomerSearchQuery((c.surname || c.name || '').trim());
                               setIsDropdownOpen(false);
+                              // 목록 검색 응답은 companies가 populate 안 되어 있으므로
+                              // 소속 법인 정보(이름/사업자번호)가 필요해 상세 조회로 보강한다.
+                              fetch(`${API_HOST}/api/customers/${c._id}`)
+                                .then(res => res.ok ? res.json() : null)
+                                .then(full => { if (full) setSelectedCustomer(full); })
+                                .catch(() => {});
                             }}
                             style={{
                               borderBottom: '1px solid #f0f0f0',
@@ -1633,6 +1676,38 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                 </div>
               </div>
             )}
+
+            {selectedCustomer && (() => {
+              const companies = (selectedCustomer.companies || []).filter(a => a.companyId);
+              if (companies.length === 0) return null;
+
+              if (companies.length === 1) {
+                return (
+                  <div style={{ marginTop: '0.6rem', background: '#f0f7ff', border: '1px solid #bbdefb', borderRadius: '6px', padding: '0.7rem 1rem', fontSize: '0.82rem', color: '#0056b3' }}>
+                    <strong>법인 건:</strong> {companies[0].companyId.name} 소속으로 진행됩니다.
+                  </div>
+                );
+              }
+
+              return (
+                <div style={{ marginTop: '0.6rem', background: '#f0f7ff', border: '1px solid #bbdefb', borderRadius: '6px', padding: '0.7rem 1rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', color: '#0056b3', marginBottom: '0.4rem' }}>
+                    어느 법인으로 진행할까요?
+                  </label>
+                  <select
+                    value={selectedCompanyId}
+                    onChange={(e) => setSelectedCompanyId(e.target.value)}
+                    style={{ width: '100%', maxWidth: '360px', padding: '0.5rem 0.7rem', borderRadius: '6px', border: '1px solid #91d5ff', fontSize: '0.85rem', background: '#fff' }}
+                  >
+                    {companies.map((a) => (
+                      <option key={a.companyId._id} value={a.companyId._id}>
+                        {a.companyId.name}{a.isPrimary ? ' (주 소속)' : ''}{a.role ? ` - ${a.role}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })()}
 
             {selectedCustomer && customerQuotes.length > 0 && (
               <div style={{ marginTop: '0.6rem' }}>

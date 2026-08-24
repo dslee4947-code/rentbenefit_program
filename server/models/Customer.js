@@ -1,10 +1,13 @@
 import mongoose from 'mongoose';
+import { rejectResidentRegistrationNumber } from '../utils/validators.js';
 const { Schema } = mongoose;
 
 const CustomerSchema = new Schema({
   customerId: { type: String, required: true, unique: true }, // 고객코드 예: CUST001
   name: { type: String, required: true }, // 개인/법인명
-  bizNo: String, // 사업자/주민번호 (Outlook 등 실제 사업자번호가 없는 고객은 필드 자체를 생략)
+  // 사업자/주민번호 (Outlook 등 실제 사업자번호가 없는 고객은 필드 자체를 생략).
+  // 주민등록번호 형식(6자리-7자리)은 저장 거부 - 사업자번호는 3-2-5 형식이라 겹치지 않음.
+  bizNo: { type: String, validate: rejectResidentRegistrationNumber },
   ceoName: String, // 대표자명 (법인)
   address: String,
   contactName: String, // 담당자명
@@ -15,7 +18,7 @@ const CustomerSchema = new Schema({
     account: String,
     holder: String, // 예금주
   },
-  bizNoTransfer: String, // 사업자/주민번호(이체/식별번호)
+  bizNoTransfer: { type: String, validate: rejectResidentRegistrationNumber }, // 사업자/주민번호(이체/식별번호)
   bizAddress: String, // 사업자 주소
   source: { type: String, default: 'manual' }, // 생성 출처: manual, outlook 등
   outlookId: { type: String }, // MS Outlook 연락처 ID
@@ -36,6 +39,13 @@ const CustomerSchema = new Schema({
   postalCode: String, // 우편번호
   businessAddress: String, // 근무처 주소
   homeAddress: String, // 집 주소
+
+  // 소속 법인 (한 고객이 법인 두 곳 이상에 소속될 수 있음)
+  companies: [{
+    companyId: { type: Schema.Types.ObjectId, ref: 'Company' },
+    role: String, // 대표 / 담당자 / 실사용자
+    isPrimary: { type: Boolean, default: false },
+  }],
 }, { timestamps: true });
 
 // High-performance search indexes for 18k+ records
@@ -43,6 +53,7 @@ CustomerSchema.index({ outlookId: 1 });
 CustomerSchema.index({ email: 1 });
 CustomerSchema.index({ name: 1, contactName: 1, contactPhone: 1 });
 CustomerSchema.index({ source: 1, outlookCategory: 1 });
+CustomerSchema.index({ 'companies.companyId': 1 });
 
 const Customer = mongoose.model('Customer', CustomerSchema);
 export default Customer;

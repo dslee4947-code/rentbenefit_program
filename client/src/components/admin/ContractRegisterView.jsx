@@ -683,6 +683,9 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
           bizAddress: customerBizAddress
         },
         quoteId: prefilledQuoteData?._id || undefined,
+        // 견적서에서 넘어온 법인 정보를 계약서로 그대로 이관
+        partyType: prefilledQuoteData?.partyType || '개인',
+        companyId: prefilledQuoteData?.companyId?._id || prefilledQuoteData?.companyId || undefined,
         leaseCompany: undefined,
         contractDate,
         deliveryDate: undefined,

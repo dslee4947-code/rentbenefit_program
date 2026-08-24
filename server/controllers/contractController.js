@@ -21,13 +21,14 @@ export const getContracts = async (req, res) => {
       .populate('customer')
       .populate('vehicle')
       .populate('quote')
+      .populate('companyId', 'name bizNo bizType')
       .sort({ createdAt: -1 });
 
     if (search) {
       const filtered = contracts.filter(contract => {
         const matchesCustomer = contract.customer && (
           contract.customer.name.toLowerCase().includes(search.toLowerCase()) ||
-          contract.customer.bizNo.includes(search)
+          (contract.customer.bizNo || '').includes(search)
         );
         const matchesVehicle = contract.vehicle && (
           contract.vehicle.code.toLowerCase().includes(search.toLowerCase()) ||
@@ -54,7 +55,8 @@ export const getContractById = async (req, res) => {
     const contract = await Contract.findById(req.params.id)
       .populate('customer')
       .populate('vehicle')
-      .populate('quote');
+      .populate('quote')
+      .populate('companyId', 'name bizNo bizType');
     if (contract) {
       res.json(contract);
     } else {
@@ -73,6 +75,8 @@ export const createContract = async (req, res) => {
     const {
       customerId,
       quoteId,
+      partyType,
+      companyId,
       leaseCompany,
       contractDate,
       deliveryDate,
@@ -217,6 +221,8 @@ export const createContract = async (req, res) => {
       vehicle: vehicle._id,
       customer: finalCustomerId,
       quote: quoteId || null,
+      partyType: partyType || '개인',
+      companyId: partyType === '법인' ? (companyId || undefined) : undefined,
       leaseCompany,
       contractDate: contractDateObj,
       deliveryDate,
@@ -335,7 +341,8 @@ export const createContract = async (req, res) => {
 
     const populatedContract = await Contract.findById(savedContract._id)
       .populate('customer')
-      .populate('vehicle');
+      .populate('vehicle')
+      .populate('companyId', 'name bizNo bizType');
 
     res.status(201).json(populatedContract);
   } catch (error) {

@@ -6,6 +6,8 @@ const ContractSchema = new Schema({
   vehicle: { type: Schema.Types.ObjectId, ref: 'Vehicle', required: true },
   customer: { type: Schema.Types.ObjectId, ref: 'Customer', required: true },
   quote: { type: Schema.Types.ObjectId, ref: 'Quote' },
+  partyType: { type: String, enum: ['개인', '법인'], default: '개인' },
+  companyId: { type: Schema.Types.ObjectId, ref: 'Company' }, // partyType이 '법인'일 때만 사용
   leaseCompany: String, // 계약사
   contractDate: { type: Date, required: true },
   deliveryDate: Date,

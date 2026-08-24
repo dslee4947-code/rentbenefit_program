@@ -25,7 +25,7 @@ export const getInvoices = async (req, res) => {
       const filtered = invoices.filter(inv => {
         const matchesCustomer = inv.customer && (
           inv.customer.name.toLowerCase().includes(search.toLowerCase()) ||
-          inv.customer.bizNo.includes(search)
+          (inv.customer.bizNo || '').includes(search)
         );
         const matchesInvoiceNo = inv.invoiceNo.toLowerCase().includes(search.toLowerCase());
         return matchesCustomer || matchesInvoiceNo;

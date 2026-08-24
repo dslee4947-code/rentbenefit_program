@@ -6,6 +6,7 @@ import VehicleManagementView from './VehicleManagementView.jsx';
 import ContractsListView from './ContractsListView.jsx';
 import CalendarView from './CalendarView.jsx';
 import CustomerListView from './CustomerListView.jsx';
+import CompanyManagementView from './CompanyManagementView.jsx';
 import UserManagementView from './UserManagementView.jsx';
 import BillingView from './BillingView.jsx';
 import MyPageView from './MyPageView.jsx';
@@ -24,13 +25,14 @@ import {
   X,
   Key,
   FileText,
-  Settings
+  Settings,
+  Building2
 } from 'lucide-react';
 
 function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   const getTabFromHash = () => {
     const hash = window.location.hash.replace('#/', '');
-    const validTabs = ['dashboard', 'customers', 'quote-input', 'contract-register', 'vehicles', 'contracts', 'calendar', 'users', 'billing', 'mypage'];
+    const validTabs = ['dashboard', 'customers', 'companies', 'quote-input', 'contract-register', 'vehicles', 'contracts', 'calendar', 'users', 'billing', 'mypage'];
     return validTabs.includes(hash) ? hash : 'dashboard';
   };
 
@@ -80,6 +82,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   const menuItems = [
     { id: 'dashboard', name: '통계 대시보드', icon: <LayoutDashboard size={18} /> },
     { id: 'customers', name: '고객 DB 관리', icon: <Users size={18} /> },
+    { id: 'companies', name: '법인 관리', icon: <Building2 size={18} /> },
     { id: 'quote-input', name: '견적서', icon: <Coins size={18} /> },
     { id: 'contract-register', name: '계약서 등록', icon: <FileSignature size={18} /> },
     { id: 'contracts', name: '계약 / 견적 목록', icon: <Receipt size={18} /> },
@@ -369,6 +372,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
             <h1 style={{ fontSize: '1.8rem', fontWeight: '800', color: 'var(--text-bright)' }}>
               {activeTab === 'dashboard' && '통계 대시보드'}
               {activeTab === 'customers' && '고객 DB 관리'}
+              {activeTab === 'companies' && '법인 관리'}
               {activeTab === 'quote-input' && '견적서'}
               {activeTab === 'contract-register' && '계약서 신규 등록'}
               {activeTab === 'vehicles' && '렌트차량 DB 관리'}
@@ -381,6 +385,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
             <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '0.2rem' }}>
               {activeTab === 'dashboard' && '사내 프로그램의 실시간 차량 DB와 계약 일정 현황 요약입니다.'}
               {activeTab === 'customers' && '아웃룩 연동 및 수동 등록된 전체 고객 정보 목록을 실시간 조회 및 관리합니다.'}
+              {activeTab === 'companies' && '거래 법인(및 개인사업자) 정보를 등록하고 관리합니다.'}
               {activeTab === 'quote-input' && '고객과의 상담 기록 및 예상 대여료 비교 견적서를 작성합니다.'}
               {activeTab === 'contract-register' && '확정된 견적 정보를 계약서로 신규 등록하고 입고 차량 DB 및 알림 일정을 자동 생성합니다.'}
               {activeTab === 'vehicles' && '전체 렌트 차량의 계약정보, 잔여일정, 담당 정비 내역을 상세 조회합니다.'}
@@ -403,8 +408,16 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
           )}
 
           {activeTab === 'customers' && (
-            <CustomerListView 
-              showToast={showToast} 
+            <CustomerListView
+              showToast={showToast}
+              currentUser={currentUser}
+            />
+          )}
+
+          {activeTab === 'companies' && (
+            <CompanyManagementView
+              showToast={showToast}
+              currentUser={currentUser}
             />
           )}
 

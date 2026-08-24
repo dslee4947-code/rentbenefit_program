@@ -1963,7 +1963,7 @@ function InvoiceTemplate({ invoice }) {
             <div>대표이사 신동일 &nbsp;|&nbsp; 사업자번호 422-88-02467 &nbsp;|&nbsp; F. 02-529-3303</div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-            <img src="http://www.sdibenefit.com/images/logo.png" alt="RENT BENefit" style={{ maxHeight: '20px', width: 'auto' }} />
+            <img src="/logo.png" alt="RENT BENefit" style={{ maxHeight: '20px', width: 'auto' }} />
             <span style={{ fontSize: '0.55rem', fontWeight: 'bold', color: '#ad885c', marginTop: '2px', letterSpacing: '1px' }}>RENT BENEFIT</span>
           </div>
         </div>
@@ -1983,7 +1983,7 @@ function InvoiceTemplate({ invoice }) {
           <div style={{ fontSize: '0.75rem', color: '#555', marginTop: '0.2rem' }}>청구 번호 : <strong style={{ color: '#000' }}>{invoice.invoiceNo}</strong></div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-          <img src="http://www.sdibenefit.com/images/logo.png" alt="RENT BENefit" style={{ maxHeight: '32px', width: 'auto', objectFit: 'contain' }} />
+          <img src="/logo.png" alt="RENT BENefit" style={{ maxHeight: '32px', width: 'auto', objectFit: 'contain' }} />
           <span style={{ fontSize: '0.7rem', color: '#777', fontWeight: '600', marginTop: '0.1rem' }}>TOTAL CAR PREMIUM SOLUTION</span>
         </div>
       </div>

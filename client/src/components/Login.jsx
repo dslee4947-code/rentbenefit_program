@@ -82,7 +82,7 @@ function Login({
         <div className="signup-phone-frame login-frame" style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: '1.5rem' }}>
           <div className="signup-frame-header" style={{ width: '100%' }}>
             <div className="logo-container" onClick={() => setView('main')} style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-              <img src="http://www.sdibenefit.com/images/logo.png" alt="BENefit" style={{ maxWidth: '160px', width: '100%', height: 'auto', maxHeight: '36px', objectFit: 'contain' }} />
+              <img src="/logo.png" alt="BENefit" style={{ maxWidth: '160px', width: '100%', height: 'auto', maxHeight: '36px', objectFit: 'contain' }} />
             </div>
             <button type="button" className="signup-icon-btn" onClick={() => setView('main')}>
               <X size={20} />
@@ -126,7 +126,7 @@ function Login({
         <div className="signup-frame-header">
           {/* logo */}
           <div className="logo-container" onClick={() => setView('main')} style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-            <img src="http://www.sdibenefit.com/images/logo.png" alt="BENefit" style={{ maxWidth: '160px', width: '100%', height: 'auto', maxHeight: '36px', objectFit: 'contain' }} />
+            <img src="/logo.png" alt="BENefit" style={{ maxWidth: '160px', width: '100%', height: 'auto', maxHeight: '36px', objectFit: 'contain' }} />
           </div>
 
           <div style={{ display: 'flex', gap: '0.5rem' }}>

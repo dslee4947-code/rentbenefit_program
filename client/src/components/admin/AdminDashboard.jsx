@@ -147,7 +147,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
         zIndex: 999
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <img src="http://www.sdibenefit.com/images/logo.png" alt="RENT BENefit" style={{ maxHeight: '28px', width: 'auto' }} />
+          <img src="/logo.png" alt="RENT BENefit" style={{ maxHeight: '28px', width: 'auto' }} />
         </div>
         <button 
           onClick={() => setIsMobileMenuOpen(true)}
@@ -190,7 +190,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
             gap: '1.5rem'
           }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.8rem' }}>
-              <img src="http://www.sdibenefit.com/images/logo.png" alt="RENT BENefit" style={{ maxHeight: '26px', width: 'auto' }} />
+              <img src="/logo.png" alt="RENT BENefit" style={{ maxHeight: '26px', width: 'auto' }} />
               <button 
                 onClick={() => setIsMobileMenuOpen(false)}
                 style={{
@@ -287,7 +287,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
       <aside className="desktop-sidebar" style={{ width: '260px', background: 'var(--bg-surface)', borderRight: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', padding: '1.5rem', gap: '2rem', position: 'sticky', top: 0, height: '100vh' }}>
         {/* Brand/Logo */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', alignItems: 'center', width: '100%', textAlign: 'center' }}>
-          <img src="http://www.sdibenefit.com/images/logo.png" alt="RENT BENefit" style={{ maxWidth: '180px', width: '100%', height: 'auto', maxHeight: '42px', objectFit: 'contain', margin: '0 auto' }} />
+          <img src="/logo.png" alt="RENT BENefit" style={{ maxWidth: '180px', width: '100%', height: 'auto', maxHeight: '42px', objectFit: 'contain', margin: '0 auto' }} />
           <span style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-muted)', letterSpacing: '1px', textTransform: 'uppercase', width: '100%' }}>사내 일정 관리 시스템</span>
         </div>
 

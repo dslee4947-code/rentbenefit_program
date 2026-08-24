@@ -22,7 +22,7 @@ import {
 import * as XLSX from 'xlsx';
 import html2pdf from 'html2pdf.js';
 
-const API_HOST = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
+const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
 // 렌터카 DB(Vehicle)를 법인(계약사)별로 묶고, 같은 법인 안에서도 계약번호(같은 계약/출고 건)별로 다시 묶는다.
 // 계약번호가 비어있는 차량은 서로 다른 시점에 계약된 것일 수 있어 차량번호 기준으로 각각 독립된 건으로 취급한다.

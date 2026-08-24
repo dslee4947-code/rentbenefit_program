@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Lock, Save, Mail, Phone, Building2, MapPin } from 'lucide-react';
 
-const API_HOST = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
+const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
 const ROLE_LABELS = {
   viewer: '조회 권한 (Viewer)',

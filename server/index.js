@@ -1,3 +1,5 @@
+import path from 'path';
+import { fileURLToPath } from 'url';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -76,6 +78,16 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// In production the client is built into client/dist and served by this same server,
+// so the browser calls /api/* on its own origin (no CORS, no mixed content).
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const clientDistPath = path.resolve(__dirname, '../client/dist');
+const serveClient = process.env.NODE_ENV === 'production';
+
+if (serveClient) {
+  app.use(express.static(clientDistPath));
+}
+
 // Routes
 app.get('/', (req, res) => {
   res.send('Rent Benefit API is running...');
@@ -93,6 +105,12 @@ app.use('/api/company-folders', companyFolderRoutes);
 app.use('/api/companies', companyRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
+// Client-side routing: any non-/api request falls through to the SPA entry point
+if (serveClient) {
+  app.get(/^\/(?!api\/).*/, (req, res) => {
+    res.sendFile(path.join(clientDistPath, 'index.html'));
+  });
+}
 
 // Error handling middleware
 app.use((req, res, next) => {

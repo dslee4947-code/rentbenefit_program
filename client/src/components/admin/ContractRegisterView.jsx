@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Save, Plus, Trash2, FileSignature, ChevronDown, ChevronUp, ArrowLeft, UserPlus, Users } from 'lucide-react';
 
-const API_HOST = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
+const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
 function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefilledContractData, setPrefilledContractData, setActiveTab, showToast, currentUser }) {
   const [customers, setCustomers] = useState([]);

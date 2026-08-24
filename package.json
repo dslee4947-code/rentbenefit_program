@@ -4,7 +4,7 @@
   "description": "Root package.json to deploy the server to Heroku",
   "scripts": {
     "start": "npm start --prefix server",
-    "heroku-postbuild": "npm install --prefix server"
+    "heroku-postbuild": "npm install --prefix server && npm install --prefix client --include=dev && npm run build --prefix client"
   },
   "engines": {
     "node": "20.x"

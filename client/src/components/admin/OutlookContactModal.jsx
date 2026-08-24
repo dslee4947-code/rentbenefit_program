@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { formatBizNo } from '../../utils/format.js';
 
-const API_HOST = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
+const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
 function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTopWindow, onFocus, onClose, onSave, onDelete, showToast, currentUser }) {
   // customer는 항상 존재함이 보장된다 (부모는 customer가 있을 때만 이 컴포넌트를 마운트함).

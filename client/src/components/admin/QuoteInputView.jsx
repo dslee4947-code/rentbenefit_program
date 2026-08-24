@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Sparkles, Save, ArrowRight, UserPlus, Users, Car, Coins, Settings, HelpCircle, CheckCircle, Plus, Trash2 } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
 
-const API_HOST = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
+const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
 // Financial PMT Function (matching Excel PMT)
 function PMT(rate, nper, pv) {

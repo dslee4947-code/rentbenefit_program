@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { formatBizNo } from '../../utils/format.js';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
 const EMPTY_FORM = {
   name: '',

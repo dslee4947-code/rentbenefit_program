@@ -96,7 +96,7 @@ function CustomerListView({ showToast, currentUser }) {
   const [lookupResults, setLookupResults] = useState([]);
   const [lookupSummary, setLookupSummary] = useState(null);
 
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:5000`;
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
   // 0. Debounce Search Term
   useEffect(() => {

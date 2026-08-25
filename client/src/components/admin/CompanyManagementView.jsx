@@ -6,7 +6,10 @@ import {
   Edit3,
   X,
   Users,
-  Star
+  Star,
+  User,
+  Link2,
+  Unlink
 } from 'lucide-react';
 import { formatBizNo } from '../../utils/format.js';
 
@@ -44,6 +47,21 @@ function CompanyManagementView({ showToast, currentUser }) {
   const [customerSearchResults, setCustomerSearchResults] = useState([]);
   const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
 
+  // 고객별 보기: 고객을 먼저 고르고 그 고객의 법인들을 관리한다
+  const [viewMode, setViewMode] = useState('company'); // 'company' | 'customer'
+  const [pickerTerm, setPickerTerm] = useState('');
+  const [pickerResults, setPickerResults] = useState([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [customerCompanies, setCustomerCompanies] = useState([]);
+  const [customerCompaniesLoading, setCustomerCompaniesLoading] = useState(false);
+
+  // 기존 법인 연결용 검색
+  const [linkTerm, setLinkTerm] = useState('');
+  const [linkResults, setLinkResults] = useState([]);
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [showLinkPanel, setShowLinkPanel] = useState(false);
+
   // 검색어 디바운스
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchTerm), 300);
@@ -75,6 +93,56 @@ function CompanyManagementView({ showToast, currentUser }) {
 
     return () => clearTimeout(timer);
   }, [customerSearchTerm]);
+
+  // 고객별 보기 - 고객 검색 디바운스
+  useEffect(() => {
+    if (!pickerTerm.trim()) {
+      setPickerResults([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        setPickerLoading(true);
+        const res = await fetch(`${API_BASE_URL}/api/customers?search=${encodeURIComponent(pickerTerm.trim())}&limit=10`);
+        if (res.ok) {
+          const data = await res.json();
+          setPickerResults(data.customers || (Array.isArray(data) ? data : []));
+        }
+      } catch (err) {
+        console.error('Failed to search customers', err);
+      } finally {
+        setPickerLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [pickerTerm]);
+
+  // 고객별 보기 - 연결할 기존 법인 검색 디바운스
+  useEffect(() => {
+    if (!linkTerm.trim()) {
+      setLinkResults([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        setLinkLoading(true);
+        const res = await fetch(`${API_BASE_URL}/api/companies?search=${encodeURIComponent(linkTerm.trim())}`);
+        if (res.ok) {
+          const data = await res.json();
+          setLinkResults(Array.isArray(data) ? data.slice(0, 8) : []);
+        }
+      } catch (err) {
+        console.error('Failed to search companies', err);
+      } finally {
+        setLinkLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [linkTerm]);
 
   const fetchCompanies = async () => {
     try {
@@ -111,10 +179,117 @@ function CompanyManagementView({ showToast, currentUser }) {
     }
   };
 
-  const openAddModal = () => {
+  /**
+   * 선택된 고객의 법인 목록을 다시 읽어온다.
+   * GET /api/customers/:id 가 companies.companyId를 populate 해 준다.
+   */
+  const fetchCustomerCompanies = async (customerId) => {
+    try {
+      setCustomerCompaniesLoading(true);
+      const res = await fetch(`${API_BASE_URL}/api/customers/${customerId}`);
+      if (!res.ok) throw new Error('고객의 법인 목록을 불러오지 못했습니다.');
+      const data = await res.json();
+
+      const list = (data.companies || [])
+        .filter((m) => m.companyId) // 삭제된 법인을 참조하는 항목 제외
+        .map((m) => ({
+          _id: m.companyId._id,
+          name: m.companyId.name,
+          bizNo: m.companyId.bizNo,
+          bizType: m.companyId.bizType,
+          role: m.role || '',
+          isPrimary: !!m.isPrimary
+        }));
+
+      setCustomerCompanies(list);
+    } catch (err) {
+      showToast?.(err.message, 'error');
+    } finally {
+      setCustomerCompaniesLoading(false);
+    }
+  };
+
+  const handleSelectCustomer = (customer) => {
+    setSelectedCustomer(customer);
+    setPickerTerm('');
+    setPickerResults([]);
+    setShowLinkPanel(false);
+    setLinkTerm('');
+    setLinkResults([]);
+    fetchCustomerCompanies(customer._id);
+  };
+
+  /** 이미 등록된 법인을 이 고객에게 연결한다. */
+  const handleLinkExistingCompany = async (company) => {
+    if (customerCompanies.some((c) => c._id === company._id)) {
+      showToast?.('이미 연결된 법인입니다.', 'warning');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/customers/${selectedCustomer._id}/companies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-User-Role': currentUser?.role || 'viewer' },
+        body: JSON.stringify({
+          companyId: company._id,
+          role: '담당자',
+          isPrimary: customerCompanies.length === 0
+        })
+      });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.message || '법인 연결에 실패했습니다.');
+      }
+
+      showToast?.(`${company.name} 법인을 연결했습니다.`, 'success');
+      setLinkTerm('');
+      setLinkResults([]);
+      setShowLinkPanel(false);
+      fetchCustomerCompanies(selectedCustomer._id);
+    } catch (err) {
+      showToast?.(err.message, 'error');
+    }
+  };
+
+  const handleUnlinkCompany = async (company) => {
+    if (!window.confirm(`${company.name} 법인 연결을 해제할까요?\n(법인 자체는 삭제되지 않습니다)`)) return;
+
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/api/customers/${selectedCustomer._id}/companies/${company._id}`,
+        { method: 'DELETE', headers: { 'X-User-Role': currentUser?.role || 'viewer' } }
+      );
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.message || '연결 해제에 실패했습니다.');
+      }
+
+      showToast?.('법인 연결을 해제했습니다.', 'success');
+      fetchCustomerCompanies(selectedCustomer._id);
+    } catch (err) {
+      showToast?.(err.message, 'error');
+    }
+  };
+
+  /**
+   * presetCustomer가 있으면 새 법인을 그 고객에게 바로 연결된 상태로 시작한다.
+   * (고객별 보기에서 "이 고객에게 법인 등록"으로 진입하는 경로)
+   */
+  const openAddModal = (presetCustomer = null) => {
     setEditingCompany(null);
     setFormData(EMPTY_FORM);
-    setAffiliatedCustomers([]);
+    setAffiliatedCustomers(
+      presetCustomer
+        ? [{
+            _id: presetCustomer._id,
+            name: presetCustomer.name,
+            contactPhone: presetCustomer.contactPhone || presetCustomer.mobilePhone,
+            email: presetCustomer.email,
+            role: '담당자',
+            isPrimary: customerCompanies.length === 0
+          }]
+        : []
+    );
     setCustomerSearchTerm('');
     setCustomerSearchResults([]);
     setShowModal(true);
@@ -136,6 +311,20 @@ function CompanyManagementView({ showToast, currentUser }) {
     setCustomerSearchTerm('');
     setCustomerSearchResults([]);
     setShowModal(true);
+  };
+
+  /**
+   * 고객별 보기의 법인 카드는 요약 필드만 가지고 있으므로,
+   * 수정 모달을 열기 전에 법인 전체 정보를 받아온다.
+   */
+  const openEditModalForCompany = async (companyId) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/companies/${companyId}`);
+      if (!res.ok) throw new Error('법인 정보를 불러오지 못했습니다.');
+      openEditModal(await res.json());
+    } catch (err) {
+      showToast?.(err.message, 'error');
+    }
   };
 
   // OCR 업로드 핸들러
@@ -172,7 +361,12 @@ function CompanyManagementView({ showToast, currentUser }) {
         bizType: data.bizType || prev.bizType
       }));
 
-      showToast?.('사업자등록증 정보가 성공적으로 자동 입력되었습니다.', 'success');
+      showToast?.(
+        data.source === 'clova'
+          ? 'OCR로 사업자등록증을 읽었습니다. 값이 맞는지 확인 후 저장해 주세요.'
+          : '사업자등록증 정보가 자동 입력되었습니다. 값이 맞는지 확인 후 저장해 주세요.',
+        'success'
+      );
     } catch (err) {
       showToast?.(err.message, 'error');
     } finally {
@@ -264,6 +458,9 @@ function CompanyManagementView({ showToast, currentUser }) {
       showToast?.(editingCompany ? '법인 정보가 수정되었습니다.' : '신규 법인이 등록되었습니다.', 'success');
       setShowModal(false);
       fetchCompanies();
+      if (selectedCustomer) {
+        fetchCustomerCompanies(selectedCustomer._id);
+      }
     } catch (err) {
       showToast?.(err.message, 'error');
     } finally {
@@ -274,6 +471,38 @@ function CompanyManagementView({ showToast, currentUser }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
+      {/* 보기 전환 탭 */}
+      <div style={{ display: 'flex', gap: '0.4rem', borderBottom: '1px solid var(--border-color)' }}>
+        {[
+          { key: 'company', label: '법인별 보기', icon: Building2 },
+          { key: 'customer', label: '고객별 보기', icon: User }
+        ].map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setViewMode(key)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              padding: '0.7rem 1.1rem',
+              border: 'none',
+              borderBottom: viewMode === key ? '2px solid var(--primary)' : '2px solid transparent',
+              background: 'transparent',
+              color: viewMode === key ? 'var(--primary)' : 'var(--text-muted)',
+              fontWeight: '700',
+              fontSize: '0.9rem',
+              cursor: 'pointer',
+              marginBottom: '-1px'
+            }}
+          >
+            <Icon size={16} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </div>
+
+      {viewMode === 'company' && (
+      <>
       {/* 상단 액션 툴바 */}
       <div style={{
         display: 'flex',
@@ -306,7 +535,7 @@ function CompanyManagementView({ showToast, currentUser }) {
         </div>
 
         <button
-          onClick={openAddModal}
+          onClick={() => openAddModal()}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -412,6 +641,361 @@ function CompanyManagementView({ showToast, currentUser }) {
           </div>
         )}
       </div>
+      </>
+      )}
+
+      {/* ── 고객별 보기: 고객을 먼저 고르고 그 고객의 법인들을 관리한다 ── */}
+      {viewMode === 'customer' && (
+      <>
+        {/* 고객 선택 */}
+        <div style={{
+          background: 'var(--bg-surface)',
+          padding: '1.2rem 1.5rem',
+          borderRadius: '12px',
+          border: '1px solid var(--border-color)'
+        }}>
+          <label style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text-bright)', display: 'block', marginBottom: '0.6rem' }}>
+            고객 선택
+          </label>
+
+          <div style={{ position: 'relative' }}>
+            <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <input
+              type="text"
+              placeholder="고객명, 연락처, 이메일로 검색..."
+              value={pickerTerm}
+              onChange={(e) => setPickerTerm(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '0.65rem 1rem 0.65rem 2.4rem',
+                borderRadius: '8px',
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-main)',
+                color: 'var(--text-bright)',
+                fontSize: '0.9rem'
+              }}
+            />
+
+            {pickerTerm && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                right: 0,
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '8px',
+                boxShadow: '0 6px 18px rgba(0,0,0,0.18)',
+                zIndex: 20,
+                maxHeight: '260px',
+                overflowY: 'auto',
+                marginTop: '4px'
+              }}>
+                {pickerLoading ? (
+                  <div style={{ padding: '0.8rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                    검색 중...
+                  </div>
+                ) : pickerResults.length === 0 ? (
+                  <div style={{ padding: '0.8rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                    검색 결과가 없습니다.
+                  </div>
+                ) : (
+                  pickerResults.map((c) => (
+                    <div
+                      key={c._id}
+                      onClick={() => handleSelectCustomer(c)}
+                      className="outlook-row-hover"
+                      style={{
+                        padding: '0.7rem 0.9rem',
+                        cursor: 'pointer',
+                        borderBottom: '1px solid var(--border-color)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        fontSize: '0.86rem'
+                      }}
+                    >
+                      <span style={{ fontWeight: '600', color: 'var(--text-bright)' }}>{c.name}</span>
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>
+                        {c.contactPhone || c.email || '연락처 없음'}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {!selectedCustomer ? (
+          <div style={{
+            background: 'var(--bg-surface)',
+            borderRadius: '12px',
+            border: '1px solid var(--border-color)',
+            padding: '3rem',
+            textAlign: 'center',
+            color: 'var(--text-muted)'
+          }}>
+            고객을 먼저 선택해 주세요. 선택한 고객에게 여러 개의 법인을 등록할 수 있습니다.
+          </div>
+        ) : (
+          <div style={{
+            background: 'var(--bg-surface)',
+            borderRadius: '12px',
+            border: '1px solid var(--border-color)',
+            overflow: 'hidden'
+          }}>
+            {/* 선택된 고객 헤더 */}
+            <div style={{
+              padding: '1.2rem 1.5rem',
+              borderBottom: '1px solid var(--border-color)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '1rem',
+              background: 'var(--bg-main)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', minWidth: 0 }}>
+                <div style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '50%',
+                  background: 'rgba(54, 124, 255, 0.12)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}>
+                  <User size={18} style={{ color: 'var(--primary)' }} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '1rem' }}>
+                    {selectedCustomer.name}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                    {selectedCustomer.contactPhone || selectedCustomer.email || '연락처 없음'}
+                    {' · '}
+                    법인 {customerCompanies.length}개
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => setShowLinkPanel((v) => !v)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    padding: '0.6rem 1rem',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-color)',
+                    background: 'transparent',
+                    color: 'var(--text-main)',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem'
+                  }}
+                >
+                  <Link2 size={15} />
+                  <span>기존 법인 연결</span>
+                </button>
+                <button
+                  onClick={() => openAddModal(selectedCustomer)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    padding: '0.6rem 1rem',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: 'var(--primary)',
+                    color: '#ffffff',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+                  }}
+                >
+                  <Plus size={15} />
+                  <span>이 고객에게 법인 등록</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 기존 법인 연결 패널 */}
+            {showLinkPanel && (
+              <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--border-color)' }}>
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="이미 등록된 법인을 법인명 또는 사업자번호로 검색..."
+                  value={linkTerm}
+                  onChange={(e) => setLinkTerm(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.6rem 0.9rem',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--bg-main)',
+                    color: 'var(--text-bright)',
+                    fontSize: '0.86rem'
+                  }}
+                />
+
+                {linkTerm && (
+                  <div style={{ marginTop: '0.6rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    {linkLoading ? (
+                      <div style={{ padding: '0.6rem', color: 'var(--text-muted)', fontSize: '0.83rem' }}>검색 중...</div>
+                    ) : linkResults.length === 0 ? (
+                      <div style={{ padding: '0.6rem', color: 'var(--text-muted)', fontSize: '0.83rem' }}>
+                        검색 결과가 없습니다. 신규 법인이라면 「이 고객에게 법인 등록」을 이용해 주세요.
+                      </div>
+                    ) : (
+                      linkResults.map((co) => (
+                        <div
+                          key={co._id}
+                          onClick={() => handleLinkExistingCompany(co)}
+                          className="outlook-row-hover"
+                          style={{
+                            padding: '0.6rem 0.8rem',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border-color)',
+                            background: 'var(--bg-main)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            fontSize: '0.84rem'
+                          }}
+                        >
+                          <span style={{ fontWeight: '600', color: 'var(--text-bright)' }}>{co.name}</span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{co.bizNo || '사업자번호 없음'}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 이 고객의 법인 목록 */}
+            {customerCompaniesLoading ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                법인 목록을 불러오는 중입니다...
+              </div>
+            ) : customerCompanies.length === 0 ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                이 고객에게 등록된 법인이 없습니다. 「이 고객에게 법인 등록」으로 추가해 보세요.
+              </div>
+            ) : (
+              <div style={{ padding: '1rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                {customerCompanies.map((co) => (
+                  <div
+                    key={co._id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '0.8rem',
+                      padding: '0.9rem 1rem',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-color)',
+                      background: 'var(--bg-main)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minWidth: 0, flexWrap: 'wrap' }}>
+                      <Building2 size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                      <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.92rem' }}>
+                        {co.name}
+                      </span>
+                      {co.isPrimary && (
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.2rem',
+                          padding: '0.15rem 0.5rem',
+                          borderRadius: '20px',
+                          fontSize: '0.72rem',
+                          fontWeight: '700',
+                          background: 'rgba(245, 158, 11, 0.14)',
+                          color: '#f59e0b'
+                        }}>
+                          <Star size={11} />
+                          주 소속
+                        </span>
+                      )}
+                      <span style={{
+                        padding: '0.15rem 0.5rem',
+                        borderRadius: '20px',
+                        fontSize: '0.72rem',
+                        fontWeight: '600',
+                        background: co.bizType === '개인사업자' ? 'rgba(245, 158, 11, 0.12)' : 'rgba(54, 124, 255, 0.12)',
+                        color: co.bizType === '개인사업자' ? '#f59e0b' : 'var(--primary)'
+                      }}>
+                        {co.bizType || '미지정'}
+                      </span>
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                        {co.bizNo || '사업자번호 없음'}
+                      </span>
+                      {co.role && (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>· {co.role}</span>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
+                      <button
+                        onClick={() => openEditModalForCompany(co._id)}
+                        style={{
+                          border: 'none',
+                          background: 'rgba(54, 124, 255, 0.1)',
+                          color: 'var(--primary)',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          padding: '0.35rem 0.6rem',
+                          fontSize: '0.78rem',
+                          fontWeight: '600',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.3rem'
+                        }}
+                      >
+                        <Edit3 size={13} />
+                        <span>수정</span>
+                      </button>
+                      <button
+                        onClick={() => handleUnlinkCompany(co)}
+                        title="이 고객과의 연결만 해제합니다. 법인 자체는 삭제되지 않습니다."
+                        style={{
+                          border: 'none',
+                          background: 'rgba(239, 68, 68, 0.1)',
+                          color: '#ef4444',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          padding: '0.35rem 0.6rem',
+                          fontSize: '0.78rem',
+                          fontWeight: '600',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.3rem'
+                        }}
+                      >
+                        <Unlink size={13} />
+                        <span>연결 해제</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </>
+      )}
 
       {/* 등록 / 수정 모달 */}
       {showModal && (

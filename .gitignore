@@ -4,6 +4,8 @@ node_modules/
 # Environment variables
 .env
 .env.*
+# 값이 비어 있는 설정 템플릿은 저장소에 포함한다 (실제 .env는 위 규칙으로 계속 제외됨)
+!.env.example
 
 # System files
 .DS_Store

@@ -278,9 +278,20 @@ export const processCompanyOCR = async (req, res) => {
       req.file.originalname
     );
 
+    // 어떤 항목도 읽어내지 못한 경우, 빈 값으로 폼을 덮어쓰지 않도록 알려준다.
+    const hasAnyField = Boolean(result.bizNo || result.name || result.ceoName || result.address);
+    if (!hasAnyField) {
+      return res.status(422).json({
+        message: '파일에서 사업자 정보를 찾지 못했습니다. 더 선명한 파일로 다시 시도하거나 직접 입력해 주세요.'
+      });
+    }
+
     res.json(result);
   } catch (error) {
     console.error('[OCR Controller] OCR processing failed:', error);
-    res.status(500).json({ message: error.message || '사업자등록증 분석에 실패했습니다.' });
+    const notConfigured = error.message?.includes('OCR 엔진이 설정되지 않아');
+    res.status(notConfigured ? 503 : 500).json({
+      message: error.message || '사업자등록증 분석에 실패했습니다.'
+    });
   }
 };

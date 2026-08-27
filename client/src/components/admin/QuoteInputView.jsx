@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Save, ArrowRight, UserPlus, Users, Car, Coins, Settings, HelpCircle, CheckCircle, Plus, Trash2 } from 'lucide-react';
+import { Sparkles, Save, ArrowRight, UserPlus, Users, Car, Coins, Settings, HelpCircle, CheckCircle, Plus, Trash2, FolderOpen, X, Search, List, Edit, ChevronLeft, ChevronRight } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
+import { jsPDF } from 'jspdf';
+import { formatCustomerName } from '../../utils/format.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -22,6 +24,14 @@ const parseNumber = (val) => {
   if (!val) return 0;
   const num = Number(val.toString().replace(/[^0-9.-]/g, ''));
   return isNaN(num) ? 0 : num;
+};
+
+// 견적 번호의 마지막 구간에 쓰는 영업이익 코드. 영업이익(원)을 만원 단위로 반올림해서
+// 음수면 "-500"처럼 부호를 그대로, 양수면 "030"처럼 3자리로 0채움한다.
+const formatProfitCode = (profitWon) => {
+  const manwon = Math.round((profitWon || 0) / 10000);
+  const sign = manwon < 0 ? '-' : '';
+  return `${sign}${String(Math.abs(manwon)).padStart(3, '0')}`;
 };
 
 const VEHICLE_COLORS = [
@@ -131,6 +141,48 @@ const getCalculatedMaintenanceFee = (opt, vehicle) => {
   return Math.floor((totalSum / termMonths) / 1000) * 1000;
 };
 
+// 렌트/리스 구분 표시색. 두 문서(비교표, 장기렌터카 견적서)가 같은 색을 쓰도록 한 곳에서 관리한다.
+// 인쇄와 PDF에서도 구분돼야 하므로 회색 농도 차이가 아닌 색상 자체를 다르게 둔다.
+const CONTRACT_TYPES = ['렌트', '리스'];
+const CONTRACT_TYPE_COLORS = {
+  렌트: { solid: '#1d4ed8', onDark: '#93c5fd', tint: 'rgba(29, 78, 216, 0.10)' },
+  리스: { solid: '#047857', onDark: '#6ee7b7', tint: 'rgba(4, 120, 87, 0.10)' }
+};
+const getContractTypeColors = (type) => CONTRACT_TYPE_COLORS[type] || CONTRACT_TYPE_COLORS['렌트'];
+
+/**
+ * 리스 차량의 연간 자동차세(지방교육세 포함)를 계산한다.
+ *
+ * 리스는 자가용(비영업용) 번호판이라 일반 승용차 요율을 쓴다.
+ * 렌터카는 영업용이라 요율이 다르고, 월대여료에 세금이 이미 포함되므로 이 함수를 쓰지 않는다.
+ *
+ *   비영업용 승용 자동차세 연세액 = 배기량 × 요율
+ *     1,000cc 이하 80원 / 1,600cc 이하 140원 / 1,600cc 초과 200원
+ *   전기·수소차는 배기량이 없어 정액 100,000원
+ *   여기에 지방교육세 30%를 더한 금액이 실제 고지 금액이다.
+ *
+ * 차령에 따른 경감(3년차부터 매년 5%, 최대 50%)은 신차 기준 견적이라 적용하지 않는다.
+ */
+const ELECTRIC_FUEL_TYPES = ['전기', '수소'];
+
+const calculateLeaseCarTax = (vehicle) => {
+  const fuelType = vehicle?.fuelType || '';
+  const isElectric = ELECTRIC_FUEL_TYPES.some((t) => fuelType.includes(t));
+
+  let baseTax;
+  if (isElectric) {
+    baseTax = 100000;
+  } else {
+    const cc = Number(vehicle?.cc) || 0;
+    if (cc <= 0) return null; // 배기량을 모르면 추측하지 않고 '-'로 둔다
+    const ratePerCc = cc <= 1000 ? 80 : cc <= 1600 ? 140 : 200;
+    baseTax = cc * ratePerCc;
+  }
+
+  const educationTax = baseTax * 0.3;
+  return Math.floor((baseTax + educationTax) / 10) * 10; // 10원 미만 절사
+};
+
 function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, currentUser }) {
   const [customers, setCustomers] = useState([]);
   const [useExistingCustomer, setUseExistingCustomer] = useState(true);
@@ -144,6 +196,22 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
   const [customerQuotes, setCustomerQuotes] = useState([]); // 선택된 고객의 지난 견적 목록
   const [loadingCustomerQuotes, setLoadingCustomerQuotes] = useState(false);
   const [showQuoteHistory, setShowQuoteHistory] = useState(false);
+
+  // 견적비교에서 "최종선택"으로 표시만 해둔 옵션 (저장/전환은 "계약서 등록 전환" 버튼을 눌러야 실행됨)
+  const [finalSelection, setFinalSelection] = useState(null); // { vehicleId, optionId } | null
+
+  // 견적서 작성 / 견적서 목록(하위 화면) 전환 - 계약/견적 목록 페이지가 없어지면서 이 화면 안으로 들어옴
+  const [viewMode, setViewMode] = useState('form'); // 'form' | 'list'
+  const [quotesListData, setQuotesListData] = useState([]);
+  const [quotesListLoading, setQuotesListLoading] = useState(false);
+  const [quotesListSearch, setQuotesListSearch] = useState('');
+  const [selectedQuoteListIds, setSelectedQuoteListIds] = useState(new Set());
+
+  // 견적서 화면 상단 "불러오기" - 고객 선택 여부와 무관하게 전체 견적서를 검색해서 불러온다
+  const [showLoadModal, setShowLoadModal] = useState(false);
+  const [loadModalQuotes, setLoadModalQuotes] = useState([]);
+  const [loadModalLoading, setLoadModalLoading] = useState(false);
+  const [loadModalSearch, setLoadModalSearch] = useState('');
 
   // New Customer Form State
   const [newCustomer, setNewCustomer] = useState({
@@ -159,9 +227,18 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
     bankHolder: ''
   });
 
+  // 장기렌터카 견적서 왼쪽 하단 '비고' 칸에 직접 입력하는 내용 (문서 단위)
+  const [rentalRemark, setRentalRemark] = useState('');
+
+  // 비교 견적서 '특이사항' 입력 방식.
+  // false = 안별로 따로 입력, true = 안 구분 없이 하나로 입력하고 표에서는 칸을 가로로 병합해 표시
+  const [isSpecialNoteMerged, setIsSpecialNoteMerged] = useState(false);
+  const [mergedSpecialNote, setMergedSpecialNote] = useState('');
+
   // Helper to create a new vehicle structure
   const createNewVehicle = (id) => ({
     id,
+    quoteId: null, // 이 "안"으로 이미 저장된 견적서가 있으면 그 _id. 있으면 다시 저장할 때 새로 만들지 않고 그 견적서를 수정한다
     carModel: id === 1 ? '팰리세이드 (H) 2.5 2WD 프레스티지 9인승' : '',
     carOptionsName: '-',
     carPrice: id === 1 ? 56680000 : 0,
@@ -176,7 +253,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
     // Vehicle-specific financial settings
     baseInterestRate: 0.06,
     commissionRateP: 0.03,
-    dealerCommissionRateP: 0.03,
+    dealerCommissionRateP: 0.00, // 타딜러수수료는 붙는 건이 예외적이라 0%에서 시작한다
+
     tireCount: 4,
     monthlyMaintenanceFee: 50000,
     consignmentFee: 360000,
@@ -194,7 +272,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
         name: '1안',
         companyName: '',
         termYears: 4,
-        mileage: 30000,
+        mileage: 20000,
         residualRate: 0.55,
         depositRate: 0.30,
         advancePaymentRate: 0.00,
@@ -202,7 +280,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
         tireUnitCost: 160000,
         tireType: 'standard',
         discountRate: 0.00,
-        maintenancePlan: '가입',
+        contractType: '렌트', // 렌트 | 리스. 리스는 타사 견적 값을 그대로 옮겨 적는 용도라 계산에 관여하지 않는다
+        specialNote: '', // 비교표 '특이사항' 행에 안별로 입력하는 내용
         insuranceFeeAnnual: 800000,
         insuranceType: 'standard',
         registrationAgencyFee: 100000,
@@ -210,6 +289,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
         monthlyFeeInput: id === 1 ? 996000 : 0,
         targetProfitInput: 0
       },
+      // 2안은 1안과 같은 조건에서 출발한다. 보통 조건 하나만 바꿔 비교하기 때문에
+      // 서로 다른 값으로 시작하면 매번 1안에 맞추는 작업부터 해야 한다.
       {
         id: 2,
         name: '2안',
@@ -217,13 +298,14 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
         termYears: 4,
         mileage: 20000,
         residualRate: 0.55,
-        depositRate: 0.00,
+        depositRate: 0.30,
         advancePaymentRate: 0.00,
         dealerIncentiveRate: 0.00,
-        tireUnitCost: 240000,
-        tireType: 'premium',
+        tireUnitCost: 160000,
+        tireType: 'standard',
         discountRate: 0.00,
-        maintenancePlan: '가입',
+        contractType: '렌트', // 렌트 | 리스. 리스는 타사 견적 값을 그대로 옮겨 적는 용도라 계산에 관여하지 않는다
+        specialNote: '', // 비교표 '특이사항' 행에 안별로 입력하는 내용
         insuranceFeeAnnual: 800000,
         insuranceType: 'standard',
         registrationAgencyFee: 100000,
@@ -241,7 +323,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
   const [activeInputKey, setActiveInputKey] = useState(null); // e.g., 'option-1-depositRate'
   const [activeInputValue, setActiveInputValue] = useState(''); // temporary input string
   const [createdBy, setCreatedBy] = useState('이두식');
-  const [printFormType, setPrintFormType] = useState('comparison'); // 'comparison' or 'rental'
+  const [printFormType, setPrintFormType] = useState('rental'); // 'comparison' or 'rental'
   const [savingToStore, setSavingToStore] = useState(false);
   const [isMaintenanceDetailModalOpen, setIsMaintenanceDetailModalOpen] = useState(false);
   const [subView, setSubView] = useState('quote'); // 'quote' or 'maintenance'
@@ -272,12 +354,17 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
     }));
   };
 
-  const updateActiveVehicleOption = (optionId, fields) => {
+  // 비교표는 여러 차량의 안을 한 화면에 함께 보여주므로, 활성 차량이 아닌 안도 수정할 수 있어야 한다
+  const updateVehicleOption = (vehicleId, optionId, fields) => {
     setVehicles(prev => prev.map(v => {
-      if (v.id !== selectedVehicleId) return v;
+      if (v.id !== vehicleId) return v;
       const updatedOptions = v.options.map(opt => opt.id === optionId ? { ...opt, ...fields } : opt);
       return { ...v, options: updatedOptions };
     }));
+  };
+
+  const updateActiveVehicleOption = (optionId, fields) => {
+    updateVehicleOption(selectedVehicleId, optionId, fields);
   };
 
   const handleAddVehicle = () => {
@@ -300,6 +387,24 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
     }
   };
 
+  /**
+   * 비교 차량의 순서를 한 칸씩 옮긴다.
+   * vehicles 배열 순서가 곧 "차량 1/2/3" 번호, 비교표 열 순서, 차량별 색상까지 결정하므로
+   * 배열 자체를 재정렬하면 화면과 문서가 함께 따라온다.
+   */
+  const handleMoveVehicle = (vehicleId, direction, e) => {
+    e.stopPropagation(); // 순서만 바꾸고 탭 선택은 건드리지 않는다
+    setVehicles(prev => {
+      const from = prev.findIndex(v => v.id === vehicleId);
+      const to = from + direction;
+      if (from === -1 || to < 0 || to >= prev.length) return prev;
+
+      const next = [...prev];
+      [next[from], next[to]] = [next[to], next[from]];
+      return next;
+    });
+  };
+
   const toggleOptionSelection = (optionId) => {
     const currentIds = activeVehicle.selectedOptionIds || (activeVehicle.selectedOptionId ? [activeVehicle.selectedOptionId] : [1]);
     let newIds;
@@ -318,26 +423,39 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
   const handleAddOption = () => {
     const nextId = activeVehicle.options.length + 1;
     const totalCarPrice = activeVehicle.carPrice + activeVehicle.carOptionPrice;
-    const newOpt = {
-      id: nextId,
-      name: `${nextId}안`,
-      companyName: '',
-      termYears: 4,
-      mileage: 20000,
-      residualRate: 0.55,
-      depositRate: 0.30,
-      advancePaymentRate: 0.00,
-      dealerIncentiveRate: 0.00,
-      tireUnitCost: 160000,
-      discountRate: 0.00,
-      maintenancePlan: '가입',
-      insuranceFeeAnnual: 800000,
-      insuranceType: totalCarPrice >= 70000000 ? 'premium' : 'standard',
-      registrationAgencyFee: 100000,
-      calcMode: 'manual',
-      monthlyFeeInput: 0,
-      targetProfitInput: 0
-    };
+
+    // 새 안은 1안을 그대로 복사해서 시작한다. 대부분 조건 하나만 바꿔 비교하기 때문에
+    // 빈 값에서 시작하면 같은 값을 매번 다시 입력해야 한다. 복사 후 자유롭게 수정 가능하다.
+    const baseOpt = activeVehicle.options[0];
+    const newOpt = baseOpt
+      ? {
+          ...baseOpt,
+          id: nextId,
+          name: `${nextId}안`,
+          // 특이사항은 안마다 다른 내용이라 복사하지 않는다
+          specialNote: ''
+        }
+      : {
+          id: nextId,
+          name: `${nextId}안`,
+          companyName: '',
+          termYears: 4,
+          mileage: 20000,
+          residualRate: 0.55,
+          depositRate: 0.30,
+          advancePaymentRate: 0.00,
+          dealerIncentiveRate: 0.00,
+          tireUnitCost: 160000,
+          discountRate: 0.00,
+          contractType: '렌트',
+          specialNote: '',
+          insuranceFeeAnnual: 800000,
+          insuranceType: totalCarPrice >= 70000000 ? 'premium' : 'standard',
+          registrationAgencyFee: 100000,
+          calcMode: 'manual',
+          monthlyFeeInput: 0,
+          targetProfitInput: 0
+        };
     const currentIds = activeVehicle.selectedOptionIds || (activeVehicle.selectedOptionId ? [activeVehicle.selectedOptionId] : [1]);
     updateActiveVehicle({
       options: [...activeVehicle.options, newOpt],
@@ -417,6 +535,23 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
       .finally(() => setLoadingCustomerQuotes(false));
   }, [selectedCustomerId, useExistingCustomer]);
 
+  // "불러오기" 모달이 열려 있는 동안 검색어에 맞는 견적서 목록을 가져온다
+  useEffect(() => {
+    if (!showLoadModal) return;
+    setLoadModalLoading(true);
+    const delayDebounceFn = setTimeout(() => {
+      const url = loadModalSearch.trim()
+        ? `${API_HOST}/api/quotes?search=${encodeURIComponent(loadModalSearch.trim())}`
+        : `${API_HOST}/api/quotes`;
+      fetch(url)
+        .then(res => res.json())
+        .then(data => setLoadModalQuotes(Array.isArray(data) ? data : []))
+        .catch(err => console.error('Failed to fetch quotes', err))
+        .finally(() => setLoadModalLoading(false));
+    }, 250);
+    return () => clearTimeout(delayDebounceFn);
+  }, [showLoadModal, loadModalSearch]);
+
   // 고객이 바뀌면 그 고객의 소속 법인 수에 따라 개인/법인 건을 자동 판정한다.
   // 0곳: 개인, 1곳: 자동 선택, 2곳 이상: 주 소속을 기본값으로 (사용자가 드롭다운에서 바꿀 수 있음)
   useEffect(() => {
@@ -435,8 +570,36 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
     }
   }, [selectedCustomer, useExistingCustomer]);
 
+  /** 문서 단위 값(비고, 통합 특이사항)은 어느 복원 경로로 들어와도 똑같이 되살린다 */
+  const restoreDocumentLevelFields = (quote) => {
+    setRentalRemark(quote.rentalRemark || '');
+    setIsSpecialNoteMerged(!!quote.specialNoteMerged);
+    setMergedSpecialNote(quote.mergedSpecialNote || '');
+  };
+
   // 지난 견적을 선택하면 그 내용 그대로 하단 입력 필드에 불러온다
   const handleLoadQuote = (quote) => {
+    // 비교 차량 스냅샷이 있으면 화면 상태를 통째로 되살린다.
+    // 이 필드가 생기기 전에 저장된 견적서에는 없으므로, 그때는 아래의 대표 차량 1대 복원으로 넘어간다.
+    if (Array.isArray(quote.comparisonVehicles) && quote.comparisonVehicles.length > 0) {
+      const restored = quote.comparisonVehicles.map((veh) => ({
+        ...veh,
+        // 저장할 때 빼둔 값. 이후 저장이 새 견적서를 만들지 않고 이 견적서를 수정하도록 다시 채운다
+        quoteId: quote._id
+      }));
+
+      setVehicles(restored);
+      const stillExists = restored.some((v) => v.id === quote.activeVehicleId);
+      setSelectedVehicleId(stillExists ? quote.activeVehicleId : restored[0].id);
+      restoreDocumentLevelFields(quote);
+
+      showToast(
+        `지난 견적 정보를 불러왔습니다. (비교 차량 ${restored.length}대)`,
+        'success'
+      );
+      return;
+    }
+
     // Reconstruct specs from quote.vehicleSpec
     let parsedSpec = {
       carOptionsName: '-',
@@ -489,14 +652,18 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             name: est.name || `${id}안`,
             companyName: est.companyName || '',
             termYears: (est.termMonths || 48) / 12,
-            mileage: id === 1 ? 30000 : 20000,
+            mileage: 20000,
             residualRate,
             depositRate,
             advancePaymentRate,
             dealerIncentiveRate: 0.00,
             tireUnitCost: id === 1 ? 160000 : 240000,
             discountRate: 0.00,
-            maintenancePlan: '가입',
+            // 저장된 견적서를 다시 열 때 안별 입력값을 그대로 되살린다.
+            // 이 필드들이 추가되기 전에 저장된 견적서에는 값이 없으므로 기본값으로 떨어진다.
+            contractType: est.contractType || '렌트',
+            specialNote: est.specialNote || '',
+            isMaintenanceEnabled: est.maintenanceEnabled !== false,
             insuranceFeeAnnual: 800000,
             insuranceType: totalCarPrice >= 70000000 ? 'premium' : 'standard',
             registrationAgencyFee: quote.pricing?.registrationAgencyFee || 100000,
@@ -511,7 +678,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             name: '1안',
             companyName: '',
             termYears: 4,
-            mileage: 30000,
+            mileage: 20000,
             residualRate: 0.55,
             depositRate: 0.30,
             advancePaymentRate: 0.00,
@@ -519,7 +686,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             tireUnitCost: 160000,
             tireType: 'standard',
             discountRate: 0.00,
-            maintenancePlan: '가입',
+            contractType: '렌트', // 렌트 | 리스. 리스는 타사 견적 값을 그대로 옮겨 적는 용도라 계산에 관여하지 않는다
+            specialNote: '', // 비교표 '특이사항' 행에 안별로 입력하는 내용
             insuranceFeeAnnual: 800000,
             insuranceType: 'standard',
             registrationAgencyFee: 100000,
@@ -538,6 +706,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
       if (v.id !== selectedVehicleId) return v;
       return {
         ...v,
+        // 이 견적서를 불러왔으니, 이후 저장은 새로 만들지 않고 이 견적서를 그대로 수정한다
+        quoteId: quote._id,
         carModel: quote.vehicleModel,
         carOptionsName: parsedSpec.carOptionsName,
         carPrice: basePrice,
@@ -555,8 +725,133 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
       };
     }));
 
+    // 비고와 통합 특이사항은 문서 단위 값이라 차량/옵션과 별도로 복원한다
+    restoreDocumentLevelFields(quote);
+
     showToast('지난 견적 정보를 하단 필드에 성공적으로 불러왔습니다.', 'success');
   };
+
+  // "불러오기" 모달에서 견적을 고르면 그 견적의 고객 정보까지 함께 복원한 뒤 차량/옵션 정보를 불러온다
+  const handleSelectQuoteFromModal = (quote) => {
+    if (quote.customer && quote.customer._id) {
+      setUseExistingCustomer(true);
+      setSelectedCustomerId(quote.customer._id);
+      setSelectedCustomer(quote.customer);
+      setCustomerSearchQuery((quote.customer.surname || quote.customer.name || '').trim());
+      // 목록 응답의 customer는 companies가 populate 안 되어 있으므로 상세 조회로 보강한다.
+      fetch(`${API_HOST}/api/customers/${quote.customer._id}`)
+        .then(res => res.ok ? res.json() : null)
+        .then(full => { if (full) setSelectedCustomer(full); })
+        .catch(() => {});
+    }
+    handleLoadQuote(quote);
+    setShowLoadModal(false);
+  };
+
+  // "견적서 목록" 하위 화면 - 계약/견적 목록 페이지가 없어지면서 이 화면 안으로 들어옴
+  const fetchQuotesList = async () => {
+    setQuotesListLoading(true);
+    try {
+      const res = await fetch(`${API_HOST}/api/quotes`);
+      if (res.ok) {
+        const data = await res.json();
+        setQuotesListData(Array.isArray(data) ? data : (data.quotes || data.data || []));
+      }
+    } catch (err) {
+      console.error('Failed to load quotes list', err);
+    } finally {
+      setQuotesListLoading(false);
+    }
+  };
+
+  const handleLoadQuoteFromList = (quote) => {
+    handleSelectQuoteFromModal(quote);
+    setViewMode('form');
+  };
+
+  const handleConvertQuoteToContract = (quote) => {
+    setPrefilledQuoteData(quote);
+    setActiveTab('contract-register');
+  };
+
+  const handleDeleteQuoteFromList = async (id) => {
+    if (currentUser?.role === 'viewer') {
+      showToast('수정 및 삭제 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
+    if (!window.confirm('정말 이 견적서를 삭제하시겠습니까?')) return;
+    try {
+      const res = await fetch(`${API_HOST}/api/quotes/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-User-Role': currentUser?.role || 'viewer' }
+      });
+      if (res.ok) {
+        showToast('견적서가 삭제되었습니다.', 'success');
+        setQuotesListData(prev => prev.filter(q => q._id !== id));
+        setSelectedQuoteListIds(prev => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      } else {
+        showToast('견적서 삭제 실패', 'error');
+      }
+    } catch (err) {
+      showToast('서버 연결 오류', 'error');
+    }
+  };
+
+  const toggleQuoteListSelection = (id) => {
+    setSelectedQuoteListIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllQuoteList = (ids) => {
+    setSelectedQuoteListIds(prev => (prev.size === ids.length ? new Set() : new Set(ids)));
+  };
+
+  const handleBulkDeleteQuoteList = async () => {
+    if (currentUser?.role === 'viewer') {
+      showToast('수정 및 삭제 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
+    if (selectedQuoteListIds.size === 0) return;
+    if (!window.confirm(`선택한 견적서 ${selectedQuoteListIds.size}건을 삭제하시겠습니까?`)) return;
+    try {
+      const ids = Array.from(selectedQuoteListIds);
+      const results = await Promise.all(ids.map(id =>
+        fetch(`${API_HOST}/api/quotes/${id}`, {
+          method: 'DELETE',
+          headers: { 'X-User-Role': currentUser?.role || 'viewer' }
+        })
+      ));
+      const failCount = results.filter(r => !r.ok).length;
+      if (failCount > 0) {
+        showToast(`${ids.length - failCount}건 삭제 완료, ${failCount}건 실패`, 'error');
+      } else {
+        showToast(`견적서 ${ids.length}건이 삭제되었습니다.`, 'success');
+      }
+      setQuotesListData(prev => prev.filter(q => !selectedQuoteListIds.has(q._id)));
+      setSelectedQuoteListIds(new Set());
+    } catch (err) {
+      showToast('서버 연결 오류', 'error');
+    }
+  };
+
+  const filteredQuotesListData = quotesListData.filter(q => {
+    if (!quotesListSearch.trim()) return true;
+    const val = quotesListSearch.toLowerCase();
+    return (
+      (q.customer?.name || '').toLowerCase().includes(val) ||
+      (q.customer?.surname || '').toLowerCase().includes(val) ||
+      (q.customer?.givenName || '').toLowerCase().includes(val) ||
+      (q.vehicleModel || '').toLowerCase().includes(val)
+    );
+  });
 
   // 4. 수식 계산 로직 (Formulas implementation)
   const calculateOptionValues = (opt, vehicle = activeVehicle) => {
@@ -864,13 +1159,14 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
   };
 
   // 현재 견적 내용을 DB에 저장한다. silent=true면 검증 실패/에러를 조용히 무시한다(인쇄·문서함저장 시 백그라운드 자동저장용).
-  const saveQuoteRecord = async ({ silent = false } = {}) => {
+  const saveQuoteRecord = async ({ silent = false, overrideOpt = null } = {}) => {
     if (silent ? !isFormValidForSave() : !validateForm()) return null;
 
-    // Get the currently selected option values (use first selected option as primary)
+    // Get the currently selected option values (use first selected option as primary),
+    // unless the caller explicitly picked one (e.g. "최종선택" on a specific comparison card)
     const selectedOptionIds = activeVehicle.selectedOptionIds || (activeVehicle.selectedOptionId ? [activeVehicle.selectedOptionId] : [1]);
     const primarySelectedId = selectedOptionIds[0] || 1;
-    const selectedOpt = activeVehicle.options.find(o => o.id === primarySelectedId) || activeVehicle.options[0];
+    const selectedOpt = overrideOpt || activeVehicle.options.find(o => o.id === primarySelectedId) || activeVehicle.options[0];
     const calculated = calculateOptionValues(selectedOpt, activeVehicle);
 
     // 나중에 "불러오기"로 계약서 등록에 바로 연결할 수 있도록 가격 상세를 항상 함께 저장한다
@@ -889,7 +1185,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
       paymentTerm: selectedOpt.termYears * 12,
       pandanbi: calculated.pandanbi,
       individualConsumptionTax: calculated.carTaxAnnual * selectedOpt.termYears,
-      registrationAgencyFee: activeVehicle.globalRegistrationAgencyFee
+      registrationAgencyFee: activeVehicle.globalRegistrationAgencyFee,
+      baseInterestRate: activeVehicle.baseInterestRate,
+      dealerCommission: calculated.dealerCommission
     };
 
     try {
@@ -919,6 +1217,14 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
         companyBizNo: selectedCompanyInfo?.bizNo,
         vehicleModel: activeVehicle.carModel,
         vehicleSpec: `${activeVehicle.carOptionsName} / 연료: ${activeVehicle.fuelType} / 배기량: ${activeVehicle.cc}cc / 납기: ${activeVehicle.deliveryPeriod} / 외장: ${activeVehicle.exteriorColor} / 내장: ${activeVehicle.interiorColor}`,
+        // 계약서 등록 시 차량 정보 항목을 파싱 없이 그대로 채울 수 있도록 구조화된 값도 함께 저장
+        vehicleDetail: {
+          fuelType: activeVehicle.fuelType,
+          cc: activeVehicle.cc,
+          deliveryPeriod: activeVehicle.deliveryPeriod,
+          exteriorColor: activeVehicle.exteriorColor,
+          interiorColor: activeVehicle.interiorColor
+        },
         totalPrice: calculated.totalCarPrice,
         // Convert options to estimates terms list
         monthlyEstimates: activeVehicle.options.map(opt => {
@@ -927,25 +1233,58 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             termMonths: opt.termYears * 12,
             monthlyFee: optCalc.monthlyLeaseFee,
             name: opt.name,
-            companyName: opt.companyName
+            companyName: opt.companyName,
+            contractType: opt.contractType || '렌트',
+            specialNote: opt.specialNote || '',
+            maintenanceEnabled: opt.isMaintenanceEnabled !== false
           };
         }),
+        rentalRemark,
+        specialNoteMerged: isSpecialNoteMerged,
+        mergedSpecialNote,
+        // 비교하던 차량 전체를 그대로 저장한다. 위의 vehicleModel/pricing은 대표 차량 1대 정보라
+        // 이것이 없으면 3대를 비교한 견적을 다시 열었을 때 나머지 2대가 사라진다.
+        // quoteId는 이 견적서 자체를 가리키는 값이라 스냅샷에서는 빼둔다.
+        comparisonVehicles: vehicles.map(({ quoteId: _quoteId, ...veh }) => veh),
+        activeVehicleId: selectedVehicleId,
         pricing,
+        // 계약서 등록 시 보험/정비 항목을 그대로 채울 수 있도록 선택된 옵션의 값을 함께 저장
+        insurance: {
+          type: selectedOpt.insuranceType === 'premium' ? 'premium' : 'standard',
+          deductible: selectedOpt.insuranceType === 'premium' ? 500000 : 300000,
+          annualFee: activeVehicle.globalInsuranceFee
+        },
+        maintenance: {
+          enabled: selectedOpt.isMaintenanceEnabled !== false,
+          tireType: selectedOpt.tireType,
+          mileage: selectedOpt.mileage
+        },
         createdBy
       };
 
-      const response = await fetch(`${API_HOST}/api/quotes`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Role': currentUser?.role || 'viewer'
-        },
-        body: JSON.stringify(payload)
-      });
+      // 이 "안"으로 이미 저장된 견적서가 있으면(불러오기로 열었거나 이전에 저장한 적이 있으면)
+      // 새로 만들지 않고 그 견적서를 그대로 수정한다. 저장을 여러 번 눌러도 견적서가 중복 생성되지 않는다.
+      const existingQuoteId = activeVehicle.quoteId;
+      const response = await fetch(
+        existingQuoteId ? `${API_HOST}/api/quotes/${existingQuoteId}` : `${API_HOST}/api/quotes`,
+        {
+          method: existingQuoteId ? 'PUT' : 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Role': currentUser?.role || 'viewer'
+          },
+          body: JSON.stringify(payload)
+        }
+      );
 
       if (response.ok) {
         const savedQuote = await response.json();
-        if (!silent) showToast('견적서가 저장되었습니다.', 'success');
+        if (!existingQuoteId) {
+          // 비교 차량 전체가 이 견적서 하나에 저장되므로 모든 차량에 같은 id를 달아 둔다.
+          // 활성 차량에만 달면 다른 차량 탭에서 저장할 때 견적서가 새로 만들어진다.
+          setVehicles(prev => prev.map(v => ({ ...v, quoteId: savedQuote._id })));
+        }
+        if (!silent) showToast(existingQuoteId ? '견적서가 수정되었습니다.' : '견적서가 저장되었습니다.', 'success');
         return { savedQuote, calculated, selectedOpt, pricing };
       }
       if (!silent) {
@@ -966,7 +1305,12 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
       return;
     }
 
-    const result = await saveQuoteRecord({ silent: false });
+    // 견적비교에서 "최종선택"으로 표시해둔 옵션이 있으면 그 옵션 그대로 저장/전환한다
+    const overrideOpt = (finalSelection && finalSelection.vehicleId === activeVehicle.id)
+      ? (activeVehicle.options || []).find(o => o.id === finalSelection.optionId) || null
+      : null;
+
+    const result = await saveQuoteRecord({ silent: false, overrideOpt });
     if (!result) return;
     const { savedQuote, calculated, selectedOpt, pricing } = result;
 
@@ -985,133 +1329,24 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
         ],
         pricing
       };
+      setFinalSelection(null);
       setPrefilledQuoteData(prefilledData);
       setActiveTab('contract-register');
     } else {
-      // Trigger print preview of the comparison sheet first, then go to contracts list
+      // Trigger print preview of the comparison sheet first, then go to the quote list
       setTimeout(() => {
         window.print();
-        setActiveTab('contracts');
+        fetchQuotesList();
+        setViewMode('list');
       }, 800);
     }
   };
 
-  const handleFinalSelection = async (opt, vehicle, calc) => {
-    if (currentUser?.role === 'viewer') {
-      showToast('등록 권한이 없습니다. 관리자에게 문의하세요.', 'error');
-      return;
-    }
-
-    if (!selectedCustomerId && useExistingCustomer) {
-      showToast('고객을 선택해주세요.', 'error');
-      return;
-    }
-
-    if (!useExistingCustomer && (!newCustomer.name.trim() || !newCustomer.bizNo.trim())) {
-      showToast('신규 고객명과 사업자/주민번호는 필수입니다.', 'error');
-      return;
-    }
-
-    const customerName = selectedCustomer 
-      ? (selectedCustomer.surname || selectedCustomer.name || '').trim()
-      : (newCustomer.name || '').trim();
-    const customerBizNo = selectedCustomer
-      ? (selectedCustomer.bizNo || '')
-      : (newCustomer.bizNo || '');
-
-    const carNumberInput = window.prompt(
-      `[최종선택] 렌트차량 DB에 이 견적 정보를 등록합니다.\n차량번호를 입력해주세요 (선택사항, 없을 경우 빈칸으로 진행):`
-    );
-    
-    // User cancelled the prompt
-    if (carNumberInput === null) return;
-
-    // Prepare vehicle data payload
-    const totalCarPrice = vehicle.carPrice + vehicle.carOptionPrice;
-    
-    const payload = {
-      // 1. 기본 정보
-      category: '신차 장기',
-      operation: '장기렌트',
-      contractCompany: customerName,
-      manager: currentUser?.name || createdBy || '',
-      managerPhone: selectedCustomer?.contactPhone || selectedCustomer?.mobilePhone || newCustomer.contactPhone || '',
-      carModel: vehicle.carModel,
-      carSpec: `${vehicle.carOptionsName} / 연료: ${vehicle.fuelType} / 배기량: ${vehicle.cc}cc / 납기: ${vehicle.deliveryPeriod} / 외장: ${vehicle.exteriorColor} / 내장: ${vehicle.interiorColor}`,
-      carPrice: totalCarPrice,
-      color: `${vehicle.exteriorColor || '-'} (내장: ${vehicle.interiorColor || '-'})`,
-      fuelType: vehicle.fuelType,
-      carNumber: carNumberInput.trim(),
-      options: vehicle.carOptionsName,
-      cc: vehicle.cc ? `${vehicle.cc}cc` : '',
-      regDate: todayDateStr,
-
-      // 2. 계약 & 운행 정보
-      contractDate: todayDateStr,
-      deliveryDate: todayDateStr,
-      rentPeriodYears: `${opt.termYears}년`,
-      rentEndDate: new Date(new Date().setFullYear(new Date().getFullYear() + opt.termYears)).toISOString().substring(0, 10),
-      mileage: opt.mileage || 0,
-      practicalManager: customerName,
-      practicalPhone: selectedCustomer?.contactPhone || selectedCustomer?.mobilePhone || newCustomer.contactPhone || '',
-      rentStartDate: todayDateStr,
-      contractNo: `RB-${todayDateStr.replace(/-/g, '').substring(2)}-${customerName.slice(0, 2).replace(/\s/g, '') || '01'}`,
-
-      // 3. 차량가격 및 등록 제비용
-      basePrice: vehicle.carPrice,
-      discountAmount: vehicle.discountPrice || 0,
-      supplyAmount: calc.netVehiclePrice,
-      consignmentFee: vehicle.consignmentFee || 0,
-      acquisitionTax: calc.acquisitionTax || 0,
-      bond: calc.publicBond || 0,
-      regAgencyFee: vehicle.globalRegistrationAgencyFee || 0,
-      commission: calc.companyCommission || 0,
-      sellingAdminExpense: calc.pandanbi || 0,
-
-      // 4. 보험 & 정비 정보
-      insuranceFee: vehicle.globalInsuranceFee || 0,
-      ownCarInsuranceFee: calc.ownCarInsuranceFee || 0,
-      deductible: opt.insuranceType === 'premium' ? 500000 : 300000,
-      insuranceType: opt.insuranceType === 'premium' ? '고급형(임직원)' : '일반형(임직원)',
-      emergencyService: '가입',
-      tireType: opt.tireType === 'premium' ? '고급형' : '일반형',
-      tireCost: calc.tireCostTotal || 0,
-      carTax: '월대여료 포함',
-
-      // 5. 금융 & 납입/할부 정보
-      monthlyPayment: calc.monthlyLeaseFee,
-      paymentPeriod: `${opt.termYears * 12}`,
-      totalMonthlyPayment: calc.monthlyLeaseFee * opt.termYears * 12,
-      deposit: calc.deposit,
-      advancePayment: calc.advancePayment,
-      acquisitionValue: calc.takeoverPrice,
-      residualRateP: `${Math.round(opt.residualRate * 100)}%`,
-      bizOrRegNo: customerBizNo,
-
-      status: 'rented'
-    };
-
-    try {
-      const response = await fetch(`${API_HOST}/api/vehicles`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Role': currentUser?.role || 'viewer'
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (response.ok) {
-        showToast('최종선택 차량이 렌트차량 DB에 성공적으로 등록되었습니다.', 'success');
-        setActiveTab('vehicles');
-      } else {
-        const err = await response.json();
-        showToast(err.message || '렌트차량 DB 등록에 실패했습니다.', 'error');
-      }
-    } catch (err) {
-      console.error(err);
-      showToast('서버 통신 오류가 발생했습니다.', 'error');
-    }
+  // 견적비교에서 "최종선택"을 누르면 저장/전환 없이 그 옵션에 표시만 해둔다.
+  // 실제 저장 및 계약서 등록 화면으로의 전환은 "계약서 등록 전환" 버튼을 눌러야 실행된다.
+  const handleFinalSelection = (opt, vehicle) => {
+    setFinalSelection({ vehicleId: vehicle.id, optionId: opt.id });
+    showToast(`"${opt.name || '해당 옵션'}"이(가) 최종 선택되었습니다. 하단의 '계약서 등록 전환' 버튼을 눌러 계약서 등록으로 진행해주세요.`, 'success');
   };
 
   const selectedOptionIds = activeVehicle.selectedOptionIds || (activeVehicle.selectedOptionId ? [activeVehicle.selectedOptionId] : [1]);
@@ -1161,9 +1396,10 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
     ? (selectedCustomer.surname || selectedCustomer.name || '').trim()
     : (newCustomer.name || '고객');
 
-  // 법인 건은 "㈜회사명 (담당자 홍길동)", 개인 건은 이름만 표기
+  // 법인 건은 "법인명 / 대표자 이름", 개인 건은 이름만 표기.
+  // 대표자 이름은 법인의 ceoName(사업자등록증 기준 대표자명)을 쓰고, 없으면 담당자 이름으로 대신한다.
   const displayCustomerName = selectedCompanyInfo
-    ? `${selectedCompanyInfo.name} (담당자 ${rawCustomerName})`
+    ? `${selectedCompanyInfo.name} / ${selectedCompanyInfo.ceoName || rawCustomerName}`
     : rawCustomerName;
 
   const todayDateStr = new Date().toISOString().substring(0, 10);
@@ -1213,14 +1449,16 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
 
     try {
       const docTypeLabel = printFormType === 'comparison' ? '비교견적서' : '견적서';
-      const customerLabel = (displayCustomerName || '미지정고객').trim();
+      // 파일명에는 쓸 수 없는 문자(/)가 들어갈 수 있어 화면 표기와 별도로 치환해서 사용한다
+      const customerLabel = (displayCustomerName || '미지정고객').trim().replace(/[\\/:*?"<>|]/g, '_');
       const fileName = `${docTypeLabel}_${customerLabel}_${todayDateStr}.pdf`;
 
-      // html2pdf 실행
-      const pdfBlob = await html2pdf()
+      const orientation = isComparisonLandscape ? 'landscape' : 'portrait';
+
+      // 화면을 이미지로 캡처만 하고, PDF 조립은 직접 한다.
+      // html2pdf에 그대로 맡기면 내용이 A4보다 길 때 자동으로 2페이지로 잘라버린다.
+      const canvas = await html2pdf()
         .set({
-          margin: 0, // 0mm 마진 적용 (1:1 매핑)
-          filename: fileName,
           image: { type: 'png' }, // 무손실 PNG (JPEG 압축으로 인한 표 선 뭉개짐 방지)
           html2canvas: {
             scale: 2, // 해상도 배율
@@ -1229,15 +1467,32 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             // 캡처 자체가 빈 페이지로 나오는 경우가 있어 사용하지 않음 (기본(canvas) 렌더링 방식 유지)
             // 화면에만 보이는 탭 전환 버튼 등(.no-print)은 캡처에서 제외
             ignoreElements: (el) => el.classList && el.classList.contains('no-print')
-          },
-          jsPDF: {
-            unit: 'mm',
-            format: 'a4',
-            orientation: isComparisonLandscape ? 'landscape' : 'portrait'
           }
         })
         .from(element)
-        .outputPdf('blob');
+        .toCanvas()
+        .get('canvas');
+
+      // 캡처 이미지를 A4 한 장 안에 비율 그대로 축소해 넣는다. 항상 1페이지가 된다.
+      const pageSize = orientation === 'landscape' ? { w: 297, h: 210 } : { w: 210, h: 297 };
+      const margin = 5; // mm
+      const availableWidth = pageSize.w - margin * 2;
+      const availableHeight = pageSize.h - margin * 2;
+
+      const fitScale = Math.min(availableWidth / canvas.width, availableHeight / canvas.height);
+      const imgWidth = canvas.width * fitScale;
+      const imgHeight = canvas.height * fitScale;
+
+      const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation });
+      pdf.addImage(
+        canvas.toDataURL('image/png'),
+        'PNG',
+        (pageSize.w - imgWidth) / 2, // 가로 가운데 정렬
+        margin,
+        imgWidth,
+        imgHeight
+      );
+      const pdfBlob = pdf.output('blob');
 
       const formData = new FormData();
       formData.append('file', pdfBlob, fileName);
@@ -1499,20 +1754,245 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
       fontWeight: '500',
       paddingTop: '12px',
       paddingBottom: '12px',
-      paddingLeft: '16px',
-      paddingRight: '2.5rem',
+      // 열마다 오른쪽 여백이 2.5rem(40px)이던 것을 줄였다. 안이 6개면 그것만으로 240px을 쓴다
+      paddingLeft: '10px',
+      paddingRight: '12px',
       transition: 'all 0.15s ease',
       ...extraStyles
     };
   };
 
+  // 컨테이너 폭을 고정하지 않고 화면을 따라가게 한다. 좌우 여백은 상위 .main-content의 padding이 담당한다.
+  // 비교표는 안이 늘어날수록 넓어지는데, 폭을 묶어두면 표 안에서만 가로 스크롤이 생겨
+  // 실제로 보이는 구간이 좁아진다.
   return (
-    <div className="quote-input-container fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', background: '#fff', padding: '2rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-premium)', maxWidth: '1400px', margin: '0 auto' }}>
+    <div className="quote-input-container fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', background: '#fff', padding: '2rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-premium)', width: '100%', boxSizing: 'border-box' }}>
       
       {/* Header */}
-      <h3 style={{ fontSize: '1.4rem', fontWeight: '700', color: 'var(--text-bright)', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-        <Coins style={{ color: 'var(--primary)' }} /> 견적서
-      </h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.8rem' }}>
+        <h3 style={{ fontSize: '1.4rem', fontWeight: '700', color: 'var(--text-bright)', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+          <Coins style={{ color: 'var(--primary)' }} /> 견적서
+        </h3>
+        <button
+          type="button"
+          onClick={() => { setShowLoadModal(true); setLoadModalSearch(''); }}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: '#fff', color: 'var(--primary)', border: '1px solid var(--primary)', padding: '0.5rem 0.9rem', borderRadius: '6px', fontSize: '0.85rem', fontWeight: '700', cursor: 'pointer' }}
+        >
+          <FolderOpen size={16} /> 불러오기
+        </button>
+      </div>
+
+      {/* 견적서 작성 / 견적서 목록 전환 탭 */}
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)' }}>
+        <button
+          type="button"
+          onClick={() => setViewMode('form')}
+          style={{ flex: 1, padding: '0.8rem', border: 'none', background: viewMode === 'form' ? 'var(--primary-glow)' : 'transparent', borderBottom: viewMode === 'form' ? '3px solid var(--primary)' : 'none', color: viewMode === 'form' ? 'var(--primary)' : 'var(--text-main)', fontWeight: viewMode === 'form' ? '700' : '500', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', fontSize: '0.9rem' }}
+        >
+          <Coins size={16} /> 견적서 작성
+        </button>
+        <button
+          type="button"
+          onClick={() => { setViewMode('list'); fetchQuotesList(); }}
+          style={{ flex: 1, padding: '0.8rem', border: 'none', background: viewMode === 'list' ? 'var(--primary-glow)' : 'transparent', borderBottom: viewMode === 'list' ? '3px solid var(--primary)' : 'none', color: viewMode === 'list' ? 'var(--primary)' : 'var(--text-main)', fontWeight: viewMode === 'list' ? '700' : '500', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', fontSize: '0.9rem' }}
+        >
+          <List size={16} /> 견적서 목록 ({quotesListData.length})
+        </button>
+      </div>
+
+      {viewMode === 'list' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, position: 'relative', minWidth: '240px' }}>
+              <input
+                type="text"
+                placeholder="고객명, 차종 검색..."
+                value={quotesListSearch}
+                onChange={(e) => setQuotesListSearch(e.target.value)}
+                style={{ width: '100%', padding: '0.5rem 0.5rem 0.5rem 2rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }}
+              />
+              <Search size={14} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            </div>
+            {selectedQuoteListIds.size > 0 && (
+              <button
+                type="button"
+                onClick={handleBulkDeleteQuoteList}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'var(--error)', color: '#fff', border: 'none', padding: '0.5rem 1rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer' }}
+              >
+                <Trash2 size={14} /> 선택 삭제 ({selectedQuoteListIds.size})
+              </button>
+            )}
+          </div>
+
+          <div style={{ background: '#fff', borderRadius: '8px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-bright)', fontWeight: '700' }}>
+                  <th style={{ padding: '0.8rem', width: '40px' }}>
+                    <input
+                      type="checkbox"
+                      checked={filteredQuotesListData.length > 0 && selectedQuoteListIds.size === filteredQuotesListData.length}
+                      onChange={() => toggleSelectAllQuoteList(filteredQuotesListData.map(q => q._id))}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </th>
+                  <th style={{ padding: '0.8rem' }}>고객명</th>
+                  <th style={{ padding: '0.8rem' }}>차종 / 사양</th>
+                  <th style={{ padding: '0.8rem' }}>차량총액</th>
+                  <th style={{ padding: '0.8rem' }}>작성일</th>
+                  <th style={{ padding: '0.8rem' }}>작성자</th>
+                  <th style={{ padding: '0.8rem' }}>견적 상태</th>
+                  <th style={{ padding: '0.8rem', width: '140px' }}>관리 및 전환</th>
+                </tr>
+              </thead>
+              <tbody>
+                {quotesListLoading ? (
+                  <tr><td colSpan="8" style={{ textAlign: 'center', padding: '2rem' }}>로딩 중...</td></tr>
+                ) : filteredQuotesListData.length === 0 ? (
+                  <tr><td colSpan="8" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>등록된 견적서가 없습니다.</td></tr>
+                ) : (
+                  filteredQuotesListData.map(q => (
+                    <tr key={q._id} style={{ borderBottom: '1px solid var(--border-color)', background: selectedQuoteListIds.has(q._id) ? 'var(--primary-glow)' : 'transparent' }}>
+                      <td style={{ padding: '0.8rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedQuoteListIds.has(q._id)}
+                          onChange={() => toggleQuoteListSelection(q._id)}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      </td>
+                      <td style={{ padding: '0.8rem', fontWeight: '700' }}>{formatCustomerName(q.customer)}</td>
+                      <td style={{ padding: '0.8rem' }}>{q.vehicleModel}</td>
+                      <td style={{ padding: '0.8rem' }}>{q.totalPrice ? `${q.totalPrice.toLocaleString()}원` : '-'}</td>
+                      <td style={{ padding: '0.8rem' }}>{new Date(q.createdAt).toLocaleDateString()}</td>
+                      <td style={{ padding: '0.8rem' }}>{q.createdBy}</td>
+                      <td style={{ padding: '0.8rem' }}>
+                        <span style={{
+                          background: q.status === '계약전환' ? '#dcfce7' : '#e2e8f0',
+                          color: q.status === '계약전환' ? '#16a34a' : '#475569',
+                          padding: '0.2rem 0.4rem',
+                          borderRadius: '4px',
+                          fontSize: '0.75rem',
+                          fontWeight: '600'
+                        }}>
+                          {q.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: '0.8rem', display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                        <button
+                          onClick={() => handleLoadQuoteFromList(q)}
+                          title="불러와서 수정"
+                          style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer' }}
+                        >
+                          <Edit size={16} />
+                        </button>
+                        {q.status !== '계약전환' && (
+                          <button
+                            onClick={() => handleConvertQuoteToContract(q)}
+                            style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', border: 'none', background: 'var(--primary-glow)', color: 'var(--primary)', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer' }}
+                          >
+                            계약전환 <ArrowRight size={10} />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDeleteQuoteFromList(q._id)}
+                          style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}
+                          title="견적서 삭제"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+      <>
+      {showLoadModal && (
+        <div
+          onClick={() => setShowLoadModal(false)}
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: '10px', width: '90%', maxWidth: '760px', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.2rem 1.5rem', borderBottom: '1px solid var(--border-color)' }}>
+              <h4 style={{ margin: 0, fontWeight: '800', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <FolderOpen size={18} style={{ color: 'var(--primary)' }} /> 견적서 불러오기
+              </h4>
+              <button type="button" onClick={() => setShowLoadModal(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                <X size={20} />
+              </button>
+            </div>
+            <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--border-color)' }}>
+              <div style={{ position: 'relative' }}>
+                <Search size={16} style={{ position: 'absolute', left: '0.8rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="고객명, 차종으로 검색..."
+                  value={loadModalSearch}
+                  onChange={(e) => setLoadModalSearch(e.target.value)}
+                  style={{ width: '100%', padding: '0.6rem 1rem 0.6rem 2.2rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.9rem', outline: 'none' }}
+                />
+              </div>
+            </div>
+            <div style={{ overflowY: 'auto', flex: 1 }}>
+              {loadModalLoading ? (
+                <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>불러오는 중...</div>
+              ) : loadModalQuotes.length === 0 ? (
+                <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  {loadModalSearch.trim() ? '검색 결과가 없습니다.' : '저장된 견적서가 없습니다.'}
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', textAlign: 'left' }}>
+                      <th style={{ padding: '0.6rem 1rem' }}>고객명</th>
+                      <th style={{ padding: '0.6rem 1rem' }}>차종 / 사양</th>
+                      <th style={{ padding: '0.6rem 1rem' }}>차량총액</th>
+                      <th style={{ padding: '0.6rem 1rem' }}>작성일</th>
+                      <th style={{ padding: '0.6rem 1rem' }}>상태</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loadModalQuotes.map(q => (
+                      <tr
+                        key={q._id}
+                        onClick={() => handleSelectQuoteFromModal(q)}
+                        style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = '#f5f5f5'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; }}
+                      >
+                        <td style={{ padding: '0.6rem 1rem', fontWeight: '700' }}>{formatCustomerName(q.customer)}</td>
+                        <td style={{ padding: '0.6rem 1rem' }}>{q.vehicleModel || '-'}</td>
+                        <td style={{ padding: '0.6rem 1rem' }}>{q.totalPrice ? `${q.totalPrice.toLocaleString()}원` : '-'}</td>
+                        <td style={{ padding: '0.6rem 1rem' }}>{new Date(q.createdAt).toLocaleDateString()}</td>
+                        <td style={{ padding: '0.6rem 1rem' }}>
+                          <span style={{
+                            background: q.status === '계약전환' ? '#dcfce7' : '#e2e8f0',
+                            color: q.status === '계약전환' ? '#16a34a' : '#475569',
+                            padding: '0.2rem 0.5rem',
+                            borderRadius: '4px',
+                            fontSize: '0.75rem',
+                            fontWeight: '600'
+                          }}>
+                            {q.status || '작성중'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Section 1: Customer info */}
       <div style={{ background: 'var(--bg-main)', padding: '1.2rem 1.5rem', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -1520,7 +2000,10 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
           <h4 style={{ fontWeight: '700', color: 'var(--text-bright)', margin: 0 }}>👥 1. 고객 정보 지정</h4>
           <button 
             type="button"
-            onClick={() => setUseExistingCustomer(!useExistingCustomer)}
+            onClick={() => {
+              setUseExistingCustomer(!useExistingCustomer);
+              setVehicles(prev => prev.map(v => ({ ...v, quoteId: null })));
+            }}
             style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'var(--primary)', color: '#fff', border: 'none', padding: '0.4rem 0.8rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: '600', cursor: 'pointer' }}
           >
             {useExistingCustomer ? <><UserPlus size={14} /> 신규 고객 등록하기</> : <><Users size={14} /> 기존 고객 검색하기</>}
@@ -1532,7 +2015,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             <div style={{ position: 'relative' }}>
               <input 
                 type="text" 
-                placeholder="고객명(성/이름), 회사명, 연락처, 사업자번호 등으로 검색..."
+                placeholder="고객명(성/이름), 차량정보, 연락처, 사업자번호 등으로 검색..."
                 value={customerSearchQuery}
                 onChange={(e) => {
                   setCustomerSearchQuery(e.target.value);
@@ -1595,8 +2078,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                       <tr style={{ background: '#fafafa', borderBottom: '1px solid #e8e8e8', color: '#666', fontSize: '0.78rem' }}>
                         <th style={{ padding: '0.6rem 0.8rem', fontWeight: '700' }}>성</th>
                         <th style={{ padding: '0.6rem 0.8rem', fontWeight: '700' }}>이름</th>
-                        <th style={{ padding: '0.6rem 0.8rem', fontWeight: '700' }}>회사</th>
-                        <th style={{ padding: '0.6rem 0.8rem', fontWeight: '700' }}>연락처</th>
+                        <th style={{ padding: '0.6rem 0.8rem', fontWeight: '700' }}>차량정보</th>
+                        <th style={{ padding: '0.6rem 0.8rem', fontWeight: '700' }}>휴대전화</th>
                         <th style={{ padding: '0.6rem 0.8rem', fontWeight: '700' }}>사업자/주민번호</th>
                       </tr>
                     </thead>
@@ -1613,6 +2096,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                               setSelectedCustomer(c);
                               setCustomerSearchQuery((c.surname || c.name || '').trim());
                               setIsDropdownOpen(false);
+                              // 다른 고객으로 바꿨으므로 이전에 불러왔던 견적서와의 연결을 끊는다
+                              // (안 그러면 저장 시 그 고객의 견적서가 지금 고객 데이터로 덮어써질 수 있음)
+                              setVehicles(prev => prev.map(v => ({ ...v, quoteId: null })));
                               // 목록 검색 응답은 companies가 populate 안 되어 있으므로
                               // 소속 법인 정보(이름/사업자번호)가 필요해 상세 조회로 보강한다.
                               fetch(`${API_HOST}/api/customers/${c._id}`)
@@ -1631,8 +2117,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                           >
                             <td style={{ padding: '0.6rem 0.8rem', fontWeight: '700', color: '#111' }}>{surname}</td>
                             <td style={{ padding: '0.6rem 0.8rem', fontWeight: '600', color: '#333' }}>{givenName}</td>
-                            <td style={{ padding: '0.6rem 0.8rem', color: '#555' }}>{c.companyName || (c.surname ? c.name : '-') || '-'}</td>
-                            <td style={{ padding: '0.6rem 0.8rem', color: '#666' }}>{c.contactPhone || c.mobilePhone || '-'}</td>
+                            <td style={{ padding: '0.6rem 0.8rem', color: '#555' }}>{c.companyName || '-'}</td>
+                            <td style={{ padding: '0.6rem 0.8rem', color: '#666' }}>{c.mobilePhone || c.contactPhone || '-'}</td>
                             <td style={{ padding: '0.6rem 0.8rem', color: '#777', fontSize: '0.78rem' }}>{c.bizNo || '-'}</td>
                           </tr>
                         );
@@ -1661,11 +2147,11 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             {selectedCustomer && (
               <div style={{ marginTop: '0.8rem', background: '#fff', border: '1px solid #d9d9d9', borderRadius: '6px', padding: '0.8rem 1rem', display: 'flex', flexWrap: 'wrap', gap: '1.5rem', fontSize: '0.82rem', color: '#555' }}>
                 <div>
-                  <strong>선택된 고객:</strong> <span style={{ color: 'var(--primary)', fontWeight: '700', fontSize: '0.9rem' }}>{(selectedCustomer.surname || selectedCustomer.name || '').trim()}</span>
+                  <strong>선택된 고객:</strong> <span style={{ color: 'var(--primary)', fontWeight: '700', fontSize: '0.9rem' }}>{formatCustomerName(selectedCustomer)}</span>
                 </div>
                 {selectedCustomer.companyName && (
                   <div>
-                    <strong>회사명:</strong> {selectedCustomer.companyName}
+                    <strong>차량정보:</strong> {selectedCustomer.companyName}
                   </div>
                 )}
                 <div>
@@ -1805,6 +2291,36 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
               }}
             >
               <span>차량 {index + 1} ({v.carModel ? (v.carModel.length > 15 ? v.carModel.substring(0, 15) + '...' : v.carModel) : '모델명 미입력'})</span>
+              {vehicles.length > 1 && (
+                <span style={{ display: 'flex', alignItems: 'center', marginLeft: '0.15rem' }}>
+                  {[
+                    { dir: -1, Icon: ChevronLeft, label: '앞으로 이동', disabled: index === 0 },
+                    { dir: 1, Icon: ChevronRight, label: '뒤로 이동', disabled: index === vehicles.length - 1 }
+                  ].map(({ dir, Icon, label, disabled }) => (
+                    <button
+                      key={dir}
+                      type="button"
+                      title={label}
+                      disabled={disabled}
+                      onClick={(e) => handleMoveVehicle(v.id, dir, e)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: isSelected ? '#fff' : colorObj.dark,
+                        cursor: disabled ? 'default' : 'pointer',
+                        opacity: disabled ? 0.25 : 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 0,
+                        borderRadius: '4px'
+                      }}
+                    >
+                      <Icon size={15} />
+                    </button>
+                  ))}
+                </span>
+              )}
               {vehicles.length > 1 && (
                 <button
                   type="button"
@@ -2404,15 +2920,16 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
           {options.map(opt => {
             const calc = calculateOptionValues(opt, activeVehicle);
             const isSelected = selectedOptionIds.includes(opt.id);
+            const isFinalSelected = finalSelection && finalSelection.vehicleId === activeVehicle.id && finalSelection.optionId === opt.id;
             return (
-              <div 
+              <div
                 key={opt.id}
                 onClick={() => toggleOptionSelection(opt.id)}
                 style={{
                   background: '#fff',
-                  border: isSelected ? `2px solid ${activeVehicleColor.primary}` : '1px solid var(--border-color)',
+                  border: isFinalSelected ? '3px solid #10b981' : (isSelected ? `2px solid ${activeVehicleColor.primary}` : '1px solid var(--border-color)'),
                   borderRadius: '10px',
-                  boxShadow: isSelected ? `0 4px 16px ${activeVehicleColor.primary}26` : '0 2px 4px rgba(0,0,0,0.03)',
+                  boxShadow: isFinalSelected ? '0 4px 16px rgba(16, 185, 129, 0.35)' : (isSelected ? `0 4px 16px ${activeVehicleColor.primary}26` : '0 2px 4px rgba(0,0,0,0.03)'),
                   cursor: 'pointer',
                   overflow: 'hidden',
                   display: 'flex',
@@ -2447,24 +2964,25 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                     style={{ cursor: 'pointer', transform: 'scale(1.1)', marginRight: '0.3rem' }}
                   />
                   <span style={{ whiteSpace: 'nowrap' }}>{opt.name}</span>
-                  <input 
-                    type="text"
-                    placeholder="회사명"
-                    value={opt.companyName || ''}
+                  <select
+                    value={opt.contractType || '렌트'}
                     onClick={(e) => e.stopPropagation()} // 카드 선택 방지
-                    onChange={(e) => handleOptionChange(opt.id, 'companyName', e.target.value)}
+                    onChange={(e) => updateActiveVehicleOption(opt.id, { contractType: e.target.value })}
+                    title="리스는 타사에서 받은 견적 값을 그대로 입력하는 용도입니다"
                     style={{
-                      padding: '0.2rem 0.4rem',
-                      border: '1px solid #ccc',
+                      padding: '0.2rem 0.3rem',
+                      border: `2px solid ${getContractTypeColors(opt.contractType).solid}`,
                       borderRadius: '4px',
                       fontSize: '0.75rem',
-                      width: '90px',
-                      color: '#333',
+                      fontWeight: '800',
+                      color: getContractTypeColors(opt.contractType).solid,
                       background: '#fff',
-                      fontWeight: 'normal',
-                      marginLeft: '0.5rem'
+                      cursor: 'pointer',
+                      marginLeft: '0.4rem'
                     }}
-                  />
+                  >
+                    {CONTRACT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
                 </div>
 
                 <div onClick={(e) => e.stopPropagation()} style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.8rem', flex: 1 }}>
@@ -2558,6 +3076,28 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                         <option value="standard">일반형</option>
                         <option value="premium">고급형</option>
                       </select>
+                    </div>
+                    {/* 예상보험료 - 렌트는 보험료가 월대여료에 포함되므로 리스일 때만 입력받는다.
+                        이 칸이 채워지면서 아래 보증금/선수금/인수가의 율(왼쪽)과 액(오른쪽)도 같은 줄에 맞는다. */}
+                    <div>
+                      <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>
+                        예상보험료 (연간/원)
+                      </label>
+                      <input
+                        type="text"
+                        disabled={opt.contractType !== '리스'}
+                        value={opt.contractType === '리스' ? toCommaString(opt.estimatedInsuranceFee || 0) : ''}
+                        placeholder={opt.contractType === '리스' ? '' : '렌트는 월대여료 포함'}
+                        onChange={(e) => updateActiveVehicleOption(opt.id, { estimatedInsuranceFee: parseNumber(e.target.value) })}
+                        style={{
+                          width: '100%',
+                          padding: '0.2rem',
+                          border: '1px solid #ccc',
+                          borderRadius: '4px',
+                          background: opt.contractType === '리스' ? '#fff' : '#f5f5f5',
+                          color: opt.contractType === '리스' ? '#333' : '#bbb'
+                        }}
+                      />
                     </div>
                     <div>
                       <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>기간 (년수)</label>
@@ -2741,13 +3281,13 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                   </div>
                   <button
                     type="button"
-                    onClick={async (e) => {
+                    onClick={(e) => {
                       e.stopPropagation();
-                      await handleFinalSelection(opt, activeVehicle, calc);
+                      handleFinalSelection(opt, activeVehicle);
                     }}
                     style={{
                       marginTop: '0.6rem',
-                      background: 'var(--primary)',
+                      background: isFinalSelected ? '#10b981' : 'var(--primary)',
                       color: '#fff',
                       border: 'none',
                       borderRadius: '6px',
@@ -2762,10 +3302,10 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                       boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
                       transition: 'background 0.2s'
                     }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--primary-dark, #0050b3)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--primary)'; }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = isFinalSelected ? '#059669' : 'var(--primary-dark, #0050b3)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = isFinalSelected ? '#10b981' : 'var(--primary)'; }}
                   >
-                    <CheckCircle size={15} /> 최종선택
+                    <CheckCircle size={15} /> {isFinalSelected ? '최종선택됨' : '최종선택'}
                   </button>
                 </div>
               </div>
@@ -2928,23 +3468,6 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
         }}>
           <button
             type="button"
-            onClick={() => setPrintFormType('comparison')}
-            style={{
-              padding: '0.5rem 1rem',
-              borderRadius: '6px',
-              border: 'none',
-              fontSize: '0.8rem',
-              fontWeight: '700',
-              cursor: 'pointer',
-              background: printFormType === 'comparison' ? 'var(--primary)' : 'transparent',
-              color: printFormType === 'comparison' ? '#fff' : 'var(--text-muted)',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            📋 비교 견적서 (조건비교표)
-          </button>
-          <button
-            type="button"
             onClick={() => setPrintFormType('rental')}
             style={{
               padding: '0.5rem 1rem',
@@ -2960,6 +3483,163 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
           >
             📄 장기렌터카 견적서
           </button>
+          <button
+            type="button"
+            onClick={() => setPrintFormType('comparison')}
+            style={{
+              padding: '0.5rem 1rem',
+              borderRadius: '6px',
+              border: 'none',
+              fontSize: '0.8rem',
+              fontWeight: '700',
+              cursor: 'pointer',
+              background: printFormType === 'comparison' ? 'var(--primary)' : 'transparent',
+              color: printFormType === 'comparison' ? '#fff' : 'var(--text-muted)',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            📋 비교 견적서 (조건비교표)
+          </button>
+        </div>
+
+        {/* 문서에 들어갈 특이사항/비고를 미리 입력하는 영역.
+            문서 위에서 바로 타이핑하면 인쇄 영역 안에 입력칸이 들어가 있어야 해서
+            PDF 변환 시 다루기 까다롭다. 입력은 여기서 받고 문서에는 결과만 찍는다. */}
+        <div className="no-print" style={{
+          marginBottom: '1.5rem',
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border-color)',
+          borderRadius: '10px',
+          padding: '1rem 1.2rem'
+        }}>
+          {printFormType === 'comparison' ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.7rem', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--text-bright)' }}>특이사항</span>
+                <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                  {isSpecialNoteMerged
+                    ? '비교 견적서 맨 아래 줄의 칸을 합쳐서 한 번에 표시됩니다'
+                    : '비교 견적서 맨 아래 줄에 안별로 표시됩니다'}
+                </span>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                  marginLeft: 'auto',
+                  fontSize: '0.78rem',
+                  fontWeight: '700',
+                  color: isSpecialNoteMerged ? 'var(--primary)' : 'var(--text-muted)',
+                  cursor: 'pointer',
+                  userSelect: 'none'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={isSpecialNoteMerged}
+                    onChange={(e) => setIsSpecialNoteMerged(e.target.checked)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  통합
+                </label>
+              </div>
+
+              {isSpecialNoteMerged ? (
+                <textarea
+                  rows={3}
+                  value={mergedSpecialNote}
+                  placeholder="특이사항 입력 (안 구분 없이 하나로 표시)"
+                  onChange={(e) => setMergedSpecialNote(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.6rem',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--bg-main)',
+                    color: 'var(--text-bright)',
+                    fontSize: '0.82rem',
+                    fontFamily: 'inherit',
+                    resize: 'vertical'
+                  }}
+                />
+              ) : displaySelectedOptions.length === 0 ? (
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                  비교할 안을 먼저 선택해 주세요.
+                </div>
+              ) : (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: `repeat(${Math.min(displaySelectedOptions.length, 4)}, 1fr)`,
+                  gap: '0.7rem'
+                }}>
+                  {displaySelectedOptions.map(({ veh, opt }, idx) => (
+                    <div key={idx}>
+                      <label style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.3rem',
+                        fontSize: '0.76rem',
+                        fontWeight: '700',
+                        color: 'var(--text-muted)',
+                        marginBottom: '0.25rem'
+                      }}>
+                        <span style={{
+                          backgroundColor: getContractTypeColors(opt.contractType).solid,
+                          color: '#fff',
+                          padding: '0.05rem 0.35rem',
+                          borderRadius: '3px',
+                          fontSize: '0.7rem',
+                          fontWeight: '800'
+                        }}>{opt.contractType || '렌트'}</span>
+                        <span>{veh.carModel ? `${veh.carModel.split(' ')[0]} ` : ''}{opt.name}</span>
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={opt.specialNote || ''}
+                        placeholder="특이사항 입력"
+                        onChange={(e) => updateVehicleOption(veh.id, opt.id, { specialNote: e.target.value })}
+                        style={{
+                          width: '100%',
+                          padding: '0.5rem 0.6rem',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-color)',
+                          background: 'var(--bg-main)',
+                          color: 'var(--text-bright)',
+                          fontSize: '0.82rem',
+                          fontFamily: 'inherit',
+                          resize: 'vertical'
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.7rem' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--text-bright)' }}>비고</span>
+                <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                  장기렌터카 견적서 왼쪽 하단 비고 칸에 표시됩니다
+                </span>
+              </div>
+              <textarea
+                rows={4}
+                value={rentalRemark}
+                placeholder="비고 입력"
+                onChange={(e) => setRentalRemark(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem 0.6rem',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--bg-main)',
+                  color: 'var(--text-bright)',
+                  fontSize: '0.82rem',
+                  fontFamily: 'inherit',
+                  resize: 'vertical'
+                }}
+              />
+            </>
+          )}
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }} className="no-print">
@@ -3035,9 +3715,28 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
           /* Screen CSS variables and classes */
           .comparison-table-wrapper {
             overflow-x: auto;
+            /* 1안/2안 헤더를 고정하려면 세로로 스크롤되는 상자가 있어야 한다.
+               overflow-x만 auto면 세로 스크롤이 생기지 않아 sticky가 걸릴 기준이 없다.
+               화면 전용이며, 인쇄와 PDF에서는 아래에서 해제한다. */
+            max-height: 72vh;
+            overflow-y: auto;
             margin-top: 1.5rem;
             border-radius: 0;
             box-shadow: none;
+          }
+          /* thead 전체를 한 덩어리로 고정한다. 행별로 top을 주면 1행 높이를 추정해야 하고,
+             비고 칸이 rowspan=2라 두 행에 걸쳐 있어 행 단위 고정과 맞지 않는다. */
+          .comparison-table-modern thead {
+            position: sticky;
+            top: 0;
+            z-index: 3;
+          }
+          /* border-collapse 상태에서는 고정된 셀의 테두리가 함께 스크롤되어 사라지므로
+             inset 그림자로 같은 위치에 선을 다시 그려 준다.
+             화면에서만 쓴다 - html2canvas가 inset 그림자를 배경 채움으로 그려서
+             PDF에서 헤더 색이 통째로 바뀐다. 인쇄/PDF에서는 아래에서 해제한다. */
+          .comparison-table-modern thead th {
+            box-shadow: inset 0 -1px 0 #ad885c;
           }
           .comparison-table-modern {
             width: 100%;
@@ -3048,8 +3747,12 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             border-top: 3px solid #111e38;
             border-bottom: 3px solid #111e38;
           }
+          /* 항목명이 좁아지면 "고 전 납 입 액"처럼 세로로 쪼개져 행 높이가 튄다 */
+          .comparison-table-modern td.row-header {
+            white-space: nowrap;
+          }
           .comparison-table-modern th, .comparison-table-modern td {
-            padding: 12px 16px;
+            padding: 12px 10px;
             border-bottom: 1px solid #e9e6e0;
             border-right: 1px solid #ad885c;
             transition: all 0.15s ease;
@@ -3138,6 +3841,16 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
           }
           .html2pdf-active .comparison-table-wrapper {
             margin-top: 0 !important;
+            /* 화면용 세로 스크롤/헤더 고정은 PDF에서 잘림과 위치 어긋남을 만든다 */
+            max-height: none !important;
+            overflow-y: visible !important;
+          }
+          .html2pdf-active .comparison-table-modern thead {
+            position: static !important;
+          }
+          /* html2canvas가 inset 그림자를 배경 채움으로 그려 헤더 색을 덮어쓴다 */
+          .html2pdf-active .comparison-table-modern thead th {
+            box-shadow: none !important;
           }
           .html2pdf-active .comparison-table-modern {
             width: 100% !important;
@@ -3323,6 +4036,15 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
               margin-top: 0 !important;
               page-break-inside: avoid !important;
               break-inside: avoid !important;
+              /* 화면용 세로 스크롤은 인쇄 시 표를 잘라먹는다 */
+              max-height: none !important;
+              overflow-y: visible !important;
+            }
+            .comparison-table-modern thead {
+              position: static !important;
+            }
+            .comparison-table-modern thead th {
+              box-shadow: none !important;
             }
             .comparison-table-modern {
               width: 100% !important;
@@ -3497,8 +4219,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                 <span style={{ color: '#ad885c', marginRight: '0.6rem' }}>수신</span>
                 <span>{displayCustomerName} 귀하</span>
               </div>
-              <div style={{ color: '#555', fontWeight: '500', fontSize: '0.9rem' }}>
-                작성일 {todayDateStr}
+              <div style={{ color: '#555', fontWeight: '500', fontSize: '0.9rem', textAlign: 'right' }}>
+                <div>작성일 {todayDateStr}</div>
+                <div>견적번호 RB-{todayDateStr.replace(/-/g, '').substring(2)}-{formatProfitCode(firstOption?.calc?.profitMargin)}</div>
               </div>
             </div>
 
@@ -3524,7 +4247,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                 <thead>
                   {/* Row 1: Vehicle model colspans */}
                   <tr style={{ background: '#111e38', color: '#fff' }}>
-                    <th className="comparison-th-corner" rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '15%', borderBottom: '1px solid #ad885c', textAlign: 'center', borderRight: '1px solid #ad885c' }}>구 분</th>
+                    <th className="comparison-th-corner" rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '9%', minWidth: '92px', borderBottom: '1px solid #ad885c', textAlign: 'center', borderRight: '1px solid #ad885c' }}>구 분</th>
                     {vehicleColSpans.map((group, idx) => {
                       return (
                         <th
@@ -3547,7 +4270,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                         </th>
                       );
                     })}
-                    <th className="comparison-th-corner" rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '15%', borderBottom: '1px solid #ad885c', textAlign: 'center' }}>비고</th>
+                    <th className="comparison-th-corner" rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '8%', borderBottom: '1px solid #ad885c', textAlign: 'center' }}>비고</th>
                   </tr>
                   {/* Row 2: Options descriptions */}
                   <tr style={{ background: '#111e38', color: '#fff' }}>
@@ -3560,28 +4283,53 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                             background: '#111e38',
                             borderBottom: '1px solid #ad885c',
                             borderRight: '1px solid #ad885c',
-                            padding: '1rem 0.5rem',
-                            fontSize: '0.8rem',
+                            padding: '0.8rem 0.5rem',
                             fontWeight: '700',
                             color: '#fff',
-                            lineHeight: '1.5',
                             textAlign: 'center'
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', marginBottom: '0.2rem' }}>
-                            <span style={{ 
-                              backgroundColor: '#ad885c', 
-                              color: '#fff', 
-                              padding: '0.15rem 0.5rem', 
-                              borderRadius: '4px', 
-                              fontWeight: '800', 
-                              fontSize: '0.72rem', 
-                              display: 'inline-block' 
+                          {/* 1줄: 안 이름 · 렌트/리스 · 계약기간 (11pt 굵게) */}
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '0.35rem',
+                            fontSize: '11pt',
+                            fontWeight: '800',
+                            lineHeight: '1.3',
+                            whiteSpace: 'nowrap'
+                          }}>
+                            <span style={{
+                              backgroundColor: '#ad885c',
+                              color: '#fff',
+                              padding: '0.1rem 0.4rem',
+                              borderRadius: '4px',
+                              fontWeight: '800',
+                              display: 'inline-block'
                             }}>{opt.name}</span>
-                            <span style={{ fontWeight: '800', color: '#fff' }}>렌트 {opt.termYears * 12}개월 · 보증금 {Math.round(opt.depositRate * 100)}%</span>
+                            <span style={{
+                              backgroundColor: getContractTypeColors(opt.contractType).solid,
+                              color: '#fff',
+                              padding: '0.1rem 0.4rem',
+                              borderRadius: '4px',
+                              fontWeight: '800',
+                              display: 'inline-block'
+                            }}>{opt.contractType || '렌트'}</span>
+                            <span>{opt.termYears * 12}개월</span>
                           </div>
-                          <div style={{ color: '#cbd5e1', fontSize: '0.74rem', fontWeight: '500' }}>
-                            선수금 {Math.round(opt.advancePaymentRate * 100)}% · 잔존가치 {Math.round(opt.residualRate * 100)}%
+                          {/* 2~4줄: 조건 (9pt). 인쇄 CSS가 자식 div의 margin을 0으로 만들기 때문에
+                              줄 간격은 line-height로 준다 */}
+                          <div style={{
+                            fontSize: '9pt',
+                            fontWeight: '500',
+                            color: '#cbd5e1',
+                            lineHeight: '1.6',
+                            marginTop: '0.25rem'
+                          }}>
+                            <div>보증금 {Math.round(opt.depositRate * 100)}%</div>
+                            <div>선수금 {Math.round(opt.advancePaymentRate * 100)}%</div>
+                            <div>인수가 {Math.round(opt.residualRate * 100)}%</div>
                           </div>
                         </th>
                       );
@@ -3629,9 +4377,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                     })}
                     <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
                   </tr>
-                  {/* 잔존가치 */}
+                  {/* 인수가 */}
                   <tr>
-                    <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>잔존가치</td>
+                    <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>인수가</td>
                     {displaySelectedOptions.map(({ calc }, idx) => (
                       <td key={idx} style={getCellStyles(idx, true)}>{toCommaString(calc.takeoverPrice)}</td>
                     ))}
@@ -3677,20 +4425,30 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                     ))}
                     <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
                   </tr>
-                  {/* 예상보험료 */}
+                  {/* 예상보험료 - 렌트는 월대여료에 포함되어 따로 표기하지 않는다 */}
                   <tr>
                     <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>예상보험료</td>
-                    {displaySelectedOptions.map((_, idx) => (
-                      <td key={idx} style={getCellStyles(idx, true, { color: '#94a3b8', textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>-</td>
-                    ))}
+                    {displaySelectedOptions.map(({ opt }, idx) => {
+                      const fee = opt.contractType === '리스' ? Number(opt.estimatedInsuranceFee) || 0 : 0;
+                      return fee > 0 ? (
+                        <td key={idx} style={getCellStyles(idx, true)}>{toCommaString(fee)}</td>
+                      ) : (
+                        <td key={idx} style={getCellStyles(idx, true, { color: '#94a3b8', textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>-</td>
+                      );
+                    })}
                     <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
                   </tr>
-                  {/* 자동차세 */}
+                  {/* 자동차세 - 리스만 표기. 렌터카는 영업용이라 요율이 다르고 월대여료에 이미 포함된다 */}
                   <tr>
                     <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>자동차세</td>
-                    {displaySelectedOptions.map((_, idx) => (
-                      <td key={idx} style={getCellStyles(idx, false, { color: '#94a3b8', textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>-</td>
-                    ))}
+                    {displaySelectedOptions.map(({ veh, opt }, idx) => {
+                      const tax = opt.contractType === '리스' ? calculateLeaseCarTax(veh) : null;
+                      return tax ? (
+                        <td key={idx} style={getCellStyles(idx, false)}>{toCommaString(tax)}</td>
+                      ) : (
+                        <td key={idx} style={getCellStyles(idx, false, { color: '#94a3b8', textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>-</td>
+                      );
+                    })}
                     <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
                   </tr>
                   {/* 총구입가 */}
@@ -3709,36 +4467,6 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                     })}
                     <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
                   </tr>
-                  {/* 비교금액 */}
-                  <tr style={{ borderBottom: '2px solid #ad885c' }}>
-                    <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>비교금액</td>
-                    {displaySelectedOptions.map(({ opt, calc }, idx) => {
-                      const totalBuyCost = calc.advancePayment + (calc.monthlyLeaseFee * opt.termYears * 12) + calc.takeoverPrice;
-                      const firstCost = displaySelectedOptions[0]
-                        ? (displaySelectedOptions[0].calc.advancePayment + (displaySelectedOptions[0].calc.monthlyLeaseFee * displaySelectedOptions[0].opt.termYears * 12) + displaySelectedOptions[0].calc.takeoverPrice)
-                        : 0;
-                      const diff = firstCost - totalBuyCost;
-                      
-                      if (idx === 0) {
-                        return <td key={idx} style={getCellStyles(idx, false, { color: '#b91c1c', fontStyle: 'italic', fontWeight: '700', textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>-</td>;
-                      }
-                      
-                      let diffStr = '-';
-                      let isZero = diff === 0;
-                      if (diff > 0) {
-                        diffStr = toCommaString(diff);
-                      } else if (diff < 0) {
-                        diffStr = `- ${toCommaString(Math.abs(diff))}`;
-                      }
-                      
-                      return (
-                        <td key={idx} style={getCellStyles(idx, false, { color: '#b91c1c', fontStyle: 'italic', fontWeight: '700', ...(isZero ? { textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' } : {}) })}>
-                          {diffStr}
-                        </td>
-                      );
-                    })}
-                    <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
-                  </tr>
                   {/* 약정운행거리(년) */}
                   <tr>
                     <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>약정운행거리(년)</td>
@@ -3747,13 +4475,35 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                     ))}
                     <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
                   </tr>
-                  {/* 정비 */}
-                  <tr style={{ borderBottom: '3px solid #111e38' }}>
+                  {/* 정비 - 옵션 카드의 '월 정비비 포함' 체크박스가 그대로 반영된다 */}
+                  <tr>
                     <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>정비</td>
                     {displaySelectedOptions.map(({ opt }, idx) => (
-                      <td key={idx} style={getCellStyles(idx, true, { textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>{opt.maintenancePlan || '가입'}</td>
+                      <td key={idx} style={getCellStyles(idx, true, { textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>
+                        {opt.isMaintenanceEnabled !== false ? '가입' : '미가입'}
+                      </td>
                     ))}
                     <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
+                  </tr>
+                  {/* 특이사항 - 위쪽 입력 영역에서 받은 값을 표시만 한다.
+                      통합이면 안별 칸을 가로로 병합해 한 칸으로 보여준다 */}
+                  <tr style={{ borderBottom: '3px solid #111e38' }}>
+                    <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>특이사항</td>
+                    {isSpecialNoteMerged ? (
+                      <td
+                        colSpan={displaySelectedOptions.length}
+                        style={getCellStyles(0, false, { verticalAlign: 'top', whiteSpace: 'pre-wrap', lineHeight: '1.35', textAlign: 'left' })}
+                      >
+                        {mergedSpecialNote.trim() ? mergedSpecialNote : '-'}
+                      </td>
+                    ) : (
+                      displaySelectedOptions.map(({ opt }, idx) => (
+                        <td key={idx} style={getCellStyles(idx, false, { verticalAlign: 'top', whiteSpace: 'pre-wrap', lineHeight: '1.35' })}>
+                          {opt.specialNote?.trim() ? opt.specialNote : '-'}
+                        </td>
+                      ))
+                    )}
+                    <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
                   </tr>
                 </tbody>
               </table>
@@ -3842,7 +4592,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                   <tr>
                     <td style={{ background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>견적 번호</td>
                     <td style={{ padding: '4px 6px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>
-                      {`RB-${todayDateStr.replace(/-/g, '').substring(2)}-${displayCustomerName.slice(0, 2).replace(/\s/g, '') || '01'}`}
+                      {`RB-${todayDateStr.replace(/-/g, '').substring(2)}-${formatProfitCode(firstOption?.calc?.profitMargin)}`}
                     </td>
                   </tr>
                   <tr>
@@ -3900,6 +4650,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                     return (
                       <React.Fragment key={index}>
                         <tr style={{ height: '1.5rem' }}>
+                          {/* 렌트/리스 구분은 비교 견적서에만 표시한다 */}
                           <td rowSpan={2} style={{ textAlign: 'center', padding: '4px 2px', border: '1px solid #000', fontWeight: '700', background: '#fafafa' }}>{index + 1}</td>
                           <td style={{ padding: '4px 4px', border: '1px solid #000', fontWeight: '700', fontSize: '0.70rem' }}>{veh.carModel}</td>
                           <td style={{ textAlign: 'center', padding: '4px 2px', border: '1px solid #000' }}>1</td>
@@ -4133,8 +4884,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                 </thead>
                 <tbody>
                   <tr>
-                    <td style={{ padding: '5px 8px', border: '1px solid #000', height: '80px', verticalAlign: 'top', color: '#666' }}>
-                      {/* Memo space */}
+                    {/* 위쪽 입력 영역에서 받은 비고를 표시만 한다 */}
+                    <td style={{ padding: '5px 8px', border: '1px solid #000', height: '80px', verticalAlign: 'top', color: '#333', whiteSpace: 'pre-wrap', lineHeight: '1.4' }}>
+                      {rentalRemark}
                     </td>
                   </tr>
                 </tbody>
@@ -4179,6 +4931,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

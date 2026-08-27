@@ -110,11 +110,13 @@
 }
 
 /* Main Dashboard Layout */
+/* 사이드바 오른쪽 본문 영역. 폭을 1200px로 묶고 가운데 정렬하면 넓은 모니터에서
+   좌우에 큰 빈 공간이 생기고, 비교표처럼 넓은 표는 그 안에서만 가로 스크롤된다.
+   화면 폭을 그대로 쓰고 좌우 여백은 padding으로만 준다. */
 .main-content {
   flex: 1;
-  max-width: 1200px;
   width: 100%;
-  margin: 0 auto;
+  min-width: 0;
   padding: 2rem;
   display: flex;
   flex-direction: column;

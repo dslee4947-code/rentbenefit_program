@@ -18,7 +18,7 @@ export const getQuotes = async (req, res) => {
 
     const quotes = await Quote.find(query)
       .populate('customer')
-      .populate('companyId', 'name bizNo bizType')
+      .populate('companyId')
       .sort({ createdAt: -1 });
 
     if (search) {
@@ -47,7 +47,7 @@ export const getQuoteById = async (req, res) => {
   try {
     const quote = await Quote.findById(req.params.id)
       .populate('customer')
-      .populate('companyId', 'name bizNo bizType');
+      .populate('companyId');
     if (quote) {
       res.json(quote);
     } else {
@@ -73,9 +73,17 @@ export const createQuote = async (req, res) => {
       companyBizNo,
       vehicleModel,
       vehicleSpec,
+      vehicleDetail,
       totalPrice,
       monthlyEstimates,
+      rentalRemark,
+      specialNoteMerged,
+      mergedSpecialNote,
+      comparisonVehicles,
+      activeVehicleId,
       pricing,
+      insurance,
+      maintenance,
       createdBy
     } = req.body;
 
@@ -118,15 +126,23 @@ export const createQuote = async (req, res) => {
       companyBizNo: partyType === '법인' ? companyBizNo : undefined,
       vehicleModel,
       vehicleSpec,
+      vehicleDetail,
       totalPrice,
       monthlyEstimates,
+      rentalRemark,
+      specialNoteMerged,
+      mergedSpecialNote,
+      comparisonVehicles,
+      activeVehicleId,
       pricing,
+      insurance,
+      maintenance,
       createdBy
     });
 
     const populatedQuote = await Quote.findById(quote._id)
       .populate('customer')
-      .populate('companyId', 'name bizNo bizType');
+      .populate('companyId');
     res.status(201).json(populatedQuote);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -140,19 +156,64 @@ export const updateQuote = async (req, res) => {
   try {
     const quote = await Quote.findById(req.params.id);
 
-    if (quote) {
-      quote.vehicleModel = req.body.vehicleModel || quote.vehicleModel;
-      quote.vehicleSpec = req.body.vehicleSpec !== undefined ? req.body.vehicleSpec : quote.vehicleSpec;
-      quote.totalPrice = req.body.totalPrice !== undefined ? req.body.totalPrice : quote.totalPrice;
-      quote.monthlyEstimates = req.body.monthlyEstimates || quote.monthlyEstimates;
-      quote.status = req.body.status || quote.status;
-
-      const updatedQuote = await quote.save();
-      const populatedQuote = await Quote.findById(updatedQuote._id).populate('customer');
-      res.json(populatedQuote);
-    } else {
-      res.status(404).json({ message: 'Quote not found' });
+    if (!quote) {
+      return res.status(404).json({ message: 'Quote not found' });
     }
+
+    const {
+      customerId,
+      partyType,
+      companyId,
+      customerName,
+      companyName,
+      companyBizNo,
+      vehicleModel,
+      vehicleSpec,
+      vehicleDetail,
+      totalPrice,
+      monthlyEstimates,
+      rentalRemark,
+      specialNoteMerged,
+      mergedSpecialNote,
+      comparisonVehicles,
+      activeVehicleId,
+      pricing,
+      insurance,
+      maintenance,
+      status
+    } = req.body;
+
+    if (customerId !== undefined) quote.customer = customerId;
+    if (partyType !== undefined) quote.partyType = partyType;
+    quote.companyId = partyType === '법인' ? (companyId || quote.companyId) : undefined;
+    if (customerName !== undefined) quote.customerName = customerName;
+    quote.companyName = partyType === '법인' ? (companyName !== undefined ? companyName : quote.companyName) : undefined;
+    quote.companyBizNo = partyType === '법인' ? (companyBizNo !== undefined ? companyBizNo : quote.companyBizNo) : undefined;
+    quote.vehicleModel = vehicleModel || quote.vehicleModel;
+    quote.vehicleSpec = vehicleSpec !== undefined ? vehicleSpec : quote.vehicleSpec;
+    if (vehicleDetail !== undefined) quote.vehicleDetail = vehicleDetail;
+    quote.totalPrice = totalPrice !== undefined ? totalPrice : quote.totalPrice;
+    quote.monthlyEstimates = monthlyEstimates || quote.monthlyEstimates;
+    // 빈 문자열로 지우는 것도 유효한 수정이므로 undefined일 때만 기존 값을 유지한다
+    if (rentalRemark !== undefined) quote.rentalRemark = rentalRemark;
+    if (specialNoteMerged !== undefined) quote.specialNoteMerged = specialNoteMerged;
+    if (mergedSpecialNote !== undefined) quote.mergedSpecialNote = mergedSpecialNote;
+    if (comparisonVehicles !== undefined) {
+      quote.comparisonVehicles = comparisonVehicles;
+      // Mixed 타입은 내부 값이 바뀌어도 mongoose가 변경을 감지하지 못해 저장되지 않는다
+      quote.markModified('comparisonVehicles');
+    }
+    if (activeVehicleId !== undefined) quote.activeVehicleId = activeVehicleId;
+    if (pricing !== undefined) quote.pricing = pricing;
+    if (insurance !== undefined) quote.insurance = insurance;
+    if (maintenance !== undefined) quote.maintenance = maintenance;
+    quote.status = status || quote.status;
+
+    const updatedQuote = await quote.save();
+    const populatedQuote = await Quote.findById(updatedQuote._id)
+      .populate('customer')
+      .populate('companyId');
+    res.json(populatedQuote);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

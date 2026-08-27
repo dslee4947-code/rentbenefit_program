@@ -103,53 +103,53 @@ export const createContract = async (req, res) => {
       code: vehicleCode,
       carModel: vehicleInfo.model,
       carSpec: vehicleInfo.spec,
-      year: vehicleInfo.year,
-      color: vehicleInfo.color,
-      interiorColor: vehicleInfo.colorInterior || '',
       fuelType: vehicleInfo.fuelType,
       cc: vehicleInfo.cc,
-      vin: vehicleInfo.vin || ('AUTO_VIN_' + Date.now()),
-      carNumber: vehicleInfo.plateNo || '',
+      exteriorColor: vehicleInfo.color,
+      interiorColor: vehicleInfo.colorInterior || '',
       options: vehicleInfo.options || '',
-      releaseAddress: vehicleInfo.releaseAddress,
-      dealer: vehicleInfo.dealer,
-      salesRep: vehicleInfo.salesRep,
-      showroom: vehicleInfo.showroom,
-      manager: req.body.customerInfo?.ceoName || '',
-      managerPhone: req.body.customerInfo?.contactPhone || '',
-      
-      // New columns mapping
-      classification: vehicleCode,
-      operationType: vehicleInfo.operationType,
-      carPrice: vehicleInfo.vehiclePrice || 0,
-      registrationDate: vehicleInfo.registrationDate,
-      mileage: vehicleInfo.mileage,
 
-      // Flat mapping for Insurance
-      insuranceCompany: vehicleInfo.insurance?.company || '삼성화재',
-      driverAge: vehicleInfo.insurance?.driverAge || '만 26세 이상',
-      personalInjury1: vehicleInfo.insurance?.liabilityLimit || '무제한',
-      propertyDamage: vehicleInfo.insurance?.propertyLimit || '1억원',
-      personalInjury2: vehicleInfo.insurance?.personalInjury || '1억원',
-      uninsuredCarInjury: vehicleInfo.insurance?.uninsuredInjury || '2억원',
-      deductible: vehicleInfo.insurance?.deductible ? (
-        typeof vehicleInfo.insurance.deductible === 'number'
-          ? vehicleInfo.insurance.deductible
-          : (parseInt(String(vehicleInfo.insurance.deductible).replace(/[^0-9]/g, '')) * 10000 || 300000)
-      ) : 300000,
-      insuranceType: vehicleInfo.insurance?.type || '임직원특약',
-      emergencyService: vehicleInfo.maintenance?.emergencyService || vehicleInfo.insurance?.emergencyCall || '가입',
-      
-      // Flat mapping for Maintenance
-      regularCheckup: vehicleInfo.maintenance?.regularCheck || '미가입',
-      generalMaintenance: vehicleInfo.maintenance?.generalMaintenance || '미가입',
-      consumablesExchange: vehicleInfo.maintenance?.consumables || '미가입',
-      tireCount: vehicleInfo.maintenance?.tireCount || '미가입',
-      
-      accessories: vehicleInfo.accessories || {},
-      registrationCosts: vehicleInfo.registrationCosts || {},
-      tax: vehicleInfo.tax || {},
-      loan: vehicleInfo.loan || {}
+      year: vehicleInfo.year,
+      vin: vehicleInfo.vin || '',
+      plateNo: vehicleInfo.plateNo || '',
+      registrationDate: vehicleInfo.registrationDate || undefined,
+
+      carPrice: vehicleInfo.vehiclePrice || 0,
+      monthlyFee: pricing.monthlyFee || 0,
+
+      insurance: {
+        company: vehicleInfo.insurance?.company || '삼성화재',
+        type: vehicleInfo.insurance?.type === 'premium' ? 'premium' : 'standard',
+        driverAge: vehicleInfo.insurance?.driverAge || '만 26세 이상',
+        liabilityLimit: vehicleInfo.insurance?.liabilityLimit || '무제한',
+        propertyLimit: vehicleInfo.insurance?.propertyLimit || '1억원',
+        personalInjury: vehicleInfo.insurance?.personalInjury || '1억원',
+        uninsuredInjury: vehicleInfo.insurance?.uninsuredInjury || '2억원',
+        deductible: vehicleInfo.insurance?.deductible ? (
+          typeof vehicleInfo.insurance.deductible === 'number'
+            ? vehicleInfo.insurance.deductible
+            : (parseInt(String(vehicleInfo.insurance.deductible).replace(/[^0-9]/g, '')) * 10000 || 300000)
+        ) : 300000,
+        emergencyService: vehicleInfo.maintenance?.emergencyService || vehicleInfo.insurance?.emergencyCall || '가입'
+      },
+
+      maintenance: {
+        enabled: vehicleInfo.maintenance?.enabled !== false,
+        tireType: vehicleInfo.maintenance?.tireType || '',
+        mileage: vehicleInfo.maintenance?.mileage || vehicleInfo.mileage || 0,
+        regularCheck: vehicleInfo.maintenance?.regularCheck || '미가입',
+        consumables: vehicleInfo.maintenance?.consumables || '미가입',
+        generalMaintenance: vehicleInfo.maintenance?.generalMaintenance || '미가입'
+      },
+
+      status: 'rented',
+      currentMileage: vehicleInfo.mileage || 0,
+
+      // 출고 준비 화면에서 그대로 쓸 수 있도록 견적/계약에서 정해진 금리·수수료·판관비를 미리 채워둔다
+      interestRate: pricing?.baseInterestRate,
+      companyCommission: pricing?.commission,
+      dealerCommission: pricing?.dealerCommission,
+      sellingAdminExpense: pricing?.pandanbi
     });
 
     // 2. Resolve Customer (Select existing or Create new, and optionally update)
@@ -248,18 +248,8 @@ export const createContract = async (req, res) => {
 
     const savedContract = await contract.save(); // pre-save calculates endDate
 
-    // 3.5. Update associated vehicle details & mark as "계약진행중"
-    await Vehicle.findByIdAndUpdate(vehicle._id, {
-      operation: '계약진행중',
-      contractCompany: customer.name,
-      manager: customer.ceoName || '',
-      managerPhone: customer.contactPhone || '',
-      contractNo: contractNo,
-      contractDate: contractDate,
-      rentEndDate: savedContract.endDate ? savedContract.endDate.toISOString().split('T')[0] : '',
-      paymentPeriod: String(termMonths),
-      rentPeriodYears: String(Math.round(termMonths / 12))
-    });
+    // 3.5. 방금 만든 계약과 차량을 서로 연결 (차량 생성 시점엔 계약이 아직 없어 나중에 연결)
+    await Vehicle.findByIdAndUpdate(vehicle._id, { contract: savedContract._id });
 
     // 4. Auto-generate Schedules (SCHEDULE 자동 생성)
     const schedulesToCreate = [];
@@ -391,37 +381,40 @@ export const updateContract = async (req, res) => {
           carModel: vInfo.model,
           carSpec: vInfo.spec,
           carPrice: vInfo.vehiclePrice,
-          color: vInfo.color,
+          exteriorColor: vInfo.color,
           interiorColor: vInfo.colorInterior,
           fuelType: vInfo.fuelType,
+          cc: vInfo.cc,
           options: vInfo.options,
           vin: vInfo.vin,
-          carNumber: vInfo.plateNo,
-          contractCompany: req.body.customerInfo?.name,
-          mileage: vInfo.mileage !== undefined ? Number(vInfo.mileage) : undefined,
-          manager: req.body.customerInfo?.ceoName,
-          managerPhone: req.body.customerInfo?.contactPhone,
-          
-          // 평면 보험 정보 매핑
-          insuranceCompany: vInfo.insurance?.company,
-          driverAge: vInfo.insurance?.driverAge,
-          personalInjury1: vInfo.insurance?.liabilityLimit,
-          propertyDamage: vInfo.insurance?.propertyLimit,
-          personalInjury2: vInfo.insurance?.personalInjury,
-          uninsuredCarInjury: vInfo.insurance?.uninsuredInjury,
-          deductible: vInfo.insurance?.deductible ? (
-            typeof vInfo.insurance.deductible === 'number' 
-              ? vInfo.insurance.deductible 
-              : (parseInt(String(vInfo.insurance.deductible).replace(/[^0-9]/g, '')) * 10000 || 300000)
-          ) : undefined,
-          insuranceType: vInfo.insurance?.type,
-          emergencyService: vInfo.maintenance?.emergencyService || vInfo.insurance?.emergencyCall,
-          
-          // 평면 정비 정보 매핑
-          regularCheckup: vInfo.maintenance?.regularCheck,
-          generalMaintenance: vInfo.maintenance?.generalMaintenance,
-          consumablesExchange: vInfo.maintenance?.consumables,
-          tireCount: vInfo.maintenance?.tireCount
+          plateNo: vInfo.plateNo,
+          currentMileage: vInfo.mileage !== undefined ? Number(vInfo.mileage) : undefined,
+          monthlyFee: req.body.pricing?.monthlyFee,
+
+          insurance: vInfo.insurance ? {
+            company: vInfo.insurance.company,
+            type: vInfo.insurance.type === 'premium' ? 'premium' : 'standard',
+            driverAge: vInfo.insurance.driverAge,
+            liabilityLimit: vInfo.insurance.liabilityLimit,
+            propertyLimit: vInfo.insurance.propertyLimit,
+            personalInjury: vInfo.insurance.personalInjury,
+            uninsuredInjury: vInfo.insurance.uninsuredInjury,
+            deductible: vInfo.insurance.deductible ? (
+              typeof vInfo.insurance.deductible === 'number'
+                ? vInfo.insurance.deductible
+                : (parseInt(String(vInfo.insurance.deductible).replace(/[^0-9]/g, '')) * 10000 || 300000)
+            ) : undefined,
+            emergencyService: vInfo.maintenance?.emergencyService || vInfo.insurance.emergencyCall
+          } : undefined,
+
+          maintenance: vInfo.maintenance ? {
+            enabled: vInfo.maintenance.enabled,
+            tireType: vInfo.maintenance.tireType,
+            mileage: vInfo.maintenance.mileage,
+            regularCheck: vInfo.maintenance.regularCheck,
+            consumables: vInfo.maintenance.consumables,
+            generalMaintenance: vInfo.maintenance.generalMaintenance
+          } : undefined
         };
         // Clean undefined properties so we do not overwrite with null
         Object.keys(mappedVehicleInfo).forEach(key => {

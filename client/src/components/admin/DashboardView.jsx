@@ -110,8 +110,8 @@ function DashboardView({ setActiveTab, showToast }) {
             <span style={{ fontSize: '2rem', fontWeight: '700', color: 'var(--text-bright)' }}>{stats.customersCount}</span>
             <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>명</span>
           </div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem', marginTop: '0.3rem', display: 'flex', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setActiveTab('contracts')}>
-            <span>계약/고객 관리 바로가기</span>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem', marginTop: '0.3rem', display: 'flex', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setActiveTab('customers')}>
+            <span>고객 DB 관리 바로가기</span>
             <ChevronRight size={14} />
           </div>
         </div>
@@ -126,7 +126,7 @@ function DashboardView({ setActiveTab, showToast }) {
             <span style={{ fontSize: '2rem', fontWeight: '700', color: 'var(--text-bright)' }}>{stats.contractsCount}</span>
             <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>건</span>
           </div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem', marginTop: '0.3rem', display: 'flex', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setActiveTab('contracts')}>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem', marginTop: '0.3rem', display: 'flex', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setActiveTab('contract-register')}>
             <span>계약서 목록 바로가기</span>
             <ChevronRight size={14} />
           </div>

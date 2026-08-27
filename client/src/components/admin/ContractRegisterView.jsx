@@ -1,12 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Plus, Trash2, FileSignature, ChevronDown, ChevronUp, ArrowLeft, UserPlus, Users } from 'lucide-react';
+import { Save, Plus, Trash2, FileSignature, ChevronDown, ChevronUp, ArrowLeft, UserPlus, Users, Upload, Download, List, Edit, Search } from 'lucide-react';
+import { formatCustomerName } from '../../utils/format.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
+
+const todayDateStr = () => {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
 
 function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefilledContractData, setPrefilledContractData, setActiveTab, showToast, currentUser }) {
   const [customers, setCustomers] = useState([]);
   const [contracts, setContracts] = useState([]);
-  
+
+  // 새 계약서 작성 화면 / 계약서 목록(하위 화면) 전환
+  const [viewMode, setViewMode] = useState('form'); // 'form' | 'list'
+  const [contractListSearch, setContractListSearch] = useState('');
+
   // Section Accordion Toggles
   const [expanded, setExpanded] = useState({
     customer: true,
@@ -42,9 +55,20 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
   const [customerBizNoTransfer, setCustomerBizNoTransfer] = useState('');
   const [customerBizAddress, setCustomerBizAddress] = useState('');
 
+  // 거래 주체 구분 - 선택된 고객이 법인에 소속되어 있으면 그 법인의 사업자등록증 정보를 그대로 채운다
+  const [partyType, setPartyType] = useState('개인'); // '개인' | '법인'
+  const [selectedCompanyId, setSelectedCompanyId] = useState('');
+  const [customerCompanies, setCustomerCompanies] = useState([]); // 선택된 고객의 소속 법인 목록 (2곳 이상일 때 전환용)
+  const [companyLoading, setCompanyLoading] = useState(false);
+
+  // 통장사본 문서함 (선택된 법인의 문서함에 저장됨)
+  const [bankDocuments, setBankDocuments] = useState([]);
+  const [pendingBankFile, setPendingBankFile] = useState(null);
+  const [uploadingBankDoc, setUploadingBankDoc] = useState(false);
+
   // 2. Contract Main Fields
   const [leaseCompany, setLeaseCompany] = useState('');
-  const [contractDate, setContractDate] = useState('');
+  const [contractDate, setContractDate] = useState(todayDateStr());
   const [deliveryDate, setDeliveryDate] = useState('');
   const [termMonths, setTermMonths] = useState('24');
   const [branch, setBranch] = useState('서울지점');
@@ -136,7 +160,8 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
       if (response.ok) {
         showToast(result.message || '엑셀 데이터가 성공적으로 등록되었습니다.', 'success');
         setExcelFile(null);
-        setActiveTab('contracts');
+        fetchContractsList();
+        setViewMode('list');
       } else {
         showToast(result.message || '엑셀 업로드에 실패했습니다.', 'error');
       }
@@ -270,6 +295,138 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     }
   };
 
+  const populateCustomerFields = (cust) => {
+    setCustomerName(cust.name || '');
+    setCustomerBizNo(cust.bizNo || '');
+    setCustomerCeoName(cust.ceoName || '');
+    setCustomerAddress(cust.address || '');
+    setCustomerContactName(cust.contactName || '');
+    setCustomerContactPhone(cust.contactPhone || '');
+    setCustomerEmail(cust.email || '');
+    setCustomerBankName(cust.bank?.name || '');
+    setCustomerBankAccount(cust.bank?.account || '');
+    setCustomerBankHolder(cust.bank?.holder || '');
+    setCustomerBizNoTransfer(cust.bizNoTransfer || '');
+    setCustomerBizAddress(cust.bizAddress || '');
+  };
+
+  const clearCustomerFields = () => {
+    setCustomerName('');
+    setCustomerBizNo('');
+    setCustomerCeoName('');
+    setCustomerAddress('');
+    setCustomerContactName('');
+    setCustomerContactPhone('');
+    setCustomerEmail('');
+    setCustomerBankName('');
+    setCustomerBankAccount('');
+    setCustomerBankHolder('');
+    setCustomerBizNoTransfer('');
+    setCustomerBizAddress('');
+    setPartyType('개인');
+    setSelectedCompanyId('');
+    setCustomerCompanies([]);
+    setBankDocuments([]);
+  };
+
+  // 법인 소속 고객 중 계약 담당자로 쓸 사람을 고른다: 담당자(주소속 우선) > 대표 > (없으면) 대표자명만
+  const resolveContractManager = (companyCustomers, company) => {
+    const managers = companyCustomers.filter(c => c.role === '담당자');
+    const reps = companyCustomers.filter(c => c.role === '대표');
+    const pick = managers.find(c => c.isPrimary) || managers[0] || reps.find(c => c.isPrimary) || reps[0];
+    if (pick) {
+      return {
+        name: formatCustomerName(pick),
+        phone: pick.mobilePhone || pick.contactPhone || ''
+      };
+    }
+    return { name: company?.ceoName || '', phone: '' };
+  };
+
+  // 선택된 법인의 사업자등록증 정보(법인명/사업자번호/대표자/법인등록번호/주소)를 그대로 채운다.
+  // 통장/이메일은 법인 자체에 필드가 없어 소속 고객(계약 담당자) 정보로 보강한다.
+  const applyCompanyBilling = (company, contactCust) => {
+    setCustomerName(company.name || '');
+    setCustomerBizNo(company.bizNo || '');
+    setCustomerCeoName(company.ceoName || '');
+    setCustomerBizNoTransfer(company.corporateRegistrationNo || '');
+    setCustomerBizAddress(company.address || '');
+    setCustomerAddress(company.address || '');
+    setCustomerBankName(contactCust?.bank?.name || '');
+    setCustomerBankAccount(contactCust?.bank?.account || '');
+    setCustomerBankHolder(contactCust?.bank?.holder || '');
+    setCustomerEmail(contactCust?.email || '');
+    // 범칙금 수신 이메일: 사업자등록증 업로드(법인 등록) 시 입력한 청구 이메일을 그대로 사용
+    setFinesEmail(company.billingEmail || '');
+  };
+
+  // 법인 상세정보 + 소속 고객 + 통장사본 문서함을 함께 불러와 폼에 채운다
+  const loadCompanyBilling = async (companyId, contactCust) => {
+    setCompanyLoading(true);
+    try {
+      const [companyRes, companyCustomersRes, docsRes] = await Promise.all([
+        fetch(`${API_HOST}/api/companies/${companyId}`),
+        fetch(`${API_HOST}/api/companies/${companyId}/customers`),
+        fetch(`${API_HOST}/api/companies/${companyId}/documents?docType=통장사본`)
+      ]);
+      const company = companyRes.ok ? await companyRes.json() : null;
+      const companyCustomers = companyCustomersRes.ok ? await companyCustomersRes.json() : [];
+      const docs = docsRes.ok ? await docsRes.json() : [];
+
+      if (company) {
+        applyCompanyBilling(company, contactCust);
+        const manager = resolveContractManager(Array.isArray(companyCustomers) ? companyCustomers : [], company);
+        setManagerOps(manager.name);
+        setManagerOpsPhone(manager.phone);
+      }
+      setBankDocuments(Array.isArray(docs) ? docs : []);
+    } catch (err) {
+      console.error('법인 정보를 불러오지 못했습니다', err);
+    } finally {
+      setCompanyLoading(false);
+    }
+  };
+
+  // 고객을 선택(검색 결과 클릭 또는 견적서 연동)하면, 소속 법인 여부에 따라
+  // 법인 사업자등록증 정보 또는 개인 정보를 자동으로 채운다.
+  const applyCustomerSelection = async (cust, forcedCompanyId) => {
+    setCustomerId(cust._id);
+    setSearchQuery(formatCustomerName(cust));
+    setIsNewCustomer(false);
+
+    let full = cust;
+    if (!full.companies) {
+      try {
+        const res = await fetch(`${API_HOST}/api/customers/${cust._id}`);
+        if (res.ok) full = await res.json();
+      } catch { /* ignore */ }
+    }
+
+    const companies = (full.companies || []).filter(a => a.companyId);
+    setCustomerCompanies(companies);
+
+    let targetCompanyId = forcedCompanyId || '';
+    if (!targetCompanyId && companies.length > 0) {
+      const primary = companies.find(a => a.isPrimary) || companies[0];
+      targetCompanyId = primary.companyId?._id || primary.companyId;
+    }
+
+    if (targetCompanyId) {
+      setPartyType('법인');
+      setSelectedCompanyId(targetCompanyId);
+      await loadCompanyBilling(targetCompanyId, full);
+    } else {
+      setPartyType('개인');
+      setSelectedCompanyId('');
+      setBankDocuments([]);
+      populateCustomerFields(full);
+      // 이전에 다른(법인) 고객을 선택했을 때 채워졌을 수 있는 값이 남아있지 않도록 초기화
+      setFinesEmail('');
+      setManagerOps('홍길동');
+      setManagerOpsPhone('');
+    }
+  };
+
   // 1. Prefill / Edit Mode handler for Contracts
   useEffect(() => {
     if (!prefilledContractData) return;
@@ -366,103 +523,58 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     }
   }, [prefilledContractData]);
 
-  // Fetch Customers, Contracts, and Vehicles, then merge corporate lists
+  // Fetch Customers and Contracts (검색/매칭 용). 계약사 검색은 실제 Customer/Company 데이터를 사용한다
+  // (차량 DB의 자유 입력 텍스트를 검색 풀로 쓰면 차량정보 등 엉뚱한 값이 섞여 나오는 문제가 있었음).
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [resCustomers, resContracts, resVehicles] = await Promise.all([
+        const [resCustomers, resContracts] = await Promise.all([
           fetch(`${API_HOST}/api/customers?all=true`),
-          fetch(`${API_HOST}/api/contracts`),
-          fetch(`${API_HOST}/api/vehicles?limit=10000`)
+          fetch(`${API_HOST}/api/contracts`)
         ]);
-        
+
         let customerData = [];
         if (resCustomers.ok) {
           customerData = await resCustomers.json();
           customerData = Array.isArray(customerData) ? customerData : (customerData.customers || []);
         }
-        
-        let vehicleData = [];
-        if (resVehicles.ok) {
-          const vehicleJson = await resVehicles.json();
-          vehicleData = Array.isArray(vehicleJson) ? vehicleJson : (vehicleJson.vehicles || []);
-        }
+        setCustomers(customerData);
 
-        // 1. 차량 DB 데이터로부터 계약사(법인) 고유 정보 추출
-        const companyMap = new Map();
-        vehicleData.forEach(v => {
-          if (!v.contractCompany || !v.contractCompany.trim()) return;
-          const compName = v.contractCompany.trim();
-          
-          if (!companyMap.has(compName)) {
-            companyMap.set(compName, {
-              _id: `VEH-COMP-${compName}`,
-              customerId: '', // 차량 DB에서 온 임시 데이터이므로 빈 ID 지정
-              name: compName,
-              bizNo: v.bizOrRegNo || '',
-              ceoName: '',
-              address: v.bizAddress || '',
-              contactName: v.manager || '',
-              contactPhone: v.managerPhone || '',
-              email: v.fineEmail || '',
-              bank: {
-                name: v.bank || '',
-                account: v.accountNo || '',
-                holder: v.accountHolder || ''
-              },
-              bizNoTransfer: v.corporateRegNo || '',
-              bizAddress: v.bizAddress || '',
-              source: 'vehicle_db'
-            });
-          } else {
-            // 더 풍부한 데이터가 있으면 갱신
-            const existing = companyMap.get(compName);
-            if (!existing.bizNo && v.bizOrRegNo) existing.bizNo = v.bizOrRegNo;
-            if (!existing.address && v.bizAddress) {
-              existing.address = v.bizAddress;
-              existing.bizAddress = v.bizAddress;
-            }
-            if (!existing.contactName && v.manager) {
-              existing.contactName = v.manager;
-              existing.contactPhone = v.managerPhone;
-            }
-            if (!existing.email && v.fineEmail) existing.email = v.fineEmail;
-            if (!existing.bank.name && v.bank) {
-              existing.bank.name = v.bank;
-              existing.bank.account = v.accountNo;
-              existing.bank.holder = v.accountHolder;
-            }
-            if (!existing.bizNoTransfer && v.corporateRegNo) existing.bizNoTransfer = v.corporateRegNo;
-            companyMap.set(compName, existing);
-          }
-        });
-
-        // 2. 고객 DB를 배제하고 오직 차량 DB에서 추출한 계약사(법인) 목록만 검색 풀에 적재
-        setCustomers(Array.from(companyMap.values()));
-        
         if (resContracts.ok) {
           const contractData = await resContracts.json();
           setContracts(contractData);
         }
-        
+
         if (prefilledQuoteData) {
-           const quoteCustId = prefilledQuoteData.customer?._id || prefilledQuoteData.customer || '';
-           setCustomerId(quoteCustId);
-           
-           const cust = customerData.find(c => c._id === quoteCustId);
-          if (cust) {
-            populateCustomerFields(cust);
-            setSearchQuery(cust.name);
+          const quoteCust = prefilledQuoteData.customer;
+          const quoteCompanyId = prefilledQuoteData.companyId?._id || prefilledQuoteData.companyId || undefined;
+          if (quoteCust && quoteCust._id) {
+            await applyCustomerSelection(quoteCust, quoteCompanyId);
           }
-          
+
+          // 계약일은 항상 오늘 날짜로 시작 (수정 모드가 아닌 신규 등록)
+          setContractDate(todayDateStr());
+
           setVehicleModel(prefilledQuoteData.vehicleModel || '');
           setVehicleSpec(prefilledQuoteData.vehicleSpec || '');
-          
+
+          // 견적서에서 넘어온 차량 세부 항목(유종/배기량/색상)을 그대로 채운다
+          const vd = prefilledQuoteData.vehicleDetail;
+          if (vd) {
+            setVehicleFuelType(vd.fuelType || '가솔린');
+            if (vd.cc) setVehicleCc(String(vd.cc));
+            if (vd.exteriorColor) setVehicleColor(vd.exteriorColor);
+            if (vd.interiorColor) setVehicleColorInterior(vd.interiorColor);
+          }
+
           if (prefilledQuoteData.pricing) {
             setPricing(prev => ({
               ...prev,
               ...prefilledQuoteData.pricing
             }));
+            if (prefilledQuoteData.pricing.basePrice) {
+              setVehiclePrice(prefilledQuoteData.pricing.basePrice);
+            }
             if (prefilledQuoteData.pricing.paymentTerm) {
               setTermMonths(String(prefilledQuoteData.pricing.paymentTerm));
             }
@@ -473,6 +585,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                 basePrice: prefilledQuoteData.totalPrice,
                 supplyPrice: prefilledQuoteData.totalPrice
               }));
+              setVehiclePrice(prefilledQuoteData.totalPrice);
             }
 
             if (prefilledQuoteData.monthlyEstimates && prefilledQuoteData.monthlyEstimates.length > 0) {
@@ -486,14 +599,23 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
               }
             }
           }
-        } else if (prefilledContractData) {
-          // 계약 수정 모드인 경우 자동 법인 주입 제외
-        } else if (companyMap.size > 0) {
-          const firstComp = Array.from(companyMap.values())[0];
-          setCustomerId(firstComp._id);
-          populateCustomerFields(firstComp);
-          setSearchQuery(firstComp.name);
+
+          // 견적서에 저장된 보험/정비 선택값을 그대로 적용
+          if (prefilledQuoteData.insurance) {
+            const preset = prefilledQuoteData.insurance.type === 'premium' ? '보험2' : '보험1';
+            setInsurancePreset(preset);
+            applyInsurancePreset(preset);
+          }
+          if (prefilledQuoteData.maintenance) {
+            const preset = prefilledQuoteData.maintenance.enabled ? '포함' : '미포함';
+            setMaintenancePreset(preset);
+            applyMaintenancePreset(preset);
+            if (prefilledQuoteData.maintenance.mileage) {
+              setMileage(String(prefilledQuoteData.maintenance.mileage));
+            }
+          }
         }
+        // prefilledContractData(계약 수정)는 별도 useEffect에서 처리, 그 외 신규/빈 화면은 자동 채움 없이 검색부터 시작
       } catch (err) {
         console.error('Failed to load initial data', err);
       }
@@ -501,34 +623,78 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     fetchData();
   }, [prefilledQuoteData, prefilledContractData]);
 
-  const populateCustomerFields = (cust) => {
-    setCustomerName(cust.name || '');
-    setCustomerBizNo(cust.bizNo || '');
-    setCustomerCeoName(cust.ceoName || '');
-    setCustomerAddress(cust.address || '');
-    setCustomerContactName(cust.contactName || '');
-    setCustomerContactPhone(cust.contactPhone || '');
-    setCustomerEmail(cust.email || '');
-    setCustomerBankName(cust.bank?.name || '');
-    setCustomerBankAccount(cust.bank?.account || '');
-    setCustomerBankHolder(cust.bank?.holder || '');
-    setCustomerBizNoTransfer(cust.bizNoTransfer || '');
-    setCustomerBizAddress(cust.bizAddress || '');
+  // 고객이 2곳 이상의 법인에 소속된 경우, 드롭다운에서 계약 대상 법인을 바꿀 때 사용
+  const handleSwitchCompany = async (companyId) => {
+    setSelectedCompanyId(companyId);
+    if (!companyId) {
+      setPartyType('개인');
+      setBankDocuments([]);
+      return;
+    }
+    setPartyType('법인');
+    let contactCust = null;
+    try {
+      const res = await fetch(`${API_HOST}/api/customers/${customerId}`);
+      if (res.ok) contactCust = await res.json();
+    } catch { /* ignore */ }
+    await loadCompanyBilling(companyId, contactCust);
   };
 
-  const clearCustomerFields = () => {
-    setCustomerName('');
-    setCustomerBizNo('');
-    setCustomerCeoName('');
-    setCustomerAddress('');
-    setCustomerContactName('');
-    setCustomerContactPhone('');
-    setCustomerEmail('');
-    setCustomerBankName('');
-    setCustomerBankAccount('');
-    setCustomerBankHolder('');
-    setCustomerBizNoTransfer('');
-    setCustomerBizAddress('');
+  // 통장사본 파일을 선택된 법인 문서함에 업로드한다
+  const handleUploadBankDocument = async () => {
+    if (!pendingBankFile) {
+      showToast('업로드할 파일을 선택해주세요.', 'error');
+      return;
+    }
+    if (!selectedCompanyId) {
+      showToast('법인이 선택된 경우에만 통장사본을 업로드할 수 있습니다.', 'error');
+      return;
+    }
+    setUploadingBankDoc(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', pendingBankFile);
+      formData.append('docType', '통장사본');
+      const res = await fetch(`${API_HOST}/api/companies/${selectedCompanyId}/documents`, {
+        method: 'POST',
+        headers: { 'X-User-Role': currentUser?.role || 'viewer' },
+        body: formData
+      });
+      if (res.ok) {
+        const doc = await res.json();
+        setBankDocuments(prev => [doc, ...prev]);
+        setPendingBankFile(null);
+        showToast('통장사본이 업로드되었습니다.', 'success');
+      } else {
+        const err = await res.json();
+        showToast(err.message || '통장사본 업로드에 실패했습니다.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('서버 통신 오류가 발생했습니다.', 'error');
+    } finally {
+      setUploadingBankDoc(false);
+    }
+  };
+
+  const handleDeleteBankDocument = async (docId) => {
+    if (!window.confirm('이 통장사본 파일을 삭제하시겠습니까?')) return;
+    try {
+      const res = await fetch(`${API_HOST}/api/companies/${selectedCompanyId}/documents/${docId}`, {
+        method: 'DELETE',
+        headers: { 'X-User-Role': currentUser?.role || 'viewer' }
+      });
+      if (res.ok) {
+        setBankDocuments(prev => prev.filter(d => d._id !== docId));
+        showToast('삭제되었습니다.', 'success');
+      } else {
+        const err = await res.json();
+        showToast(err.message || '삭제에 실패했습니다.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('서버 통신 오류가 발생했습니다.', 'error');
+    }
   };
 
   const resetAllStates = () => {
@@ -546,14 +712,19 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     setCustomerBankName('');
     setCustomerBankAccount('');
     setCustomerBankHolder('');
+    setPartyType('개인');
+    setSelectedCompanyId('');
+    setCustomerCompanies([]);
+    setBankDocuments([]);
+    setPendingBankFile(null);
 
-    setContractDate('');
+    setContractDate(todayDateStr());
     setTermMonths('24');
     setManagerOps('홍길동');
     setManagerOpsPhone('');
     setFinesEmail('');
     setFinesEmail2('');
-    
+
     setVehicleModel('');
     setVehicleSpec('');
     setVehiclePrice('');
@@ -683,9 +854,9 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
           bizAddress: customerBizAddress
         },
         quoteId: prefilledQuoteData?._id || undefined,
-        // 견적서에서 넘어온 법인 정보를 계약서로 그대로 이관
-        partyType: prefilledQuoteData?.partyType || '개인',
-        companyId: prefilledQuoteData?.companyId?._id || prefilledQuoteData?.companyId || undefined,
+        // 고객 선택(검색 또는 견적서 연동) 시 자동 판정된 거래 주체(법인/개인) 정보를 그대로 이관
+        partyType: isNewCustomer ? '개인' : partyType,
+        companyId: isNewCustomer ? undefined : (selectedCompanyId || undefined),
         leaseCompany: undefined,
         contractDate,
         deliveryDate: undefined,
@@ -703,7 +874,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
         remainingPeriodCalc: undefined,
         finesEmail,
         finesEmail2,
-        corporateRegistrationNo: undefined,
+        corporateRegistrationNo: customerBizNoTransfer || undefined,
 
         pricing: {
           basePrice: pricing.basePrice ? Number(pricing.basePrice) : undefined,
@@ -728,7 +899,9 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
           paymentTerm: pricing.paymentTerm ? Number(pricing.paymentTerm) : undefined,
           monthlyFeeTotal: pricing.monthlyFeeTotal ? Number(pricing.monthlyFeeTotal) : undefined,
           pandanbi: pricing.pandanbi ? Number(pricing.pandanbi) : undefined,
-          individualConsumptionTax: pricing.individualConsumptionTax ? Number(pricing.individualConsumptionTax) : undefined
+          individualConsumptionTax: pricing.individualConsumptionTax ? Number(pricing.individualConsumptionTax) : undefined,
+          baseInterestRate: pricing.baseInterestRate ? Number(pricing.baseInterestRate) : undefined,
+          dealerCommission: pricing.dealerCommission ? Number(pricing.dealerCommission) : undefined
         },
         gifts: gifts
           .filter(g => g.name.trim() !== '')
@@ -740,20 +913,20 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
           color: vehicleColor,
           colorInterior: vehicleColorInterior,
           fuelType: vehicleFuelType,
-          cc: undefined,
-          vin: 'VIN_AUTO_' + Date.now(),
-          plateNo: undefined,
+          cc: vehicleCc ? Number(vehicleCc) : undefined,
+          vin: vehicleVin || ('VIN_AUTO_' + Date.now()),
+          plateNo: vehiclePlateNo || undefined,
           options: vehicleOptions,
           releaseAddress: undefined,
           dealer: undefined,
           salesRep: undefined,
           showroom: undefined,
-          
+
           classification: undefined,
           operationType: undefined,
           vehiclePrice: vehiclePrice ? Number(vehiclePrice) : undefined,
           registrationDate: undefined,
-          mileage: undefined,
+          mileage: mileage ? Number(mileage) : undefined,
           
           accessories: undefined,
           registrationCosts: undefined,
@@ -795,7 +968,14 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
           setPrefilledContractData(null);
         }
         resetAllStates();
-        setActiveTab('contracts');
+        if (isEditMode) {
+          // 수정 모드는 차량이 새로 생성되지 않으므로 계약서 목록으로 돌아간다
+          fetchContractsList();
+          setViewMode('list');
+        } else {
+          // 계약서 등록 시 렌트차량 DB에 차량이 자동 생성되므로, 신규 등록 후에는 그 결과를 바로 확인할 수 있게 렌트차량 DB로 이동한다.
+          setActiveTab('vehicles');
+        }
       } else {
         const err = await response.json();
         showToast(err.message || '계약 저장 실패', 'error');
@@ -807,15 +987,9 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
 
   const handleCancelPrefill = () => {
     setPrefilledQuoteData(null);
-    if (customers.length > 0) {
-      setCustomerId(customers[0]._id);
-      populateCustomerFields(customers[0]);
-      setSearchQuery(customers[0].name);
-    } else {
-      setCustomerId('');
-      clearCustomerFields();
-      setSearchQuery('');
-    }
+    setCustomerId('');
+    clearCustomerFields();
+    setSearchQuery('');
     setVehicleModel('');
     setVehicleSpec('');
     setPricing({
@@ -844,6 +1018,60 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     });
   };
 
+  // "계약서 목록" 하위 화면 - 계약/견적 목록 페이지가 없어지면서 이 화면 안으로 들어옴
+  const fetchContractsList = async () => {
+    try {
+      const res = await fetch(`${API_HOST}/api/contracts`);
+      if (res.ok) {
+        const data = await res.json();
+        setContracts(Array.isArray(data) ? data : (data.contracts || data.data || []));
+      }
+    } catch (err) {
+      console.error('Failed to load contracts list', err);
+    }
+  };
+
+  const handleEditContractFromList = (contract) => {
+    setPrefilledContractData(contract);
+    setPrefilledQuoteData(null);
+    setViewMode('form');
+  };
+
+  const handleDeleteContractFromList = async (id) => {
+    if (currentUser?.role === 'viewer') {
+      showToast('수정 및 삭제 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
+    if (!window.confirm('정말 이 계약서를 삭제하시겠습니까? 관련 차량 및 등록 일정들도 모두 일괄 삭제됩니다.')) return;
+
+    try {
+      const response = await fetch(`${API_HOST}/api/contracts/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-User-Role': currentUser?.role || 'viewer' }
+      });
+      if (response.ok) {
+        showToast('계약서가 성공적으로 삭제되었습니다.', 'success');
+        setContracts(prev => prev.filter(c => c._id !== id));
+      } else {
+        showToast('계약서 삭제 실패', 'error');
+      }
+    } catch (err) {
+      showToast('서버 연결 오류', 'error');
+    }
+  };
+
+  const filteredContractsList = contracts.filter(c => {
+    if (!contractListSearch.trim()) return true;
+    const q = contractListSearch.toLowerCase();
+    return (
+      (c.contractNo || '').toLowerCase().includes(q) ||
+      (c.customer?.name || '').toLowerCase().includes(q) ||
+      (c.customer?.surname || '').toLowerCase().includes(q) ||
+      (c.customer?.givenName || '').toLowerCase().includes(q) ||
+      (c.vehicle?.carModel || '').toLowerCase().includes(q)
+    );
+  });
+
   // Generate Search Suggestions dynamically based on multiple fields (Customer Name, BizNo, Manager, Plate No, etc.)
   // Normalized for space-insensitivity and dash-insensitivity
   const getSuggestions = () => {
@@ -852,14 +1080,20 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     const qClean = searchQuery.toLowerCase().replace(/[-\s]/g, '');
     const suggestionMap = new Map();
  
-    // 1. Direct Customer match (name, customerId, bizNo, contactName)
+    // 1. Direct Customer match (성/이름, 고객ID, 사업자/주민번호, 휴대전화, 담당자명)
     customers.forEach(c => {
-      const nameClean = String(c.name || '').toLowerCase().replace(/[-\s]/g, '');
+      const surnameClean = String(c.surname || c.name || '').toLowerCase().replace(/[-\s]/g, '');
+      const givenNameClean = String(c.givenName || '').toLowerCase().replace(/[-\s]/g, '');
       const cIdClean = String(c.customerId || '').toLowerCase().replace(/[-\s]/g, '');
       const bizClean = String(c.bizNo || '').replace(/[-\s]/g, '');
       const contactClean = String(c.contactName || '').toLowerCase().replace(/[-\s]/g, '');
-      
-      if (nameClean.includes(qClean) || cIdClean.includes(qClean) || bizClean.includes(qClean) || contactClean.includes(qClean)) {
+      const mobileClean = String(c.mobilePhone || c.contactPhone || '').replace(/[-\s]/g, '');
+
+      if (
+        surnameClean.includes(qClean) || givenNameClean.includes(qClean) ||
+        cIdClean.includes(qClean) || bizClean.includes(qClean) ||
+        contactClean.includes(qClean) || mobileClean.includes(qClean)
+      ) {
         suggestionMap.set(c._id, {
           customer: c,
           reason: '고객 정보 일치'
@@ -977,8 +1211,84 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
   );
 
   return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+      {/* 새 계약서 작성 / 계약서 목록 전환 탭 */}
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', background: '#fff', borderRadius: '12px 12px 0 0', overflow: 'hidden', boxShadow: 'var(--shadow-premium)' }}>
+        <button
+          type="button"
+          onClick={() => setViewMode('form')}
+          style={{ flex: 1, padding: '1rem', border: 'none', background: viewMode === 'form' ? 'var(--primary-glow)' : '#fff', borderBottom: viewMode === 'form' ? '3px solid var(--primary)' : 'none', color: viewMode === 'form' ? 'var(--primary)' : 'var(--text-main)', fontWeight: viewMode === 'form' ? '700' : '500', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+        >
+          <FileSignature size={16} /> 새 계약서 작성
+        </button>
+        <button
+          type="button"
+          onClick={() => { setViewMode('list'); fetchContractsList(); }}
+          style={{ flex: 1, padding: '1rem', border: 'none', background: viewMode === 'list' ? 'var(--primary-glow)' : '#fff', borderBottom: viewMode === 'list' ? '3px solid var(--primary)' : 'none', color: viewMode === 'list' ? 'var(--primary)' : 'var(--text-main)', fontWeight: viewMode === 'list' ? '700' : '500', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+        >
+          <List size={16} /> 계약서 목록 ({contracts.length})
+        </button>
+      </div>
+
+      {viewMode === 'list' ? (
+        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-premium)', overflow: 'hidden' }}>
+          <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--border-color)', position: 'relative' }}>
+            <input
+              type="text"
+              placeholder="계약번호, 고객명, 차종 검색..."
+              value={contractListSearch}
+              onChange={(e) => setContractListSearch(e.target.value)}
+              style={{ width: '100%', padding: '0.5rem 0.5rem 0.5rem 2rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }}
+            />
+            <Search size={14} style={{ position: 'absolute', left: '1.9rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+            <thead>
+              <tr style={{ background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-bright)', fontWeight: '700' }}>
+                <th style={{ padding: '0.8rem' }}>계약번호</th>
+                <th style={{ padding: '0.8rem' }}>고객명</th>
+                <th style={{ padding: '0.8rem' }}>차종</th>
+                <th style={{ padding: '0.8rem' }}>계약일</th>
+                <th style={{ padding: '0.8rem' }}>월 렌트료</th>
+                <th style={{ padding: '0.8rem', width: '60px' }}>관리</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredContractsList.length === 0 ? (
+                <tr><td colSpan="6" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>등록된 계약서가 없습니다.</td></tr>
+              ) : (
+                filteredContractsList.map(c => (
+                  <tr key={c._id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                    <td style={{ padding: '0.8rem', fontWeight: '700' }}>{c.contractNo}</td>
+                    <td style={{ padding: '0.8rem' }}>{formatCustomerName(c.customer)}</td>
+                    <td style={{ padding: '0.8rem' }}>{c.vehicle?.carModel || '-'}</td>
+                    <td style={{ padding: '0.8rem' }}>{c.contractDate ? new Date(c.contractDate).toLocaleDateString() : '-'}</td>
+                    <td style={{ padding: '0.8rem', fontWeight: '700' }}>{c.pricing?.monthlyFee?.toLocaleString()}원</td>
+                    <td style={{ padding: '0.8rem', display: 'flex', gap: '0.8rem', alignItems: 'center' }}>
+                      <button
+                        onClick={() => handleEditContractFromList(c)}
+                        style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer' }}
+                        title="계약서 수정"
+                      >
+                        <Edit size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteContractFromList(c._id)}
+                        style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}
+                        title="계약서 삭제"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
     <form onSubmit={handleRegisterContract} className="contract-register-container fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem', paddingBottom: '3rem' }}>
-      
+
       {/* Page Header */}
       <div style={{ background: '#fff', padding: '1.2rem 1.5rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-premium)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h3 style={{ fontSize: '1.3rem', fontWeight: '700', color: 'var(--text-bright)', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
@@ -1010,7 +1320,8 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
               onClick={() => {
                 setPrefilledContractData(null);
                 resetAllStates();
-                setActiveTab('contracts');
+                fetchContractsList();
+                setViewMode('list');
               }}
               style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', background: 'none', border: 'none', color: 'var(--error)', fontSize: '0.8rem', fontWeight: '600', cursor: 'pointer' }}
             >
@@ -1250,12 +1561,10 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                     return suggestions.map(item => {
                       const c = item.customer;
                       return (
-                        <li 
+                        <li
                           key={c._id}
                           onClick={() => {
-                            setCustomerId(c._id);
-                            populateCustomerFields(c);
-                            setSearchQuery(c.name);
+                            applyCustomerSelection(c);
                             setShowSuggestions(false);
                           }}
                           style={{
@@ -1267,11 +1576,11 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                           onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
                         >
                           <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                            <span style={{ fontWeight: '600', color: 'var(--text-bright)' }}>{c.name}</span>
-                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>[{c.customerId || 'ID 없음'}]</span>
+                            <span style={{ fontWeight: '600', color: 'var(--text-bright)' }}>{formatCustomerName(c)}</span>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{c.mobilePhone || c.contactPhone || '연락처 없음'}</span>
                           </div>
                           <div style={{ fontSize: '0.7rem', color: 'var(--primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span>{c.bizNo}</span>
+                            <span>{c.bizNo || '사업자번호 없음'}</span>
                             <span style={{ background: 'var(--primary-glow)', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: '600', fontSize: '0.65rem', border: '1px solid var(--primary-glow-border)' }}>
                               {item.reason}
                             </span>
@@ -1286,10 +1595,26 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
 
             {/* Customer Details */}
             <div style={{ background: '#fff', padding: '1.5rem', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              <h5 style={{ fontWeight: '700', color: 'var(--text-bright)', margin: 0, fontSize: '0.95rem', borderBottom: '2px solid var(--bg-main)', paddingBottom: '0.6rem' }}>
-                {isNewCustomer ? '📝 신규 법인 정보 직접 입력' : '🏢 선택된 법인 상세 정보 (수정은 렌트차량 DB에서만 가능합니다)'}
+              <h5 style={{ fontWeight: '700', color: 'var(--text-bright)', margin: 0, fontSize: '0.95rem', borderBottom: '2px solid var(--bg-main)', paddingBottom: '0.6rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>
+                  {isNewCustomer ? '📝 신규 법인 정보 직접 입력' : (partyType === '법인' ? '🏢 선택된 법인 상세 정보 (사업자등록증 기준)' : '👤 선택된 고객 상세 정보')}
+                  {companyLoading && <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', fontWeight: '500', color: 'var(--text-muted)' }}>불러오는 중...</span>}
+                </span>
+                {!isNewCustomer && customerCompanies.length > 1 && (
+                  <select
+                    value={selectedCompanyId}
+                    onChange={(e) => handleSwitchCompany(e.target.value)}
+                    style={{ padding: '0.35rem 0.6rem', border: '1px solid var(--primary)', borderRadius: '6px', fontSize: '0.78rem', color: 'var(--primary)', fontWeight: '600', background: '#fff', cursor: 'pointer' }}
+                  >
+                    {customerCompanies.map(a => (
+                      <option key={a.companyId?._id || a.companyId} value={a.companyId?._id || a.companyId}>
+                        {a.companyId?.name || '법인'} {a.isPrimary ? '(주 소속)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </h5>
-              
+
               {/* 사업자등록증 정보 영역 */}
               <div style={{ background: 'var(--bg-main)', padding: '1.2rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.8rem' }}>
@@ -1319,6 +1644,57 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                   {renderInput('자동이체 계좌번호', 'text', customerBankAccount, setCustomerBankAccount, '계좌번호 입력', false, !isNewCustomer)}
                   {renderInput('자동이체 예금주', 'text', customerBankHolder, setCustomerBankHolder, '', false, !isNewCustomer)}
                 </div>
+
+                {selectedCompanyId ? (
+                  <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px dashed var(--border-color)' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.6rem' }}>
+                      <input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        onChange={(e) => setPendingBankFile(e.target.files?.[0] || null)}
+                        style={{ fontSize: '0.78rem', flex: 1 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleUploadBankDocument}
+                        disabled={!pendingBankFile || uploadingBankDoc}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '0.3rem',
+                          background: pendingBankFile ? 'var(--primary)' : '#d9d9d9', color: '#fff', border: 'none',
+                          padding: '0.4rem 0.8rem', borderRadius: '6px', fontSize: '0.78rem', fontWeight: '600',
+                          cursor: pendingBankFile && !uploadingBankDoc ? 'pointer' : 'not-allowed'
+                        }}
+                      >
+                        <Upload size={13} /> {uploadingBankDoc ? '업로드 중...' : '통장사본 업로드'}
+                      </button>
+                    </div>
+                    {bankDocuments.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                        {bankDocuments.map(doc => (
+                          <div key={doc._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '0.4rem 0.6rem', fontSize: '0.78rem' }}>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.originalName || doc.fileName}</span>
+                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexShrink: 0 }}>
+                              <a
+                                href={`${API_HOST}/api/companies/${selectedCompanyId}/documents/${doc._id}/download`}
+                                target="_blank" rel="noreferrer"
+                                style={{ color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.2rem' }}
+                              >
+                                <Download size={13} /> 다운로드
+                              </a>
+                              <button type="button" onClick={() => handleDeleteBankDocument(doc._id)} style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}>
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px dashed var(--border-color)', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                    통장사본 파일 업로드는 법인이 선택된 경우에만 가능합니다.
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1349,9 +1725,11 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                 { value: '하이브리드', label: '하이브리드' },
                 { value: '전기', label: '전기' }
               ])}
+              {renderInput('배기량 (cc)', 'number', vehicleCc, setVehicleCc, '예: 2500')}
               {renderInput('외장 색상', 'text', vehicleColor, setVehicleColor, '예: 스노우 화이트')}
               {renderInput('내장 색상', 'text', vehicleColorInterior, setVehicleColorInterior, '예: 블랙 가죽')}
-              
+              {renderInput('차량번호', 'text', vehiclePlateNo, setVehiclePlateNo, '출고 후 입력')}
+
               {/* 옵션 (두 번째 줄에 길게 추가) */}
               <div style={{ gridColumn: '1 / -1' }}>
                 {renderInput('옵션', 'text', vehicleOptions, setVehicleOptions, '차량 개별 추가 옵션 입력 (예: 선루프, 네비게이션 등)')}
@@ -1498,20 +1876,21 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
 
       {/* Form Action Buttons */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
-        <button 
-          type="button" 
+        <button
+          type="button"
           onClick={() => {
             if (prefilledContractData) setPrefilledContractData(null);
             if (prefilledQuoteData) setPrefilledQuoteData(null);
             resetAllStates();
-            setActiveTab('contracts');
-          }} 
+            fetchContractsList();
+            setViewMode('list');
+          }}
           style={{ background: '#fff', border: '1px solid var(--border-color)', padding: '0.6rem 1.5rem', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '0.85rem' }}
         >
           <MenuCancelText>취소</MenuCancelText>
         </button>
-        <button 
-          type="submit" 
+        <button
+          type="submit"
           style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--primary)', color: '#fff', border: 'none', padding: '0.6rem 1.5rem', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem' }}
         >
           <Save size={16} /> 저장
@@ -1519,6 +1898,8 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
       </div>
 
     </form>
+      )}
+    </div>
   );
 }
 

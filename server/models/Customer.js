@@ -27,7 +27,7 @@ const CustomerSchema = new Schema({
   // Outlook Detailed Fields (메모 제외)
   surname: String, // 성
   givenName: String, // 이름
-  companyName: String, // 회사명
+  companyName: String, // 아웃룩 "회사(P)" 필드. 실무상 회사명이 아니라 차량 계약 정보 요약이 들어감 (UI 라벨: 차량정보)
   department: String, // 부서
   jobTitle: String, // 직급
   displayName: String, // 표시 방법

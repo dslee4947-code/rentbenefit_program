@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import DashboardView from './DashboardView.jsx';
 import QuoteInputView from './QuoteInputView.jsx';
 import ContractRegisterView from './ContractRegisterView.jsx';
+import DeliveryPrepView from './DeliveryPrepView.jsx';
 import VehicleManagementView from './VehicleManagementView.jsx';
-import ContractsListView from './ContractsListView.jsx';
 import CalendarView from './CalendarView.jsx';
 import CustomerListView from './CustomerListView.jsx';
+import PendingInquiriesView from './PendingInquiriesView.jsx';
 import CompanyManagementView from './CompanyManagementView.jsx';
 import UserManagementView from './UserManagementView.jsx';
 import BillingView from './BillingView.jsx';
@@ -16,7 +17,6 @@ import {
   Coins,
   FileSignature,
   Car,
-  Receipt,
   Calendar,
   LogOut,
   UserCheck,
@@ -26,13 +26,15 @@ import {
   Key,
   FileText,
   Settings,
-  Building2
+  Building2,
+  Truck,
+  MessageCircleQuestion
 } from 'lucide-react';
 
 function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   const getTabFromHash = () => {
     const hash = window.location.hash.replace('#/', '');
-    const validTabs = ['dashboard', 'customers', 'companies', 'quote-input', 'contract-register', 'vehicles', 'contracts', 'calendar', 'users', 'billing', 'mypage'];
+    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'delivery-prep', 'vehicles', 'calendar', 'users', 'billing', 'mypage'];
     return validTabs.includes(hash) ? hash : 'dashboard';
   };
 
@@ -82,10 +84,11 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   const menuItems = [
     { id: 'dashboard', name: '통계 대시보드', icon: <LayoutDashboard size={18} /> },
     { id: 'customers', name: '고객 DB 관리', icon: <Users size={18} /> },
-    { id: 'companies', name: '법인 관리', icon: <Building2 size={18} /> },
+    { id: 'inquiries', name: '문의 대기', icon: <MessageCircleQuestion size={18} /> },
     { id: 'quote-input', name: '견적서', icon: <Coins size={18} /> },
+    { id: 'companies', name: '법인 관리', icon: <Building2 size={18} /> },
     { id: 'contract-register', name: '계약서 등록', icon: <FileSignature size={18} /> },
-    { id: 'contracts', name: '계약 / 견적 목록', icon: <Receipt size={18} /> },
+    { id: 'delivery-prep', name: '출고 준비', icon: <Truck size={18} /> },
     { id: 'vehicles', name: '렌트차량 DB', icon: <Car size={18} /> },
     { id: 'billing', name: '장기렌트 청구서', icon: <FileText size={18} /> },
     { id: 'calendar', name: '일정표 캘린더', icon: <Calendar size={18} /> }
@@ -372,11 +375,12 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
             <h1 style={{ fontSize: '1.8rem', fontWeight: '800', color: 'var(--text-bright)' }}>
               {activeTab === 'dashboard' && '통계 대시보드'}
               {activeTab === 'customers' && '고객 DB 관리'}
+              {activeTab === 'inquiries' && '문의 대기'}
               {activeTab === 'companies' && '법인 관리'}
               {activeTab === 'quote-input' && '견적서'}
               {activeTab === 'contract-register' && '계약서 신규 등록'}
+              {activeTab === 'delivery-prep' && '출고 준비'}
               {activeTab === 'vehicles' && '렌트차량 DB 관리'}
-              {activeTab === 'contracts' && '계약 / 견적서 목록'}
               {activeTab === 'billing' && '장기렌트 청구서'}
               {activeTab === 'calendar' && '캘린더 관리 일정표'}
               {activeTab === 'users' && '사용자 권한 관리'}
@@ -385,11 +389,12 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
             <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '0.2rem' }}>
               {activeTab === 'dashboard' && '사내 프로그램의 실시간 차량 DB와 계약 일정 현황 요약입니다.'}
               {activeTab === 'customers' && '아웃룩 연동 및 수동 등록된 전체 고객 정보 목록을 실시간 조회 및 관리합니다.'}
+              {activeTab === 'inquiries' && '등록된 고객이 남긴 문의 중 아직 처리되지 않은 건을 관리합니다.'}
               {activeTab === 'companies' && '거래 법인(및 개인사업자) 정보를 등록하고 관리합니다.'}
               {activeTab === 'quote-input' && '고객과의 상담 기록 및 예상 대여료 비교 견적서를 작성합니다.'}
               {activeTab === 'contract-register' && '확정된 견적 정보를 계약서로 신규 등록하고 입고 차량 DB 및 알림 일정을 자동 생성합니다.'}
+              {activeTab === 'delivery-prep' && '계약은 완료됐지만 차량번호/차대번호 등 실물 등록이 아직 안 끝난 차량을 정리합니다.'}
               {activeTab === 'vehicles' && '전체 렌트 차량의 계약정보, 잔여일정, 담당 정비 내역을 상세 조회합니다.'}
-              {activeTab === 'contracts' && '현재까지 등록된 모든 견적서 정보와 렌트 계약서 정보 리스트입니다.'}
               {activeTab === 'billing' && '계약 건별 대여료 및 기타 추가 납입 항목을 취합하여 프리미엄 청구서를 발행 및 관리합니다.'}
               {activeTab === 'calendar' && '정기점검, 종합검사, 렌트만료, 계산서발행 예정일을 한눈에 보여주는 관리 일정표입니다.'}
               {activeTab === 'users' && '가입된 사내 직원들의 권한(조회/수정 및 삭제/관리자)을 조정하고 승인합니다.'}
@@ -409,6 +414,13 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
 
           {activeTab === 'customers' && (
             <CustomerListView
+              showToast={showToast}
+              currentUser={currentUser}
+            />
+          )}
+
+          {activeTab === 'inquiries' && (
+            <PendingInquiriesView
               showToast={showToast}
               currentUser={currentUser}
             />
@@ -442,18 +454,15 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
             />
           )}
 
-          {activeTab === 'vehicles' && (
-            <VehicleManagementView 
-              showToast={showToast} 
+          {activeTab === 'delivery-prep' && (
+            <DeliveryPrepView
+              showToast={showToast}
               currentUser={currentUser}
             />
           )}
 
-          {activeTab === 'contracts' && (
-            <ContractsListView 
-              setActiveTab={navigateToTab}
-              setPrefilledQuoteData={setPrefilledQuoteData}
-              setPrefilledContractData={setPrefilledContractData}
+          {activeTab === 'vehicles' && (
+            <VehicleManagementView
               showToast={showToast}
               currentUser={currentUser}
             />

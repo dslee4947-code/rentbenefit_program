@@ -579,15 +579,13 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
             </div>
 
             <div>
-              <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>회사 (P)</label>
+              <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>차량정보 (P)</label>
               <input
                 type="text"
-                value={formData.companyName || formData.name}
-                onChange={e => {
-                  handleChange('companyName', e.target.value);
-                  handleChange('name', e.target.value);
-                }}
+                value={formData.companyName}
+                onChange={e => handleChange('companyName', e.target.value)}
                 style={inputStyle}
+                placeholder="아웃룩 '회사(P)' 필드 - 차량 계약 정보 요약이 들어가는 자리입니다"
               />
             </div>
 
@@ -809,7 +807,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                 <div style={{ fontSize: '0.82rem', fontWeight: '800', color: '#0078d4' }}>
-                  {formData.companyName || formData.name || '회사명 없음'}
+                  {formData.companyName || '차량정보 없음'}
                 </div>
 
                 <div style={{ fontSize: '0.98rem', fontWeight: '800', color: '#1a1a1a', display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>

@@ -1,6 +1,4 @@
-import path from 'path';
-import fs from 'fs';
-import { uploadDocumentToSharePoint, getOneDriveRoot, sanitizePathSegment, RENT_DOC_TYPE_ROOT_FOLDER } from '../utils/documentStorageService.js';
+import { uploadDocumentToSharePoint, saveFileLocally } from '../utils/documentStorageService.js';
 
 // @desc    견적서/계약서/청구서/정비내역서 PDF를 사업부별 SharePoint 문서함에 업로드
 // @route   POST /api/documents/upload
@@ -47,39 +45,21 @@ export const saveDocumentLocal = async (req, res) => {
       return res.status(400).json({ success: false, message: '필수 매개변수가 누락되었습니다.' });
     }
 
-    const oneDriveRoot = getOneDriveRoot();
-    const businessDir = businessLine === 'rental' ? 'RENT' : 'AS';
-    const docRootFolder = businessLine === 'rental' ? RENT_DOC_TYPE_ROOT_FOLDER[docType] : null;
-    const companySubfolder = sanitizePathSegment(companyFolderName || customerName);
+    const { fileName: finalFileName, localPath } = saveFileLocally({
+      businessLine,
+      companySubfolderName: companyFolderName || customerName,
+      docType,
+      fileName,
+      fileBuffer: req.file.buffer
+    });
 
-    const targetDir = docRootFolder
-      ? path.join(oneDriveRoot, businessDir, docRootFolder, companySubfolder)
-      : path.join(oneDriveRoot, businessDir, sanitizePathSegment(customerName), sanitizePathSegment(docType));
-
-    fs.mkdirSync(targetDir, { recursive: true });
-
-    const ext = path.extname(fileName);
-    const baseName = path.basename(fileName, ext);
-
-    let finalFileName = fileName;
-    let counter = 1;
-    let targetFilePath = path.join(targetDir, sanitizePathSegment(finalFileName));
-
-    while (fs.existsSync(targetFilePath)) {
-      finalFileName = `${baseName}_ver${counter}${ext}`;
-      targetFilePath = path.join(targetDir, sanitizePathSegment(finalFileName));
-      counter++;
-    }
-
-    fs.writeFileSync(targetFilePath, req.file.buffer);
-
-    console.log(`[Local Save] Saved file to: ${targetFilePath}`);
+    console.log(`[Local Save] Saved file to: ${localPath}`);
 
     res.json({
       success: true,
       message: '문서함(원드라이브)에 성공적으로 저장되었습니다.',
       fileName: finalFileName,
-      localPath: targetFilePath
+      localPath
     });
   } catch (error) {
     console.error('Error saving document locally:', error);

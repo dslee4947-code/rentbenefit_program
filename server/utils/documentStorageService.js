@@ -1,4 +1,5 @@
 import path from 'path';
+import fs from 'fs';
 import { getGraphAccessToken } from './graphAuth.js';
 
 /**
@@ -14,6 +15,8 @@ const MAX_SIMPLE_UPLOAD_BYTES = 4 * 1024 * 1024; // Graph 단순 업로드(PUT) 
 
 // RENT 폴더 바로 아래, 문서 종류별 최상위 폴더 (그 안에 법인명 하위 폴더가 생긴다: RENT/03.청구서/{법인명}/)
 export const RENT_DOC_TYPE_ROOT_FOLDER = {
+  '사업자등록증': '00.사업자등록증',
+  '통장사본': '00.사업자등록증',
   '견적서': '01.견적서',
   '비교견적서': '01.견적서',
   '계약서': '02.계약서',
@@ -112,4 +115,47 @@ export const uploadDocumentToSharePoint = async ({
 
   const uploaded = await uploadRes.json();
   return { id: uploaded.id, webUrl: uploaded.webUrl };
+};
+
+/**
+ * PDF(또는 기타) 문서를 OneDrive 로컬 동기화 폴더에 "문서종류/법인명/파일" 구조로 저장한다.
+ * 동일 파일명이 이미 있으면 "_ver1", "_ver2"... 를 붙여 기존 파일을 덮어쓰지 않는다.
+ * saveDocumentLocal(레거시 견적서/계약서/청구서 업로드)과 법인 문서함 기능이 이 함수를 공유한다.
+ *
+ * @param {Object} params
+ * @param {'rental'|'as'} params.businessLine
+ * @param {string} params.companySubfolderName - 법인 하위 폴더명 (Company.folderName 또는 법인명)
+ * @param {string} params.docType - RENT_DOC_TYPE_ROOT_FOLDER의 키 (매핑 없으면 "법인명/문서종류" 구조로 저장)
+ * @param {string} params.fileName - 저장할 파일명 (확장자 포함)
+ * @param {Buffer} params.fileBuffer
+ * @returns {{ fileName: string, localPath: string }} 실제 저장된 파일명(중복 시 버전 접미사 포함)과 절대 경로
+ */
+export const saveFileLocally = ({ businessLine, companySubfolderName, docType, fileName, fileBuffer }) => {
+  const oneDriveRoot = getOneDriveRoot();
+  const businessDir = businessLine === 'rental' ? 'RENT' : 'AS';
+  const docRootFolder = businessLine === 'rental' ? RENT_DOC_TYPE_ROOT_FOLDER[docType] : null;
+  const companySubfolder = sanitizePathSegment(companySubfolderName);
+
+  const targetDir = docRootFolder
+    ? path.join(oneDriveRoot, businessDir, docRootFolder, companySubfolder)
+    : path.join(oneDriveRoot, businessDir, companySubfolder, sanitizePathSegment(docType));
+
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  const ext = path.extname(fileName);
+  const baseName = path.basename(fileName, ext);
+
+  let finalFileName = sanitizePathSegment(fileName);
+  let counter = 1;
+  let targetFilePath = path.join(targetDir, finalFileName);
+
+  while (fs.existsSync(targetFilePath)) {
+    finalFileName = sanitizePathSegment(`${baseName}_ver${counter}${ext}`);
+    targetFilePath = path.join(targetDir, finalFileName);
+    counter++;
+  }
+
+  fs.writeFileSync(targetFilePath, fileBuffer);
+
+  return { fileName: finalFileName, localPath: targetFilePath };
 };

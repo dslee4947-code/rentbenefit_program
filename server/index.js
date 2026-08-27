@@ -15,6 +15,7 @@ import documentRoutes from './routes/documentRoutes.js';
 import companyFolderRoutes from './routes/companyFolderRoutes.js';
 import companyRoutes from './routes/companyRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
+import inquiryRoutes from './routes/inquiryRoutes.js';
 
 // Load environment variables
 dotenv.config();
@@ -23,20 +24,9 @@ import cron from 'node-cron';
 import { runDatabaseMigration } from './utils/dbMigration.js';
 import { syncOutlookContacts } from './utils/outlookSyncService.js';
 
-import { seedSampleVehicles } from './controllers/vehicleController.js';
-import Vehicle from './models/Vehicle.js';
-
 // Connect to MongoDB database
 connectDB().then(async () => {
   await runDatabaseMigration();
-
-  // Only seed demo vehicles into an empty collection - never wipe existing data on boot
-  const vehicleCount = await Vehicle.countDocuments();
-  if (vehicleCount === 0) {
-    await seedSampleVehicles();
-  } else {
-    console.log(`[Seed] Skipped - ${vehicleCount} vehicle(s) already in DB.`);
-  }
 
   // Initial Outlook contact sync on startup
   syncOutlookContacts();
@@ -104,6 +94,7 @@ app.use('/api/documents', documentRoutes);
 app.use('/api/company-folders', companyFolderRoutes);
 app.use('/api/companies', companyRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/inquiries', inquiryRoutes);
 
 // Client-side routing: any non-/api request falls through to the SPA entry point
 if (serveClient) {

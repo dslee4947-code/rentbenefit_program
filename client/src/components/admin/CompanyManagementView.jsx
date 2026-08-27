@@ -9,9 +9,12 @@ import {
   Star,
   User,
   Link2,
-  Unlink
+  Unlink,
+  FileText,
+  Download,
+  Trash2
 } from 'lucide-react';
-import { formatBizNo } from '../../utils/format.js';
+import { formatBizNo, formatCorporateRegistrationNo, formatCustomerName } from '../../utils/format.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -19,6 +22,7 @@ const EMPTY_FORM = {
   name: '',
   bizType: '법인사업자',
   bizNo: '',
+  corporateRegistrationNo: '',
   ceoName: '',
   address: '',
   billingEmail: '',
@@ -61,6 +65,16 @@ function CompanyManagementView({ showToast, currentUser }) {
   const [linkResults, setLinkResults] = useState([]);
   const [linkLoading, setLinkLoading] = useState(false);
   const [showLinkPanel, setShowLinkPanel] = useState(false);
+
+  // 문서함: 아직 저장 안 된(대기 중) 파일 - 신규 법인은 저장 시 companyId가 생기므로
+  // 저장 버튼을 누를 때 함께 업로드한다. 기존 법인 편집 중에 추가한 파일도 동일하게 처리한다.
+  const [pendingDocuments, setPendingDocuments] = useState([]); // [{ tempId, file, docType }]
+  const [manualDocType, setManualDocType] = useState('사업자등록증');
+  // 이미 저장된 문서 목록 (편집 모드에서만 조회)
+  const [companyDocuments, setCompanyDocuments] = useState([]);
+  const [companyDocumentsLoading, setCompanyDocumentsLoading] = useState(false);
+  const [docSearchTerm, setDocSearchTerm] = useState('');
+  const [docTypeFilter, setDocTypeFilter] = useState('all');
 
   // 검색어 디바운스
   useEffect(() => {
@@ -283,6 +297,8 @@ function CompanyManagementView({ showToast, currentUser }) {
         ? [{
             _id: presetCustomer._id,
             name: presetCustomer.name,
+            surname: presetCustomer.surname,
+            givenName: presetCustomer.givenName,
             contactPhone: presetCustomer.contactPhone || presetCustomer.mobilePhone,
             email: presetCustomer.email,
             role: '담당자',
@@ -292,6 +308,10 @@ function CompanyManagementView({ showToast, currentUser }) {
     );
     setCustomerSearchTerm('');
     setCustomerSearchResults([]);
+    setPendingDocuments([]);
+    setCompanyDocuments([]);
+    setDocSearchTerm('');
+    setDocTypeFilter('all');
     setShowModal(true);
   };
 
@@ -302,6 +322,7 @@ function CompanyManagementView({ showToast, currentUser }) {
       name: company.name || '',
       bizType: company.bizType || '법인사업자',
       bizNo: company.bizNo || '',
+      corporateRegistrationNo: company.corporateRegistrationNo || '',
       ceoName: company.ceoName || '',
       address: company.address || '',
       billingEmail: company.billingEmail || '',
@@ -310,7 +331,68 @@ function CompanyManagementView({ showToast, currentUser }) {
     });
     setCustomerSearchTerm('');
     setCustomerSearchResults([]);
+    setPendingDocuments([]);
+    setDocSearchTerm('');
+    setDocTypeFilter('all');
+    fetchCompanyDocuments(company._id);
     setShowModal(true);
+  };
+
+  const fetchCompanyDocuments = async (companyId, opts = {}) => {
+    try {
+      setCompanyDocumentsLoading(true);
+      const params = new URLSearchParams();
+      if (opts.docType && opts.docType !== 'all') params.set('docType', opts.docType);
+      if (opts.search && opts.search.trim()) params.set('search', opts.search.trim());
+
+      const res = await fetch(`${API_BASE_URL}/api/companies/${companyId}/documents?${params.toString()}`);
+      if (!res.ok) throw new Error('문서함을 불러오지 못했습니다.');
+      setCompanyDocuments(await res.json());
+    } catch (err) {
+      showToast?.(err.message, 'error');
+    } finally {
+      setCompanyDocumentsLoading(false);
+    }
+  };
+
+  // 편집 중인 법인의 문서함 검색/필터 (디바운스)
+  useEffect(() => {
+    if (!editingCompany || !showModal) return;
+    const timer = setTimeout(() => {
+      fetchCompanyDocuments(editingCompany._id, { docType: docTypeFilter, search: docSearchTerm });
+    }, 300);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docSearchTerm, docTypeFilter, editingCompany, showModal]);
+
+  // 문서를 업로드 대기열에 추가 (저장 시 실제 업로드됨)
+  const handleQueueDocument = (file, docType) => {
+    if (!file) return;
+    setPendingDocuments(prev => [...prev, { tempId: `${Date.now()}-${Math.random()}`, file, docType }]);
+  };
+
+  const handleRemovePendingDocument = (tempId) => {
+    setPendingDocuments(prev => prev.filter(d => d.tempId !== tempId));
+  };
+
+  // 이미 저장된 문서를 문서함 목록에서 제거 (원드라이브 실제 파일은 보존됨)
+  const handleDeleteDocument = async (docId) => {
+    if (currentUser?.role === 'viewer') {
+      showToast?.('등록 및 수정 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
+    if (!window.confirm('문서함 목록에서 제거하시겠습니까? (원드라이브의 실제 파일은 삭제되지 않습니다)')) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/companies/${editingCompany._id}/documents/${docId}`, {
+        method: 'DELETE',
+        headers: { 'X-User-Role': currentUser?.role || 'viewer' }
+      });
+      if (!res.ok) throw new Error('삭제에 실패했습니다.');
+      showToast?.('문서함 목록에서 제거되었습니다.', 'success');
+      fetchCompanyDocuments(editingCompany._id, { docType: docTypeFilter, search: docSearchTerm });
+    } catch (err) {
+      showToast?.(err.message, 'error');
+    }
   };
 
   /**
@@ -331,6 +413,9 @@ function CompanyManagementView({ showToast, currentUser }) {
   const handleOcrUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+
+    // OCR 성공/실패와 무관하게, 업로드한 파일 자체는 저장 시 문서함에 함께 저장되도록 대기열에 넣는다.
+    handleQueueDocument(file, '사업자등록증');
 
     try {
       setOcrLoading(true);
@@ -363,12 +448,13 @@ function CompanyManagementView({ showToast, currentUser }) {
 
       showToast?.(
         data.source === 'clova'
-          ? 'OCR로 사업자등록증을 읽었습니다. 값이 맞는지 확인 후 저장해 주세요.'
-          : '사업자등록증 정보가 자동 입력되었습니다. 값이 맞는지 확인 후 저장해 주세요.',
+          ? 'OCR로 사업자등록증을 읽었습니다. 값이 맞는지 확인 후 저장해 주세요. (파일은 저장 시 문서함에 함께 저장됩니다)'
+          : '사업자등록증 정보가 자동 입력되었습니다. 값이 맞는지 확인 후 저장해 주세요. (파일은 저장 시 문서함에 함께 저장됩니다)',
         'success'
       );
     } catch (err) {
-      showToast?.(err.message, 'error');
+      // OCR 인식은 실패했어도 파일 자체는 이미 대기열에 들어가 있어 저장 시 문서함에 저장된다.
+      showToast?.(`${err.message} (파일은 저장 시 문서함에 그대로 저장됩니다. 항목은 직접 입력해 주세요)`, 'error');
     } finally {
       setOcrLoading(false);
       e.target.value = '';
@@ -389,6 +475,8 @@ function CompanyManagementView({ showToast, currentUser }) {
       {
         _id: customer._id,
         name: customer.name,
+        surname: customer.surname,
+        givenName: customer.givenName,
         contactPhone: customer.contactPhone || customer.mobilePhone,
         email: customer.email,
         role: '담당자',
@@ -453,6 +541,35 @@ function CompanyManagementView({ showToast, currentUser }) {
       if (!res.ok) {
         const errData = await res.json();
         throw new Error(errData.message || '저장에 실패했습니다.');
+      }
+
+      const savedCompany = await res.json();
+
+      // 대기열에 있던 문서(사업자등록증 등)를 방금 저장된 법인에 실제로 업로드한다.
+      if (pendingDocuments.length > 0) {
+        let uploadedCount = 0;
+        for (const pd of pendingDocuments) {
+          try {
+            const docForm = new FormData();
+            docForm.append('file', pd.file);
+            docForm.append('docType', pd.docType);
+            const docRes = await fetch(`${API_BASE_URL}/api/companies/${savedCompany._id}/documents`, {
+              method: 'POST',
+              headers: { 'X-User-Role': currentUser?.role || 'viewer' },
+              body: docForm
+            });
+            if (docRes.ok) uploadedCount++;
+          } catch {
+            // 개별 문서 업로드 실패는 법인 저장 자체를 막지 않는다.
+          }
+        }
+        if (uploadedCount > 0) {
+          showToast?.(`문서 ${uploadedCount}건이 문서함에 저장되었습니다.`, 'success');
+        }
+        if (uploadedCount < pendingDocuments.length) {
+          showToast?.(`문서 ${pendingDocuments.length - uploadedCount}건은 저장하지 못했습니다. 법인 상세에서 다시 업로드해 주세요.`, 'error');
+        }
+        setPendingDocuments([]);
       }
 
       showToast?.(editingCompany ? '법인 정보가 수정되었습니다.' : '신규 법인이 등록되었습니다.', 'success');
@@ -716,9 +833,11 @@ function CompanyManagementView({ showToast, currentUser }) {
                         fontSize: '0.86rem'
                       }}
                     >
-                      <span style={{ fontWeight: '600', color: 'var(--text-bright)' }}>{c.name}</span>
+                      <span style={{ fontWeight: '600', color: 'var(--text-bright)' }}>
+                        {formatCustomerName(c)}
+                      </span>
                       <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>
-                        {c.contactPhone || c.email || '연락처 없음'}
+                        {c.mobilePhone || c.contactPhone || c.email || '연락처 없음'}
                       </span>
                     </div>
                   ))
@@ -772,7 +891,7 @@ function CompanyManagementView({ showToast, currentUser }) {
                 </div>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '1rem' }}>
-                    {selectedCustomer.name}
+                    {formatCustomerName(selectedCustomer)}
                   </div>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                     {selectedCustomer.contactPhone || selectedCustomer.email || '연락처 없음'}
@@ -1144,6 +1263,22 @@ function CompanyManagementView({ showToast, currentUser }) {
                 </div>
               </div>
 
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
+                    법인등록번호
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.corporateRegistrationNo}
+                    onChange={(e) => setFormData({ ...formData, corporateRegistrationNo: formatCorporateRegistrationNo(e.target.value) })}
+                    placeholder="000000-0000000"
+                    maxLength={14}
+                    style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-bright)' }}
+                  />
+                </div>
+              </div>
+
               <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
                   주소
@@ -1261,8 +1396,10 @@ function CompanyManagementView({ showToast, currentUser }) {
                             }}
                             className="outlook-row-hover"
                           >
-                            <span style={{ fontWeight: '600', color: 'var(--text-bright)' }}>{c.name}</span>
-                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{c.contactPhone || c.email || '연락처 없음'}</span>
+                            <span style={{ fontWeight: '600', color: 'var(--text-bright)' }}>
+                              {formatCustomerName(c)}
+                            </span>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{c.mobilePhone || c.contactPhone || c.email || '연락처 없음'}</span>
                           </div>
                         ))
                       )}
@@ -1306,10 +1443,10 @@ function CompanyManagementView({ showToast, currentUser }) {
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0, flex: 2 }}>
                           <span style={{ fontWeight: '600', color: 'var(--text-bright)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {c.name}
+                            {formatCustomerName(c)}
                           </span>
                           <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            ({c.contactPhone || '연락처 없음'})
+                            ({c.mobilePhone || c.contactPhone || '연락처 없음'})
                           </span>
                         </div>
 
@@ -1364,6 +1501,181 @@ function CompanyManagementView({ showToast, currentUser }) {
                       </div>
                     ))}
                   </div>
+                )}
+              </div>
+
+              {/* 문서함 영역 - 사업자등록증/계약서/청구서 등을 원드라이브(RENT/{문서종류}/{법인명}/)에 저장 */}
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', marginTop: '0.3rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
+                  <FileText size={15} style={{ color: 'var(--text-muted)' }} />
+                  <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text-bright)' }}>
+                    문서함
+                    {(companyDocuments.length + pendingDocuments.length) > 0 &&
+                      ` (${companyDocuments.length + pendingDocuments.length}건)`}
+                  </span>
+                </div>
+
+                {/* 문서 추가: 종류 선택 + 파일 선택 (저장 시 실제 업로드됨) */}
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.8rem' }}>
+                  <select
+                    value={manualDocType}
+                    onChange={(e) => setManualDocType(e.target.value)}
+                    style={{
+                      padding: '0.5rem 0.7rem', borderRadius: '6px', border: '1px solid var(--border-color)',
+                      background: 'var(--bg-main)', color: 'var(--text-bright)', fontSize: '0.82rem', cursor: 'pointer'
+                    }}
+                  >
+                    <option value="사업자등록증">사업자등록증</option>
+                    <option value="계약서">계약서</option>
+                    <option value="청구서">청구서</option>
+                    <option value="견적서">견적서</option>
+                    <option value="기타">기타</option>
+                  </select>
+                  <label style={{
+                    display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 0.9rem',
+                    borderRadius: '6px', border: '1px dashed var(--primary)', background: 'var(--primary-glow)',
+                    color: 'var(--primary)', fontWeight: '600', fontSize: '0.82rem', cursor: 'pointer'
+                  }}>
+                    <Plus size={14} />
+                    <span>파일 추가</span>
+                    <input
+                      type="file"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        handleQueueDocument(e.target.files[0], manualDocType);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+
+                {/* 대기 중(아직 저장 안 됨) 문서 - 저장 버튼을 눌러야 실제 업로드됨 */}
+                {pendingDocuments.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '0.8rem' }}>
+                    {pendingDocuments.map((pd) => (
+                      <div
+                        key={pd.tempId}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          padding: '0.5rem 0.8rem', borderRadius: '6px', background: '#fffbeb',
+                          border: '1px solid #fde68a', fontSize: '0.82rem', gap: '0.5rem'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+                          <span style={{
+                            fontSize: '0.72rem', fontWeight: '600', color: '#b45309',
+                            background: 'rgba(180,83,9,0.1)', padding: '0.1rem 0.4rem', borderRadius: '10px', flexShrink: 0
+                          }}>
+                            {pd.docType}
+                          </span>
+                          <span style={{ color: 'var(--text-bright)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {pd.file.name}
+                          </span>
+                          <span style={{ color: '#b45309', fontSize: '0.72rem', flexShrink: 0 }}>저장 시 업로드됨</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemovePendingDocument(pd.tempId)}
+                          style={{ border: 'none', background: 'transparent', color: '#b45309', cursor: 'pointer', padding: '0.2rem', flexShrink: 0 }}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* 이미 저장된 문서 (편집 모드에서만 조회 가능 - companyId가 있어야 함) */}
+                {editingCompany && (
+                  <>
+                    <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.6rem' }}>
+                      <input
+                        type="text"
+                        placeholder="파일명 검색..."
+                        value={docSearchTerm}
+                        onChange={(e) => setDocSearchTerm(e.target.value)}
+                        style={{
+                          flex: 1, padding: '0.45rem 0.7rem', borderRadius: '6px', border: '1px solid var(--border-color)',
+                          background: 'var(--bg-main)', color: 'var(--text-bright)', fontSize: '0.8rem'
+                        }}
+                      />
+                      <select
+                        value={docTypeFilter}
+                        onChange={(e) => setDocTypeFilter(e.target.value)}
+                        style={{
+                          padding: '0.45rem 0.7rem', borderRadius: '6px', border: '1px solid var(--border-color)',
+                          background: 'var(--bg-main)', color: 'var(--text-bright)', fontSize: '0.8rem', cursor: 'pointer'
+                        }}
+                      >
+                        <option value="all">전체 종류</option>
+                        <option value="사업자등록증">사업자등록증</option>
+                        <option value="계약서">계약서</option>
+                        <option value="청구서">청구서</option>
+                        <option value="견적서">견적서</option>
+                        <option value="기타">기타</option>
+                      </select>
+                    </div>
+
+                    {companyDocumentsLoading ? (
+                      <div style={{ padding: '0.8rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                        불러오는 중...
+                      </div>
+                    ) : companyDocuments.length === 0 ? (
+                      <div style={{
+                        padding: '1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem',
+                        background: 'var(--bg-main)', borderRadius: '8px', border: '1px dashed var(--border-color)'
+                      }}>
+                        {docSearchTerm || docTypeFilter !== 'all' ? '검색 결과가 없습니다.' : '저장된 문서가 없습니다. 위에서 파일을 추가해 보세요.'}
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '200px', overflowY: 'auto' }}>
+                        {companyDocuments.map((doc) => (
+                          <div
+                            key={doc._id}
+                            style={{
+                              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                              padding: '0.5rem 0.8rem', borderRadius: '6px', background: 'var(--bg-main)',
+                              border: '1px solid var(--border-color)', fontSize: '0.82rem', gap: '0.5rem'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+                              <span style={{
+                                fontSize: '0.72rem', fontWeight: '600', color: 'var(--primary)',
+                                background: 'var(--primary-glow)', padding: '0.1rem 0.4rem', borderRadius: '10px', flexShrink: 0
+                              }}>
+                                {doc.docType}
+                              </span>
+                              <span style={{ color: 'var(--text-bright)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {doc.originalName || doc.fileName}
+                              </span>
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem', flexShrink: 0 }}>
+                                {new Date(doc.createdAt).toLocaleDateString('ko-KR')}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0 }}>
+                              <a
+                                href={`${API_BASE_URL}/api/companies/${editingCompany._id}/documents/${doc._id}/download`}
+                                target="_blank"
+                                rel="noreferrer"
+                                title="다운로드"
+                                style={{ display: 'flex', color: 'var(--primary)', padding: '0.2rem' }}
+                              >
+                                <Download size={14} />
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteDocument(doc._id)}
+                                title="문서함에서 제외 (파일은 보존)"
+                                style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '0.2rem' }}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 

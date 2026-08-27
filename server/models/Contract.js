@@ -52,6 +52,8 @@ const ContractSchema = new Schema({
     overdueRate: Number,
     pandanbi: Number, // 판관비
     individualConsumptionTax: Number, // 개별소비세(교육세,가산세포함)
+    baseInterestRate: Number, // 금리 - 견적서에서 그대로 이관, 출고 준비 시 렌트차량 DB로 다시 넘어감
+    dealerCommission: Number // 타딜러수수료
   },
   gifts: [{ name: String, price: Number }],
 }, { timestamps: true });

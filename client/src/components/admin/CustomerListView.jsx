@@ -431,143 +431,145 @@ function CustomerListView({ showToast, currentUser }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       
       {/* 상단 액션 툴바 */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        flexWrap: 'wrap', 
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
         gap: '1rem',
-        background: 'var(--bg-surface)', 
-        padding: '1.2rem 1.5rem', 
+        background: 'var(--bg-surface)',
+        padding: '1.2rem 1.5rem',
         borderRadius: '12px',
         border: '1px solid var(--border-color)'
       }}>
-        {/* 검색 및 필터 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flex: 1, minWidth: '300px' }}>
-          <div style={{ position: 'relative', flex: 1 }}>
-            <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-            <input 
-              type="text" 
-              placeholder="고객명, 담당자, 연락처, 이메일, 사업자번호 검색..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '0.65rem 1rem 0.65rem 2.4rem',
-                borderRadius: '8px',
-                border: '1px solid var(--border-color)',
-                background: 'var(--bg-main)',
-                color: 'var(--text-bright)',
-                fontSize: '0.9rem'
-              }}
-            />
-          </div>
-
-          <select
-            value={filterSource}
-            onChange={(e) => { setFilterSource(e.target.value); setPage(1); }}
+        {/* 검색창 (전체 폭, 크게) */}
+        <div style={{ position: 'relative', width: '100%' }}>
+          <Search size={22} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          <input
+            type="text"
+            placeholder="고객명, 담당자, 연락처, 이메일, 사업자번호로 검색..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
             style={{
-              padding: '0.65rem 1rem',
-              borderRadius: '8px',
+              width: '100%',
+              padding: '0.95rem 1.2rem 0.95rem 3rem',
+              borderRadius: '10px',
               border: '1px solid var(--border-color)',
               background: 'var(--bg-main)',
               color: 'var(--text-bright)',
-              fontSize: '0.9rem',
-              cursor: 'pointer'
+              fontSize: '1.05rem'
             }}
-          >
-            <option value="all">전체 출처 보기</option>
-            <option value="outlook">📧 아웃룩 연동 데이터</option>
-            <option value="manual">👤 직접 등록 데이터</option>
-          </select>
+          />
+        </div>
 
-          {categories.length > 0 && (
+        {/* 필터 + 실행 버튼들 (검색창 아래 한 줄) */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.8rem' }}>
+          {/* 왼쪽: 출처/폴더 필터 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap' }}>
             <select
-              value={filterCategory}
-              onChange={(e) => { setFilterCategory(e.target.value); setPage(1); }}
+              value={filterSource}
+              onChange={(e) => { setFilterSource(e.target.value); setPage(1); }}
               style={{
-                padding: '0.65rem 1rem',
+                padding: '0.6rem 1rem',
                 borderRadius: '8px',
                 border: '1px solid var(--border-color)',
                 background: 'var(--bg-main)',
                 color: 'var(--text-bright)',
-                fontSize: '0.9rem',
+                fontSize: '0.88rem',
                 cursor: 'pointer'
               }}
             >
-              <option value="all">📂 모든 아웃룩 폴더 보기</option>
-              {categories.map((cat) => (
-                <option key={cat} value={cat}>📁 {cat}</option>
-              ))}
+              <option value="all">전체 출처 보기</option>
+              <option value="outlook">📧 아웃룩 연동 데이터</option>
+              <option value="manual">👤 직접 등록 데이터</option>
             </select>
-          )}
-        </div>
 
-        {/* 오른쪽 실행 버튼들 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-          <button
-            onClick={handleOutlookSync}
-            disabled={isSyncing}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              padding: '0.65rem 1.2rem',
-              borderRadius: '8px',
-              border: '1px solid var(--primary)',
-              background: 'var(--primary-glow)',
-              color: 'var(--primary)',
-              fontWeight: '600',
-              cursor: isSyncing ? 'not-allowed' : 'pointer',
-              fontSize: '0.9rem',
-              transition: 'all 0.2s'
-            }}
-          >
-            <RefreshCw size={16} className={isSyncing ? 'spin-anim' : ''} />
-            <span>{isSyncing ? '동기화 진행 중...' : '아웃룩 실시간 동기화'}</span>
-          </button>
+            {categories.length > 0 && (
+              <select
+                value={filterCategory}
+                onChange={(e) => { setFilterCategory(e.target.value); setPage(1); }}
+                style={{
+                  padding: '0.6rem 1rem',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--bg-main)',
+                  color: 'var(--text-bright)',
+                  fontSize: '0.88rem',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="all">📂 모든 아웃룩 폴더 보기</option>
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>📁 {cat}</option>
+                ))}
+              </select>
+            )}
+          </div>
 
-          <button
-            onClick={() => setShowLookupModal(true)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              padding: '0.65rem 1.2rem',
-              borderRadius: '8px',
-              border: '1px solid var(--border-color)',
-              background: 'var(--bg-main)',
-              color: 'var(--text-bright)',
-              fontWeight: '600',
-              cursor: 'pointer',
-              fontSize: '0.9rem',
-              transition: 'all 0.2s'
-            }}
-          >
-            <Building size={16} />
-            <span>연락처로 주소 조회 (엑셀)</span>
-          </button>
+          {/* 오른쪽: 실행 버튼들 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap' }}>
+            <button
+              onClick={handleOutlookSync}
+              disabled={isSyncing}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.65rem 1.2rem',
+                borderRadius: '8px',
+                border: '1px solid var(--primary)',
+                background: 'var(--primary-glow)',
+                color: 'var(--primary)',
+                fontWeight: '600',
+                cursor: isSyncing ? 'not-allowed' : 'pointer',
+                fontSize: '0.9rem',
+                transition: 'all 0.2s'
+              }}
+            >
+              <RefreshCw size={16} className={isSyncing ? 'spin-anim' : ''} />
+              <span>{isSyncing ? '동기화 진행 중...' : '아웃룩 실시간 동기화'}</span>
+            </button>
 
-          <button
-            onClick={openAddModal}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              padding: '0.65rem 1.2rem',
-              borderRadius: '8px',
-              border: 'none',
-              background: 'var(--primary)',
-              color: '#ffffff',
-              fontWeight: '600',
-              cursor: 'pointer',
-              fontSize: '0.9rem',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
-            }}
-          >
-            <Plus size={16} />
-            <span>신규 고객 등록</span>
-          </button>
+            <button
+              onClick={() => setShowLookupModal(true)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.65rem 1.2rem',
+                borderRadius: '8px',
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-main)',
+                color: 'var(--text-bright)',
+                fontWeight: '600',
+                cursor: 'pointer',
+                fontSize: '0.9rem',
+                transition: 'all 0.2s'
+              }}
+            >
+              <Building size={16} />
+              <span>연락처로 주소 조회 (엑셀)</span>
+            </button>
+
+            <button
+              onClick={openAddModal}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.65rem 1.2rem',
+                borderRadius: '8px',
+                border: 'none',
+                background: 'var(--primary)',
+                color: '#ffffff',
+                fontWeight: '600',
+                cursor: 'pointer',
+                fontSize: '0.9rem',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+              }}
+            >
+              <Plus size={16} />
+              <span>신규 고객 등록</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -614,7 +616,8 @@ function CustomerListView({ showToast, currentUser }) {
                   <tr style={{ background: 'var(--bg-main)', borderBottom: '2px solid var(--border-color)', color: 'var(--text-muted)' }}>
                     <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', minWidth: '180px' }}>성</th>
                     <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', minWidth: '240px' }}>이름</th>
-                    <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', minWidth: '240px' }}>회사</th>
+                    <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', minWidth: '240px' }}>차량정보</th>
+                    <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', minWidth: '160px' }}>휴대전화</th>
                     <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', width: '200px' }}>수정한 날짜</th>
                     <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', textAlign: 'center', width: '120px' }}>관리</th>
                   </tr>
@@ -649,17 +652,22 @@ function CustomerListView({ showToast, currentUser }) {
                           {cust.givenName || cust.displayName || cust.contactName || '-'}
                         </td>
 
-                        {/* 3. 회사 */}
+                        {/* 3. 차량정보 (아웃룩 '회사(P)' 필드 - 차량 계약 정보 요약. 비어있으면 그대로 빈 값 표시) */}
                         <td style={{ padding: '0.9rem 1.2rem', color: 'var(--text-main)', fontWeight: '500' }}>
-                          {cust.companyName || (cust.surname ? cust.name : '-') || '-'}
+                          {cust.companyName || '-'}
                         </td>
 
-                        {/* 4. 수정한 날짜 */}
+                        {/* 4. 휴대전화 */}
+                        <td style={{ padding: '0.9rem 1.2rem', color: 'var(--text-main)' }}>
+                          {cust.mobilePhone || cust.contactPhone || '-'}
+                        </td>
+
+                        {/* 5. 수정한 날짜 */}
                         <td style={{ padding: '0.9rem 1.2rem', color: 'var(--text-muted)', fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
                           {formattedDate}
                         </td>
 
-                        {/* 5. 관리 */}
+                        {/* 6. 관리 */}
                         <td style={{ padding: '0.9rem 1.2rem', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
                           <div style={{ display: 'flex', justifyContent: 'center', gap: '0.4rem' }}>
                             <button

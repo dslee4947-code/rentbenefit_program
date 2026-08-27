@@ -25,6 +25,7 @@ export const getCustomers = async (req, res) => {
         { name: { $regex: term, $options: 'i' } },
         { contactName: { $regex: term, $options: 'i' } },
         { contactPhone: { $regex: term, $options: 'i' } },
+        { mobilePhone: { $regex: term, $options: 'i' } },
         { email: { $regex: term, $options: 'i' } },
         { bizNo: { $regex: term, $options: 'i' } },
         { outlookCategory: { $regex: term, $options: 'i' } },
@@ -79,7 +80,7 @@ export const getCustomers = async (req, res) => {
 export const getCustomerById = async (req, res) => {
   try {
     const customer = await Customer.findById(req.params.id)
-      .populate('companies.companyId', 'name bizNo bizType');
+      .populate('companies.companyId', 'name bizNo bizType ceoName');
     if (customer) {
       res.json(customer);
     } else {

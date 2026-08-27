@@ -16,10 +16,9 @@ export const getDashboardSummary = async (req, res) => {
     sevenDaysLater.setHours(23, 59, 59, 999);
 
     const [vehicleAgg, customersCount, contractsCount, schedulesCount, notifications] = await Promise.all([
-      // Same operation set used by the vehicle list "total" stat, computed without
-      // pulling every vehicle document (113 columns each) over the wire.
+      // 현재 운행 중(rented)인 차량 수 - 목록을 전부 끌어오지 않고 카운트만 계산
       Vehicle.aggregate([
-        { $match: { operation: { $in: ['장기렌트', '사고대차'] } } },
+        { $match: { status: 'rented' } },
         { $count: 'count' }
       ]),
       Customer.countDocuments({}),
@@ -30,7 +29,7 @@ export const getDashboardSummary = async (req, res) => {
         dueDate: { $gte: today, $lte: sevenDaysLater }
       })
         .select('type dueDate status assignee targetVehicle targetContract')
-        .populate({ path: 'targetVehicle', select: 'carModel carNumber category code model plateNo' })
+        .populate({ path: 'targetVehicle', select: 'carModel plateNo code' })
         .populate({ path: 'targetContract', select: 'customer', populate: { path: 'customer', select: 'name' } })
         .sort({ dueDate: 1 })
         .lean()

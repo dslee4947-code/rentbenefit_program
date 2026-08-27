@@ -1,6 +1,21 @@
+import fs from 'fs';
+import path from 'path';
 import Company from '../models/Company.js';
 import Customer from '../models/Customer.js';
+import CompanyDocument from '../models/CompanyDocument.js';
 import { parseBusinessRegistration } from '../utils/ocrService.js';
+import { saveFileLocally, sanitizePathSegment } from '../utils/documentStorageService.js';
+
+// multer/busboy는 multipart 파일명(Content-Disposition)을 기본적으로 latin1로 디코딩한다.
+// 한글 등 비ASCII 파일명이 깨져서 들어오므로(예: "사업자등록증.pdf" -> mojibake), UTF-8로 재해석한다.
+// 참고용 원본 파일명 표시에만 쓰고, 실제 저장 파일명은 서버에서 새로 생성해 이 문제를 원천적으로 피한다.
+const decodeOriginalName = (name) => {
+  try {
+    return Buffer.from(name || '', 'latin1').toString('utf8');
+  } catch {
+    return name || '';
+  }
+};
 
 /**
  * Synchronizes customer associations for a given company.
@@ -129,16 +144,17 @@ export const getCompanyById = async (req, res) => {
 // @access  Public
 export const createCompany = async (req, res) => {
   try {
-    const { 
-      bizNo, 
-      name, 
-      bizType, 
-      ceoName, 
-      address, 
-      billingEmail, 
-      folderName, 
+    const {
+      bizNo,
+      corporateRegistrationNo,
+      name,
+      bizType,
+      ceoName,
+      address,
+      billingEmail,
+      folderName,
       memo,
-      customerAssociations 
+      customerAssociations
     } = req.body;
 
     if (!name) {
@@ -154,6 +170,7 @@ export const createCompany = async (req, res) => {
 
     const company = await Company.create({
       bizNo: bizNo || undefined,
+      corporateRegistrationNo: corporateRegistrationNo || undefined,
       name,
       bizType,
       ceoName,
@@ -186,14 +203,15 @@ export const updateCompany = async (req, res) => {
       return res.status(404).json({ message: 'Company not found' });
     }
 
-    const { 
-      bizNo, 
-      name, 
-      bizType, 
-      ceoName, 
-      address, 
-      billingEmail, 
-      folderName, 
+    const {
+      bizNo,
+      corporateRegistrationNo,
+      name,
+      bizType,
+      ceoName,
+      address,
+      billingEmail,
+      folderName,
       memo,
       customerAssociations
     } = req.body;
@@ -210,6 +228,7 @@ export const updateCompany = async (req, res) => {
       }
     }
 
+    company.corporateRegistrationNo = corporateRegistrationNo !== undefined ? corporateRegistrationNo : company.corporateRegistrationNo;
     company.name = name !== undefined ? name : company.name;
     company.bizType = bizType !== undefined ? bizType : company.bizType;
     company.ceoName = ceoName !== undefined ? ceoName : company.ceoName;
@@ -240,7 +259,7 @@ export const getCompanyCustomers = async (req, res) => {
   try {
     const customers = await Customer.find(
       { 'companies.companyId': req.params.id },
-      'customerId name contactName contactPhone email companies'
+      'customerId name surname givenName contactName contactPhone mobilePhone email companies'
     ).lean();
 
     const result = customers.map((c) => {
@@ -249,8 +268,11 @@ export const getCompanyCustomers = async (req, res) => {
         _id: c._id,
         customerId: c.customerId,
         name: c.name,
+        surname: c.surname,
+        givenName: c.givenName,
         contactName: c.contactName,
         contactPhone: c.contactPhone,
+        mobilePhone: c.mobilePhone,
         email: c.email,
         role: membership?.role || '',
         isPrimary: !!membership?.isPrimary
@@ -293,5 +315,117 @@ export const processCompanyOCR = async (req, res) => {
     res.status(notConfigured ? 503 : 500).json({
       message: error.message || '사업자등록증 분석에 실패했습니다.'
     });
+  }
+};
+
+// @desc    법인 문서함에 파일 업로드 (사업자등록증/계약서/청구서/견적서/기타).
+//          실제 파일은 RENT/{문서종류}/{법인명}/에 저장되고, DB에는 검색용 메타데이터만 남는다.
+// @route   POST /api/companies/:id/documents
+// @access  Public
+export const uploadCompanyDocument = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: '업로드할 파일이 없습니다.' });
+    }
+
+    const { docType } = req.body;
+    if (!docType) {
+      return res.status(400).json({ message: '문서 종류(docType)는 필수입니다.' });
+    }
+
+    const company = await Company.findById(req.params.id);
+    if (!company) {
+      return res.status(404).json({ message: '법인을 찾을 수 없습니다.' });
+    }
+
+    // 업로드한 원본 파일명을 신뢰하지 않고, "{문서종류}_{법인명}.{확장자}" 형태로 서버가 직접 생성한다.
+    // 원본 파일명은 한글이 포함되면 인코딩이 깨지기 쉽고(OneDrive 동기화 오류의 원인),
+    // 이렇게 하면 그 문제를 원천적으로 피하면서 파일명만 보고도 무슨 문서인지 바로 알 수 있다.
+    const ext = path.extname(req.file.originalname) || '';
+    const companyLabel = sanitizePathSegment(company.folderName || company.name);
+    const generatedFileName = `${sanitizePathSegment(docType)}_${companyLabel}${ext}`;
+
+    const { fileName, localPath } = saveFileLocally({
+      businessLine: 'rental',
+      companySubfolderName: company.folderName || company.name,
+      docType,
+      fileName: generatedFileName,
+      fileBuffer: req.file.buffer
+    });
+
+    const doc = await CompanyDocument.create({
+      company: company._id,
+      docType,
+      fileName,
+      originalName: decodeOriginalName(req.file.originalname),
+      localPath,
+      mimeType: req.file.mimetype,
+      size: req.file.size,
+      uploadedBy: req.body.uploadedBy || ''
+    });
+
+    res.status(201).json(doc);
+  } catch (error) {
+    console.error('[Company Document] Upload failed:', error);
+    res.status(500).json({ message: error.message || '문서 저장 중 오류가 발생했습니다.' });
+  }
+};
+
+// @desc    법인 문서함 목록 조회 (문서 종류/파일명 검색 가능)
+// @route   GET /api/companies/:id/documents
+// @access  Public
+export const getCompanyDocuments = async (req, res) => {
+  try {
+    const { docType, search } = req.query;
+    const query = { company: req.params.id };
+
+    if (docType && docType !== 'all') {
+      query.docType = docType;
+    }
+    if (search && search.trim()) {
+      const term = search.trim();
+      query.$or = [
+        { fileName: { $regex: term, $options: 'i' } },
+        { originalName: { $regex: term, $options: 'i' } }
+      ];
+    }
+
+    const documents = await CompanyDocument.find(query).sort({ createdAt: -1 });
+    res.json(documents);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    법인 문서함의 파일 다운로드
+// @route   GET /api/companies/:id/documents/:docId/download
+// @access  Public
+export const downloadCompanyDocument = async (req, res) => {
+  try {
+    const doc = await CompanyDocument.findOne({ _id: req.params.docId, company: req.params.id });
+    if (!doc) {
+      return res.status(404).json({ message: '문서를 찾을 수 없습니다.' });
+    }
+    if (!fs.existsSync(doc.localPath)) {
+      return res.status(410).json({ message: '파일이 원드라이브 폴더에서 이동되었거나 삭제되어 다운로드할 수 없습니다.' });
+    }
+    res.download(doc.localPath, doc.originalName || doc.fileName);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    법인 문서함에서 항목 제거 (DB 메타데이터만 삭제 - 원드라이브 실제 파일은 보존)
+// @route   DELETE /api/companies/:id/documents/:docId
+// @access  Public
+export const deleteCompanyDocument = async (req, res) => {
+  try {
+    const doc = await CompanyDocument.findOneAndDelete({ _id: req.params.docId, company: req.params.id });
+    if (!doc) {
+      return res.status(404).json({ message: '문서를 찾을 수 없습니다.' });
+    }
+    res.json({ message: '문서함 목록에서 제거되었습니다. (원드라이브 파일은 그대로 남아있습니다)' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };

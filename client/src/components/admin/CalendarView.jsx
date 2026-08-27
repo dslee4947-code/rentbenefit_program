@@ -286,7 +286,7 @@ function CalendarView({ showToast, currentUser }) {
               {selectedSchedule.targetVehicle && (
                 <div>
                   <strong style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>대상 차량</strong>
-                  <span style={{ fontWeight: '600' }}>{selectedSchedule.targetVehicle.model} ({selectedSchedule.targetVehicle.code})</span>
+                  <span style={{ fontWeight: '600' }}>{selectedSchedule.targetVehicle.carModel} ({selectedSchedule.targetVehicle.code})</span>
                   {selectedSchedule.targetVehicle.plateNo && (
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>[{selectedSchedule.targetVehicle.plateNo}]</span>
                   )}

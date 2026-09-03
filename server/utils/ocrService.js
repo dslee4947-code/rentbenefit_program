@@ -54,10 +54,12 @@ export const parseBusinessRegistration = async (fileBuffer, mimeType, originalNa
 
   const { invokeUrl, secret } = getClovaConfig();
   if (!invokeUrl || !secret) {
-    throw new Error(
-      'OCR 엔진이 설정되지 않아 이미지에서 정보를 읽을 수 없습니다. ' +
-      '관리자에게 CLOVA_OCR_INVOKE_URL / CLOVA_OCR_SECRET 설정을 요청하거나, 정보를 직접 입력해 주세요.'
-    );
+    // 고장이 아니라 아직 켜지 않은 기능이다. 화면에는 담백한 안내만 보내고,
+    // 무엇을 설정해야 하는지는 관리자가 보는 서버 로그에만 남긴다.
+    console.warn('[OCR Service] CLOVA_OCR_INVOKE_URL / CLOVA_OCR_SECRET 미설정 - 자동 완성을 건너뜁니다.');
+    const err = new Error('사업자등록증 자동 완성은 아직 사용할 수 없습니다. 항목을 직접 입력해 주세요.');
+    err.code = 'OCR_NOT_CONFIGURED';
+    throw err;
   }
 
   const format = CLOVA_FORMAT_BY_MIME[mimeType];

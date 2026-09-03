@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Trash2, Shield, User, ShieldCheck, ShieldAlert, Key, Clock, Check, X, Ban, RotateCcw } from 'lucide-react';
+import { useTableSort } from './useTableSort.js';
+import { SortableTh, SortControls } from './TableSort.jsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -22,6 +24,7 @@ function UserManagementView({ showToast, currentUser }) {
   const [pendingUsers, setPendingUsers] = useState([]);
   const [pendingRoleSelect, setPendingRoleSelect] = useState({});
   const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all'); // 권한으로 걸러 보기
   const [loading, setLoading] = useState(true);
 
   const authHeaders = () => ({
@@ -189,9 +192,23 @@ function UserManagementView({ showToast, currentUser }) {
   };
 
   const filteredUsers = users.filter(user =>
-    user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchQuery.toLowerCase())
+    (roleFilter === 'all' || user.role === roleFilter) && (
+      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      user.email.toLowerCase().includes(searchQuery.toLowerCase())
+    )
   );
+
+  // 사용자 목록에서 정렬할 수 있는 항목
+  const USER_COLUMNS = [
+    { key: 'name', label: '이름', sortValue: (u) => u.name },
+    { key: 'email', label: '이메일', sortValue: (u) => u.email },
+    { key: 'department', label: '소속', sortValue: (u) => u.department },
+    { key: 'status', label: '상태', sortValue: (u) => u.status },
+    { key: 'createdAt', label: '가입일시', numeric: true, sortValue: (u) => u.createdAt },
+    { key: 'role', label: '권한', sortValue: (u) => ROLE_LABELS[u.role] || u.role }
+  ];
+  const userSort = useTableSort(filteredUsers, USER_COLUMNS);
+  const visibleUsers = userSort.rows;
 
   const tabButtonStyle = (isActive) => ({
     padding: '0.6rem 1.1rem',
@@ -216,6 +233,24 @@ function UserManagementView({ showToast, currentUser }) {
         </h3>
 
         {tab === 'all' && (
+          <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+            style={{ padding: '0.5rem 0.7rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', cursor: 'pointer' }}
+          >
+            <option value="all">전체 권한</option>
+            {Object.entries(ROLE_LABELS).map(([key, label]) => (
+              <option key={key} value={key}>{label}</option>
+            ))}
+          </select>
+          <SortControls
+            sort={userSort}
+            selectStyle={{ padding: '0.5rem 0.7rem', fontSize: '0.85rem', borderRadius: '6px' }}
+            defaultLabel="정렬 안 함 (등록순)"
+            show={userSort.active || Boolean(searchQuery) || roleFilter !== 'all'}
+            onReset={() => { setSearchQuery(''); setRoleFilter('all'); }}
+          />
           <div style={{ position: 'relative', width: '300px', maxWidth: '100%' }}>
             <input
               type="text"
@@ -234,6 +269,7 @@ function UserManagementView({ showToast, currentUser }) {
               }}
             />
             <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          </div>
           </div>
         )}
       </div>
@@ -331,7 +367,7 @@ function UserManagementView({ showToast, currentUser }) {
             </table>
           </div>
         )
-      ) : filteredUsers.length === 0 ? (
+      ) : visibleUsers.length === 0 ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem', color: 'var(--text-muted)', border: '1px dashed var(--border-color)', borderRadius: '8px' }}>
           <span>등록된 사용자가 없거나 검색 결과가 없습니다.</span>
         </div>
@@ -340,15 +376,15 @@ function UserManagementView({ showToast, currentUser }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem', minWidth: '800px' }}>
             <thead>
               <tr style={{ background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
-                <th style={{ padding: '0.75rem 1rem', fontWeight: '700', color: 'var(--text-bright)' }}>사용자 정보</th>
-                <th style={{ padding: '0.75rem 1rem', fontWeight: '700', color: 'var(--text-bright)' }}>상태</th>
-                <th style={{ padding: '0.75rem 1rem', fontWeight: '700', color: 'var(--text-bright)' }}>가입일시</th>
-                <th style={{ padding: '0.75rem 1rem', fontWeight: '700', color: 'var(--text-bright)' }}>권한 설정</th>
+                <SortableTh sort={userSort} columnKey="name" style={{ padding: '0.75rem 1rem', fontWeight: '700', color: 'var(--text-bright)' }}>사용자 정보</SortableTh>
+                <SortableTh sort={userSort} columnKey="status" style={{ padding: '0.75rem 1rem', fontWeight: '700', color: 'var(--text-bright)' }}>상태</SortableTh>
+                <SortableTh sort={userSort} columnKey="createdAt" style={{ padding: '0.75rem 1rem', fontWeight: '700', color: 'var(--text-bright)' }}>가입일시</SortableTh>
+                <SortableTh sort={userSort} columnKey="role" style={{ padding: '0.75rem 1rem', fontWeight: '700', color: 'var(--text-bright)' }}>권한 설정</SortableTh>
                 <th style={{ padding: '0.75rem 1rem', fontWeight: '700', color: 'var(--text-bright)', textAlign: 'center' }}>관리</th>
               </tr>
             </thead>
             <tbody>
-              {filteredUsers.map((user, idx) => {
+              {visibleUsers.map((user, idx) => {
                 const joinDate = user.createdAt ? new Date(user.createdAt).toLocaleString('ko-KR') : '-';
                 const isSelf = user._id === currentUser?._id;
                 const statusInfo = STATUS_BADGE[user.status] || STATUS_BADGE.ACTIVE;
@@ -408,7 +444,7 @@ function UserManagementView({ showToast, currentUser }) {
                       </div>
                     </td>
                     <td style={{ padding: '1rem', textAlign: 'center' }}>
-                      <div style={{ display: 'flex', gap: '0.3rem', justifyContent: 'center' }}>
+                      <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', justifyContent: 'center' }}>
                         {user.status !== 'REJECTED' && (
                           <button
                             onClick={() => handleToggleSuspend(user._id, user.status)}

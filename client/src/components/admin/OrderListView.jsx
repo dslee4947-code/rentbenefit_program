@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Phone, User, FileText, Clock, Trash2, ShieldCheck, CreditCard, Search, ChevronDown, ChevronUp, Mail, Info } from 'lucide-react';
+import { useTableSort } from './useTableSort.js';
+import { SortableTh, SortControls } from './TableSort.jsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 const API_ORDERS_URL = `${API_HOST}/api/orders`;
@@ -143,6 +145,20 @@ function OrderListView({ showToast }) {
     return matchesStatus && matchesUser && matchesVehicle && matchesSearch;
   });
 
+  // 주문 목록에서 정렬할 수 있는 항목
+  const ORDER_COLUMNS = [
+    { key: 'createdAt', label: '주문 일시', numeric: true, sortValue: (o) => o.createdAt },
+    { key: 'userName', label: '주문자명', sortValue: (o) => o.user?.name },
+    { key: 'vehicleName', label: '차량명', sortValue: (o) => o.vehicle?.vehicleName },
+    { key: 'vehicleNumber', label: '차량번호', sortValue: (o) => o.vehicle?.vehicleNumber },
+    { key: 'startDate', label: '이용 시작일', numeric: true, sortValue: (o) => o.rentalPeriod?.startDate },
+    { key: 'totalAmount', label: '예상 요금', numeric: true, sortValue: (o) => o.pricing?.totalAmount },
+    { key: 'payment', label: '결제 상태', sortValue: (o) => (o.payment?.isPaid ? '결제완료' : '미결제') },
+    { key: 'status', label: '진행 상태', sortValue: (o) => getStatusLabel(o.status) }
+  ];
+  const orderSort = useTableSort(filteredOrders, ORDER_COLUMNS);
+  const visibleOrders = orderSort.rows;
+
   const toggleOrderExpand = (orderId) => {
     setExpandedOrders(prev => ({
       ...prev,
@@ -218,6 +234,14 @@ function OrderListView({ showToast }) {
               </option>
             ))}
           </select>
+
+          {/* 정렬 - 표 머리글을 눌러도 같은 기준으로 바뀝니다 */}
+          <SortControls
+            sort={orderSort}
+            defaultLabel="정렬 안 함 (최신 등록순)"
+            show={orderSort.active || Boolean(searchTerm) || statusFilter !== 'all' || userFilter !== 'all' || vehicleFilter !== 'all'}
+            onReset={() => { setSearchTerm(''); setStatusFilter('all'); setUserFilter('all'); setVehicleFilter('all'); }}
+          />
         </div>
       </div>
 
@@ -254,19 +278,19 @@ function OrderListView({ showToast }) {
             <thead>
               <tr>
                 <th className="text-center" style={{ width: '70px' }}>상세</th>
-                <th style={{ width: '120px' }}>주문 번호 & 일시</th>
-                <th>주문자 정보</th>
-                <th>구분 & 차량명</th>
-                <th className="hide-on-mobile" style={{ width: '100px' }}>차량번호</th>
-                <th className="hide-on-mobile">이용 기간</th>
-                <th>예상 요금</th>
-                <th>결제 수단 & 상태</th>
-                <th>진행 상태</th>
+                <SortableTh sort={orderSort} columnKey="createdAt" style={{ width: '120px' }}>주문 번호 &amp; 일시</SortableTh>
+                <SortableTh sort={orderSort} columnKey="userName">주문자 정보</SortableTh>
+                <SortableTh sort={orderSort} columnKey="vehicleName">구분 &amp; 차량명</SortableTh>
+                <SortableTh sort={orderSort} columnKey="vehicleNumber" className="hide-on-mobile" style={{ width: '100px' }}>차량번호</SortableTh>
+                <SortableTh sort={orderSort} columnKey="startDate" className="hide-on-mobile">이용 기간</SortableTh>
+                <SortableTh sort={orderSort} columnKey="totalAmount">예상 요금</SortableTh>
+                <SortableTh sort={orderSort} columnKey="payment">결제 수단 &amp; 상태</SortableTh>
+                <SortableTh sort={orderSort} columnKey="status">진행 상태</SortableTh>
                 <th style={{ width: '90px' }}>관리</th>
               </tr>
             </thead>
             <tbody>
-              {filteredOrders.map((order) => {
+              {visibleOrders.map((order) => {
                 const isExpanded = !!expandedOrders[order._id];
                 return (
                   <React.Fragment key={order._id}>
@@ -382,12 +406,11 @@ function OrderListView({ showToast }) {
                       {/* 주문 삭제 */}
                       <td>
                         <button
-                          className="table-delete-btn"
                           onClick={() => handleDeleteOrder(order._id)}
                           title="주문 데이터 삭제"
+                          style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}
                         >
-                          <Trash2 size={13} />
-                          <span>삭제</span>
+                          <Trash2 size={16} />
                         </button>
                       </td>
                     </tr>

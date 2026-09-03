@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Calendar, User, Info, DollarSign } from 'lucide-react';
+import { useDraggableDialog, DIALOG_TOP } from './useDraggableDialog.js';
+import { createPortal } from 'react-dom';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -11,6 +13,8 @@ function CalendarView({ showToast, currentUser }) {
   // Selected schedule detail modal state
   const [selectedSchedule, setSelectedSchedule] = useState(null);
 
+  // 팝업을 제목 줄로 잡아 끌어 옮길 수 있게 한다
+  const { dragHandleProps, dragStyle } = useDraggableDialog(Boolean(selectedSchedule));
   const fetchMonthSchedules = async () => {
     try {
       setLoading(true);
@@ -251,11 +255,15 @@ function CalendarView({ showToast, currentUser }) {
 
       {/* Schedule Detail Modal */}
       {selectedSchedule && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
-          <div style={{ background: '#fff', borderRadius: '16px', maxWidth: '500px', width: '100%', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
+        createPortal(
+        /* 팝업은 document.body에 직접 그린다.
+           페이지 쪽 조상에 transform/animation이 걸려 있으면 position:fixed의 기준이 그 요소로 바뀌어
+           팝업이 스크롤되는 콘텐츠 영역 안에 갇히고, 화면 기준 위치가 어긋난다. */
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000, padding: `calc(${DIALOG_TOP} - 5px) 1rem 1rem` }}>
+          <div style={{ ...dragStyle, background: '#fff', borderRadius: '16px', maxWidth: '500px', width: '100%', maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
             
             {/* Header */}
-            <div style={{ background: 'var(--bg-main)', padding: '1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div {...dragHandleProps} style={{ ...dragHandleProps.style, background: 'var(--bg-main)', padding: '1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h4 style={{ fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-bright)' }}>
                 일정 상세 정보
               </h4>
@@ -356,7 +364,7 @@ function CalendarView({ showToast, currentUser }) {
             </div>
 
           </div>
-        </div>
+        </div>, document.body)
       )}
 
     </div>

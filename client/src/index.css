@@ -1,4 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+/* Pretendard - 한글과 영문/숫자를 한 폰트로 처리한다.
+   이전에는 한글 글자가 없는 Outfit(영문 전용)을 쓰고 있어서, 한글만 윈도우 기본
+   맑은 고딕으로 떨어졌다. 한 줄 안에서 두 폰트가 섞이고 맑은 고딕은 작은 크기에서
+   획이 얇아 흐려 보이던 것이 화면 가독성이 나빴던 가장 큰 원인이다.
+   dynamic-subset은 화면에 실제로 쓰인 글자만 내려받아 한글 폰트치고 가볍다. */
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css');
 
 :root {
   /* Color System (Clean White & Slate Navy with LeasePlan Orange Accent) */
@@ -13,16 +18,19 @@
   --secondary: #367CFF;
   --text-main: #334155; /* Slate-700 */
   --text-bright: #0f172a; /* Slate-900 */
-  --text-muted: #64748b; /* Slate-500 */
-  
-  --border-color: #e2e8f0; /* Light border */
+  /* Slate-500(#64748b)은 밝은 배경에서 대비가 4.5:1로 기준선에 겨우 걸쳐 있었다.
+     본문 대부분이 12~14px이라 그 크기에서는 읽기 힘들어 Slate-600으로 낮춰 6.2:1을 확보한다. */
+  --text-muted: #4b5563; /* Slate-600 */
+
+  /* Slate-200(#e2e8f0)은 너무 옅어 표의 행 구분이 거의 보이지 않았다 */
+  --border-color: #cbd5e1; /* Slate-300 */
   --border-glow: rgba(54, 124, 255, 0.15);
   
   --error: #ef4444;
   --success: #10b981;
   --success-glow: rgba(16, 185, 129, 0.08);
   
-  --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif;
   --shadow-premium: 0 10px 30px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02);
   --blur-amount: 12px;
   
@@ -44,6 +52,27 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* 금액처럼 세로로 늘어서는 숫자의 자릿수를 맞춘다.
+   기본 글꼴은 숫자 폭이 제각각이라 1과 8의 너비가 달라 자릿수가 어긋나 보인다.
+   견적서/청구서처럼 숫자를 대조하는 화면이 많아 표와 입력칸 전체에 적용한다.
+   본문 전체가 아니라 숫자를 읽는 곳에만 적용해 일반 문장의 자간은 건드리지 않는다. */
+table,
+input,
+textarea,
+select {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* 입력 요소는 브라우저 기본 글꼴을 쓰기 때문에 따로 지정하지 않으면
+   한글이 다시 맑은 고딕으로 떨어진다 */
+input,
+textarea,
+select,
+button {
+  font-family: inherit;
+}
+
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
@@ -63,9 +92,12 @@ body {
 }
 
 /* Animations */
+/* 끝 상태를 transform: none으로 둔다.
+   translateY(0)이라도 transform이 걸려 있으면 그 요소가 자식 position:fixed의 기준이 되어
+   모달이 화면 전체가 아니라 이 요소 안에 갇혀 잘려 보인다(animation-fill-mode가 forwards라 값이 계속 남는다). */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  to { opacity: 1; transform: none; }
 }
 
 @keyframes float {

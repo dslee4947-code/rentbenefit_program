@@ -2,6 +2,11 @@ import mongoose from 'mongoose';
 const { Schema } = mongoose;
 
 const QuoteSchema = new Schema({
+  // 계약 조건 - 계약서 등록 시 그대로 이관된다
+  terms: {
+    lateInterestRate: { type: Number, default: 25 }, // 연체 이율 (연 %)
+    earlyTerminationRate: { type: Number, default: 35 } // 중도해지 수수료율 (%)
+  },
   customer: { type: Schema.Types.ObjectId, ref: 'Customer', required: true },
 
   // 거래 주체 구분 (고객이 법인 여러 곳에 소속될 수 있어 어느 법인 건인지 명시해야 함)

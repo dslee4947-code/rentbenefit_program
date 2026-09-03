@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 import { MessageCircleQuestion, Plus, X, Save, CheckCircle2, Trash2, Search } from 'lucide-react';
 import { formatCustomerName } from '../../utils/format.js';
+import { useTableSort } from './useTableSort.js';
+import { SortableTh, SortControls } from './TableSort.jsx';
+import { useDraggableDialog, DIALOG_TOP } from './useDraggableDialog.js';
+import { createPortal } from 'react-dom';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -8,8 +12,13 @@ function PendingInquiriesView({ showToast, currentUser }) {
   const [inquiries, setInquiries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAll, setShowAll] = useState(false); // false: 대기중만, true: 전체
+  const [keyword, setKeyword] = useState(''); // 고객명·내용·담당자로 걸러 본다
 
   const [showModal, setShowModal] = useState(false);
+
+  // 팝업을 제목 줄로 잡아 끌어 옮길 수 있게 한다
+
+  const { dragHandleProps, dragStyle } = useDraggableDialog(showModal);
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [customerSearchResults, setCustomerSearchResults] = useState([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -161,6 +170,22 @@ function PendingInquiriesView({ showToast, currentUser }) {
   const inputStyle = { width: '100%', padding: '0.55rem 0.7rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-bright)', fontSize: '0.85rem' };
   const labelStyle = { fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' };
 
+  // 문의 목록에서 정렬할 수 있는 항목
+  const INQUIRY_COLUMNS = [
+    { key: 'customerName', label: '고객명', sortValue: (i) => formatCustomerName(i.customer) },
+    { key: 'content', label: '문의 내용', sortValue: (i) => i.content },
+    { key: 'assignee', label: '담당자', sortValue: (i) => i.assignee },
+    { key: 'createdAt', label: '등록일', numeric: true, sortValue: (i) => i.createdAt },
+    { key: 'status', label: '상태', sortValue: (i) => i.status }
+  ];
+  const kw = keyword.trim().toLowerCase();
+  const filteredInquiries = kw
+    ? inquiries.filter((i) => [formatCustomerName(i.customer), i.content, i.assignee]
+        .some((v) => (v || '').toLowerCase().includes(kw)))
+    : inquiries;
+  const inquirySort = useTableSort(filteredInquiries, INQUIRY_COLUMNS);
+  const visibleInquiries = inquirySort.rows;
+
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       <div style={{ background: '#fff', padding: '1.2rem', borderRadius: '10px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-premium)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
@@ -168,12 +193,28 @@ function PendingInquiriesView({ showToast, currentUser }) {
           <MessageCircleQuestion size={22} style={{ color: 'var(--primary)' }} />
           <div>
             <div style={{ fontWeight: '800', fontSize: '1.1rem', color: 'var(--text-bright)' }}>
-              {showAll ? '전체 문의' : '미처리 문의'} {inquiries.length}건
+              {showAll ? '전체 문의' : '미처리 문의'} {visibleInquiries.length}건
             </div>
             <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>등록된 고객이 남긴 문의 중 아직 처리되지 않은 건을 관리합니다.</div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative' }}>
+            <Search size={14} style={{ position: 'absolute', left: '0.7rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <input
+              type="text"
+              placeholder="고객명 · 내용 · 담당자 검색"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              style={{ padding: '0.5rem 0.7rem 0.5rem 2rem', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.83rem', width: '220px' }}
+            />
+          </div>
+          <SortControls
+            sort={inquirySort}
+            defaultLabel="정렬 안 함 (최근 등록순)"
+            show={inquirySort.active || Boolean(keyword)}
+            onReset={() => setKeyword('')}
+          />
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', color: 'var(--text-muted)', cursor: 'pointer' }}>
             <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
             처리완료 포함 전체 보기
@@ -192,24 +233,24 @@ function PendingInquiriesView({ showToast, currentUser }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
           <thead>
             <tr style={{ background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-bright)', fontWeight: '700' }}>
-              <th style={{ padding: '0.8rem' }}>고객명</th>
-              <th style={{ padding: '0.8rem' }}>문의 내용</th>
-              <th style={{ padding: '0.8rem' }}>담당자</th>
-              <th style={{ padding: '0.8rem' }}>등록일</th>
-              <th style={{ padding: '0.8rem' }}>상태</th>
+              {INQUIRY_COLUMNS.map((col) => (
+                <SortableTh key={col.key} sort={inquirySort} columnKey={col.key} style={{ padding: '0.8rem' }}>
+                  {col.label}
+                </SortableTh>
+              ))}
               <th style={{ padding: '0.8rem', width: '120px' }}>관리</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr><td colSpan="6" style={{ textAlign: 'center', padding: '2rem' }}>로딩 중...</td></tr>
-            ) : inquiries.length === 0 ? (
+            ) : visibleInquiries.length === 0 ? (
               <tr><td colSpan="6" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
                 <CheckCircle2 size={18} style={{ verticalAlign: 'middle', marginRight: '0.3rem', color: '#52c41a' }} />
-                미처리 문의가 없습니다.
+                {inquiries.length ? '검색 결과가 없습니다.' : '미처리 문의가 없습니다.'}
               </td></tr>
             ) : (
-              inquiries.map(i => (
+              visibleInquiries.map(i => (
                 <tr key={i._id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                   <td style={{ padding: '0.8rem', fontWeight: '700' }}>{formatCustomerName(i.customer)}</td>
                   <td style={{ padding: '0.8rem', maxWidth: '360px' }}>{i.content}</td>
@@ -244,9 +285,13 @@ function PendingInquiriesView({ showToast, currentUser }) {
       </div>
 
       {showModal && (
-        <div onClick={() => setShowModal(false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', width: '90%', maxWidth: '480px', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.2rem 1.5rem', borderBottom: '1px solid var(--border-color)' }}>
+        createPortal(
+        /* 팝업은 document.body에 직접 그린다.
+           페이지 쪽 조상에 transform/animation이 걸려 있으면 position:fixed의 기준이 그 요소로 바뀌어
+           팝업이 스크롤되는 콘텐츠 영역 안에 갇히고, 화면 기준 위치가 어긋난다. */
+        <div onClick={() => setShowModal(false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000, padding: `${DIALOG_TOP} 1rem 1rem` }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ ...dragStyle, background: '#fff', borderRadius: '12px', width: '90%', maxWidth: '480px', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}>
+            <div {...dragHandleProps} style={{ ...dragHandleProps.style, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.2rem 1.5rem', borderBottom: '1px solid var(--border-color)' }}>
               <h3 style={{ margin: 0, fontWeight: '800', fontSize: '1.05rem' }}>새 문의 등록</h3>
               <button type="button" onClick={() => setShowModal(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
                 <X size={20} />
@@ -306,7 +351,7 @@ function PendingInquiriesView({ showToast, currentUser }) {
               </div>
             </form>
           </div>
-        </div>
+        </div>, document.body)
       )}
     </div>
   );

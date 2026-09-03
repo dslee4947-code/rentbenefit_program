@@ -1,12 +1,19 @@
 import Customer from '../models/Customer.js';
 import Company from '../models/Company.js';
 
+// 고객 목록을 정렬할 수 있는 항목. 화면(고객 DB 표)의 열과 같은 이름을 쓴다.
+// 아무 값이나 그대로 넘기면 색인 없는 항목으로 정렬해 조회가 느려지므로 여기 적힌 것만 받는다.
+const SORTABLE_CUSTOMER_FIELDS = [
+  'surname', 'givenName', 'name', 'companyName', 'mobilePhone',
+  'contactPhone', 'email', 'outlookCategory', 'updatedAt', 'createdAt'
+];
+
 // @desc    Get all customers
 // @route   GET /api/customers
 // @access  Private/Admin
 export const getCustomers = async (req, res) => {
   try {
-    const { search, source, category, page = 1, limit = 50, all } = req.query;
+    const { search, source, category, page = 1, limit = 50, all, sort, order } = req.query;
 
     let query = {};
     
@@ -34,9 +41,15 @@ export const getCustomers = async (req, res) => {
       ];
     }
 
+    // 목록 정렬. 페이지를 나눠 보내므로 정렬은 서버에서 해야 한다.
+    // (화면에서 정렬하면 지금 보고 있는 50건 안에서만 순서가 바뀐다)
+    const sortField = SORTABLE_CUSTOMER_FIELDS.includes(sort) ? sort : 'createdAt';
+    const sortDir = order === 'asc' ? 1 : -1;
+    const sortSpec = { [sortField]: sortDir };
+
     // If client specifically requests legacy full array format (e.g. export or old code)
     if (all === 'true') {
-      const customers = await Customer.find(query).sort({ createdAt: -1 });
+      const customers = await Customer.find(query).sort(sortSpec);
       return res.json(customers);
     }
     
@@ -46,7 +59,7 @@ export const getCustomers = async (req, res) => {
 
     // Fast parallel execution for paginated items & stats
     const [customers, totalCount, totalAll, totalOutlook, totalManual, categories] = await Promise.all([
-      Customer.find(query).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
+      Customer.find(query).sort(sortSpec).skip(skip).limit(limitNum),
       Customer.countDocuments(query),
       Customer.countDocuments({}),
       Customer.countDocuments({ source: 'outlook' }),

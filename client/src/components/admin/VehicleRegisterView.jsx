@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FileText, Paperclip, AlertCircle, Sparkles } from 'lucide-react';
+import MoneyInput from './MoneyInput.jsx';
 
 const BRAND_MODELS = {
   현대: ['아반떼', '쏘나타', '그랜저', '팰리세이드', '스타리아', '아이오닉 5', '투싼', '싼타페'],
@@ -244,8 +245,7 @@ function VehicleRegisterView({ onRegisterVehicle, setActiveTab, showToast }) {
               <label className="required-label">
                 {registrationMethod === '중고차 매물' ? '판매 금액 (원)' : registrationMethod === '단기렌트' ? '일 이용료 (원)' : '월 이용료 (원)'}
               </label>
-              <input 
-                type="number" 
+              <MoneyInput 
                 placeholder={registrationMethod === '중고차 매물' ? '예: 18500000' : registrationMethod === '단기렌트' ? '예: 55000' : '예: 450000'} 
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}

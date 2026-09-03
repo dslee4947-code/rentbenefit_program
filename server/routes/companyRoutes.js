@@ -4,6 +4,7 @@ import {
   getCompanyById,
   createCompany,
   updateCompany,
+  deleteCompany,
   getCompanyCustomers,
   processCompanyOCR,
   uploadCompanyDocument,
@@ -24,7 +25,8 @@ router.post('/ocr', checkWritePermission, uploadSingleFile(), processCompanyOCR)
 
 router.route('/:id')
   .get(getCompanyById)
-  .put(checkWritePermission, updateCompany);
+  .put(checkWritePermission, updateCompany)
+  .delete(checkWritePermission, deleteCompany);
 
 router.get('/:id/customers', getCompanyCustomers);
 

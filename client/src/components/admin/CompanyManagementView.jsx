@@ -14,7 +14,9 @@ import {
   Download,
   Trash2
 } from 'lucide-react';
-import { formatBizNo, formatCorporateRegistrationNo, formatCustomerName } from '../../utils/format.js';
+import { formatBizNo, formatCorporateRegistrationNo, formatCustomerName, formatPersonalIdPrefix } from '../../utils/format.js';
+import { useTableSort } from './useTableSort.js';
+import { SortableTh, SortControls } from './TableSort.jsx';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -27,13 +29,16 @@ const EMPTY_FORM = {
   address: '',
   billingEmail: '',
   folderName: '',
-  memo: ''
+  memo: '',
+  // 이 법인의 기본 출금 통장 (법인 차량을 등록할 때 차량에 채워진다)
+  bank: { holder: '', bankName: '', accountNo: '' }
 };
 
 function CompanyManagementView({ showToast, currentUser }) {
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [bizTypeFilter, setBizTypeFilter] = useState('all'); // 법인사업자 / 개인사업자 등으로 걸러 본다
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
   const [showModal, setShowModal] = useState(false);
@@ -178,6 +183,28 @@ function CompanyManagementView({ showToast, currentUser }) {
   useEffect(() => {
     fetchCompanies();
   }, [debouncedSearch]);
+
+  // 법인 검색 목록에서 법인 자체를 삭제한다. 계약/차량에 연결된 법인은 서버에서 막는다.
+  const handleDeleteCompany = async (company) => {
+    if (currentUser?.role === 'viewer') {
+      showToast?.('삭제 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
+    if (!window.confirm(`"${company.name}" 법인을 삭제하시겠습니까?\n연결된 계약/차량이 있으면 삭제할 수 없습니다.`)) return;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/companies/${company._id}`, {
+        method: 'DELETE',
+        headers: { 'X-User-Role': currentUser?.role || 'viewer' }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || '삭제에 실패했습니다.');
+      showToast?.(data.message || '삭제되었습니다.', 'success');
+      setCompanies((prev) => prev.filter((c) => c._id !== company._id));
+    } catch (err) {
+      showToast?.(err.message, 'error');
+    }
+  };
 
   const fetchAffiliatedCustomers = async (companyId) => {
     try {
@@ -327,7 +354,12 @@ function CompanyManagementView({ showToast, currentUser }) {
       address: company.address || '',
       billingEmail: company.billingEmail || '',
       folderName: company.folderName || '',
-      memo: company.memo || ''
+      memo: company.memo || '',
+      bank: {
+        holder: company.bank?.holder || '',
+        bankName: company.bank?.bankName || '',
+        accountNo: company.bank?.accountNo || ''
+      }
     });
     setCustomerSearchTerm('');
     setCustomerSearchResults([]);
@@ -431,8 +463,11 @@ function CompanyManagementView({ showToast, currentUser }) {
       });
 
       if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.message || '사업자등록증 분석에 실패했습니다.');
+        const errData = await res.json().catch(() => ({}));
+        const err = new Error(errData.message || '사업자등록증 분석에 실패했습니다.');
+        // 503(자동 완성 미설정)과 422(인식 실패)는 고장이 아니라 직접 입력하면 되는 상황이다.
+        err.isNotice = res.status === 503 || res.status === 422;
+        throw err;
       }
 
       const data = await res.json();
@@ -454,7 +489,10 @@ function CompanyManagementView({ showToast, currentUser }) {
       );
     } catch (err) {
       // OCR 인식은 실패했어도 파일 자체는 이미 대기열에 들어가 있어 저장 시 문서함에 저장된다.
-      showToast?.(`${err.message} (파일은 저장 시 문서함에 그대로 저장됩니다. 항목은 직접 입력해 주세요)`, 'error');
+      showToast?.(
+        `${err.message} 첨부한 파일은 저장 시 문서함에 그대로 보관됩니다.`,
+        err.isNotice ? 'info' : 'error'
+      );
     } finally {
       setOcrLoading(false);
       e.target.value = '';
@@ -585,6 +623,19 @@ function CompanyManagementView({ showToast, currentUser }) {
     }
   };
 
+  // 법인 목록에서 정렬할 수 있는 항목. 검색은 서버가 하고, 구분 필터와 정렬은 받아 온 목록에서 한다.
+  const COMPANY_COLUMNS = [
+    { key: 'name', label: '법인명', sortValue: (c) => c.name },
+    { key: 'bizType', label: '구분', sortValue: (c) => c.bizType },
+    { key: 'bizNo', label: '사업자번호', sortValue: (c) => c.bizNo },
+    { key: 'ceoName', label: '대표자', sortValue: (c) => c.ceoName }
+  ];
+  const filteredCompanies = companies.filter(
+    (c) => bizTypeFilter === 'all' || (c.bizType || '미지정') === bizTypeFilter
+  );
+  const companySort = useTableSort(filteredCompanies, COMPANY_COLUMNS);
+  const visibleCompanies = companySort.rows;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
@@ -651,6 +702,24 @@ function CompanyManagementView({ showToast, currentUser }) {
           />
         </div>
 
+        <select
+          value={bizTypeFilter}
+          onChange={(e) => setBizTypeFilter(e.target.value)}
+          style={{ padding: '0.65rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: '#fff', fontSize: '0.88rem', cursor: 'pointer' }}
+        >
+          <option value="all">전체 구분</option>
+          <option value="법인사업자">법인사업자</option>
+          <option value="개인사업자">개인사업자</option>
+          <option value="미지정">미지정</option>
+        </select>
+        <SortControls
+          sort={companySort}
+          selectStyle={{ padding: '0.65rem 0.8rem', fontSize: '0.88rem' }}
+          defaultLabel="정렬 안 함 (법인명순)"
+          show={companySort.active || Boolean(searchTerm) || bizTypeFilter !== 'all'}
+          onReset={() => { setSearchTerm(''); setBizTypeFilter('all'); }}
+        />
+
         <button
           onClick={() => openAddModal()}
           style={{
@@ -684,24 +753,24 @@ function CompanyManagementView({ showToast, currentUser }) {
           <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
             법인 목록을 불러오는 중입니다...
           </div>
-        ) : companies.length === 0 ? (
+        ) : visibleCompanies.length === 0 ? (
           <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-            {debouncedSearch ? '검색 결과가 없습니다.' : '등록된 법인이 없습니다. 신규 법인을 등록해 보세요.'}
+            {(debouncedSearch || bizTypeFilter !== 'all') ? '검색 결과가 없습니다.' : '등록된 법인이 없습니다. 신규 법인을 등록해 보세요.'}
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.88rem' }}>
               <thead>
                 <tr style={{ background: 'var(--bg-main)', borderBottom: '2px solid var(--border-color)', color: 'var(--text-muted)' }}>
-                  <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', minWidth: '220px' }}>법인명</th>
-                  <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', width: '140px' }}>구분</th>
-                  <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', width: '160px' }}>사업자번호</th>
-                  <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', minWidth: '140px' }}>대표자</th>
-                  <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', textAlign: 'center', width: '100px' }}>관리</th>
+                  <SortableTh sort={companySort} columnKey="name" style={{ padding: '0.9rem 1.2rem', fontWeight: '700', minWidth: '220px' }}>법인명</SortableTh>
+                  <SortableTh sort={companySort} columnKey="bizType" style={{ padding: '0.9rem 1.2rem', fontWeight: '700', width: '140px' }}>구분</SortableTh>
+                  <SortableTh sort={companySort} columnKey="bizNo" style={{ padding: '0.9rem 1.2rem', fontWeight: '700', width: '160px' }}>사업자번호</SortableTh>
+                  <SortableTh sort={companySort} columnKey="ceoName" style={{ padding: '0.9rem 1.2rem', fontWeight: '700', minWidth: '140px' }}>대표자</SortableTh>
+                  <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', textAlign: 'center', width: '140px' }}>관리</th>
                 </tr>
               </thead>
               <tbody>
-                {companies.map((company) => (
+                {visibleCompanies.map((company) => (
                   <tr
                     key={company._id}
                     style={{ borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }}
@@ -717,8 +786,8 @@ function CompanyManagementView({ showToast, currentUser }) {
                         borderRadius: '20px',
                         fontSize: '0.75rem',
                         fontWeight: '600',
-                        background: company.bizType === '개인사업자' ? 'rgba(245, 158, 11, 0.12)' : 'rgba(54, 124, 255, 0.12)',
-                        color: company.bizType === '개인사업자' ? '#f59e0b' : 'var(--primary)'
+                        background: company.bizType === '법인사업자' ? 'rgba(54, 124, 255, 0.12)' : 'rgba(245, 158, 11, 0.12)',
+                        color: company.bizType === '법인사업자' ? 'var(--primary)' : '#f59e0b'
                       }}>
                         {company.bizType || '미지정'}
                       </span>
@@ -730,26 +799,22 @@ function CompanyManagementView({ showToast, currentUser }) {
                       {company.ceoName || '-'}
                     </td>
                     <td style={{ padding: '0.9rem 1.2rem', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => openEditModal(company)}
-                        title="수정"
-                        style={{
-                          border: 'none',
-                          background: 'rgba(54, 124, 255, 0.1)',
-                          color: 'var(--primary)',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          padding: '0.3rem 0.6rem',
-                          fontSize: '0.78rem',
-                          fontWeight: '600',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '0.3rem'
-                        }}
-                      >
-                        <Edit3 size={13} />
-                        <span>수정</span>
-                      </button>
+                      <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', justifyContent: 'center' }}>
+                        <button
+                          onClick={() => openEditModal(company)}
+                          title="수정"
+                          style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer' }}
+                        >
+                          <Edit3 size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCompany(company)}
+                          title="삭제"
+                          style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1227,11 +1292,22 @@ function CompanyManagementView({ showToast, currentUser }) {
                   </label>
                   <select
                     value={formData.bizType}
-                    onChange={(e) => setFormData({ ...formData, bizType: e.target.value })}
+                    onChange={(e) => {
+                      // 구분을 바꾸면 그 구분에서 쓰지 않는 번호는 비운다.
+                      // 법인등록번호는 법인사업자만, 사업자번호는 사업자만 쓴다.
+                      const next = e.target.value;
+                      setFormData(prev => ({
+                        ...prev,
+                        bizType: next,
+                        corporateRegistrationNo: next === '법인사업자' ? prev.corporateRegistrationNo : '',
+                        bizNo: ''
+                      }));
+                    }}
                     style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-bright)', cursor: 'pointer' }}
                   >
                     <option value="법인사업자">법인사업자</option>
                     <option value="개인사업자">개인사업자</option>
+                    <option value="개인">개인 (사업자 없음)</option>
                   </select>
                 </div>
               </div>
@@ -1239,16 +1315,26 @@ function CompanyManagementView({ showToast, currentUser }) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div>
                   <label style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
-                    사업자번호
+                    {formData.bizType === '개인' ? '주민번호 (앞 7자리)' : '사업자번호'}
                   </label>
                   <input
                     type="text"
                     value={formData.bizNo}
-                    onChange={(e) => setFormData({ ...formData, bizNo: formatBizNo(e.target.value) })}
-                    placeholder="000-00-00000"
-                    maxLength={12}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      bizNo: formData.bizType === '개인'
+                        ? formatPersonalIdPrefix(e.target.value)
+                        : formatBizNo(e.target.value)
+                    })}
+                    placeholder={formData.bizType === '개인' ? '950101-1' : '000-00-00000'}
+                    maxLength={formData.bizType === '개인' ? 8 : 12}
                     style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-bright)' }}
                   />
+                  {formData.bizType === '개인' && (
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+                      뒷자리는 성별 구분 한 자리까지만 입력됩니다. 그 뒤 숫자는 저장하지 않습니다.
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
@@ -1263,21 +1349,24 @@ function CompanyManagementView({ showToast, currentUser }) {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                <div>
-                  <label style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
-                    법인등록번호
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.corporateRegistrationNo}
-                    onChange={(e) => setFormData({ ...formData, corporateRegistrationNo: formatCorporateRegistrationNo(e.target.value) })}
-                    placeholder="000000-0000000"
-                    maxLength={14}
-                    style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-bright)' }}
-                  />
+              {/* 법인등록번호는 법인사업자만 가진다. 개인사업자/개인에게는 없으므로 칸 자체를 두지 않는다. */}
+              {formData.bizType === '법인사업자' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
+                      법인등록번호
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.corporateRegistrationNo}
+                      onChange={(e) => setFormData({ ...formData, corporateRegistrationNo: formatCorporateRegistrationNo(e.target.value) })}
+                      placeholder="000000-0000000"
+                      maxLength={14}
+                      style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-bright)' }}
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
@@ -1289,6 +1378,44 @@ function CompanyManagementView({ showToast, currentUser }) {
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                   style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-bright)' }}
                 />
+              </div>
+
+              {/* 출금 통장 - 이 법인 차량을 새로 등록할 때 차량의 출금 계좌로 채워진다 */}
+              <div>
+                <div style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text-bright)', marginBottom: '0.5rem' }}>🏦 출금 통장</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>예금주명</label>
+                    <input
+                      type="text"
+                      value={formData.bank.holder}
+                      onChange={(e) => setFormData({ ...formData, bank: { ...formData.bank, holder: e.target.value } })}
+                      style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-bright)' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>은행</label>
+                    <input
+                      type="text"
+                      value={formData.bank.bankName}
+                      onChange={(e) => setFormData({ ...formData, bank: { ...formData.bank, bankName: e.target.value } })}
+                      placeholder="예: 신한은행"
+                      style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-bright)' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>계좌번호</label>
+                    <input
+                      type="text"
+                      value={formData.bank.accountNo}
+                      onChange={(e) => setFormData({ ...formData, bank: { ...formData.bank, accountNo: e.target.value } })}
+                      style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-bright)' }}
+                    />
+                  </div>
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+                  이 법인의 차량을 렌트차량 DB에 등록할 때 출금 계좌로 자동 입력됩니다. 차량별로 계좌가 다르면 차량에서 따로 고칠 수 있습니다.
+                </div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>

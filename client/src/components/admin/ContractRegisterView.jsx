@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Plus, Trash2, FileSignature, ChevronDown, ChevronUp, ArrowLeft, UserPlus, Users, Upload, Download, List, Edit, Search } from 'lucide-react';
-import { formatCustomerName } from '../../utils/format.js';
+import { Save, Plus, Trash2, FileSignature, ChevronDown, ChevronUp, ArrowLeft, UserPlus, Users, Upload, Download, List, Edit, Search, Clock, Truck, FolderCheck, RotateCcw } from 'lucide-react';
+import { formatCustomerName, toCommaString, parseNumber, extractQuoteVehicleDetail } from '../../utils/format.js';
+import { useTableSort } from './useTableSort.js';
+import { SortableTh, SortControls } from './TableSort.jsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -12,13 +14,32 @@ const todayDateStr = () => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
+// 계약서에 넣는 차량 한 대의 항목.
+// 보험·정비·대출은 계약 단위로 정해지므로 여기 두지 않는다.
+const EMPTY_VEHICLE = {
+  model: '',
+  options: '',
+  price: '',
+  fuelType: '가솔린',
+  cc: '',
+  color: '',
+  colorInterior: '',
+  plateNo: '',
+  vin: ''
+};
+
 function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefilledContractData, setPrefilledContractData, setActiveTab, showToast, currentUser }) {
   const [customers, setCustomers] = useState([]);
   const [contracts, setContracts] = useState([]);
+  // 보관된 계약은 목록에서 감춰진다. 되돌리려면 이 값을 켜서 함께 불러온다.
+  const [showArchived, setShowArchived] = useState(false);
+  // 보기 설정이 바뀌면 목록을 다시 불러온다
+  useEffect(() => { fetchContractsList(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [showArchived]);
 
   // 새 계약서 작성 화면 / 계약서 목록(하위 화면) 전환
   const [viewMode, setViewMode] = useState('form'); // 'form' | 'list'
   const [contractListSearch, setContractListSearch] = useState('');
+  const [contractStatusFilter, setContractStatusFilter] = useState('all'); // 계약서 목록 상태 필터
 
   // Section Accordion Toggles
   const [expanded, setExpanded] = useState({
@@ -40,6 +61,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
   const [customerId, setCustomerId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [companySuggestions, setCompanySuggestions] = useState([]); // "계약사/법인명 검색"의 법인 DB 검색 결과
   const [isNewCustomer, setIsNewCustomer] = useState(false);
   
   const [customerName, setCustomerName] = useState('');
@@ -58,6 +80,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
   // 거래 주체 구분 - 선택된 고객이 법인에 소속되어 있으면 그 법인의 사업자등록증 정보를 그대로 채운다
   const [partyType, setPartyType] = useState('개인'); // '개인' | '법인'
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
+
   const [customerCompanies, setCustomerCompanies] = useState([]); // 선택된 고객의 소속 법인 목록 (2곳 이상일 때 전환용)
   const [companyLoading, setCompanyLoading] = useState(false);
 
@@ -88,16 +111,9 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
   const [corporateRegistrationNo, setCorporateRegistrationNo] = useState('');
 
   // 3. Vehicle Fields
-  const [vehicleModel, setVehicleModel] = useState('');
-  const [vehicleSpec, setVehicleSpec] = useState('');
-  const [vehicleYear, setVehicleYear] = useState(new Date().getFullYear());
-  const [vehicleColor, setVehicleColor] = useState('');
-  const [vehicleColorInterior, setVehicleColorInterior] = useState('');
-  const [vehicleFuelType, setVehicleFuelType] = useState('가솔린');
-  const [vehicleCc, setVehicleCc] = useState('');
-  const [vehicleVin, setVehicleVin] = useState('');
-  const [vehiclePlateNo, setVehiclePlateNo] = useState('');
-  const [vehicleOptions, setVehicleOptions] = useState('');
+  // 한 계약에 차량이 여러 대 들어간다.
+  // 청구서와 세금계산서가 계약서 단위라, 같은 날 계약해도 계약서가 다르면 따로 나가야 하기 때문이다.
+  const [vehicleList, setVehicleList] = useState([{ ...EMPTY_VEHICLE }]);
   const [releaseAddress, setReleaseAddress] = useState('');
   const [dealer, setDealer] = useState('');
   const [salesRep, setSalesRep] = useState('');
@@ -106,7 +122,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
   // New Vehicle Fields
   const [classification, setClassification] = useState('');
   const [operationType, setOperationType] = useState('');
-  const [vehiclePrice, setVehiclePrice] = useState('');
+
   const [registrationDate, setRegistrationDate] = useState('');
   const [mileage, setMileage] = useState('');
 
@@ -128,6 +144,10 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
   const [contractQuantity, setContractQuantity] = useState('1');
   const [insurancePreset, setInsurancePreset] = useState('보험1');
   const [maintenancePreset, setMaintenancePreset] = useState('미포함');
+
+  // 계약 조건 - 견적서에서 정한 값이 넘어오고, 청구서의 연체 이자 계산에 쓰인다
+  const [lateInterestRate, setLateInterestRate] = useState('25');
+  const [earlyTerminationRate, setEarlyTerminationRate] = useState('35');
 
   // Excel upload states & handlers
   const [excelFile, setExcelFile] = useState(null);
@@ -193,6 +213,9 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
 
   // Vehicle Maintenance
   const [maintenance, setMaintenance] = useState({
+    // 견적서에서 정해져 넘어오는 값. 화면에서는 확인만 하고 차량 DB로 그대로 전달한다.
+    mileage: '',
+    tireType: '',
     consumables: '미가입',
     tireCount: '미가입',
     tireSpec: '',
@@ -239,8 +262,8 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     monthlyFee: '',
     billingDay: '10',
     invoiceDay: '10',
-    penaltyRate: '10',
-    overdueRate: '15',
+    penaltyRate: '35',
+    overdueRate: '25',
     
     // New Pricing Fields
     paymentTerm: '',
@@ -275,25 +298,65 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     }
   };
 
-  const applyMaintenancePreset = (preset) => {
-    if (preset === '포함') {
-      setMaintenance({
-        consumables: '가입',
-        tireCount: '계약 기간 동안 4본 제공',
-        regularCheck: '가입',
-        emergencyService: '가입',
-        generalMaintenance: '가입'
-      });
-    } else {
-      setMaintenance({
-        consumables: '미가입',
-        tireCount: '미가입',
-        regularCheck: '미가입',
-        emergencyService: '미가입',
-        generalMaintenance: '미가입'
-      });
+  // 정비 서비스 여부에 따른 세부 항목 기본값.
+  // 선택 상자로 바꿀 때와 저장된 계약을 불러올 때가 같은 값을 쓰도록 한 곳에 모아 둔다.
+  const MAINTENANCE_PRESETS = {
+    '포함': {
+      consumables: '가입',
+      tireCount: '계약 기간 동안 4본 제공',
+      regularCheck: '가입',
+      emergencyService: '가입',
+      generalMaintenance: '가입'
+    },
+    '미포함': {
+      consumables: '미가입',
+      tireCount: '미가입',
+      regularCheck: '미가입',
+      emergencyService: '미가입',
+      generalMaintenance: '미가입'
     }
   };
+
+  // 견적서에서 정해진 연간 주행거리와 타이어 등급은 정비 포함/미포함과 무관한 값이라,
+  // 프리셋을 바꿔도 지우지 않고 그대로 둔다.
+  // 차량 한 대의 항목을 고친다
+  const updateVehicleAt = (index, field, value) => {
+    setVehicleList((prev) => prev.map((v, i) => (i === index ? { ...v, [field]: value } : v)));
+  };
+
+  // 차량을 한 대 더 넣는다.
+  // 같은 계약의 차량은 차종·옵션이 거의 같고 색상만 다른 경우가 많아, 바로 위 차량을 복사해서 시작한다.
+  // 차량번호와 차대번호는 차량마다 반드시 달라야 하므로 복사하지 않는다.
+  const addVehicle = () => {
+    setVehicleList((prev) => {
+      const last = prev[prev.length - 1];
+      return [...prev, last ? { ...last, plateNo: '', vin: '' } : { ...EMPTY_VEHICLE }];
+    });
+  };
+
+  // 이미 추가해 둔 차량에 바로 위 차량 내용을 다시 덮어쓴다 (차량번호/차대번호는 그대로 둔다)
+  const copyFromPreviousVehicle = (index) => {
+    if (index === 0) return;
+    setVehicleList((prev) => prev.map((v, i) => (
+      i === index ? { ...prev[index - 1], plateNo: v.plateNo, vin: v.vin } : v
+    )));
+  };
+
+  const removeVehicleAt = (index) => {
+    setVehicleList((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)));
+  };
+
+  const applyMaintenancePreset = (preset) => {
+    setMaintenance(prev => ({
+      ...(MAINTENANCE_PRESETS[preset] || MAINTENANCE_PRESETS['미포함']),
+      mileage: prev.mileage,
+      tireType: prev.tireType
+    }));
+  };
+
+  // 견적서는 타이어 등급을 standard/premium으로 다룬다. 차량 DB에는 사람이 읽는 말로 남긴다.
+  const TIRE_GRADE_LABEL = { standard: '일반형', premium: '고급형' };
+  const toTireGradeLabel = (value) => TIRE_GRADE_LABEL[value] || value || '';
 
   const populateCustomerFields = (cust) => {
     setCustomerName(cust.name || '');
@@ -343,19 +406,44 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     return { name: company?.ceoName || '', phone: '' };
   };
 
-  // 선택된 법인의 사업자등록증 정보(법인명/사업자번호/대표자/법인등록번호/주소)를 그대로 채운다.
-  // 통장/이메일은 법인 자체에 필드가 없어 소속 고객(계약 담당자) 정보로 보강한다.
-  const applyCompanyBilling = (company, contactCust) => {
+  // 법인 검색 결과를 고르면, applyCustomerSelection에 넘길 실제 고객 레코드가 하나 필요하다
+  // (계약은 항상 담당 고객을 정본으로 갖는다). 같은 우선순위로 담당 고객을 고른다.
+  const pickCompanyContact = (companyCustomers) => {
+    const managers = companyCustomers.filter(c => c.role === '담당자');
+    const reps = companyCustomers.filter(c => c.role === '대표');
+    return managers.find(c => c.isPrimary) || managers[0] || reps.find(c => c.isPrimary) || reps[0] || companyCustomers[0] || null;
+  };
+
+  // 사업자등록증 정보 칸을 비운다. 법인을 고르기 전에는 아무 값도 들어 있지 않아야
+  // 이전 고객의 값이 남아 그대로 저장되는 일이 없다.
+  const clearBusinessFields = () => {
+    setCustomerName('');
+    setCustomerBizNo('');
+    setCustomerCeoName('');
+    setCustomerBizNoTransfer('');
+    setCustomerBizAddress('');
+    setCustomerAddress('');
+    setCustomerEmail('');
+    setCustomerBankName('');
+    setCustomerBankAccount('');
+    setCustomerBankHolder('');
+  };
+
+  // 선택된 법인의 사업자등록증 정보(법인명/사업자번호/대표자/법인등록번호/주소/이메일)를 그대로 채운다.
+  // 이메일은 법인 등록(사업자등록증 업로드) 때 입력한 청구 이메일을 먼저 쓰고,
+  // 비어 있을 때만 소속 고객(계약 담당자 → 대표) 이메일로 보강한다.
+  const applyCompanyBilling = (company, contactCust, companyCustomers = []) => {
     setCustomerName(company.name || '');
     setCustomerBizNo(company.bizNo || '');
     setCustomerCeoName(company.ceoName || '');
     setCustomerBizNoTransfer(company.corporateRegistrationNo || '');
     setCustomerBizAddress(company.address || '');
     setCustomerAddress(company.address || '');
-    setCustomerBankName(contactCust?.bank?.name || '');
-    setCustomerBankAccount(contactCust?.bank?.account || '');
-    setCustomerBankHolder(contactCust?.bank?.holder || '');
-    setCustomerEmail(contactCust?.email || '');
+    // 출금 통장은 법인 관리에 등록해 둔 법인 통장을 먼저 쓰고, 없으면 담당 고객 정보로 보강한다
+    setCustomerBankName(company.bank?.bankName || contactCust?.bank?.name || '');
+    setCustomerBankAccount(company.bank?.accountNo || contactCust?.bank?.account || '');
+    setCustomerBankHolder(company.bank?.holder || contactCust?.bank?.holder || '');
+    setCustomerEmail(company.billingEmail || contactCust?.email || pickCompanyContact(companyCustomers)?.email || '');
     // 범칙금 수신 이메일: 사업자등록증 업로드(법인 등록) 시 입력한 청구 이메일을 그대로 사용
     setFinesEmail(company.billingEmail || '');
   };
@@ -374,7 +462,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
       const docs = docsRes.ok ? await docsRes.json() : [];
 
       if (company) {
-        applyCompanyBilling(company, contactCust);
+        applyCompanyBilling(company, contactCust, Array.isArray(companyCustomers) ? companyCustomers : []);
         const manager = resolveContractManager(Array.isArray(companyCustomers) ? companyCustomers : [], company);
         setManagerOps(manager.name);
         setManagerOpsPhone(manager.phone);
@@ -405,22 +493,21 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     const companies = (full.companies || []).filter(a => a.companyId);
     setCustomerCompanies(companies);
 
-    let targetCompanyId = forcedCompanyId || '';
-    if (!targetCompanyId && companies.length > 0) {
-      const primary = companies.find(a => a.isPrimary) || companies[0];
-      targetCompanyId = primary.companyId?._id || primary.companyId;
-    }
+    // 견적서/계약서에 어느 법인인지 적혀 있을 때만 그 법인을 자동으로 고른다.
+    // 적혀 있지 않으면 소속 법인 중 하나를 임의로 고르지 않고 비워 둔다.
+    // (엉뚱한 법인이 이미 선택된 채로 시작하면 잘못 저장되기 쉬워, 직접 검색해 고르게 한다)
+    const targetCompanyId = forcedCompanyId || '';
 
     if (targetCompanyId) {
       setPartyType('법인');
       setSelectedCompanyId(targetCompanyId);
       await loadCompanyBilling(targetCompanyId, full);
     } else {
-      setPartyType('개인');
+      // 법인을 아직 고르지 않았다. 사업자등록증 정보는 법인을 검색해 불러올 때 채운다.
+      setPartyType(companies.length > 0 ? '법인' : '개인');
       setSelectedCompanyId('');
       setBankDocuments([]);
-      populateCustomerFields(full);
-      // 이전에 다른(법인) 고객을 선택했을 때 채워졌을 수 있는 값이 남아있지 않도록 초기화
+      clearBusinessFields();
       setFinesEmail('');
       setManagerOps('홍길동');
       setManagerOpsPhone('');
@@ -434,16 +521,44 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     // 1-1. Customer Info
     const cust = prefilledContractData.customer || {};
     setCustomerId(cust._id || '');
-    setCustomerName(cust.name || '');
-    setCustomerBizNo(cust.bizNo || '');
-    setCustomerCeoName(cust.ceoName || '');
-    setCustomerBizNoTransfer(cust.bizNoTransfer || '');
-    setCustomerBizAddress(cust.bizAddress || '');
-    setCustomerEmail(cust.email || '');
-    setCustomerBankName(cust.bank?.name || '');
-    setCustomerBankAccount(cust.bank?.account || '');
-    setCustomerBankHolder(cust.bank?.holder || '');
     setIsNewCustomer(false);
+
+    // 1-1-1. 거래 주체(법인/개인)와 이 계약에 연결된 법인을 그대로 되살린다.
+    // 이걸 빼먹으면 "법인 건" 전환 드롭다운이 아예 안 뜨거나 엉뚱한 법인이 선택된 채로 남는다.
+    setLateInterestRate(String(prefilledContractData.terms?.lateInterestRate ?? 25));
+    setEarlyTerminationRate(String(prefilledContractData.terms?.earlyTerminationRate ?? 35));
+
+    const linkedCompanyId = prefilledContractData.companyId?._id || prefilledContractData.companyId || '';
+    setPartyType(prefilledContractData.partyType || '개인');
+    setSelectedCompanyId(linkedCompanyId);
+
+    // 사업자등록증 정보는 '법인' 정보로만 채운다.
+    //
+    // 예전에는 고객 레코드(cust)로 채웠는데, 아웃룩에서 넘어온 고객은 name이 사람 이름이 아니라
+    // 연락처 메모(예: "렌공 125호8722 G80 ...")라서 법인명 칸에 엉뚱한 값이 들어갔다.
+    // 법인이 연결돼 있으면 법인 관리에 등록된 정보를 불러와 채우고, 없으면 비워 둔다.
+    clearBusinessFields();
+    if (linkedCompanyId) {
+      loadCompanyBilling(linkedCompanyId, cust);
+    } else {
+      // 개인 계약은 고객 정보가 곧 계약자 정보다
+      populateCustomerFields(cust);
+    }
+
+    // 1-1-2. 이 고객이 소속된 법인 전체 목록을 불러온다. 지금 이 계약이 어느 법인 소속이든 상관없이
+    // 항상 불러와 둬야, 나중에 다른 법인으로 계약을 바꾸는 드롭다운이 계속 나타난다.
+    if (cust._id) {
+      fetch(`${API_HOST}/api/customers/${cust._id}`)
+        .then(res => res.ok ? res.json() : null)
+        .then(full => {
+          if (full) {
+            setCustomerCompanies((full.companies || []).filter(a => a.companyId));
+          }
+        })
+        .catch(() => {});
+    } else {
+      setCustomerCompanies([]);
+    }
 
     // 1-2. Main Contract Fields
     if (prefilledContractData.contractDate) {
@@ -475,47 +590,94 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     }
 
     // 1-4. Vehicle Info
-    const veh = prefilledContractData.vehicle || {};
-    setVehicleModel(veh.model || veh.carModel || '');
-    setVehicleSpec(veh.spec || veh.carSpec || '');
-    setVehiclePrice(veh.vehiclePrice || veh.carPrice || '');
-    setVehicleFuelType(veh.fuelType || '가솔린');
-    setVehicleColor(veh.color || '');
-    setVehicleColorInterior(veh.interiorColor || '');
-    setVehicleOptions(veh.options || '');
-    setMileage(veh.mileage !== undefined ? String(veh.mileage) : '');
+    // 계약에 실제 차량(vehicle)이 이미 있으면 그게 정본이고, 아직 임시저장 상태라 차량이 없으면
+    // pending 필드(vehicleInfo)를 대신 쓴다. 두 소스는 필드 이름이 서로 달라 여기서 한 모양으로 맞춘다.
+    const realVeh = prefilledContractData.vehicle;
+    const pendingVeh = prefilledContractData.vehicleInfo;
+    const veh = realVeh
+      ? {
+          model: realVeh.carModel,
+          vehiclePrice: realVeh.carPrice,
+          fuelType: realVeh.fuelType,
+          cc: realVeh.cc,
+          color: realVeh.exteriorColor,
+          colorInterior: realVeh.interiorColor,
+          options: realVeh.options,
+          mileage: realVeh.currentMileage,
+          insurance: realVeh.insurance,
+          maintenance: realVeh.maintenance
+        }
+      : { ...(pendingVeh || {}) };
 
-    // 1-5. Insurance Flat Field to Nested State Reverse Mapping
-    const propertyLimit = veh.propertyDamage || '2억원';
-    if (propertyLimit === '5억원' || propertyLimit === '5억') {
-      setInsurancePreset('보험2');
-    } else {
-      setInsurancePreset('보험1');
+    // 유종/배기량/외장·내장 색상은 견적서가 원본이다. 임시저장 계약에 이 값이 비어 있으면
+    // (전환 시점에 실려 오지 않은 예전 임시저장 건) 연결된 견적서에서 그대로 가져온다.
+    if (!realVeh) {
+      const quoteSpec = extractQuoteVehicleDetail(prefilledContractData.quote);
+      veh.fuelType = veh.fuelType || quoteSpec.fuelType;
+      veh.cc = veh.cc || quoteSpec.cc;
+      veh.color = veh.color || quoteSpec.exteriorColor;
+      veh.colorInterior = veh.colorInterior || quoteSpec.interiorColor;
     }
 
+    // 계약에 묶인 차량 전체를 복원한다. 예전 계약은 차량이 한 대뿐이라 그대로 한 대짜리 목록이 된다.
+    const savedVehicles = prefilledContractData.vehicles;
+    if (Array.isArray(savedVehicles) && savedVehicles.length) {
+      setVehicleList(savedVehicles.map((rv) => ({
+        model: rv.carModel || '',
+        options: rv.options || '',
+        price: rv.carPrice ?? '',
+        fuelType: rv.fuelType || '가솔린',
+        cc: rv.cc ? String(rv.cc) : '',
+        color: rv.exteriorColor || '',
+        colorInterior: rv.interiorColor || '',
+        plateNo: rv.plateNo || '',
+        vin: rv.vin || ''
+      })));
+    } else {
+      setVehicleList([{
+        ...EMPTY_VEHICLE,
+        model: veh.model || '',
+        options: veh.options || '',
+        price: veh.vehiclePrice ?? '',
+        fuelType: veh.fuelType || '가솔린',
+        cc: veh.cc ? String(veh.cc) : '',
+        color: veh.color || '',
+        colorInterior: veh.colorInterior || ''
+      }]);
+    }
+    setMileage(veh.mileage !== undefined && veh.mileage !== null ? String(veh.mileage) : '');
+
+    // 1-5. 보험 - insurance.type('standard'/'premium')으로 프리셋을 판정하고, 세부값은 있는 그대로 되살린다
+    setInsurancePreset(veh.insurance?.type === 'premium' ? '보험2' : '보험1');
     setInsurance({
-      liabilityLimit: veh.personalInjury1 || '무제한',
-      propertyLimit: veh.propertyDamage || '2억원',
-      personalInjury: veh.personalInjury2 || '자상 1억/부상 1500만',
-      deductible: veh.deductible ? (veh.deductible >= 500000 ? '50만원' : '30만원') : '30만원',
-      uninsuredInjury: veh.uninsuredCarInjury || '2억원/ 1인당',
-      emergencyCall: veh.emergencyService || '포함'
+      liabilityLimit: veh.insurance?.liabilityLimit || '무제한',
+      propertyLimit: veh.insurance?.propertyLimit || '2억원',
+      personalInjury: veh.insurance?.personalInjury || '자상 1억/부상 1500만',
+      deductible: veh.insurance?.deductible ? (veh.insurance.deductible >= 500000 ? '50만원' : '30만원') : '30만원',
+      uninsuredInjury: veh.insurance?.uninsuredInjury || '2억원/ 1인당',
+      emergencyCall: veh.insurance?.emergencyService || '포함'
     });
 
-    // 1-6. Maintenance Flat Field to Nested State Reverse Mapping
-    const consumables = veh.consumablesExchange || '미가입';
-    if (consumables === '가입' || consumables === '포함') {
-      setMaintenancePreset('포함');
-    } else {
-      setMaintenancePreset('미포함');
-    }
-
+    // 1-6. 정비 - maintenance.enabled로 프리셋을 판정하고, 저장된 세부값이 있으면 그대로 되살린다.
+    //
+    // 비어 있는 항목을 '미가입'으로 채우면 안 된다.
+    // 정비 '포함'인데 타이어 교체만 저장이 안 된 계약을 열면 '미가입'으로 보여서,
+    // 미포함으로 바꿨다가 다시 포함으로 되돌려야 '계약 기간 동안 4본 제공'이 나타났다.
+    // 그래서 빈 항목은 그 프리셋의 기본값으로 채운다.
+    const maintenancePresetValue = veh.maintenance?.enabled !== false ? '포함' : '미포함';
+    const maintenanceDefaults = MAINTENANCE_PRESETS[maintenancePresetValue];
+    setMaintenancePreset(maintenancePresetValue);
     setMaintenance({
-      consumables: veh.consumablesExchange || '미가입',
-      tireCount: veh.tireCount || '미가입',
-      regularCheck: veh.regularCheckup || '미가입',
-      emergencyService: veh.emergencyService || '미가입',
-      generalMaintenance: veh.generalMaintenance || '미가입'
+      // 견적서에서 정해진 값
+      mileage: veh.maintenance?.mileage ?? '',
+      tireType: toTireGradeLabel(veh.maintenance?.tireType),
+      consumables: veh.maintenance?.consumables || maintenanceDefaults.consumables,
+      // 타이어 교체는 '계약 기간 동안 4본 제공' 같은 설명이고, 타이어 등급(tireType)과는 다른 항목이다.
+      // 예전에는 여기에 tireType을 넣어 등급이 설명 자리로 새고 차량 DB에는 아무것도 안 남았다.
+      tireCount: maintenanceDefaults.tireCount,
+      regularCheck: veh.maintenance?.regularCheck || maintenanceDefaults.regularCheck,
+      emergencyService: veh.insurance?.emergencyService || maintenanceDefaults.emergencyService,
+      generalMaintenance: veh.maintenance?.generalMaintenance || maintenanceDefaults.generalMaintenance
     });
 
     if (prefilledContractData.gifts) {
@@ -555,16 +717,24 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
           // 계약일은 항상 오늘 날짜로 시작 (수정 모드가 아닌 신규 등록)
           setContractDate(todayDateStr());
 
-          setVehicleModel(prefilledQuoteData.vehicleModel || '');
-          setVehicleSpec(prefilledQuoteData.vehicleSpec || '');
+          const quoteVehicle = { ...EMPTY_VEHICLE, model: prefilledQuoteData.vehicleModel || '' };
+          // vehicleSpec은 "옵션명 / 연료: .. / 배기량: .. / ..." 형태로 저장돼 있고, 첫 구간이 옵션명이다
+          quoteVehicle.options = (prefilledQuoteData.vehicleSpec || '').split(' / ')[0] || '';
 
           // 견적서에서 넘어온 차량 세부 항목(유종/배기량/색상)을 그대로 채운다
           const vd = prefilledQuoteData.vehicleDetail;
           if (vd) {
-            setVehicleFuelType(vd.fuelType || '가솔린');
-            if (vd.cc) setVehicleCc(String(vd.cc));
-            if (vd.exteriorColor) setVehicleColor(vd.exteriorColor);
-            if (vd.interiorColor) setVehicleColorInterior(vd.interiorColor);
+            quoteVehicle.fuelType = vd.fuelType || '가솔린';
+            if (vd.cc) quoteVehicle.cc = String(vd.cc);
+            if (vd.exteriorColor) quoteVehicle.color = vd.exteriorColor;
+            if (vd.interiorColor) quoteVehicle.colorInterior = vd.interiorColor;
+          }
+          setVehicleList([quoteVehicle]);
+
+          // 견적서에서 정한 대여 조건(중도해지 수수료율·연체 이율)을 그대로 이어받는다
+          if (prefilledQuoteData.terms) {
+            setEarlyTerminationRate(String(prefilledQuoteData.terms.earlyTerminationRate ?? 35));
+            setLateInterestRate(String(prefilledQuoteData.terms.lateInterestRate ?? 25));
           }
 
           if (prefilledQuoteData.pricing) {
@@ -572,31 +742,32 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
               ...prev,
               ...prefilledQuoteData.pricing
             }));
-            if (prefilledQuoteData.pricing.basePrice) {
-              setVehiclePrice(prefilledQuoteData.pricing.basePrice);
-            }
             if (prefilledQuoteData.pricing.paymentTerm) {
               setTermMonths(String(prefilledQuoteData.pricing.paymentTerm));
             }
-          } else {
-            if (prefilledQuoteData.totalPrice) {
-              setPricing(prev => ({
-                ...prev,
-                basePrice: prefilledQuoteData.totalPrice,
-                supplyPrice: prefilledQuoteData.totalPrice
-              }));
-              setVehiclePrice(prefilledQuoteData.totalPrice);
-            }
+          }
 
-            if (prefilledQuoteData.monthlyEstimates && prefilledQuoteData.monthlyEstimates.length > 0) {
-              const est24 = prefilledQuoteData.monthlyEstimates.find(e => e.termMonths === 24);
-              if (est24) {
-                setPricing(prev => ({ ...prev, monthlyFee: est24.monthlyFee }));
-                setTermMonths('24');
-              } else {
-                setPricing(prev => ({ ...prev, monthlyFee: prefilledQuoteData.monthlyEstimates[0].monthlyFee }));
-                setTermMonths(String(prefilledQuoteData.monthlyEstimates[0].termMonths));
-              }
+          // 차량가는 차량가+옵션가가 합산된 견적서 총액(totalPrice)을 우선 쓴다.
+          // pricing.basePrice만 쓰면 차량 옵션 가격이 빠진 채로 넘어오는 문제가 있었다.
+          if (prefilledQuoteData.totalPrice) {
+            setPricing(prev => ({
+              ...prev,
+              basePrice: prefilledQuoteData.totalPrice,
+              supplyPrice: prefilledQuoteData.totalPrice
+            }));
+            setVehicleList((prev) => prev.map((v, i) => (i === 0 ? { ...v, price: prefilledQuoteData.totalPrice } : v)));
+          } else if (prefilledQuoteData.pricing?.basePrice) {
+            setVehicleList((prev) => prev.map((v, i) => (i === 0 ? { ...v, price: prefilledQuoteData.pricing.basePrice } : v)));
+          }
+
+          if (!prefilledQuoteData.pricing && prefilledQuoteData.monthlyEstimates && prefilledQuoteData.monthlyEstimates.length > 0) {
+            const est24 = prefilledQuoteData.monthlyEstimates.find(e => e.termMonths === 24);
+            if (est24) {
+              setPricing(prev => ({ ...prev, monthlyFee: est24.monthlyFee }));
+              setTermMonths('24');
+            } else {
+              setPricing(prev => ({ ...prev, monthlyFee: prefilledQuoteData.monthlyEstimates[0].monthlyFee }));
+              setTermMonths(String(prefilledQuoteData.monthlyEstimates[0].termMonths));
             }
           }
 
@@ -622,6 +793,44 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     };
     fetchData();
   }, [prefilledQuoteData, prefilledContractData]);
+
+  // "계약사 / 법인명 검색"은 이름이 법인 검색이니, 고객 DB뿐 아니라 법인 DB도 실제로 검색해야 한다.
+  // 법인을 고르면 그 법인의 담당 고객을 자동으로 찾아 연결한다(계약은 항상 고객을 정본으로 가진다).
+  useEffect(() => {
+    if (isNewCustomer || !searchQuery.trim()) {
+      setCompanySuggestions([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_HOST}/api/companies?search=${encodeURIComponent(searchQuery.trim())}`);
+        if (res.ok) {
+          const data = await res.json();
+          setCompanySuggestions((Array.isArray(data) ? data : []).slice(0, 5));
+        }
+      } catch {
+        // 검색 실패는 조용히 무시 - 고객 검색 결과는 그대로 남아 있다
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery, isNewCustomer]);
+
+  // 검색 결과에서 법인을 고르면, 그 법인의 담당 고객을 찾아 applyCustomerSelection으로 연결한다
+  const handleSelectCompanySuggestion = async (company) => {
+    setShowSuggestions(false);
+    try {
+      const res = await fetch(`${API_HOST}/api/companies/${company._id}/customers`);
+      const companyCustomers = res.ok ? await res.json() : [];
+      const contact = pickCompanyContact(companyCustomers);
+      if (!contact) {
+        showToast(`"${company.name}" 법인에 연결된 담당 고객이 없습니다. 법인 관리에서 담당자를 먼저 등록해주세요.`, 'error');
+        return;
+      }
+      await applyCustomerSelection(contact, company._id);
+    } catch (err) {
+      showToast('법인 정보를 불러오지 못했습니다.', 'error');
+    }
+  };
 
   // 고객이 2곳 이상의 법인에 소속된 경우, 드롭다운에서 계약 대상 법인을 바꿀 때 사용
   const handleSwitchCompany = async (companyId) => {
@@ -725,17 +934,13 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     setFinesEmail('');
     setFinesEmail2('');
 
-    setVehicleModel('');
-    setVehicleSpec('');
-    setVehiclePrice('');
-    setVehicleFuelType('가솔린');
-    setVehicleColor('');
-    setVehicleColorInterior('');
-    setVehicleOptions('');
+    setVehicleList([{ ...EMPTY_VEHICLE }]);
     setMileage('');
 
     setInsurancePreset('보험1');
+    // 프리셋만 되돌리면 세부 항목에 이전 계약 값이 남으므로 함께 초기화한다
     setMaintenancePreset('미포함');
+    applyMaintenancePreset('미포함');
 
     setPricing({
       basePrice: '',
@@ -754,8 +959,8 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
       monthlyFee: '',
       billingDay: '10',
       invoiceDay: '10',
-      penaltyRate: '10',
-      overdueRate: '15',
+      penaltyRate: '35',
+      overdueRate: '25',
       paymentTerm: '',
       monthlyFeeTotal: '',
       pandanbi: '',
@@ -797,6 +1002,150 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
 
 
 
+  // 등록/임시저장 공통으로 쓰는 계약 payload. status/finalize는 호출하는 쪽에서 덧붙인다.
+  const buildContractPayload = () => ({
+    isNewCustomer,
+    customerId: isNewCustomer ? undefined : customerId,
+    quantity: Number(contractQuantity),
+    insurancePreset,
+    maintenancePreset,
+    customerInfo: {
+      name: customerName,
+      bizNo: customerBizNo,
+      ceoName: customerCeoName,
+      address: customerBizAddress,
+      contactName: customerContactName,
+      contactPhone: customerContactPhone,
+      email: customerEmail || 'no-email@rentbenefit.co.kr',
+      bank: {
+        name: customerBankName,
+        account: customerBankAccount,
+        holder: customerBankHolder
+      },
+      bizNoTransfer: customerBizNoTransfer,
+      bizAddress: customerBizAddress
+    },
+    quoteId: prefilledQuoteData?._id || prefilledContractData?.quote?._id || prefilledContractData?.quote || undefined,
+    // 고객 선택(검색 또는 견적서 연동) 시 자동 판정된 거래 주체(법인/개인) 정보를 그대로 이관
+    partyType: isNewCustomer ? '개인' : partyType,
+    companyId: isNewCustomer ? undefined : (selectedCompanyId || undefined),
+    leaseCompany: undefined,
+    contractDate: contractDate || undefined,
+    deliveryDate: undefined,
+    termMonths: termMonths ? Number(termMonths) : undefined,
+    branch: undefined,
+    managerMain: undefined,
+    managerMainPhone: undefined,
+    managerOps,
+    managerOpsPhone,
+
+    rentPeriodYears: undefined,
+    rentStartDate: undefined,
+    rentPeriodDays: undefined,
+    remainingPeriodCalc: undefined,
+    finesEmail,
+    finesEmail2,
+    corporateRegistrationNo: customerBizNoTransfer || undefined,
+
+    pricing: {
+      basePrice: pricing.basePrice ? Number(pricing.basePrice) : undefined,
+      discount: pricing.discount ? Number(pricing.discount) : undefined,
+      supplyPrice: pricing.supplyPrice ? Number(pricing.supplyPrice) : undefined,
+      deliveryFee: pricing.deliveryFee ? Number(pricing.deliveryFee) : undefined,
+      acquisitionTax: pricing.acquisitionTax ? Number(pricing.acquisitionTax) : undefined,
+      publicBond: pricing.publicBond ? Number(pricing.publicBond) : undefined,
+      stampFee: pricing.stampFee ? Number(pricing.stampFee) : undefined,
+      plateFee: pricing.plateFee ? Number(pricing.plateFee) : undefined,
+      registrationAgencyFee: pricing.registrationAgencyFee ? Number(pricing.registrationAgencyFee) : undefined,
+      commission: pricing.commission ? Number(pricing.commission) : undefined,
+      deposit: pricing.deposit ? Number(pricing.deposit) : undefined,
+      advancePayment: pricing.advancePayment ? Number(pricing.advancePayment) : undefined,
+      takeoverPrice: pricing.takeoverPrice ? Number(pricing.takeoverPrice) : undefined,
+      monthlyFee: pricing.monthlyFee ? Number(pricing.monthlyFee) : undefined,
+      billingDay: pricing.billingDay ? Number(pricing.billingDay) : undefined,
+      invoiceDay: pricing.invoiceDay ? Number(pricing.invoiceDay) : undefined,
+      penaltyRate: pricing.penaltyRate ? Number(pricing.penaltyRate) : 35,
+      overdueRate: pricing.overdueRate ? Number(pricing.overdueRate) : 25,
+
+      paymentTerm: pricing.paymentTerm ? Number(pricing.paymentTerm) : undefined,
+      monthlyFeeTotal: pricing.monthlyFeeTotal ? Number(pricing.monthlyFeeTotal) : undefined,
+      pandanbi: pricing.pandanbi ? Number(pricing.pandanbi) : undefined,
+      individualConsumptionTax: pricing.individualConsumptionTax ? Number(pricing.individualConsumptionTax) : undefined,
+      baseInterestRate: pricing.baseInterestRate ? Number(pricing.baseInterestRate) : undefined,
+      dealerCommission: pricing.dealerCommission ? Number(pricing.dealerCommission) : undefined
+    },
+    gifts: gifts
+      .filter(g => g.name.trim() !== '')
+      .map(g => ({ name: g.name, price: g.price ? Number(g.price) : 0 })),
+    // 이 계약으로 묶이는 차량 전체. 서버가 이 목록만큼 렌트차량 DB에 차량을 만든다.
+    vehicleInfos: vehicleList
+      .filter((v) => (v.model || '').trim() !== '')
+      .map((v) => ({
+        model: v.model,
+        options: v.options,
+        fuelType: v.fuelType,
+        cc: v.cc ? Number(v.cc) : undefined,
+        color: v.color,
+        colorInterior: v.colorInterior,
+        plateNo: v.plateNo || undefined,
+        vin: v.vin || undefined,
+        vehiclePrice: v.price ? Number(v.price) : undefined,
+        // 보험·정비는 계약 단위로 정해지므로 모든 차량에 같은 값이 들어간다
+        insurance,
+        maintenance
+      })),
+    terms: {
+      lateInterestRate: Number(lateInterestRate) || 25,
+      earlyTerminationRate: Number(earlyTerminationRate) || 35
+    },
+    // 예전 화면·엑셀 가져오기와의 호환을 위해 대표 차량 한 대도 그대로 보낸다
+    vehicleInfo: {
+      model: vehicleList[0]?.model || '',
+      year: undefined,
+      color: vehicleList[0]?.color || '',
+      colorInterior: vehicleList[0]?.colorInterior || '',
+      fuelType: vehicleList[0]?.fuelType || '가솔린',
+      cc: vehicleList[0]?.cc ? Number(vehicleList[0].cc) : undefined,
+      // 차대번호는 등록증을 봐야 알 수 있는 값이다. 입력하지 않았으면 비워 두고,
+      // 출고 준비 화면에서 '차대번호 없음'으로 보이게 한다.
+      // (예전에는 VIN_AUTO_… 같은 값을 만들어 넣어서, 없는 정보가 있는 것처럼 보였다)
+      vin: vehicleList[0]?.vin || undefined,
+      plateNo: vehicleList[0]?.plateNo || undefined,
+      options: vehicleList[0]?.options || '',
+      releaseAddress: undefined,
+      dealer: undefined,
+      salesRep: undefined,
+      showroom: undefined,
+
+      classification: undefined,
+      operationType: undefined,
+      vehiclePrice: vehicleList[0]?.price ? Number(vehicleList[0].price) : undefined,
+      registrationDate: undefined,
+      mileage: mileage ? Number(mileage) : undefined,
+
+      accessories: undefined,
+      registrationCosts: undefined,
+      insurance: insurance,
+      maintenance: maintenance,
+      tax: undefined,
+      loan: {
+        source: loan.source,
+        executionDate: loan.executionDate || undefined,
+        amount: loan.amount ? Number(loan.amount) : undefined,
+        term: loan.term ? Number(loan.term) : undefined,
+        monthlyPayment: loan.monthlyPayment ? Number(loan.monthlyPayment) : undefined,
+        monthlyPaymentTotal: loan.monthlyPaymentTotal ? Number(loan.monthlyPaymentTotal) : undefined,
+        totalInterest: loan.totalInterest ? Number(loan.totalInterest) : undefined,
+        interestRate: loan.interestRate ? Number(loan.interestRate) : undefined
+      }
+    }
+  });
+
+  // 이미 임시저장된 계약을 이어서 편집 중인지: prefilledContractData는 있는데 아직 vehicle이 없는 상태
+  const isEditingDraft = !!prefilledContractData && !prefilledContractData.vehicle;
+
+  // "저장" - 계약을 최종 등록(또는 임시저장 계약을 확정)한다. 이 순간 렌트차량 DB에 차량이 만들어지고
+  // 상태는 '계약중'으로 지정되며, 완료 후에는 실물 등록을 이어갈 수 있게 "출고 준비"로 이동한다.
   const handleRegisterContract = async (e) => {
     e.preventDefault();
 
@@ -821,7 +1170,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
       showToast('렌트 기간을 입력해주세요.', 'error');
       return;
     }
-    if (!vehicleModel.trim()) {
+    if (!(vehicleList[0]?.model || '').trim()) {
       showToast('차종 / 사양을 입력해주세요.', 'error');
       return;
     }
@@ -831,128 +1180,14 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     }
 
     try {
-      const payload = {
-        isNewCustomer,
-        customerId: isNewCustomer ? undefined : customerId,
-        quantity: Number(contractQuantity),
-        insurancePreset,
-        maintenancePreset,
-        customerInfo: {
-          name: customerName,
-          bizNo: customerBizNo,
-          ceoName: customerCeoName,
-          address: customerBizAddress,
-          contactName: customerContactName,
-          contactPhone: customerContactPhone,
-          email: customerEmail || 'no-email@rentbenefit.co.kr',
-          bank: {
-            name: customerBankName,
-            account: customerBankAccount,
-            holder: customerBankHolder
-          },
-          bizNoTransfer: customerBizNoTransfer,
-          bizAddress: customerBizAddress
-        },
-        quoteId: prefilledQuoteData?._id || undefined,
-        // 고객 선택(검색 또는 견적서 연동) 시 자동 판정된 거래 주체(법인/개인) 정보를 그대로 이관
-        partyType: isNewCustomer ? '개인' : partyType,
-        companyId: isNewCustomer ? undefined : (selectedCompanyId || undefined),
-        leaseCompany: undefined,
-        contractDate,
-        deliveryDate: undefined,
-        termMonths: Number(termMonths),
-        branch: undefined,
-        managerMain: undefined,
-        managerMainPhone: undefined,
-        managerOps,
-        managerOpsPhone,
-        status: '진행중',
-        
-        rentPeriodYears: undefined,
-        rentStartDate: undefined,
-        rentPeriodDays: undefined,
-        remainingPeriodCalc: undefined,
-        finesEmail,
-        finesEmail2,
-        corporateRegistrationNo: customerBizNoTransfer || undefined,
-
-        pricing: {
-          basePrice: pricing.basePrice ? Number(pricing.basePrice) : undefined,
-          discount: pricing.discount ? Number(pricing.discount) : undefined,
-          supplyPrice: pricing.supplyPrice ? Number(pricing.supplyPrice) : undefined,
-          deliveryFee: pricing.deliveryFee ? Number(pricing.deliveryFee) : undefined,
-          acquisitionTax: pricing.acquisitionTax ? Number(pricing.acquisitionTax) : undefined,
-          publicBond: pricing.publicBond ? Number(pricing.publicBond) : undefined,
-          stampFee: pricing.stampFee ? Number(pricing.stampFee) : undefined,
-          plateFee: pricing.plateFee ? Number(pricing.plateFee) : undefined,
-          registrationAgencyFee: pricing.registrationAgencyFee ? Number(pricing.registrationAgencyFee) : undefined,
-          commission: pricing.commission ? Number(pricing.commission) : undefined,
-          deposit: pricing.deposit ? Number(pricing.deposit) : undefined,
-          advancePayment: pricing.advancePayment ? Number(pricing.advancePayment) : undefined,
-          takeoverPrice: pricing.takeoverPrice ? Number(pricing.takeoverPrice) : undefined,
-          monthlyFee: Number(pricing.monthlyFee),
-          billingDay: pricing.billingDay ? Number(pricing.billingDay) : undefined,
-          invoiceDay: pricing.invoiceDay ? Number(pricing.invoiceDay) : undefined,
-          penaltyRate: pricing.penaltyRate ? Number(pricing.penaltyRate) : 35,
-          overdueRate: pricing.overdueRate ? Number(pricing.overdueRate) : 25,
-          
-          paymentTerm: pricing.paymentTerm ? Number(pricing.paymentTerm) : undefined,
-          monthlyFeeTotal: pricing.monthlyFeeTotal ? Number(pricing.monthlyFeeTotal) : undefined,
-          pandanbi: pricing.pandanbi ? Number(pricing.pandanbi) : undefined,
-          individualConsumptionTax: pricing.individualConsumptionTax ? Number(pricing.individualConsumptionTax) : undefined,
-          baseInterestRate: pricing.baseInterestRate ? Number(pricing.baseInterestRate) : undefined,
-          dealerCommission: pricing.dealerCommission ? Number(pricing.dealerCommission) : undefined
-        },
-        gifts: gifts
-          .filter(g => g.name.trim() !== '')
-          .map(g => ({ name: g.name, price: g.price ? Number(g.price) : 0 })),
-        vehicleInfo: {
-          model: vehicleModel,
-          spec: vehicleSpec,
-          year: undefined,
-          color: vehicleColor,
-          colorInterior: vehicleColorInterior,
-          fuelType: vehicleFuelType,
-          cc: vehicleCc ? Number(vehicleCc) : undefined,
-          vin: vehicleVin || ('VIN_AUTO_' + Date.now()),
-          plateNo: vehiclePlateNo || undefined,
-          options: vehicleOptions,
-          releaseAddress: undefined,
-          dealer: undefined,
-          salesRep: undefined,
-          showroom: undefined,
-
-          classification: undefined,
-          operationType: undefined,
-          vehiclePrice: vehiclePrice ? Number(vehiclePrice) : undefined,
-          registrationDate: undefined,
-          mileage: mileage ? Number(mileage) : undefined,
-          
-          accessories: undefined,
-          registrationCosts: undefined,
-          insurance: insurance,
-          maintenance: maintenance,
-          tax: undefined,
-          loan: {
-            source: loan.source,
-            executionDate: loan.executionDate || undefined,
-            amount: loan.amount ? Number(loan.amount) : undefined,
-            term: loan.term ? Number(loan.term) : undefined,
-            monthlyPayment: loan.monthlyPayment ? Number(loan.monthlyPayment) : undefined,
-            monthlyPaymentTotal: loan.monthlyPaymentTotal ? Number(loan.monthlyPaymentTotal) : undefined,
-            totalInterest: loan.totalInterest ? Number(loan.totalInterest) : undefined,
-            interestRate: loan.interestRate ? Number(loan.interestRate) : undefined
-          }
-        }
-      };
-
       const isEditMode = !!prefilledContractData;
+      const payload = { ...buildContractPayload(), status: '진행중', finalize: true };
       const url = isEditMode ? `${API_HOST}/api/contracts/${prefilledContractData._id}` : `${API_HOST}/api/contracts`;
       const method = isEditMode ? 'PUT' : 'POST';
 
       const response = await fetch(url, {
         method: method,
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'X-User-Role': currentUser?.role || 'viewer'
         },
@@ -960,25 +1195,152 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
       });
 
       if (response.ok) {
-        showToast(isEditMode ? '계약서가 성공적으로 수정되었습니다!' : '계약서가 성공적으로 등록되었으며 일정이 자동 생성되었습니다!', 'success');
-        if (prefilledQuoteData) {
-          setPrefilledQuoteData(null);
-        }
-        if (prefilledContractData) {
-          setPrefilledContractData(null);
-        }
+        // '저장'은 계약을 확정하는 단계이므로 항상 출고 준비로 넘어간다.
+        //
+        // 예전에는 렌트차량 DB에 차량이 새로 만들어질 때만 넘어갔다. 그래서 이미 등록된 계약을
+        // 불러와 저장하면 차량이 이미 있다는 이유로 계약서 목록에 그대로 머물렀다.
+        // 계약서 목록에 남겨 두고 싶을 때는 '임시저장'을 쓴다.
+        const createsVehicle = !isEditMode || isEditingDraft;
+        showToast(
+          createsVehicle ? '계약서가 성공적으로 등록되었으며 일정이 자동 생성되었습니다!' : '계약서가 성공적으로 수정되었습니다!',
+          'success'
+        );
+        setPrefilledQuoteData(null);
+        setPrefilledContractData(null);
         resetAllStates();
-        if (isEditMode) {
-          // 수정 모드는 차량이 새로 생성되지 않으므로 계약서 목록으로 돌아간다
-          fetchContractsList();
-          setViewMode('list');
-        } else {
-          // 계약서 등록 시 렌트차량 DB에 차량이 자동 생성되므로, 신규 등록 후에는 그 결과를 바로 확인할 수 있게 렌트차량 DB로 이동한다.
-          setActiveTab('vehicles');
-        }
+        setActiveTab('delivery-prep');
       } else {
         const err = await response.json();
         showToast(err.message || '계약 저장 실패', 'error');
+      }
+    } catch (err) {
+      showToast('서버 저장 실패', 'error');
+    }
+  };
+
+  // "임시저장" - 아직 다 채우지 못했어도 계약서 목록에 진행 상황을 저장해 둔다.
+  // 렌트차량 DB에는 차량을 만들지 않는다(그건 "저장"이 최종 등록할 때의 몫이다).
+  /**
+   * 계약서 목록에서 그 계약의 차량을 곧바로 출고 준비로 보낸다.
+   *
+   * 출고 준비 화면은 '계약중' + 계약서에 연결된 차량을 대상으로 하므로 상태만 되돌리면 된다.
+   * 차량번호/차대번호처럼 이미 등록된 값은 건드리지 않는다.
+   */
+  const handleSendToDeliveryPrep = async (contract) => {
+    if (currentUser?.role === 'viewer') {
+      showToast('수정 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
+    const vehicle = contract.vehicle;
+    if (!vehicle) {
+      showToast('아직 차량이 만들어지지 않은 계약입니다. 계약서를 저장하면 차량이 생성됩니다.', 'info');
+      return;
+    }
+
+    // 이미 출고 준비 대상이면 상태를 건드리지 않고 화면만 넘어간다
+    if (vehicle.status === '계약중') {
+      setActiveTab('delivery-prep');
+      return;
+    }
+
+    if (!window.confirm(`${vehicle.carModel} 차량을 출고 준비 목록으로 보낼까요?\n상태가 '계약중'으로 바뀝니다.`)) return;
+
+    try {
+      const res = await fetch(`${API_HOST}/api/vehicles/${vehicle._id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-User-Role': currentUser?.role || 'viewer' },
+        body: JSON.stringify({ status: '계약중' })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('출고 준비 목록으로 보냈습니다.', 'success');
+        setActiveTab('delivery-prep');
+      } else {
+        showToast(data.message || '출고 준비로 보내지 못했습니다.', 'error');
+      }
+    } catch (err) {
+      showToast('서버 통신 오류가 발생했습니다.', 'error');
+    }
+  };
+
+  /**
+   * 계약서를 계약자 폴더에 보관한다.
+   * 보관하면 계약서 목록에서 내려가고, 이 계약의 차량은 렌트차량 DB에서 수정할 수 없다.
+   */
+  const handleArchiveContract = async (contract) => {
+    if (currentUser?.role === 'viewer') {
+      showToast('권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
+    if (!window.confirm(`${contract.contractNo} 계약서를 보관할까요?\n계약서 목록에서 내려가고, 이 계약의 차량은 수정할 수 없게 됩니다. 되돌리기로 다시 꺼낼 수 있습니다.`)) return;
+
+    try {
+      const res = await fetch(`${API_HOST}/api/contracts/${contract._id}/archive`, {
+        method: 'POST', headers: { 'X-User-Role': currentUser?.role || 'viewer' }
+      });
+      const data = await res.json();
+      showToast(data.message || (res.ok ? '보관했습니다.' : '보관하지 못했습니다.'), res.ok ? 'success' : 'error');
+      if (res.ok) fetchContractsList();
+    } catch {
+      showToast('서버 통신 오류가 발생했습니다.', 'error');
+    }
+  };
+
+  const handleUnarchiveContract = async (contract) => {
+    if (currentUser?.role === 'viewer') {
+      showToast('권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_HOST}/api/contracts/${contract._id}/unarchive`, {
+        method: 'POST', headers: { 'X-User-Role': currentUser?.role || 'viewer' }
+      });
+      const data = await res.json();
+      showToast(data.message || (res.ok ? '되돌렸습니다.' : '되돌리지 못했습니다.'), res.ok ? 'success' : 'error');
+      if (res.ok) fetchContractsList();
+    } catch {
+      showToast('서버 통신 오류가 발생했습니다.', 'error');
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    if (currentUser?.role === 'viewer') {
+      showToast('등록 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
+    if (!isNewCustomer && !customerId) {
+      showToast('검색창에서 고객을 선택해 주셔야 임시저장이 가능합니다.', 'error');
+      return;
+    }
+    if (isNewCustomer && (!customerName.trim() || !customerBizNo.trim())) {
+      showToast('신규 고객의 고객명과 사업자번호는 필수 입력입니다.', 'error');
+      return;
+    }
+
+    try {
+      const payload = buildContractPayload();
+      const isEditMode = !!prefilledContractData;
+      const url = isEditMode
+        ? `${API_HOST}/api/contracts/${prefilledContractData._id}`
+        : `${API_HOST}/api/contracts/draft`;
+      const method = isEditMode ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', 'X-User-Role': currentUser?.role || 'viewer' },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        showToast('계약서가 임시저장되었습니다.', 'success');
+        setPrefilledQuoteData(null);
+        setPrefilledContractData(null);
+        resetAllStates();
+        fetchContractsList();
+        setViewMode('list');
+      } else {
+        const err = await response.json();
+        showToast(err.message || '임시저장 실패', 'error');
       }
     } catch (err) {
       showToast('서버 저장 실패', 'error');
@@ -990,8 +1352,6 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     setCustomerId('');
     clearCustomerFields();
     setSearchQuery('');
-    setVehicleModel('');
-    setVehicleSpec('');
     setPricing({
       basePrice: '',
       discount: '',
@@ -1009,8 +1369,8 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
       monthlyFee: '',
       billingDay: '10',
       invoiceDay: '10',
-      penaltyRate: '10',
-      overdueRate: '15',
+      penaltyRate: '35',
+      overdueRate: '25',
       paymentTerm: '',
       monthlyFeeTotal: '',
       pandanbi: '',
@@ -1021,7 +1381,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
   // "계약서 목록" 하위 화면 - 계약/견적 목록 페이지가 없어지면서 이 화면 안으로 들어옴
   const fetchContractsList = async () => {
     try {
-      const res = await fetch(`${API_HOST}/api/contracts`);
+      const res = await fetch(`${API_HOST}/api/contracts${showArchived ? '?includeArchived=true' : ''}`);
       if (res.ok) {
         const data = await res.json();
         setContracts(Array.isArray(data) ? data : (data.contracts || data.data || []));
@@ -1061,6 +1421,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
   };
 
   const filteredContractsList = contracts.filter(c => {
+    if (contractStatusFilter !== 'all' && (c.status || '진행중') !== contractStatusFilter) return false;
     if (!contractListSearch.trim()) return true;
     const q = contractListSearch.toLowerCase();
     return (
@@ -1071,6 +1432,18 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
       (c.vehicle?.carModel || '').toLowerCase().includes(q)
     );
   });
+
+  // 계약서 목록에서 정렬할 수 있는 항목. 머리글을 누르거나 정렬 상자로 고른다.
+  const CONTRACT_LIST_COLUMNS = [
+    { key: 'contractNo', label: '계약번호', sortValue: (c) => c.contractNo },
+    { key: 'status', label: '상태', sortValue: (c) => c.status || '진행중' },
+    { key: 'customerName', label: '고객명', sortValue: (c) => formatCustomerName(c.customer) },
+    { key: 'carModel', label: '차종', sortValue: (c) => c.vehicle?.carModel || c.vehicleInfo?.model },
+    { key: 'contractDate', label: '계약일', numeric: true, sortValue: (c) => c.contractDate },
+    { key: 'monthlyFee', label: '월 렌트료', numeric: true, sortValue: (c) => c.pricing?.monthlyFee }
+  ];
+  const contractListSort = useTableSort(filteredContractsList, CONTRACT_LIST_COLUMNS);
+  const sortedContractsList = contractListSort.rows;
 
   // Generate Search Suggestions dynamically based on multiple fields (Customer Name, BizNo, Manager, Plate No, etc.)
   // Normalized for space-insensitivity and dash-insensitivity
@@ -1182,6 +1555,35 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     </div>
   );
 
+  // 금액 입력 필드 전용 - 표시는 천 단위 콤마(예: "100,000")로 보여주고, 실제 값은 숫자만 저장한다.
+  const renderMoneyInput = (label, value, onChange, placeholder = '', required = false, disabled = false) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+      <label style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-main)' }}>
+        {label} {required && <span style={{ color: 'var(--error)' }}>*</span>}
+      </label>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={toCommaString(value)}
+        onChange={(e) => onChange(parseNumber(e.target.value))}
+        placeholder={placeholder}
+        required={required}
+        disabled={disabled}
+        style={{
+          width: '100%',
+          padding: '0.45rem 0.6rem',
+          border: '1px solid var(--border-color)',
+          borderRadius: '6px',
+          fontSize: '0.85rem',
+          backgroundColor: disabled ? '#f5f5f5' : '#fff',
+          color: disabled ? '#8c8c8c' : 'var(--text-bright)',
+          cursor: disabled ? 'not-allowed' : 'text',
+          textAlign: 'right'
+        }}
+      />
+    </div>
+  );
+
   const renderSelect = (label, value, onChange, options, required = false, disabled = false) => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
       <label style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-main)' }}>
@@ -1241,29 +1643,65 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
               style={{ width: '100%', padding: '0.5rem 0.5rem 0.5rem 2rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }}
             />
             <Search size={14} style={{ position: 'absolute', left: '1.9rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            {/* 보관한 계약은 목록에서 내려간다. 되돌리려면 여기서 켜서 함께 본다. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.6rem', flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+                보관한 계약서도 보기
+              </label>
+              <select
+                value={contractStatusFilter}
+                onChange={(e) => setContractStatusFilter(e.target.value)}
+                style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.82rem', background: '#fff', cursor: 'pointer' }}
+              >
+                <option value="all">전체 상태</option>
+                <option value="진행중">진행중</option>
+                <option value="임시저장">임시저장</option>
+                <option value="보관됨">보관됨</option>
+              </select>
+              <SortControls
+                sort={contractListSort}
+                selectStyle={{ padding: '0.4rem 0.6rem', fontSize: '0.82rem' }}
+                defaultLabel="정렬 안 함 (최근 등록순)"
+                show={contractListSort.active || Boolean(contractListSearch) || contractStatusFilter !== 'all'}
+                onReset={() => { setContractListSearch(''); setContractStatusFilter('all'); }}
+              />
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{sortedContractsList.length}건</span>
+            </div>
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
             <thead>
               <tr style={{ background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-bright)', fontWeight: '700' }}>
-                <th style={{ padding: '0.8rem' }}>계약번호</th>
-                <th style={{ padding: '0.8rem' }}>고객명</th>
-                <th style={{ padding: '0.8rem' }}>차종</th>
-                <th style={{ padding: '0.8rem' }}>계약일</th>
-                <th style={{ padding: '0.8rem' }}>월 렌트료</th>
-                <th style={{ padding: '0.8rem', width: '60px' }}>관리</th>
+                {CONTRACT_LIST_COLUMNS.map((col) => (
+                  <SortableTh key={col.key} sort={contractListSort} columnKey={col.key} style={{ padding: '0.8rem' }}>
+                    {col.label}
+                  </SortableTh>
+                ))}
+                <th style={{ padding: '0.8rem', width: '260px' }}>관리</th>
               </tr>
             </thead>
             <tbody>
-              {filteredContractsList.length === 0 ? (
-                <tr><td colSpan="6" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>등록된 계약서가 없습니다.</td></tr>
+              {sortedContractsList.length === 0 ? (
+                <tr><td colSpan="7" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                  {contracts.length ? '조건에 맞는 계약서가 없습니다.' : '등록된 계약서가 없습니다.'}
+                </td></tr>
               ) : (
-                filteredContractsList.map(c => (
+                sortedContractsList.map(c => (
                   <tr key={c._id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <td style={{ padding: '0.8rem', fontWeight: '700' }}>{c.contractNo}</td>
+                    <td style={{ padding: '0.8rem' }}>
+                      <span style={{
+                        padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '700',
+                        background: c.status === '임시저장' ? '#fffbe6' : c.status === '진행중' ? '#e6f7ff' : '#f5f5f5',
+                        color: c.status === '임시저장' ? '#faad14' : c.status === '진행중' ? '#1890ff' : '#8c8c8c'
+                      }}>
+                        {c.status || '진행중'}
+                      </span>
+                    </td>
                     <td style={{ padding: '0.8rem' }}>{formatCustomerName(c.customer)}</td>
-                    <td style={{ padding: '0.8rem' }}>{c.vehicle?.carModel || '-'}</td>
+                    <td style={{ padding: '0.8rem' }}>{c.vehicle?.carModel || c.vehicleInfo?.model || '-'}</td>
                     <td style={{ padding: '0.8rem' }}>{c.contractDate ? new Date(c.contractDate).toLocaleDateString() : '-'}</td>
-                    <td style={{ padding: '0.8rem', fontWeight: '700' }}>{c.pricing?.monthlyFee?.toLocaleString()}원</td>
+                    <td style={{ padding: '0.8rem', fontWeight: '700' }}>{c.pricing?.monthlyFee?.toLocaleString() || '-'}{c.pricing?.monthlyFee ? '원' : ''}</td>
                     <td style={{ padding: '0.8rem', display: 'flex', gap: '0.8rem', alignItems: 'center' }}>
                       <button
                         onClick={() => handleEditContractFromList(c)}
@@ -1279,6 +1717,33 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                       >
                         <Trash2 size={16} />
                       </button>
+                      {c.status === '보관됨' ? (
+                        <button
+                          onClick={() => handleUnarchiveContract(c)}
+                          title="보관 해제 - 계약서 목록으로 되돌리고 차량 수정을 다시 엽니다"
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: '#fff', border: '1px solid var(--border-color)', color: 'var(--text-muted)', padding: '0.3rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                        >
+                          <RotateCcw size={13} /> 되돌리기
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleArchiveContract(c)}
+                          title="계약서를 계약자 폴더에 보관합니다"
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: '#fff', border: '1px solid var(--border-color)', color: 'var(--text-muted)', padding: '0.3rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                        >
+                          <FolderCheck size={13} /> 보관
+                        </button>
+                      )}
+                      {/* 차량이 만들어진 계약만 출고 준비로 보낼 수 있다 (임시저장 계약은 아직 차량이 없다) */}
+                      {c.vehicle && (
+                        <button
+                          onClick={() => handleSendToDeliveryPrep(c)}
+                          title="이 계약의 차량을 출고 준비로 보내기"
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: '#fff', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '0.3rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                        >
+                          <Truck size={13} /> 출고준비
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -1550,44 +2015,83 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                   overflow: 'hidden'
                 }}>
                   {(() => {
-                    const suggestions = getSuggestions();
-                    if (suggestions.length === 0) {
+                    const custSuggestions = getSuggestions();
+                    if (companySuggestions.length === 0 && custSuggestions.length === 0) {
                       return (
                         <li style={{ padding: '0.6rem 0.8rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                           검색 결과가 없습니다.
                         </li>
                       );
                     }
-                    return suggestions.map(item => {
-                      const c = item.customer;
-                      return (
-                        <li
-                          key={c._id}
-                          onClick={() => {
-                            applyCustomerSelection(c);
-                            setShowSuggestions(false);
-                          }}
-                          style={{
-                            padding: '0.6rem 0.8rem', cursor: 'pointer', fontSize: '0.8rem',
-                            borderBottom: '1px solid var(--bg-main)', background: '#fff',
-                            transition: 'background 0.2s', display: 'flex', flexDirection: 'column', gap: '0.2rem'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-main)'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                            <span style={{ fontWeight: '600', color: 'var(--text-bright)' }}>{formatCustomerName(c)}</span>
-                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{c.mobilePhone || c.contactPhone || '연락처 없음'}</span>
-                          </div>
-                          <div style={{ fontSize: '0.7rem', color: 'var(--primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span>{c.bizNo || '사업자번호 없음'}</span>
-                            <span style={{ background: 'var(--primary-glow)', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: '600', fontSize: '0.65rem', border: '1px solid var(--primary-glow-border)' }}>
-                              {item.reason}
-                            </span>
-                          </div>
-                        </li>
-                      );
-                    });
+                    return (
+                      <>
+                        {companySuggestions.length > 0 && (
+                          <>
+                            <li style={{ padding: '0.4rem 0.8rem', fontSize: '0.7rem', fontWeight: '700', color: 'var(--text-muted)', background: 'var(--bg-main)' }}>
+                              🏢 법인
+                            </li>
+                            {companySuggestions.map(company => (
+                              <li
+                                key={company._id}
+                                onClick={() => handleSelectCompanySuggestion(company)}
+                                style={{
+                                  padding: '0.6rem 0.8rem', cursor: 'pointer', fontSize: '0.8rem',
+                                  borderBottom: '1px solid var(--bg-main)', background: '#fff',
+                                  transition: 'background 0.2s', display: 'flex', flexDirection: 'column', gap: '0.2rem'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-main)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                                  <span style={{ fontWeight: '600', color: 'var(--text-bright)' }}>{company.name}</span>
+                                  <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{company.ceoName ? `대표 ${company.ceoName}` : ''}</span>
+                                </div>
+                                <div style={{ fontSize: '0.7rem', color: 'var(--primary)' }}>
+                                  {company.bizNo || '사업자번호 없음'}
+                                </div>
+                              </li>
+                            ))}
+                          </>
+                        )}
+                        {custSuggestions.length > 0 && (
+                          <>
+                            <li style={{ padding: '0.4rem 0.8rem', fontSize: '0.7rem', fontWeight: '700', color: 'var(--text-muted)', background: 'var(--bg-main)' }}>
+                              👤 고객
+                            </li>
+                            {custSuggestions.map(item => {
+                              const c = item.customer;
+                              return (
+                                <li
+                                  key={c._id}
+                                  onClick={() => {
+                                    applyCustomerSelection(c);
+                                    setShowSuggestions(false);
+                                  }}
+                                  style={{
+                                    padding: '0.6rem 0.8rem', cursor: 'pointer', fontSize: '0.8rem',
+                                    borderBottom: '1px solid var(--bg-main)', background: '#fff',
+                                    transition: 'background 0.2s', display: 'flex', flexDirection: 'column', gap: '0.2rem'
+                                  }}
+                                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-main)'}
+                                  onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                                >
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                                    <span style={{ fontWeight: '600', color: 'var(--text-bright)' }}>{formatCustomerName(c)}</span>
+                                    <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{c.mobilePhone || c.contactPhone || '연락처 없음'}</span>
+                                  </div>
+                                  <div style={{ fontSize: '0.7rem', color: 'var(--primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span>{c.bizNo || '사업자번호 없음'}</span>
+                                    <span style={{ background: 'var(--primary-glow)', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: '600', fontSize: '0.65rem', border: '1px solid var(--primary-glow-border)' }}>
+                                      {item.reason}
+                                    </span>
+                                  </div>
+                                </li>
+                              );
+                            })}
+                          </>
+                        )}
+                      </>
+                    );
                   })()}
                 </ul>
               )}
@@ -1600,7 +2104,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                   {isNewCustomer ? '📝 신규 법인 정보 직접 입력' : (partyType === '법인' ? '🏢 선택된 법인 상세 정보 (사업자등록증 기준)' : '👤 선택된 고객 상세 정보')}
                   {companyLoading && <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', fontWeight: '500', color: 'var(--text-muted)' }}>불러오는 중...</span>}
                 </span>
-                {!isNewCustomer && customerCompanies.length > 1 && (
+                {!isNewCustomer && customerCompanies.length > 0 && (
                   <select
                     value={selectedCompanyId}
                     onChange={(e) => handleSwitchCompany(e.target.value)}
@@ -1621,28 +2125,29 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                   <span style={{ display: 'inline-block', width: '4px', height: '14px', backgroundColor: 'var(--primary)', borderRadius: '2px' }}></span>
                   <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.85rem' }}>📄 사업자등록증 정보</span>
                 </div>
+
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-                  {renderInput('고객명 (개인/법인명) *', 'text', customerName, setCustomerName, '예: 주식회사 에스벤네핏', true, !isNewCustomer)}
-                  {renderInput('사업자/주민번호 *', 'text', customerBizNo, setCustomerBizNo, '예: 123-45-67890 또는 950101-1234567', true, !isNewCustomer)}
-                  {renderInput('대표자명', 'text', customerCeoName, setCustomerCeoName, '', false, !isNewCustomer)}
-                  {renderInput('법인등록번호', 'text', customerBizNoTransfer, setCustomerBizNoTransfer, '법인등록번호 입력', false, !isNewCustomer)}
+                  {renderInput('고객명 (개인/법인명) *', 'text', customerName, setCustomerName, '예: 주식회사 에스벤네핏', true)}
+                  {renderInput('사업자/주민번호 *', 'text', customerBizNo, setCustomerBizNo, '예: 123-45-67890 또는 950101-1234567', true)}
+                  {renderInput('대표자명', 'text', customerCeoName, setCustomerCeoName)}
+                  {renderInput('법인등록번호', 'text', customerBizNoTransfer, setCustomerBizNoTransfer, '법인등록번호 입력')}
                   <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1fr 3fr', gap: '1rem' }}>
-                    {renderInput('이메일', 'email', customerEmail, setCustomerEmail, 'email@example.com', false, !isNewCustomer)}
-                    {renderInput('주소', 'text', customerBizAddress, setCustomerBizAddress, '주소 입력', false, !isNewCustomer)}
+                    {renderInput('이메일', 'email', customerEmail, setCustomerEmail, 'email@example.com')}
+                    {renderInput('주소', 'text', customerBizAddress, setCustomerBizAddress, '주소 입력')}
                   </div>
                 </div>
               </div>
 
-              {/* 통장사본 정보 영역 */}
+              {/* 출금 통장 영역 - 자동으로 불러와도 항상 수정 가능해야 한다 */}
               <div style={{ background: 'var(--bg-main)', padding: '1.2rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.8rem' }}>
                   <span style={{ display: 'inline-block', width: '4px', height: '14px', backgroundColor: '#e28743', borderRadius: '2px' }}></span>
-                  <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.85rem' }}>🏦 통장사본 정보</span>
+                  <span style={{ fontWeight: '700', color: 'var(--text-bright)', fontSize: '0.85rem' }}>🏦 출금 통장</span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-                  {renderInput('자동이체 은행', 'text', customerBankName, setCustomerBankName, '예: 신한은행', false, !isNewCustomer)}
-                  {renderInput('자동이체 계좌번호', 'text', customerBankAccount, setCustomerBankAccount, '계좌번호 입력', false, !isNewCustomer)}
-                  {renderInput('자동이체 예금주', 'text', customerBankHolder, setCustomerBankHolder, '', false, !isNewCustomer)}
+                  {renderInput('자동이체 은행', 'text', customerBankName, setCustomerBankName, '예: 신한은행')}
+                  {renderInput('자동이체 계좌번호', 'text', customerBankAccount, setCustomerBankAccount, '계좌번호 입력')}
+                  {renderInput('자동이체 예금주', 'text', customerBankHolder, setCustomerBankHolder)}
                 </div>
 
                 {selectedCompanyId ? (
@@ -1714,27 +2219,68 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
         
         {expanded.vehicle && (
           <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-              {renderInput('차종 *', 'text', vehicleModel, setVehicleModel, '예: Ray, 그랜저', true)}
-              {renderInput('차량 사양', 'text', vehicleSpec, setVehicleSpec, '예: 하이브리드 프레스티지')}
-              {renderInput('차량가 (원)', 'number', vehiclePrice, setVehiclePrice, '예: 32000000')}
-              {renderSelect('유종', vehicleFuelType, setVehicleFuelType, [
-                { value: '가솔린', label: '가솔린' },
-                { value: '디젤', label: '디젤' },
-                { value: 'LPG', label: 'LPG' },
-                { value: '하이브리드', label: '하이브리드' },
-                { value: '전기', label: '전기' }
-              ])}
-              {renderInput('배기량 (cc)', 'number', vehicleCc, setVehicleCc, '예: 2500')}
-              {renderInput('외장 색상', 'text', vehicleColor, setVehicleColor, '예: 스노우 화이트')}
-              {renderInput('내장 색상', 'text', vehicleColorInterior, setVehicleColorInterior, '예: 블랙 가죽')}
-              {renderInput('차량번호', 'text', vehiclePlateNo, setVehiclePlateNo, '출고 후 입력')}
-
-              {/* 옵션 (두 번째 줄에 길게 추가) */}
-              <div style={{ gridColumn: '1 / -1' }}>
-                {renderInput('옵션', 'text', vehicleOptions, setVehicleOptions, '차량 개별 추가 옵션 입력 (예: 선루프, 네비게이션 등)')}
-              </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                이 계약으로 묶이는 차량 <strong style={{ color: 'var(--text-bright)' }}>{vehicleList.length}대</strong>
+                <span style={{ marginLeft: '0.5rem' }}>· 청구서와 세금계산서는 계약서 단위로 나갑니다.</span>
+              </span>
+              <button
+                type="button"
+                onClick={addVehicle}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', border: '1px solid var(--primary)', background: '#fff', color: 'var(--primary)', padding: '0.4rem 0.8rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer' }}
+              >
+                <Plus size={14} /> 차량 추가
+              </button>
             </div>
+
+            {vehicleList.map((veh, index) => (
+              <div key={index} style={{ border: '1px solid var(--border-color)', borderRadius: '10px', padding: '1rem', background: index === 0 ? '#fff' : 'var(--bg-main)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+                  <span style={{ fontWeight: '700', fontSize: '0.85rem', color: 'var(--text-bright)' }}>
+                    차량 {index + 1}{index === 0 ? '' : ''}
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    {index > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => copyFromPreviousVehicle(index)}
+                        title="바로 위 차량의 내용을 그대로 가져옵니다. 차량번호와 차대번호는 그대로 둡니다."
+                        style={{ border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-muted)', padding: '0.3rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer' }}
+                      >
+                        차량 {index} 정보 가져오기
+                      </button>
+                    )}
+                    {vehicleList.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeVehicleAt(index)}
+                        title="이 차량 빼기"
+                        style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+                  {renderInput('차종 *', 'text', veh.model, (v) => updateVehicleAt(index, 'model', v), '예: Ray, 그랜저', index === 0)}
+                  {renderInput('옵션', 'text', veh.options, (v) => updateVehicleAt(index, 'options', v), '예: 선루프, 네비게이션 등')}
+                  {renderMoneyInput('차량가 (원)', veh.price, (v) => updateVehicleAt(index, 'price', v), '예: 32,000,000')}
+                  {renderSelect('유종', veh.fuelType, (v) => updateVehicleAt(index, 'fuelType', v), [
+                    { value: '가솔린', label: '가솔린' },
+                    { value: '디젤', label: '디젤' },
+                    { value: 'LPG', label: 'LPG' },
+                    { value: '하이브리드', label: '하이브리드' },
+                    { value: '전기', label: '전기' }
+                  ])}
+                  {renderInput('배기량 (cc)', 'number', veh.cc, (v) => updateVehicleAt(index, 'cc', v), '예: 2500')}
+                  {renderInput('외장 색상', 'text', veh.color, (v) => updateVehicleAt(index, 'color', v), '예: 스노우 화이트')}
+                  {renderInput('내장 색상', 'text', veh.colorInterior, (v) => updateVehicleAt(index, 'colorInterior', v), '예: 블랙 가죽')}
+                  {renderInput('차량번호', 'text', veh.plateNo, (v) => updateVehicleAt(index, 'plateNo', v), '출고 후 입력')}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -1772,21 +2318,30 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                 ])}
               </div>
 
+              {/* 계약 조건 - 연체 이자 계산과 중도해지 정산에 쓰인다 */}
+              <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                {renderInput('연체 이율 (연 %)', 'number', lateInterestRate, setLateInterestRate, '예: 25')}
+                {renderInput('중도해지 수수료율 (%)', 'number', earlyTerminationRate, setEarlyTerminationRate, '예: 35')}
+              </div>
+
               {/* 2번째 행: 월 렌트료, 보증금, 선수금, 인수가 */}
               <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginTop: '0.2rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '0.3rem', color: 'var(--text-main)' }}>월 렌트료</label>
-                  <input 
-                    type="number" 
-                    required 
-                    value={pricing.monthlyFee} 
-                    onChange={(e) => handlePricingChange('monthlyFee', e.target.value)} 
-                    style={{ width: '100%', padding: '0.45rem 0.6rem', border: '1px solid var(--primary)', borderRadius: '6px', fontSize: '0.85rem' }} 
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '0.3rem', color: 'var(--text-main)' }}>
+                    월 렌트료 <span style={{ color: 'var(--error)' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    required
+                    value={toCommaString(pricing.monthlyFee)}
+                    onChange={(e) => handlePricingChange('monthlyFee', parseNumber(e.target.value))}
+                    style={{ width: '100%', padding: '0.45rem 0.6rem', border: '1px solid var(--primary)', borderRadius: '6px', fontSize: '0.85rem', textAlign: 'right' }}
                   />
                 </div>
-                {renderInput('보증금 (원)', 'number', pricing.deposit, (val) => handlePricingChange('deposit', val))}
-                {renderInput('선수금 (원)', 'number', pricing.advancePayment, (val) => handlePricingChange('advancePayment', val))}
-                {renderInput('인수가 (원)', 'number', pricing.takeoverPrice, (val) => handlePricingChange('takeoverPrice', val))}
+                {renderMoneyInput('보증금 (원)', pricing.deposit, (val) => handlePricingChange('deposit', val))}
+                {renderMoneyInput('선수금 (원)', pricing.advancePayment, (val) => handlePricingChange('advancePayment', val))}
+                {renderMoneyInput('인수가 (원)', pricing.takeoverPrice, (val) => handlePricingChange('takeoverPrice', val))}
               </div>
 
               {/* 일반 계약 세부 정보: 계약일, 담당자, 연락처 */}
@@ -1866,6 +2421,8 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                   {renderInput('일반정비', 'text', maintenance.generalMaintenance, () => {}, '', false, true)}
                   {renderInput('소모품 교환', 'text', maintenance.consumables, () => {}, '', false, true)}
                   {renderInput('타이어 교체', 'text', maintenance.tireCount, () => {}, '', false, true)}
+                  {renderInput('타이어 등급', 'text', maintenance.tireType, () => {}, '견적서에서 선택', false, true)}
+                  {renderInput('연간 주행거리 (km)', 'text', maintenance.mileage ? Number(maintenance.mileage).toLocaleString() : '', () => {}, '견적서에서 선택', false, true)}
                 </div>
               </div>
 
@@ -1889,11 +2446,21 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
         >
           <MenuCancelText>취소</MenuCancelText>
         </button>
+        {/* 이미 정식 등록된 계약(차량이 있는 계약)을 고치는 중이면 "임시저장"은 의미가 없어 숨긴다 */}
+        {(!prefilledContractData || !prefilledContractData.vehicle) && (
+          <button
+            type="button"
+            onClick={handleSaveDraft}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#fff', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding: '0.6rem 1.5rem', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem' }}
+          >
+            <Clock size={16} /> 임시저장
+          </button>
+        )}
         <button
           type="submit"
           style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--primary)', color: '#fff', border: 'none', padding: '0.6rem 1.5rem', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem' }}
         >
-          <Save size={16} /> 저장
+          <Save size={16} /> 출고 준비로 전환
         </button>
       </div>
 

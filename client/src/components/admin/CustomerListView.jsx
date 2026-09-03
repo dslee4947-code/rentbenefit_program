@@ -16,6 +16,8 @@ import {
   Eye
 } from 'lucide-react';
 import OutlookContactModal from './OutlookContactModal';
+import { useServerTableSort } from './useTableSort.js';
+import { SortableTh, SortControls } from './TableSort.jsx';
 import * as XLSX from 'xlsx';
 
 function CustomerListView({ showToast, currentUser }) {
@@ -68,6 +70,17 @@ function CustomerListView({ showToast, currentUser }) {
   // Pagination State
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ totalCount: 0, totalPages: 1, limit: 50 });
+
+  // 고객 DB는 50건씩 나눠 받으므로 정렬은 서버에 맡긴다.
+  // 화면에서 정렬하면 지금 보고 있는 50건 안에서만 순서가 바뀐다.
+  const CUSTOMER_COLUMNS = [
+    { key: 'surname', label: '성' },
+    { key: 'givenName', label: '이름' },
+    { key: 'companyName', label: '차량정보' },
+    { key: 'mobilePhone', label: '휴대전화' },
+    { key: 'updatedAt', label: '수정한 날짜', numeric: true }
+  ];
+  const sort = useServerTableSort(CUSTOMER_COLUMNS, { onChange: () => setPage(1) });
   const [stats, setStats] = useState({ total: 0, outlook: 0, manual: 0 });
 
   // Outlook Sync State
@@ -118,6 +131,10 @@ function CustomerListView({ showToast, currentUser }) {
         source: filterSource,
         category: filterCategory
       });
+      if (sort.sortKey) {
+        queryParams.set('sort', sort.sortKey);
+        queryParams.set('order', sort.sortOrder);
+      }
 
       const res = await fetch(`${API_BASE_URL}/api/customers?${queryParams.toString()}`);
       if (!res.ok) throw new Error('고객 목록을 불러오지 못했습니다.');
@@ -140,7 +157,8 @@ function CustomerListView({ showToast, currentUser }) {
 
   useEffect(() => {
     fetchCustomers(page);
-  }, [page, debouncedSearch, filterSource, filterCategory]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, debouncedSearch, filterSource, filterCategory, sort.sortKey, sort.sortOrder]);
 
   // 2. 아웃룩 수동 동기화 실행
   const handleOutlookSync = async () => {
@@ -502,6 +520,15 @@ function CustomerListView({ showToast, currentUser }) {
                 ))}
               </select>
             )}
+
+            {/* 정렬 - 표 머리글을 눌러도 같은 기준으로 바뀝니다 */}
+            <SortControls
+              sort={sort}
+              selectStyle={{ padding: '0.6rem 1rem', background: 'var(--bg-main)', fontSize: '0.88rem' }}
+              defaultLabel="정렬 안 함 (최근 등록순)"
+              show={sort.active || Boolean(searchTerm) || filterSource !== 'all' || filterCategory !== 'all'}
+              onReset={() => { setSearchTerm(''); setFilterSource('all'); setFilterCategory('all'); setPage(1); }}
+            />
           </div>
 
           {/* 오른쪽: 실행 버튼들 */}
@@ -614,11 +641,11 @@ function CustomerListView({ showToast, currentUser }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.88rem' }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-main)', borderBottom: '2px solid var(--border-color)', color: 'var(--text-muted)' }}>
-                    <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', minWidth: '180px' }}>성</th>
-                    <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', minWidth: '240px' }}>이름</th>
-                    <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', minWidth: '240px' }}>차량정보</th>
-                    <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', minWidth: '160px' }}>휴대전화</th>
-                    <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', width: '200px' }}>수정한 날짜</th>
+                    <SortableTh sort={sort} columnKey="surname" style={{ padding: '0.9rem 1.2rem', fontWeight: '700', minWidth: '180px' }}>성</SortableTh>
+                    <SortableTh sort={sort} columnKey="givenName" style={{ padding: '0.9rem 1.2rem', fontWeight: '700', minWidth: '240px' }}>이름</SortableTh>
+                    <SortableTh sort={sort} columnKey="companyName" style={{ padding: '0.9rem 1.2rem', fontWeight: '700', minWidth: '240px' }}>차량정보</SortableTh>
+                    <SortableTh sort={sort} columnKey="mobilePhone" style={{ padding: '0.9rem 1.2rem', fontWeight: '700', minWidth: '160px' }}>휴대전화</SortableTh>
+                    <SortableTh sort={sort} columnKey="updatedAt" style={{ padding: '0.9rem 1.2rem', fontWeight: '700', width: '200px' }}>수정한 날짜</SortableTh>
                     <th style={{ padding: '0.9rem 1.2rem', fontWeight: '700', textAlign: 'center', width: '120px' }}>관리</th>
                   </tr>
                 </thead>
@@ -669,39 +696,20 @@ function CustomerListView({ showToast, currentUser }) {
 
                         {/* 6. 관리 */}
                         <td style={{ padding: '0.9rem 1.2rem', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
-                          <div style={{ display: 'flex', justifyContent: 'center', gap: '0.4rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'center', gap: '0.8rem', alignItems: 'center' }}>
                             <button
                               onClick={() => handleOpenOutlookWindow(cust)}
                               title="아웃룩 연락처 상세 카드 보기"
-                              style={{
-                                border: 'none',
-                                background: 'rgba(0, 120, 212, 0.1)',
-                                color: '#0078d4',
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                padding: '0.3rem 0.6rem',
-                                fontSize: '0.78rem',
-                                fontWeight: '600',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.2rem'
-                              }}
+                              style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer' }}
                             >
-                              <Eye size={13} />
-                              <span>상세</span>
+                              <Eye size={16} />
                             </button>
                             <button
                               onClick={() => handleDeleteCustomer(cust._id, cust.name)}
                               title="삭제"
-                              style={{
-                                border: 'none',
-                                background: 'transparent',
-                                color: '#ff4d4f',
-                                cursor: 'pointer',
-                                padding: '0.25rem'
-                              }}
+                              style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}
                             >
-                              <Trash2 size={15} />
+                              <Trash2 size={16} />
                             </button>
                           </div>
                         </td>

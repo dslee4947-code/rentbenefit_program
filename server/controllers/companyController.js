@@ -3,6 +3,8 @@ import path from 'path';
 import Company from '../models/Company.js';
 import Customer from '../models/Customer.js';
 import CompanyDocument from '../models/CompanyDocument.js';
+import Contract from '../models/Contract.js';
+import Vehicle from '../models/Vehicle.js';
 import { parseBusinessRegistration } from '../utils/ocrService.js';
 import { saveFileLocally, sanitizePathSegment } from '../utils/documentStorageService.js';
 
@@ -154,6 +156,7 @@ export const createCompany = async (req, res) => {
       billingEmail,
       folderName,
       memo,
+      bank,
       customerAssociations
     } = req.body;
 
@@ -178,6 +181,7 @@ export const createCompany = async (req, res) => {
       billingEmail,
       folderName,
       memo,
+      bank: bank || undefined,
     });
 
     if (customerAssociations && Array.isArray(customerAssociations)) {
@@ -213,6 +217,7 @@ export const updateCompany = async (req, res) => {
       billingEmail,
       folderName,
       memo,
+      bank,
       customerAssociations
     } = req.body;
 
@@ -236,6 +241,7 @@ export const updateCompany = async (req, res) => {
     company.billingEmail = billingEmail !== undefined ? billingEmail : company.billingEmail;
     company.folderName = folderName !== undefined ? folderName : company.folderName;
     company.memo = memo !== undefined ? memo : company.memo;
+    if (bank !== undefined) company.bank = bank;
 
     const updated = await company.save();
 
@@ -248,6 +254,40 @@ export const updateCompany = async (req, res) => {
     if (error.code === 11000) {
       return res.status(400).json({ message: '이미 다른 법인에 등록된 사업자번호입니다.' });
     }
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    법인 삭제 - 계약/차량에 연결된 법인은 그 연결을 먼저 정리해야 삭제 가능
+// @route   DELETE /api/companies/:id
+// @access  Public
+export const deleteCompany = async (req, res) => {
+  try {
+    const company = await Company.findById(req.params.id);
+    if (!company) {
+      return res.status(404).json({ message: '법인을 찾을 수 없습니다.' });
+    }
+
+    const [contractCount, vehicleCount] = await Promise.all([
+      Contract.countDocuments({ companyId: req.params.id }),
+      Vehicle.countDocuments({ company: req.params.id })
+    ]);
+
+    if (contractCount > 0 || vehicleCount > 0) {
+      return res.status(400).json({
+        message: `이 법인과 연결된 계약 ${contractCount}건, 차량 ${vehicleCount}건이 있어 삭제할 수 없습니다. 먼저 계약서/차량 쪽 연결을 정리해 주세요.`
+      });
+    }
+
+    await Customer.updateMany(
+      { 'companies.companyId': req.params.id },
+      { $pull: { companies: { companyId: req.params.id } } }
+    );
+    await CompanyDocument.deleteMany({ company: req.params.id });
+    await company.deleteOne();
+
+    res.json({ message: `"${company.name}" 법인이 삭제되었습니다.` });
+  } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
@@ -304,16 +344,22 @@ export const processCompanyOCR = async (req, res) => {
     const hasAnyField = Boolean(result.bizNo || result.name || result.ceoName || result.address);
     if (!hasAnyField) {
       return res.status(422).json({
-        message: '파일에서 사업자 정보를 찾지 못했습니다. 더 선명한 파일로 다시 시도하거나 직접 입력해 주세요.'
+        message: '파일에서 사업자 정보를 찾지 못했습니다. 더 선명한 파일로 다시 시도하거나 직접 입력해 주세요.',
+        code: 'OCR_NO_FIELDS'
       });
     }
 
     res.json(result);
   } catch (error) {
-    console.error('[OCR Controller] OCR processing failed:', error);
-    const notConfigured = error.message?.includes('OCR 엔진이 설정되지 않아');
+    const notConfigured = error.code === 'OCR_NOT_CONFIGURED';
+    if (notConfigured) {
+      console.log('[OCR Controller] OCR 미설정 - 자동 완성 없이 직접 입력으로 안내합니다.');
+    } else {
+      console.error('[OCR Controller] OCR processing failed:', error);
+    }
     res.status(notConfigured ? 503 : 500).json({
-      message: error.message || '사업자등록증 분석에 실패했습니다.'
+      message: error.message || '사업자등록증 분석에 실패했습니다.',
+      code: error.code
     });
   }
 };

@@ -10,7 +10,10 @@ import customerRoutes from './routes/customerRoutes.js';
 import quoteRoutes from './routes/quoteRoutes.js';
 import contractRoutes from './routes/contractRoutes.js';
 import scheduleRoutes from './routes/scheduleRoutes.js';
+import mailTemplateRoutes from './routes/mailTemplateRoutes.js';
 import invoiceRoutes from './routes/invoiceRoutes.js';
+import billingScheduleRoutes from './routes/billingScheduleRoutes.js';
+import ledgerRoutes from './routes/ledgerRoutes.js';
 import documentRoutes from './routes/documentRoutes.js';
 import companyFolderRoutes from './routes/companyFolderRoutes.js';
 import companyRoutes from './routes/companyRoutes.js';
@@ -23,6 +26,7 @@ dotenv.config();
 import cron from 'node-cron';
 import { runDatabaseMigration } from './utils/dbMigration.js';
 import { syncOutlookContacts } from './utils/outlookSyncService.js';
+import { syncInvoiceSendSchedules } from './utils/invoiceScheduleJob.js';
 
 // Connect to MongoDB database
 connectDB().then(async () => {
@@ -37,6 +41,14 @@ connectDB().then(async () => {
     syncOutlookContacts();
   });
   console.log('[Cron Scheduler] 6-hour Outlook sync job scheduled successfully.');
+
+  // 청구서 발송 일정(출금일 10일 전)을 캘린더에 맞춰 둔다.
+  // 매일 새벽에 한 번이면 충분하다. 회차는 하루 사이에 바뀌지 않는다.
+  syncInvoiceSendSchedules().catch((err) => console.error('[청구서 발송 일정] 실패:', err.message));
+  cron.schedule('10 3 * * *', () => {
+    syncInvoiceSendSchedules().catch((err) => console.error('[청구서 발송 일정] 실패:', err.message));
+  });
+  console.log('[Cron Scheduler] 청구서 발송 일정 동기화 예약 완료 (매일 03:10).');
 });
 
 const app = express();
@@ -90,6 +102,9 @@ app.use('/api/quotes', quoteRoutes);
 app.use('/api/contracts', contractRoutes);
 app.use('/api/schedules', scheduleRoutes);
 app.use('/api/invoices', invoiceRoutes);
+app.use('/api/billing-schedules', billingScheduleRoutes);
+app.use('/api/mail-templates', mailTemplateRoutes);
+app.use('/api/ledgers', ledgerRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/company-folders', companyFolderRoutes);
 app.use('/api/companies', companyRoutes);

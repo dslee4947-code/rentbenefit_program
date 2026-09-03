@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Sparkles, Save, ArrowRight, UserPlus, Users, Car, Coins, Settings, HelpCircle, CheckCircle, Plus, Trash2, FolderOpen, X, Search, List, Edit, ChevronLeft, ChevronRight } from 'lucide-react';
-import html2pdf from 'html2pdf.js';
-import { jsPDF } from 'jspdf';
-import { formatCustomerName } from '../../utils/format.js';
+import { formatCustomerName, cleanSpecValue, extractQuoteVehicleDetail } from '../../utils/format.js';
+import { useDraggableDialog, DIALOG_TOP } from './useDraggableDialog.js';
+import { createPortal } from 'react-dom';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -183,7 +183,7 @@ const calculateLeaseCarTax = (vehicle) => {
   return Math.floor((baseTax + educationTax) / 10) * 10; // 10원 미만 절사
 };
 
-function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, currentUser }) {
+function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContractData, showToast, currentUser }) {
   const [customers, setCustomers] = useState([]);
   const [useExistingCustomer, setUseExistingCustomer] = useState(true);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
@@ -209,6 +209,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
 
   // 견적서 화면 상단 "불러오기" - 고객 선택 여부와 무관하게 전체 견적서를 검색해서 불러온다
   const [showLoadModal, setShowLoadModal] = useState(false);
+  // 팝업을 제목 줄로 잡아 끌어 옮길 수 있게 한다
+  const { dragHandleProps, dragStyle } = useDraggableDialog(showLoadModal);
   const [loadModalQuotes, setLoadModalQuotes] = useState([]);
   const [loadModalLoading, setLoadModalLoading] = useState(false);
   const [loadModalSearch, setLoadModalSearch] = useState('');
@@ -230,6 +232,12 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
   // 장기렌터카 견적서 왼쪽 하단 '비고' 칸에 직접 입력하는 내용 (문서 단위)
   const [rentalRemark, setRentalRemark] = useState('');
 
+  // 대여 조건 (문서 단위).
+  // 견적서 '대여 조건' 표에 찍히고, 계약서로 그대로 넘어가 청구서의 연체 이자 계산에 쓰인다.
+  // 예전에는 35% / 연 25%가 문서에 박혀 있어 건마다 다르게 줄 수 없었다.
+  const [earlyTerminationRate, setEarlyTerminationRate] = useState('35');
+  const [lateInterestRate, setLateInterestRate] = useState('25');
+
   // 비교 견적서 '특이사항' 입력 방식.
   // false = 안별로 따로 입력, true = 안 구분 없이 하나로 입력하고 표에서는 칸을 가로로 병합해 표시
   const [isSpecialNoteMerged, setIsSpecialNoteMerged] = useState(false);
@@ -239,13 +247,13 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
   const createNewVehicle = (id) => ({
     id,
     quoteId: null, // 이 "안"으로 이미 저장된 견적서가 있으면 그 _id. 있으면 다시 저장할 때 새로 만들지 않고 그 견적서를 수정한다
-    carModel: id === 1 ? '팰리세이드 (H) 2.5 2WD 프레스티지 9인승' : '',
+    carModel: '',
     carOptionsName: '-',
-    carPrice: id === 1 ? 56680000 : 0,
+    carPrice: 0,
     carOptionPrice: 0,
     discountPrice: 0,
     fuelType: '가솔린',
-    cc: 2500,
+    cc: 0,
     deliveryPeriod: '-',
     exteriorColor: '-',
     interiorColor: '-',
@@ -286,7 +294,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
         insuranceType: 'standard',
         registrationAgencyFee: 100000,
         calcMode: 'manual',
-        monthlyFeeInput: id === 1 ? 996000 : 0,
+        monthlyFeeInput: 0,
         targetProfitInput: 0
       },
       // 2안은 1안과 같은 조건에서 출발한다. 보통 조건 하나만 바꿔 비교하기 때문에
@@ -324,7 +332,6 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
   const [activeInputValue, setActiveInputValue] = useState(''); // temporary input string
   const [createdBy, setCreatedBy] = useState('이두식');
   const [printFormType, setPrintFormType] = useState('rental'); // 'comparison' or 'rental'
-  const [savingToStore, setSavingToStore] = useState(false);
   const [isMaintenanceDetailModalOpen, setIsMaintenanceDetailModalOpen] = useState(false);
   const [subView, setSubView] = useState('quote'); // 'quote' or 'maintenance'
   const [tempMaintenanceItems, setTempMaintenanceItems] = useState([]);
@@ -575,6 +582,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
     setRentalRemark(quote.rentalRemark || '');
     setIsSpecialNoteMerged(!!quote.specialNoteMerged);
     setMergedSpecialNote(quote.mergedSpecialNote || '');
+    setEarlyTerminationRate(String(quote.terms?.earlyTerminationRate ?? 35));
+    setLateInterestRate(String(quote.terms?.lateInterestRate ?? 25));
   };
 
   // 지난 견적을 선택하면 그 내용 그대로 하단 입력 필드에 불러온다
@@ -769,9 +778,65 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
     setViewMode('form');
   };
 
-  const handleConvertQuoteToContract = (quote) => {
-    setPrefilledQuoteData(quote);
-    setActiveTab('contract-register');
+  // 견적서 목록에서 바로 "계약전환"을 누른 경우도, 진행 중 화면과 똑같이 계약서 목록에
+  // 임시저장 계약을 즉시 만들어 둔 뒤 이어서 입력하도록 계약서 등록 화면을 연다.
+  const handleConvertQuoteToContract = async (quote) => {
+    const customerId = quote.customer?._id || quote.customer;
+    if (!customerId) {
+      showToast('견적서에 고객 정보가 없어 계약서로 전환할 수 없습니다.', 'error');
+      return;
+    }
+
+    const est = (quote.monthlyEstimates && quote.monthlyEstimates[0]) || null;
+    const quotePartyType = quote.partyType || (quote.companyId ? '법인' : '개인');
+    // 유종/배기량/납기/외장·내장 색상. 이걸 안 실어 보내면 계약서 차량 정보가 빈칸으로 열린다.
+    const spec = extractQuoteVehicleDetail(quote);
+
+    try {
+      const draftPayload = {
+        customerId,
+        partyType: quotePartyType,
+        companyId: quotePartyType === '법인' ? (quote.companyId?._id || quote.companyId) : undefined,
+        contractDate: todayDateStr,
+        termMonths: quote.pricing?.paymentTerm || est?.termMonths || 48,
+        pricing: quote.pricing,
+        quoteId: quote._id,
+        vehicleInfo: {
+          model: quote.vehicleModel,
+          // vehicleSpec은 "옵션명 / 연료: .. / 배기량: .. / .." 형태로 저장돼 있고, 첫 구간이 옵션명이다
+          options: (quote.vehicleSpec || '').split(' / ')[0] || undefined,
+          fuelType: spec.fuelType,
+          cc: spec.cc,
+          color: spec.exteriorColor,
+          colorInterior: spec.interiorColor,
+          deliveryPeriod: spec.deliveryPeriod,
+          vehiclePrice: quote.totalPrice,
+          insurance: quote.insurance ? { type: quote.insurance.type } : undefined,
+          maintenance: quote.maintenance ? { enabled: quote.maintenance.enabled, mileage: quote.maintenance.mileage } : undefined
+        }
+      };
+
+      const res = await fetch(`${API_HOST}/api/contracts/draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-User-Role': currentUser?.role || 'viewer' },
+        body: JSON.stringify(draftPayload)
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        showToast(err.message || '계약서 임시저장에 실패했습니다.', 'error');
+        return;
+      }
+
+      const draftContract = await res.json();
+      setPrefilledQuoteData(null);
+      setPrefilledContractData(draftContract);
+      showToast('계약서가 목록에 임시저장되었습니다. 이어서 등록을 완료해주세요.', 'success');
+      setActiveTab('contract-register');
+    } catch (err) {
+      console.error(err);
+      showToast('계약서 임시저장 중 서버 통신 오류가 발생했습니다.', 'error');
+    }
   };
 
   const handleDeleteQuoteFromList = async (id) => {
@@ -1240,6 +1305,10 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
           };
         }),
         rentalRemark,
+        terms: {
+          earlyTerminationRate: Number(earlyTerminationRate) || 35,
+          lateInterestRate: Number(lateInterestRate) || 25
+        },
         specialNoteMerged: isSpecialNoteMerged,
         mergedSpecialNote,
         // 비교하던 차량 전체를 그대로 저장한다. 위의 vehicleModel/pricing은 대표 차량 1대 정보라
@@ -1315,23 +1384,65 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
     const { savedQuote, calculated, selectedOpt, pricing } = result;
 
     if (convertToContractAfterSave) {
-      // Pass prefilled data with pricing info of the selected option
-      const prefilledData = {
-        ...savedQuote,
-        totalPrice: calculated.totalCarPrice,
-        monthlyEstimates: [
-          {
-            termMonths: selectedOpt.termYears * 12,
-            monthlyFee: calculated.monthlyLeaseFee,
-            name: selectedOpt.name,
-            companyName: selectedOpt.companyName
-          }
-        ],
-        pricing
-      };
       setFinalSelection(null);
-      setPrefilledQuoteData(prefilledData);
-      setActiveTab('contract-register');
+
+      // "계약서 등록 전환"을 누른 순간 계약서 목록에 실제로 저장되도록 임시저장 계약을 바로 만든다.
+      // 렌트차량 DB에는 아직 차량을 만들지 않고(최종 "저장"에서 만든다), 계약서만 먼저 확보해 둔다.
+      const customerId = savedQuote.customer?._id || savedQuote.customer;
+      if (!customerId) {
+        showToast('견적서에 고객 정보가 없어 계약서로 전환할 수 없습니다.', 'error');
+        return;
+      }
+
+      try {
+        const draftPayload = {
+          customerId,
+          partyType,
+          companyId: partyType === '법인' ? selectedCompanyId : undefined,
+          contractDate: todayDateStr,
+          termMonths: selectedOpt.termYears * 12,
+          pricing,
+          quoteId: savedQuote._id,
+          vehicleInfo: {
+            model: activeVehicle.carModel,
+            options: activeVehicle.carOptionsName,
+            fuelType: activeVehicle.fuelType,
+            cc: activeVehicle.cc,
+            // 견적 화면의 '-'(값 없음 표기)가 그대로 계약서 색상 칸에 박히지 않도록 걸러 낸다
+            color: cleanSpecValue(activeVehicle.exteriorColor),
+            colorInterior: cleanSpecValue(activeVehicle.interiorColor),
+            deliveryPeriod: cleanSpecValue(activeVehicle.deliveryPeriod),
+            vehiclePrice: calculated.totalCarPrice,
+            insurance: { type: selectedOpt.insuranceType === 'premium' ? 'premium' : 'standard' },
+            maintenance: { enabled: selectedOpt.isMaintenanceEnabled !== false, mileage: selectedOpt.mileage, tireType: selectedOpt.tireType }
+          },
+          terms: {
+            earlyTerminationRate: Number(earlyTerminationRate) || 35,
+            lateInterestRate: Number(lateInterestRate) || 25
+          }
+        };
+
+        const draftRes = await fetch(`${API_HOST}/api/contracts/draft`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-User-Role': currentUser?.role || 'viewer' },
+          body: JSON.stringify(draftPayload)
+        });
+
+        if (!draftRes.ok) {
+          const err = await draftRes.json();
+          showToast(err.message || '계약서 임시저장에 실패했습니다.', 'error');
+          return;
+        }
+
+        const draftContract = await draftRes.json();
+        setPrefilledQuoteData(null);
+        setPrefilledContractData(draftContract);
+        showToast('계약서가 목록에 임시저장되었습니다. 이어서 등록을 완료해주세요.', 'success');
+        setActiveTab('contract-register');
+      } catch (err) {
+        console.error(err);
+        showToast('계약서 임시저장 중 서버 통신 오류가 발생했습니다.', 'error');
+      }
     } else {
       // Trigger print preview of the comparison sheet first, then go to the quote list
       setTimeout(() => {
@@ -1434,96 +1545,6 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
   // 1안~4안은 세로(A4 portrait), 5안 이상은 가로(A4 landscape)로 1페이지에 맞춰 인쇄
   const isComparisonLandscape = printFormType === 'comparison' && displaySelectedOptions.length >= 5;
 
-  // 현재 화면의 견적서를 PDF로 만들어 로컬 원드라이브 폴더에 직접 저장
-  const handleSaveToDocumentStore = async () => {
-    const element = document.getElementById('print-comparison-area');
-    if (!element) return;
-
-    saveQuoteRecord({ silent: true }); // 나중에 "불러오기" 할 수 있도록 백그라운드로 저장
-    setSavingToStore(true);
-    // PDF 캡처용 스타일 클래스 임시 추가
-    element.classList.add('html2pdf-active');
-    if (isComparisonLandscape) {
-      element.classList.add('is-landscape');
-    }
-
-    try {
-      const docTypeLabel = printFormType === 'comparison' ? '비교견적서' : '견적서';
-      // 파일명에는 쓸 수 없는 문자(/)가 들어갈 수 있어 화면 표기와 별도로 치환해서 사용한다
-      const customerLabel = (displayCustomerName || '미지정고객').trim().replace(/[\\/:*?"<>|]/g, '_');
-      const fileName = `${docTypeLabel}_${customerLabel}_${todayDateStr}.pdf`;
-
-      const orientation = isComparisonLandscape ? 'landscape' : 'portrait';
-
-      // 화면을 이미지로 캡처만 하고, PDF 조립은 직접 한다.
-      // html2pdf에 그대로 맡기면 내용이 A4보다 길 때 자동으로 2페이지로 잘라버린다.
-      const canvas = await html2pdf()
-        .set({
-          image: { type: 'png' }, // 무손실 PNG (JPEG 압축으로 인한 표 선 뭉개짐 방지)
-          html2canvas: {
-            scale: 2, // 해상도 배율
-            useCORS: true,
-            // 주의: foreignObjectRendering:true는 표 선 두께 버그는 고치지만 복잡한 레이아웃에서
-            // 캡처 자체가 빈 페이지로 나오는 경우가 있어 사용하지 않음 (기본(canvas) 렌더링 방식 유지)
-            // 화면에만 보이는 탭 전환 버튼 등(.no-print)은 캡처에서 제외
-            ignoreElements: (el) => el.classList && el.classList.contains('no-print')
-          }
-        })
-        .from(element)
-        .toCanvas()
-        .get('canvas');
-
-      // 캡처 이미지를 A4 한 장 안에 비율 그대로 축소해 넣는다. 항상 1페이지가 된다.
-      const pageSize = orientation === 'landscape' ? { w: 297, h: 210 } : { w: 210, h: 297 };
-      const margin = 5; // mm
-      const availableWidth = pageSize.w - margin * 2;
-      const availableHeight = pageSize.h - margin * 2;
-
-      const fitScale = Math.min(availableWidth / canvas.width, availableHeight / canvas.height);
-      const imgWidth = canvas.width * fitScale;
-      const imgHeight = canvas.height * fitScale;
-
-      const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation });
-      pdf.addImage(
-        canvas.toDataURL('image/png'),
-        'PNG',
-        (pageSize.w - imgWidth) / 2, // 가로 가운데 정렬
-        margin,
-        imgWidth,
-        imgHeight
-      );
-      const pdfBlob = pdf.output('blob');
-
-      const formData = new FormData();
-      formData.append('file', pdfBlob, fileName);
-      formData.append('businessLine', 'rental');
-      formData.append('customerName', customerLabel);
-      formData.append('docType', docTypeLabel);
-      formData.append('fileName', fileName);
-
-      const res = await fetch(`${API_HOST}/api/documents/save-local`, {
-        method: 'POST',
-        headers: { 'X-User-Role': currentUser?.role || 'viewer' },
-        body: formData
-      });
-      const data = await res.json();
-
-      if (data.success) {
-        const displayPath = `CEO\\RENT\\${customerLabel}`;
-        showToast(`[${displayPath}\\${data.fileName}] 문서함(원드라이브)에 성공적으로 저장되었습니다.`, 'success');
-      } else {
-        showToast(data.message || '문서함 저장에 실패했습니다.', 'error');
-      }
-    } catch (err) {
-      console.error('Save to document store error:', err);
-      showToast('PDF 생성 또는 로컬 저장 중 오류가 발생했습니다.', 'error');
-    } finally {
-      // PDF 캡처 완료 후 원래 스타일 복구
-      element.classList.remove('html2pdf-active');
-      element.classList.remove('is-landscape');
-      setSavingToStore(false);
-    }
-  };
 
   const renderMaintenancePage = () => {
     // Determine dynamic tire count and cost for selected option
@@ -1747,6 +1768,55 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
     return renderMaintenancePage();
   }
 
+  /** 비고 문구용 금액 표기. 만 단위로 딱 떨어지면 "120만원", 아니면 "290,830원" */
+  const formatKoreanMoney = (amount) => {
+    if (!amount) return '';
+    return amount % 10000 === 0
+      ? `${(amount / 10000).toLocaleString()}만원`
+      : `${toCommaString(amount)}원`;
+  };
+
+  /**
+   * 비고 열에 넣을 요약 문구를 만든다.
+   * 비고는 행마다 한 칸뿐인데 안마다 값이 다를 수 있어, 값이 모두 같으면 한 번만 쓰고
+   * 다르면 어느 안의 값인지 알 수 있도록 안 이름을 붙여 나열한다.
+   */
+  const buildNoteText = (label, entries) => {
+    const valid = entries.filter((e) => e.value > 0);
+    if (valid.length === 0) return '';
+
+    const uniqueValues = [...new Set(valid.map((e) => e.value))];
+    if (uniqueValues.length === 1) {
+      return `${label} : ${formatKoreanMoney(uniqueValues[0])}`;
+    }
+    return `${label} · ${valid.map((e) => `${e.name} ${formatKoreanMoney(e.value)}`).join(', ')}`;
+  };
+
+  /**
+   * 비교표 맨 오른쪽 비고 칸.
+   * 글자 크기를 em으로 주는 이유: 인쇄/PDF CSS가 td의 font-size를 !important로 덮어쓰기 때문에
+   * rem이나 px로 주면 무시된다. em은 그 덮어쓴 크기를 기준으로 계산되어 화면·인쇄 모두에서
+   * 숫자보다 한 단계 작게 유지된다.
+   */
+  const renderNoteCell = (isEvenRow, text) => (
+    <td
+      style={{
+        background: isEvenRow ? '#f9f8f6' : '#ffffff',
+        textAlign: text ? 'left' : 'center',
+        color: text ? '#334155' : '#94a3b8',
+        padding: '8px 10px',
+        whiteSpace: 'normal',
+        wordBreak: 'keep-all',
+        lineHeight: '1.35',
+        verticalAlign: 'middle'
+      }}
+    >
+      {/* 폭 상한을 여기서 따로 걸지 않는다. 열 폭은 헤더의 width/min-width가 정하고
+          문구는 그 안에서 두 줄로 흘러가야, 구분 열과 폭이 어긋나지 않는다. */}
+      {text ? <span style={{ fontSize: '0.82em' }}>{text}</span> : '-'}
+    </td>
+  );
+
   const getCellStyles = (idx, isEvenRow = false, extraStyles = {}) => {
     return {
       background: isEvenRow ? '#f9f8f6' : '#ffffff',
@@ -1912,15 +1982,19 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
       ) : (
       <>
       {showLoadModal && (
+        createPortal(
+        /* 팝업은 document.body에 직접 그린다.
+           페이지 쪽 조상에 transform/animation이 걸려 있으면 position:fixed의 기준이 그 요소로 바뀌어
+           팝업이 스크롤되는 콘텐츠 영역 안에 갇히고, 화면 기준 위치가 어긋난다. */
         <div
           onClick={() => setShowLoadModal(false)}
-          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000, padding: `${DIALOG_TOP} 1rem 1rem` }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{ background: '#fff', borderRadius: '10px', width: '90%', maxWidth: '760px', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}
+            style={{ ...dragStyle, background: '#fff', borderRadius: '10px', width: '90%', maxWidth: '760px', maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.2rem 1.5rem', borderBottom: '1px solid var(--border-color)' }}>
+            <div {...dragHandleProps} style={{ ...dragHandleProps.style, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.2rem 1.5rem', borderBottom: '1px solid var(--border-color)' }}>
               <h4 style={{ margin: 0, fontWeight: '800', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <FolderOpen size={18} style={{ color: 'var(--primary)' }} /> 견적서 불러오기
               </h4>
@@ -1991,7 +2065,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
               )}
             </div>
           </div>
-        </div>
+        </div>, document.body)
       )}
 
       {/* Section 1: Customer info */}
@@ -2167,18 +2241,11 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
               const companies = (selectedCustomer.companies || []).filter(a => a.companyId);
               if (companies.length === 0) return null;
 
-              if (companies.length === 1) {
-                return (
-                  <div style={{ marginTop: '0.6rem', background: '#f0f7ff', border: '1px solid #bbdefb', borderRadius: '6px', padding: '0.7rem 1rem', fontSize: '0.82rem', color: '#0056b3' }}>
-                    <strong>법인 건:</strong> {companies[0].companyId.name} {companies[0].companyId.bizNo ? `(${companies[0].companyId.bizNo})` : ''} 소속으로 진행됩니다.
-                  </div>
-                );
-              }
-
+              // 소속 법인이 하나뿐이어도 드롭다운으로 보여줘서 항상 다른 법인으로 바꿔 선택할 수 있게 한다.
               return (
                 <div style={{ marginTop: '0.6rem', background: '#f0f7ff', border: '1px solid #bbdefb', borderRadius: '6px', padding: '0.7rem 1rem' }}>
                   <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', color: '#0056b3', marginBottom: '0.4rem' }}>
-                    어느 법인으로 진행할까요?
+                    법인 건: 어느 법인으로 진행할까요?
                   </label>
                   <select
                     value={selectedCompanyId}
@@ -2241,7 +2308,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
             )}
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
             <div>
               <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '0.3rem' }}>고객/법인명 *</label>
               <input type="text" placeholder="예: (주)렌트베네핏" value={newCustomer.name} onChange={(e) => setNewCustomer({...newCustomer, name: e.target.value})} style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} />
@@ -2375,7 +2442,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
         <h4 style={{ fontWeight: '700', color: activeVehicleColor.dark, margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           <Car size={18} style={{ color: activeVehicleColor.primary }} /> 차량 {activeIndex} 기본 정보
         </h4>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.8rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.8rem' }}>
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '600', marginBottom: '0.2rem' }}>차종 / 모델명</label>
             <input type="text" value={activeVehicle.carModel} onChange={(e) => updateActiveVehicle({ carModel: e.target.value })} style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff' }} />
@@ -2392,7 +2459,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
           </div>
           <div>
             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '600', marginBottom: '0.2rem' }}>기본 차량가 (원)</label>
-            <input type="text" value={toCommaString(activeVehicle.carPrice)} onChange={(e) => updateActiveVehicle({ carPrice: parseNumber(e.target.value) })} style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff' }} />
+            <input type="text" value={activeVehicle.carPrice ? toCommaString(activeVehicle.carPrice) : ''} onChange={(e) => updateActiveVehicle({ carPrice: parseNumber(e.target.value) })} style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff' }} />
           </div>
           <div>
             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '600', marginBottom: '0.2rem' }}>옵션가 (원)</label>
@@ -2418,7 +2485,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
           </div>
           <div>
             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '600', marginBottom: '0.2rem' }}>배기량 (cc)</label>
-            <input type="number" value={activeVehicle.cc} onChange={(e) => updateActiveVehicle({ cc: parseNumber(e.target.value) })} style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff' }} />
+            <input type="number" value={activeVehicle.cc || ''} onChange={(e) => updateActiveVehicle({ cc: parseNumber(e.target.value) })} style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff' }} />
           </div>
           <div>
             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '600', marginBottom: '0.2rem', color: 'var(--primary)' }}>자동차세 (연간/원)</label>
@@ -2455,7 +2522,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
           <h4 style={{ fontWeight: '700', color: 'var(--text-bright)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
             <Settings size={18} /> {activeIndex}.1 등록비용
           </h4>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.8rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.8rem' }}>
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>취득세 (원)</label>
               <input 
@@ -2520,7 +2587,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
           <h4 style={{ fontWeight: '700', color: 'var(--text-bright)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
             <Settings size={18} /> {activeIndex}.2 금융 정보
           </h4>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.8rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.8rem' }}>
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>거래 차량가 (원)</label>
               <input type="text" value={toCommaString(selectedCalc.netVehiclePrice)} disabled style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#f5f5f5', color: '#333', fontWeight: '600' }} />
@@ -2549,6 +2616,24 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                 onBlur={handleBlur}
                 onKeyDown={handleKeyDown}
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }} 
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>중도해지 수수료율 (%)</label>
+              <input
+                type="number"
+                value={earlyTerminationRate}
+                onChange={(e) => setEarlyTerminationRate(e.target.value)}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>연체 이율 (연 %)</label>
+              <input
+                type="number"
+                value={lateInterestRate}
+                onChange={(e) => setLateInterestRate(e.target.value)}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }}
               />
             </div>
             <div>
@@ -2612,7 +2697,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
               📋 상세내역
             </button>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.8rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.8rem' }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600' }}>정비 가입</label>
@@ -2803,7 +2888,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
           <h4 style={{ fontWeight: '700', color: 'var(--text-bright)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
             <Settings size={18} /> {activeIndex}.4 렌트베네핏 총구입가
           </h4>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.8rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.8rem' }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600' }}>판매관리비</label>
@@ -3225,11 +3310,11 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                     {opt.calcMode === 'manual' ? (
                       <div>
                         <label style={{ display: 'block', fontWeight: '700', marginBottom: '0.2rem', color: activeVehicleColor.primary }}>월 렌트료 입력 (원)</label>
-                        <input 
-                          type="text" 
-                          value={toCommaString(opt.monthlyFeeInput)} 
-                          onChange={(e) => handleOptionChange(opt.id, 'monthlyFeeInput', parseNumber(e.target.value))} 
-                          style={{ width: '100%', padding: '0.4rem', border: `2px solid ${activeVehicleColor.primary}`, borderRadius: '4px', fontSize: '0.9rem', fontWeight: '700', outline: 'none' }} 
+                        <input
+                          type="text"
+                          value={opt.monthlyFeeInput ? toCommaString(opt.monthlyFeeInput) : ''}
+                          onChange={(e) => handleOptionChange(opt.id, 'monthlyFeeInput', parseNumber(e.target.value))}
+                          style={{ width: '100%', padding: '0.4rem', border: `2px solid ${activeVehicleColor.primary}`, borderRadius: '4px', fontSize: '0.9rem', fontWeight: '700', outline: 'none' }}
                         />
                       </div>
                     ) : (
@@ -3686,28 +3771,6 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
           >
             인쇄하기 / PDF 다운로드
           </button>
-          <button
-            type="button"
-            onClick={handleSaveToDocumentStore}
-            disabled={savingToStore}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.4rem',
-              background: savingToStore ? '#94a3b8' : '#107c41',
-              color: '#fff',
-              border: 'none',
-              padding: '0.6rem 1.2rem',
-              borderRadius: '8px',
-              fontWeight: '700',
-              cursor: savingToStore ? 'not-allowed' : 'pointer',
-              boxShadow: '0 4px 12px rgba(16,124,65,0.25)',
-              transition: 'var(--transition-smooth)',
-              marginLeft: '0.6rem'
-            }}
-          >
-            {savingToStore ? '문서함에 저장 중...' : '📁 문서함에 저장'}
-          </button>
         </div>
 
         {/* Print & Screen Stylesheet */}
@@ -3786,170 +3849,6 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
           }
           .print-only {
             display: none;
-          }
-
-          /* html2pdf-active overrides to match print layout and force 1 page */
-          .comparison-sheet-section.html2pdf-active {
-            border: none !important;
-            box-shadow: none !important;
-            padding: 8mm !important; /* 브라우저 인쇄와 동일한 8mm 마진 확보 */
-            margin: 0 !important;
-            width: 794px !important; /* A4 가로 픽셀 (96dpi 기준 210mm) */
-            min-width: 794px !important;
-            max-width: 794px !important;
-            background: #fff !important;
-            box-sizing: border-box !important;
-            border-radius: 0 !important;
-          }
-          
-          /* 가로 모드 (비교견적서 5안 이상) */
-          .comparison-sheet-section.html2pdf-active.is-landscape {
-            width: 1123px !important; /* A4 세로 픽셀 (96dpi 기준 297mm) */
-            min-width: 1123px !important;
-            max-width: 1123px !important;
-            padding: 8mm !important;
-          }
-
-          .html2pdf-active .no-print {
-            display: none !important;
-          }
-          
-          /* Comparison Quote (Portrait or Landscape) */
-          .html2pdf-active .comparison-doc-header {
-            margin-top: 0 !important;
-            margin-bottom: 0.5rem !important;
-            padding-bottom: 0.4rem !important;
-            gap: 0.6rem !important;
-          }
-          .html2pdf-active .comparison-doc-logo {
-            height: 25px !important;
-          }
-          .html2pdf-active .comparison-doc-kicker {
-            font-size: 0.55rem !important;
-          }
-          .html2pdf-active .comparison-doc-title {
-            font-size: 1.25rem !important;
-          }
-          .html2pdf-active .customer-info-bar {
-            margin-bottom: 0.5rem !important;
-            font-size: 0.85rem !important;
-          }
-          .html2pdf-active .comparison-doc-footer {
-            margin-top: 0.5rem !important;
-            padding-top: 0.4rem !important;
-            font-size: 0.65rem !important;
-          }
-          .html2pdf-active .comparison-table-wrapper {
-            margin-top: 0 !important;
-            /* 화면용 세로 스크롤/헤더 고정은 PDF에서 잘림과 위치 어긋남을 만든다 */
-            max-height: none !important;
-            overflow-y: visible !important;
-          }
-          .html2pdf-active .comparison-table-modern thead {
-            position: static !important;
-          }
-          /* html2canvas가 inset 그림자를 배경 채움으로 그려 헤더 색을 덮어쓴다 */
-          .html2pdf-active .comparison-table-modern thead th {
-            box-shadow: none !important;
-          }
-          .html2pdf-active .comparison-table-modern {
-            width: 100% !important;
-            border-top: 3px solid #111e38 !important;
-            border-bottom: 3px solid #111e38 !important;
-          }
-          .html2pdf-active .comparison-table-modern th,
-          .html2pdf-active .comparison-table-modern td {
-            border-bottom: 1px solid #e9e6e0 !important;
-            border-right: 1px solid #ad885c !important;
-            padding: 5px 8px !important;
-            font-size: 8.5pt !important;
-          }
-          .html2pdf-active .row-header {
-            padding-left: 5px !important;
-            padding-right: 5px !important;
-          }
-
-          /* Single/Long-term Rental Quote (Portrait) */
-          .html2pdf-active .rental-print-area {
-            max-width: 100% !important;
-            width: 100% !important;
-            padding: 8mm 8mm 6mm 8mm !important; /* 실제 상하 여백 축소 */
-            margin: 0 !important;
-            font-size: 8.0pt !important; /* 8.2pt -> 8.0pt */
-            line-height: 1.20 !important; /* 줄간격 축소 */
-            display: flex !important;
-            flex-direction: column !important;
-            justify-content: space-between !important;
-            height: 280mm !important; /* 297mm -> 280mm 로 강제 지정하여 한 장 고정 */
-            box-sizing: border-box !important;
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-            font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif !important;
-            color: #000000 !important;
-            -webkit-font-smoothing: antialiased !important;
-            -moz-osx-font-smoothing: grayscale !important;
-            text-rendering: optimizeLegibility !important;
-          }
-          .html2pdf-active .rental-print-area * {
-            color: #000000 !important;
-          }
-          .html2pdf-active .rental-print-area h2 {
-            font-size: 1.4rem !important; /* 타이틀 축소 */
-            margin-top: 0 !important;
-            margin-bottom: 0 !important;
-          }
-          .html2pdf-active .rental-print-area table {
-            font-size: 7.5pt !important; /* 테이블 글자 축소 */
-            /* border-collapse는 캡처 시 인접 셀 테두리가 겹쳐 두꺼워 보이는 html2canvas 버그가 있어
-               separate + spacing 0으로 대체 (시각적으로는 collapse와 동일하게 한 줄로 보임) */
-            border-collapse: separate !important;
-            border-spacing: 0 !important;
-            border: 1.5px solid #000000 !important; /* 화면과 동일하게 외곽 테두리는 두껍게 */
-          }
-          .html2pdf-active .rental-print-area th,
-          .html2pdf-active .rental-print-area td {
-            padding: 2.2px 3.5px !important; /* 셀 패딩 축소 */
-            border: 1px solid #000000 !important; /* 화면과 동일하게 내부 격자선 적용 */
-          }
-          .html2pdf-active .rental-print-area .row-header {
-            font-size: 7.5pt !important;
-          }
-          .html2pdf-active .rental-print-area div[style*="background: #fafafa"],
-          .html2pdf-active .rental-print-area div[style*="background: rgb(250, 250, 250)"] {
-            padding: 3px 8px !important;
-            font-size: 6.5pt !important;
-            line-height: 1.25 !important;
-          }
-          .html2pdf-active .rental-print-area div[style*="background: #fdfbfa"],
-          .html2pdf-active .rental-print-area div[style*="background: rgb(253, 251, 250)"] {
-            padding: 3px 8px !important;
-            font-size: 6.5pt !important;
-            line-height: 1.25 !important;
-          }
-          .html2pdf-active .rental-print-area div[style*="font-size: 0.62rem"] {
-            font-size: 6.2pt !important;
-          }
-          .html2pdf-active .rental-print-area div[style*="display: flex; gap: 1.2rem"],
-          .html2pdf-active .rental-print-area div[style*="display: flex; gap: 1.2rem; margin-bottom: 0.5rem"] {
-            gap: 0.6rem !important; /* 간격 축소 */
-          }
-          .html2pdf-active .rental-print-area td[style*="height: 80px"] {
-            height: 40px !important; /* 비고란 높이 대폭 축소 */
-          }
-          .html2pdf-active .rental-print-area div[style*="border: 1px solid rgb(0, 0, 0)"], 
-          .html2pdf-active .rental-print-area div[style*="border: 1px solid #000"] {
-            padding: 3px 8px !important;
-            font-size: 6.5pt !important;
-          }
-          .html2pdf-active .rental-print-area div[style*="text-align: center; margin-top: 0.5rem"] span[style*="font-size: 1.1rem"] {
-            font-size: 1.05rem !important;
-          }
-          .html2pdf-active .rental-print-area div[style*="text-align: center; margin-top: 0.5rem"] span[style*="font-size: 1.0rem"] {
-            font-size: 0.95rem !important;
-          }
-          .html2pdf-active .rental-print-area > div {
-            margin-top: 0 !important;
-            margin-bottom: 0 !important;
           }
 
           /* Mobile responsiveness optimization */
@@ -4247,7 +4146,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                 <thead>
                   {/* Row 1: Vehicle model colspans */}
                   <tr style={{ background: '#111e38', color: '#fff' }}>
-                    <th className="comparison-th-corner" rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '9%', minWidth: '92px', borderBottom: '1px solid #ad885c', textAlign: 'center', borderRight: '1px solid #ad885c' }}>구 분</th>
+                    {/* 구분과 비고는 같은 폭으로 둔다(양끝 균형).
+                        가장 긴 항목명 "약정운행거리(년)"이 줄바꿈 없이 들어가는 값이 기준이다. */}
+                    <th className="comparison-th-corner" rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '11%', minWidth: '140px', borderBottom: '1px solid #ad885c', textAlign: 'center', borderRight: '1px solid #ad885c' }}>구 분</th>
                     {vehicleColSpans.map((group, idx) => {
                       return (
                         <th
@@ -4270,7 +4171,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                         </th>
                       );
                     })}
-                    <th className="comparison-th-corner" rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '8%', borderBottom: '1px solid #ad885c', textAlign: 'center' }}>비고</th>
+                    {/* 구분 열과 같은 값. 문구가 길면 이 폭 안에서 두 줄로 흘러간다 */}
+                    <th className="comparison-th-corner" rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '11%', minWidth: '140px', borderBottom: '1px solid #ad885c', textAlign: 'center' }}>비고</th>
                   </tr>
                   {/* Row 2: Options descriptions */}
                   <tr style={{ background: '#111e38', color: '#fff' }}>
@@ -4425,31 +4327,41 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                     ))}
                     <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
                   </tr>
-                  {/* 예상보험료 - 렌트는 월대여료에 포함되어 따로 표기하지 않는다 */}
+                  {/* 예상보험료 - 입력값은 1년치라 계약기간 전체로 환산해 보여주고,
+                      1년 기준 금액은 비고에 적는다. 렌트는 월대여료에 포함되어 표기하지 않는다 */}
                   <tr>
                     <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>예상보험료</td>
                     {displaySelectedOptions.map(({ opt }, idx) => {
-                      const fee = opt.contractType === '리스' ? Number(opt.estimatedInsuranceFee) || 0 : 0;
-                      return fee > 0 ? (
-                        <td key={idx} style={getCellStyles(idx, true)}>{toCommaString(fee)}</td>
+                      const annualFee = opt.contractType === '리스' ? Number(opt.estimatedInsuranceFee) || 0 : 0;
+                      const totalFee = Math.round(annualFee * (Number(opt.termYears) || 0));
+                      return totalFee > 0 ? (
+                        <td key={idx} style={getCellStyles(idx, true)}>{toCommaString(totalFee)}</td>
                       ) : (
                         <td key={idx} style={getCellStyles(idx, true, { color: '#94a3b8', textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>-</td>
                       );
                     })}
-                    <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
+                    {renderNoteCell(true, buildNoteText('1년 예상 보험료', displaySelectedOptions.map(({ opt }) => ({
+                      name: opt.name,
+                      value: opt.contractType === '리스' ? Number(opt.estimatedInsuranceFee) || 0 : 0
+                    }))))}
                   </tr>
-                  {/* 자동차세 - 리스만 표기. 렌터카는 영업용이라 요율이 다르고 월대여료에 이미 포함된다 */}
+                  {/* 자동차세 - 계약기간 총액으로 보여주고 1년치는 비고에 적는다.
+                      리스만 표기한다. 렌터카는 영업용이라 요율이 다르고 월대여료에 이미 포함된다 */}
                   <tr>
                     <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>자동차세</td>
                     {displaySelectedOptions.map(({ veh, opt }, idx) => {
-                      const tax = opt.contractType === '리스' ? calculateLeaseCarTax(veh) : null;
-                      return tax ? (
-                        <td key={idx} style={getCellStyles(idx, false)}>{toCommaString(tax)}</td>
+                      const annualTax = opt.contractType === '리스' ? calculateLeaseCarTax(veh) : null;
+                      const totalTax = annualTax ? Math.round(annualTax * (Number(opt.termYears) || 0)) : 0;
+                      return totalTax > 0 ? (
+                        <td key={idx} style={getCellStyles(idx, false)}>{toCommaString(totalTax)}</td>
                       ) : (
                         <td key={idx} style={getCellStyles(idx, false, { color: '#94a3b8', textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>-</td>
                       );
                     })}
-                    <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
+                    {renderNoteCell(false, buildNoteText('1년 평균 자동차세', displaySelectedOptions.map(({ veh, opt }) => ({
+                      name: opt.name,
+                      value: opt.contractType === '리스' ? (calculateLeaseCarTax(veh) || 0) : 0
+                    }))))}
                   </tr>
                   {/* 총구입가 */}
                   <tr style={{ borderTop: '2px solid #ad885c', borderBottom: '2px solid #ad885c' }}>
@@ -4808,11 +4720,11 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, showToast, curren
                     </tr>
                     <tr>
                       <td style={{ background: '#fafafa', padding: '3px 6px', border: '1px solid #000', fontWeight: '700' }}>• 중도해지 수수료율</td>
-                      <td style={{ padding: '3px 6px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>35%</td>
+                      <td style={{ padding: '3px 6px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>{earlyTerminationRate}%</td>
                     </tr>
                     <tr>
                       <td style={{ background: '#fafafa', padding: '3px 6px', border: '1px solid #000', fontWeight: '700' }}>• 연체 이율</td>
-                      <td style={{ padding: '3px 6px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>연 25%</td>
+                      <td style={{ padding: '3px 6px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>연 {lateInterestRate}%</td>
                     </tr>
                   </tbody>
                 </table>

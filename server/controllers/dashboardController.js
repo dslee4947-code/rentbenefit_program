@@ -16,9 +16,9 @@ export const getDashboardSummary = async (req, res) => {
     sevenDaysLater.setHours(23, 59, 59, 999);
 
     const [vehicleAgg, customersCount, contractsCount, schedulesCount, notifications] = await Promise.all([
-      // 현재 운행 중(rented)인 차량 수 - 목록을 전부 끌어오지 않고 카운트만 계산
+      // 현재 장기렌트 중인 차량 수 - 목록을 전부 끌어오지 않고 카운트만 계산
       Vehicle.aggregate([
-        { $match: { status: 'rented' } },
+        { $match: { status: '장기렌트' } },
         { $count: 'count' }
       ]),
       Customer.countDocuments({}),

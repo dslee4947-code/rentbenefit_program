@@ -9,7 +9,8 @@ import CustomerListView from './CustomerListView.jsx';
 import PendingInquiriesView from './PendingInquiriesView.jsx';
 import CompanyManagementView from './CompanyManagementView.jsx';
 import UserManagementView from './UserManagementView.jsx';
-import BillingView from './BillingView.jsx';
+import MonthlyBillingView from './MonthlyBillingView.jsx';
+import LedgerView from './LedgerView.jsx';
 import MyPageView from './MyPageView.jsx';
 
 import {
@@ -28,13 +29,15 @@ import {
   Settings,
   Building2,
   Truck,
-  MessageCircleQuestion
+  MessageCircleQuestion,
+  Wallet
 } from 'lucide-react';
 
 function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   const getTabFromHash = () => {
     const hash = window.location.hash.replace('#/', '');
-    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'delivery-prep', 'vehicles', 'calendar', 'users', 'billing', 'mypage'];
+    // 메뉴를 새로 추가하면 여기에도 넣어야 한다. 빠지면 주소는 바뀌는데 화면은 대시보드로 되돌아간다.
+    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'delivery-prep', 'vehicles', 'calendar', 'users', 'billing', 'ledgers', 'mypage'];
     return validTabs.includes(hash) ? hash : 'dashboard';
   };
 
@@ -82,22 +85,23 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   }, [currentUser, activeTab]);
 
   const menuItems = [
-    { id: 'dashboard', name: '통계 대시보드', icon: <LayoutDashboard size={18} /> },
-    { id: 'customers', name: '고객 DB 관리', icon: <Users size={18} /> },
-    { id: 'inquiries', name: '문의 대기', icon: <MessageCircleQuestion size={18} /> },
-    { id: 'quote-input', name: '견적서', icon: <Coins size={18} /> },
-    { id: 'companies', name: '법인 관리', icon: <Building2 size={18} /> },
-    { id: 'contract-register', name: '계약서 등록', icon: <FileSignature size={18} /> },
-    { id: 'delivery-prep', name: '출고 준비', icon: <Truck size={18} /> },
-    { id: 'vehicles', name: '렌트차량 DB', icon: <Car size={18} /> },
-    { id: 'billing', name: '장기렌트 청구서', icon: <FileText size={18} /> },
-    { id: 'calendar', name: '일정표 캘린더', icon: <Calendar size={18} /> }
+    { id: 'dashboard', name: '통계 대시보드', icon: <LayoutDashboard size={20} /> },
+    { id: 'customers', name: '고객 DB 관리', icon: <Users size={20} /> },
+    { id: 'inquiries', name: '문의 대기', icon: <MessageCircleQuestion size={20} /> },
+    { id: 'quote-input', name: '견적서', icon: <Coins size={20} /> },
+    { id: 'companies', name: '법인 관리', icon: <Building2 size={20} /> },
+    { id: 'contract-register', name: '계약서 등록', icon: <FileSignature size={20} /> },
+    { id: 'delivery-prep', name: '출고 준비', icon: <Truck size={20} /> },
+    { id: 'vehicles', name: '렌트차량 DB', icon: <Car size={20} /> },
+    { id: 'billing', name: '장기렌트 청구서', icon: <FileText size={20} /> },
+    { id: 'ledgers', name: '차량 손익 원장', icon: <Wallet size={20} /> },
+    { id: 'calendar', name: '일정표 캘린더', icon: <Calendar size={20} /> }
   ];
 
   if (currentUser?.role === 'admin') {
-    menuItems.push({ id: 'users', name: '사용자 권한 관리', icon: <Key size={18} /> });
+    menuItems.push({ id: 'users', name: '사용자 권한 관리', icon: <Key size={20} /> });
   }
-  menuItems.push({ id: 'mypage', name: '마이페이지', icon: <Settings size={18} /> });
+  menuItems.push({ id: 'mypage', name: '마이페이지', icon: <Settings size={20} /> });
 
   const navigateToTab = (tabId) => {
     window.location.hash = `#/${tabId}`;
@@ -230,16 +234,18 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '0.8rem',
+                      gap: '0.75rem',
                       width: '100%',
-                      padding: '0.7rem 0.8rem',
+                      // 데스크톱 사이드바와 같은 기준. 화면 크기에 따라 메뉴 크기가 달라지지 않도록 맞춘다
+                      padding: '0.85rem 0.9rem',
                       border: 'none',
                       background: isActive ? 'var(--primary-glow)' : 'transparent',
                       color: isActive ? 'var(--primary)' : 'var(--text-main)',
-                      fontWeight: isActive ? '700' : '500',
+                      fontWeight: isActive ? '700' : '600',
                       borderRadius: '8px',
                       cursor: 'pointer',
-                      fontSize: '0.85rem',
+                      fontSize: '1rem',
+                      letterSpacing: '-0.01em',
                       textAlign: 'left',
                       transition: 'all 0.15s'
                     }}
@@ -303,8 +309,8 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
             <UserCheck size={18} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text-bright)' }}>{currentUser?.name || '관리자'}</span>
-            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textOverflow: 'ellipsis', overflow: 'hidden' }}>{currentUser?.email || 'admin@rentbenefit.co.kr'}</span>
+            <span style={{ fontSize: '0.95rem', fontWeight: '700', color: 'var(--text-bright)' }}>{currentUser?.name || '관리자'}</span>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textOverflow: 'ellipsis', overflow: 'hidden' }}>{currentUser?.email || 'admin@rentbenefit.co.kr'}</span>
           </div>
         </div>
 
@@ -319,17 +325,20 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.8rem',
+                  gap: '0.75rem',
                   width: '100%',
-                  padding: '0.8rem 1rem',
+                  padding: '0.85rem 1rem',
                   border: 'none',
                   background: isActive ? 'var(--primary-glow)' : 'transparent',
                   color: isActive ? 'var(--primary)' : 'var(--text-main)',
-                  fontWeight: isActive ? '700' : '500',
+                  // 비활성 메뉴가 500이라 흐려 보였다. 600으로 올려 항목이 또렷하게 읽히도록 한다
+                  fontWeight: isActive ? '700' : '600',
                   borderRadius: '8px',
                   cursor: 'pointer',
-                  fontSize: '0.9rem',
+                  fontSize: '1rem',
+                  letterSpacing: '-0.01em',
                   textAlign: 'left',
+                  whiteSpace: 'nowrap',
                   transition: 'all 0.2s'
                 }}
                 className={`menu-button ${isActive ? 'active' : ''}`}
@@ -347,16 +356,17 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '0.8rem',
+            gap: '0.75rem',
             width: '100%',
-            padding: '0.8rem 1rem',
+            padding: '0.85rem 1rem',
             border: '1px solid var(--border-color)',
             background: 'transparent',
             color: 'var(--text-muted)',
             fontWeight: '600',
             borderRadius: '8px',
             cursor: 'pointer',
-            fontSize: '0.9rem',
+            fontSize: '1rem',
+            letterSpacing: '-0.01em',
             transition: 'all 0.2s'
           }}
           className="logout-button"
@@ -382,6 +392,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'delivery-prep' && '출고 준비'}
               {activeTab === 'vehicles' && '렌트차량 DB 관리'}
               {activeTab === 'billing' && '장기렌트 청구서'}
+              {activeTab === 'ledgers' && '차량 손익 원장 (갑지)'}
               {activeTab === 'calendar' && '캘린더 관리 일정표'}
               {activeTab === 'users' && '사용자 권한 관리'}
               {activeTab === 'mypage' && '마이페이지'}
@@ -396,6 +407,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'delivery-prep' && '계약은 완료됐지만 차량번호/차대번호 등 실물 등록이 아직 안 끝난 차량을 정리합니다.'}
               {activeTab === 'vehicles' && '전체 렌트 차량의 계약정보, 잔여일정, 담당 정비 내역을 상세 조회합니다.'}
               {activeTab === 'billing' && '계약 건별 대여료 및 기타 추가 납입 항목을 취합하여 프리미엄 청구서를 발행 및 관리합니다.'}
+              {activeTab === 'ledgers' && '차량 1대에 들어간 돈과 들어온 돈을 갑지 한 장으로 모아 정산 결과를 확인합니다.'}
               {activeTab === 'calendar' && '정기점검, 종합검사, 렌트만료, 계산서발행 예정일을 한눈에 보여주는 관리 일정표입니다.'}
               {activeTab === 'users' && '가입된 사내 직원들의 권한(조회/수정 및 삭제/관리자)을 조정하고 승인합니다.'}
               {activeTab === 'mypage' && '내 계정의 비밀번호와 개인정보를 수정합니다.'}
@@ -434,9 +446,10 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
           )}
 
           {activeTab === 'quote-input' && (
-            <QuoteInputView 
-              setActiveTab={navigateToTab} 
+            <QuoteInputView
+              setActiveTab={navigateToTab}
               setPrefilledQuoteData={setPrefilledQuoteData}
+              setPrefilledContractData={setPrefilledContractData}
               showToast={showToast}
               currentUser={currentUser}
             />
@@ -469,7 +482,14 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
           )}
 
           {activeTab === 'billing' && (
-            <BillingView 
+            <MonthlyBillingView
+              showToast={showToast}
+              currentUser={currentUser}
+            />
+          )}
+
+          {activeTab === 'ledgers' && (
+            <LedgerView
               showToast={showToast}
               currentUser={currentUser}
             />

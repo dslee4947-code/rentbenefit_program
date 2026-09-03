@@ -17,7 +17,7 @@ export const getInvoices = async (req, res) => {
       .populate('customer')
       .populate({
         path: 'contract',
-        populate: { path: 'vehicle' }
+        populate: [{ path: 'vehicle' }, { path: 'companyId', select: 'name bizNo ceoName billingEmail' }]
       })
       .sort({ createdAt: -1 });
       
@@ -47,7 +47,7 @@ export const getInvoiceById = async (req, res) => {
       .populate('customer')
       .populate({
         path: 'contract',
-        populate: { path: 'vehicle' }
+        populate: [{ path: 'vehicle' }, { path: 'companyId', select: 'name bizNo ceoName billingEmail' }]
       });
     if (invoice) {
       res.json(invoice);

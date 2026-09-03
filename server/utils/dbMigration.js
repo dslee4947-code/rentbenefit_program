@@ -27,8 +27,16 @@ export const runDatabaseMigration = async () => {
       console.log('All customers already have customerId.');
     }
 
-    // 2. Migrate Contracts (Ensure contractNo has format [customerId]-[YYMM]-[Seq])
-    const contracts = await Contract.find().populate('customer').sort({ createdAt: 1 });
+    // 2. 계약번호가 비어 있는 계약에만 번호를 채운다.
+    //
+    // 예전에는 서버가 켜질 때마다 모든 계약번호를 [customerId]-[YYMM]-[Seq]로 다시 매겼는데,
+    // 그러면 회사에서 실제로 쓰는 번호(21100001 등)가 재시작 한 번에 사라진다.
+    // 계약번호는 이미 나간 계약서·세금계산서에 찍혀 있고, 청구서 폴더 경로
+    // (RENT/계약자/02.청구서/계약번호/)도 이 번호로 만들어져 있어 바꾸면 파일을 못 찾는다.
+    // 그래서 번호가 없는 계약만 채우고, 이미 있는 번호는 건드리지 않는다.
+    const contracts = await Contract.find({
+      $or: [{ contractNo: { $exists: false } }, { contractNo: null }, { contractNo: '' }]
+    }).populate('customer').sort({ createdAt: 1 });
     let migratedContractsCount = 0;
 
     // Track sequence per customer per month
@@ -53,30 +61,28 @@ export const runDatabaseMigration = async () => {
       }
       customerMonthSeqTracker[trackerKey]++;
 
-      const newSeq = String(customerMonthSeqTracker[trackerKey]).padStart(2, '0');
-      const expectedNo = `${cId}-${yymm}-${newSeq}`;
-
-      if (contract.contractNo !== expectedNo) {
-        const oldNo = contract.contractNo;
-        
-        // Check if there is already a contract with the expected new number to avoid unique index conflict
-        const conflict = await Contract.findOne({ contractNo: expectedNo });
-        if (conflict) {
-          // If conflict, we can add a temp suffix or handle it by shifting sequences, but since we are re-arranging, we can rename old contracts to temporary values first
-          console.warn(`Conflict detected for contractNo [${expectedNo}]. Will attempt to migrate safely.`);
+      // 이미 쓰고 있는 번호와 겹치지 않을 때까지 다음 순번으로 넘긴다
+      let newNo = '';
+      while (!newNo) {
+        const seq = String(customerMonthSeqTracker[trackerKey]).padStart(2, '0');
+        const candidate = `${cId}-${yymm}-${seq}`;
+        if (await Contract.findOne({ contractNo: candidate })) {
+          customerMonthSeqTracker[trackerKey] += 1;
+        } else {
+          newNo = candidate;
         }
-        
-        contract.contractNo = expectedNo;
-        await contract.save();
-        migratedContractsCount++;
-        console.log(`Migrated Contract: [${oldNo}] -> [${expectedNo}]`);
       }
+
+      contract.contractNo = newNo;
+      await contract.save();
+      migratedContractsCount++;
+      console.log(`계약번호를 채웠습니다: [${newNo}]`);
     }
 
     if (migratedContractsCount > 0) {
-      console.log(`Successfully migrated ${migratedContractsCount} contracts.`);
+      console.log(`계약번호가 없던 계약 ${migratedContractsCount}건에 번호를 채웠습니다.`);
     } else {
-      console.log('All contracts are already in the correct serial format.');
+      console.log('계약번호가 없는 계약은 없습니다.');
     }
 
     // 3. Migrate Users (Ensure admin account has role: 'admin')

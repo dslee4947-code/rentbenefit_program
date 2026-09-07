@@ -13,8 +13,15 @@ import { getGraphAccessToken } from './graphAuth.js';
 
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 
-// Graph의 단순 업로드(PUT) 한도. 이보다 크면 업로드 세션을 따로 열어야 한다.
-const MAX_SIMPLE_UPLOAD_BYTES = 4 * 1024 * 1024;
+// 한 번에 보낼 수 있는 크기. 이보다 크면 조각을 나눠 보낸다(아래 uploadLargeFile).
+const SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024;
+
+// 나눠 보낼 때 한 조각의 크기. Graph는 320KB의 배수를 요구한다(5MB = 320KB x 16).
+const CHUNK_SIZE = 5 * 1024 * 1024;
+
+// 서버가 파일을 통째로 메모리에 들고 있으므로 한도를 둔다.
+// 스캔한 고지서·계약서가 이보다 큰 일은 거의 없다.
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 const EXTENSION_MIME = {
   '.pdf': 'application/pdf',
@@ -68,8 +75,14 @@ export const uploadFile = async (segments, buffer, { keepPrevious = false } = {}
   if (!buffer || buffer.length === 0) {
     throw new Error('올릴 파일 내용이 비어 있습니다.');
   }
-  if (buffer.length > MAX_SIMPLE_UPLOAD_BYTES) {
-    throw new Error('파일이 4MB를 넘습니다. 현재는 4MB 이하만 올릴 수 있습니다.');
+  if (buffer.length > MAX_UPLOAD_BYTES) {
+    const mb = Math.ceil(buffer.length / 1024 / 1024);
+    throw new Error(`파일이 ${mb}MB로 너무 큽니다. 100MB 이하만 올릴 수 있습니다.`);
+  }
+
+  // 큰 파일은 한 번에 못 보낸다. 조각으로 나눠 보내는 방식으로 넘긴다.
+  if (buffer.length > SIMPLE_UPLOAD_LIMIT) {
+    return uploadLargeFile(segments, buffer, { keepPrevious });
   }
 
   const fileName = segments[segments.length - 1];
@@ -93,6 +106,65 @@ export const uploadFile = async (segments, buffer, { keepPrevious = false } = {}
   return {
     fileName: item.name,
     // 사람이 보고 어디에 저장됐는지 알 수 있는 경로. 화면에서 그대로 보여 준다.
+    path: [...segments.slice(0, -1), item.name].join('/'),
+    webUrl: item.webUrl,
+    id: item.id
+  };
+};
+
+/**
+ * 큰 파일을 조각으로 나눠 올린다.
+ *
+ * Graph는 4MB가 넘는 파일을 한 번에 받지 않는다. 먼저 "업로드 자리"를 하나 열고,
+ * 그 자리에 조각을 순서대로 보낸다. 마지막 조각을 보내면 파일 정보가 돌아온다.
+ * 스캔한 청구서·고지서는 4MB를 넘는 일이 흔하다.
+ */
+const uploadLargeFile = async (segments, buffer, { keepPrevious = false } = {}) => {
+  const conflict = keepPrevious ? 'rename' : 'replace';
+
+  const sessionRes = await request(
+    `${GRAPH}/users/${targetAccount()}/drive/root:/${encodePath(segments)}:/createUploadSession`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item: { '@microsoft.graph.conflictBehavior': conflict } })
+    }
+  );
+
+  if (!sessionRes.ok) {
+    throw new Error(`OneDrive 업로드 준비 실패: ${(await sessionRes.text()).slice(0, 300)}`);
+  }
+
+  const { uploadUrl } = await sessionRes.json();
+  const total = buffer.length;
+  let item = null;
+
+  for (let start = 0; start < total; start += CHUNK_SIZE) {
+    const end = Math.min(start + CHUNK_SIZE, total);
+    const chunk = buffer.subarray(start, end);
+
+    // 업로드 자리 주소에는 토큰을 붙이지 않는다. 그 주소 자체가 열쇠다.
+    const res = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Length': String(chunk.length),
+        'Content-Range': `bytes ${start}-${end - 1}/${total}`
+      },
+      body: chunk
+    });
+
+    if (!res.ok) {
+      throw new Error(`OneDrive 조각 전송 실패(${start}~${end - 1}): ${(await res.text()).slice(0, 200)}`);
+    }
+
+    // 마지막 조각을 보내면 완성된 파일 정보가 돌아온다
+    if (res.status === 200 || res.status === 201) item = await res.json();
+  }
+
+  if (!item) throw new Error('OneDrive 업로드가 끝나지 않았습니다.');
+
+  return {
+    fileName: item.name,
     path: [...segments.slice(0, -1), item.name].join('/'),
     webUrl: item.webUrl,
     id: item.id

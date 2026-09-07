@@ -1,6 +1,5 @@
 import path from 'path';
 import fs from 'fs';
-import { getGraphAccessToken } from './graphAuth.js';
 import { uploadFile, ensureFolder, listChildren, downloadById, downloadByPath } from './oneDriveStorage.js';
 
 /**
@@ -12,7 +11,6 @@ const BUSINESS_LINE_FOLDER = {
   as: 'AS',
 };
 
-const MAX_SIMPLE_UPLOAD_BYTES = 4 * 1024 * 1024; // Graph 단순 업로드(PUT) 한도
 
 // RENT 폴더 바로 아래, 문서 종류별 최상위 폴더 (그 안에 법인명 하위 폴더가 생긴다: RENT/03.청구서/{법인명}/)
 export const RENT_DOC_TYPE_ROOT_FOLDER = {
@@ -86,55 +84,22 @@ export const uploadDocumentToSharePoint = async ({
   docType,
   fileName,
   fileBuffer,
-  mimeType = 'application/pdf',
 }) => {
   const folder = BUSINESS_LINE_FOLDER[businessLine];
   if (!folder) {
     throw new Error(`알 수 없는 사업부입니다: ${businessLine} (rental 또는 as만 허용)`);
   }
 
-  const targetEmail = process.env.OUTLOOK_TARGET_EMAIL;
-  if (!targetEmail) {
-    throw new Error('OUTLOOK_TARGET_EMAIL 환경변수가 설정되지 않았습니다. OneDrive 계정 설정 후 다시 시도해주세요.');
-  }
-
-  if (!fileBuffer || fileBuffer.length === 0) {
-    throw new Error('업로드할 파일 내용이 비어 있습니다.');
-  }
-
-  if (fileBuffer.length > MAX_SIMPLE_UPLOAD_BYTES) {
-    throw new Error('파일이 4MB를 초과합니다. 현재는 4MB 이하 문서만 업로드를 지원합니다.');
-  }
-
-  const accessToken = await getGraphAccessToken();
-
-  const pathSegments = [
+  const saved = await uploadFile([
     folder,
     sanitizePathSegment(customerName),
     sanitizePathSegment(docType),
-    sanitizePathSegment(fileName),
-  ];
-  const encodedPath = pathSegments.map(encodeURIComponent).join('/');
+    sanitizePathSegment(fileName)
+  ], fileBuffer);
 
-  const uploadUrl = `https://graph.microsoft.com/v1.0/users/${targetEmail}/drive/root:/${encodedPath}:/content`;
-
-  const uploadRes = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': mimeType,
-    },
-    body: fileBuffer,
-  });
-
-  if (!uploadRes.ok) {
-    const errorText = await uploadRes.text();
-    throw new Error(`OneDrive 업로드 실패: ${errorText}`);
-  }
-
-  const uploaded = await uploadRes.json();
-  return { id: uploaded.id, webUrl: uploaded.webUrl };
+  return { id: saved.id, webUrl: saved.webUrl };
 };
+
 
 /**
  * PDF(또는 기타) 문서를 OneDrive 로컬 동기화 폴더에 "문서종류/법인명/파일" 구조로 저장한다.

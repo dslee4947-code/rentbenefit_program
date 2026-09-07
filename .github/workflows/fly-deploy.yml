@@ -1,0 +1,45 @@
+# GitHub에 올리면 도쿄 서버(Fly.io)에 자동으로 배포한다.
+#
+# 화면(Vercel)은 이미 자동으로 배포되고 있었지만, 서버는 사람이 직접 명령을 쳐야 했다.
+# 이제 main 브랜치에 서버 코드가 올라가면 여기서 알아서 배포한다.
+#
+# 서버와 상관없는 화면만 고쳤을 때는 배포하지 않는다(아래 paths 참고).
+# 괜히 서버를 다시 띄우면 그동안 잠깐 끊기고, 시간도 낭비된다.
+
+name: 서버 배포 (Fly.io 도쿄)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'server/**'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'fly.toml'
+      - '.github/workflows/fly-deploy.yml'
+  # 코드를 안 고쳤어도 손으로 한 번 배포하고 싶을 때 쓴다 (Actions 탭 -> Run workflow)
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: 도쿄 서버에 올리기
+    runs-on: ubuntu-latest
+
+    # 배포가 겹치면 서로 덮어써서 어느 것이 올라갔는지 알 수 없다. 한 번에 하나만 돌린다.
+    concurrency:
+      group: fly-deploy
+      cancel-in-progress: false
+
+    steps:
+      - name: 코드 받기
+        uses: actions/checkout@v4
+
+      - name: Fly 도구 설치
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: 배포
+        run: flyctl deploy --remote-only
+        env:
+          # 저장소 Settings > Secrets and variables > Actions 에 넣어 둔 값
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

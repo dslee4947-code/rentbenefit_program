@@ -182,7 +182,7 @@ export const collectNotices = async () => {
 
   const schedules = await BillingSchedule.find({ 'rounds.attachments.0': { $exists: true } })
     .select('contract rounds')
-    .populate('contract', 'contractNo leaseCompany finesEmail finesEmail2')
+    .populate('contract', 'contractNo leaseCompany finesEmail finesEmail2 fineHandling')
     .lean();
 
   const rows = [];
@@ -212,8 +212,17 @@ export const collectNotices = async () => {
           occurredAt: att.occurredAt || null,
           noticeDueDate: att.noticeDueDate || null,
           noticeNo: att.noticeNo || '',
-          noticeStatus: att.noticeStatus || '청구예정',
+          // 처리 방식은 이 건에 정한 것이 우선, 없으면 계약에 정해 둔 것을 따른다
+          handling: att.handling || s.contract?.fineHandling || '대납청구',
+          contractHandling: s.contract?.fineHandling || '대납청구',
+          noticeStatus: att.noticeStatus || '접수',
           paidByCustomerAt: att.paidByCustomerAt || null,
+          paidByUsAt: att.paidByUsAt || null,
+          driverName: att.driverName || '',
+          driverPhone: att.driverPhone || '',
+          transferAgency: att.transferAgency || '',
+          transferSentAt: att.transferSentAt || null,
+          transferDoneAt: att.transferDoneAt || null,
           noticeMailSentAt: att.noticeMailSentAt || null,
           noticeMailTo: att.noticeMailTo || '',
           fileName: att.fileName || '',
@@ -248,7 +257,9 @@ export const collectNotices = async () => {
 export const findOverdueNotices = async (graceDays = KEEP_PAST_DAYS) => {
   const rows = await collectNotices();
   return rows
-    .filter((r) => r.noticeStatus !== '고객납부' && r.dday !== null && r.dday < 0 && -r.dday <= graceDays)
+    // 고객이 냈거나 명의가 넘어간 건은 더 챙길 일이 없다. 대납완료는 아직 청구가 남아 여기 남긴다.
+    .filter((r) => !['납부완료', '변경완료', '고객납부'].includes(r.noticeStatus)
+      && r.dday !== null && r.dday < 0 && -r.dday <= graceDays)
     .map((r) => ({ ...r, overdueDays: -r.dday, title: buildNoticeTitle(r.partyName, r.plateNo, r.noticeDueDate) }))
     .sort((a, b) => b.overdueDays - a.overdueDays);
 };

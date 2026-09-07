@@ -267,6 +267,8 @@ function MonthlyBillingView({ showToast, currentUser }) {
   // 회차표가 없어 청구 대상에 뜨지 못하는 계약. 원인을 화면에서 바로 알려 준다.
   const [missing, setMissing] = useState([]);
   const sheetRef = useRef(null);
+  const listScrollRef = useRef(null);      // 접힌 목록 스크롤 영역
+  const historyScrollRef = useRef(null);   // 이력 표 스크롤 영역
 
   const fetchDue = useCallback(async () => {
     try {
@@ -286,6 +288,20 @@ function MonthlyBillingView({ showToast, currentUser }) {
   }, [month, showToast]);
 
   useEffect(() => { fetchDue(); }, [fetchDue]);
+
+  // 계약을 고르면 목록이 접힌다. 고른 행이 접힌 영역 밖에 있으면 보이지 않으므로 그 자리로 옮겨 준다.
+  useEffect(() => {
+    if (!selected || !listScrollRef.current) return;
+    const row = listScrollRef.current.querySelector('[data-selected="true"]');
+    row?.scrollIntoView({ block: 'nearest' });
+  }, [selected]);
+
+  // 60회차짜리 이력에서 지금 보는 회차가 처음부터 보이게 한다. 매번 찾아 내리지 않도록.
+  useEffect(() => {
+    if (!schedule || !historyScrollRef.current) return;
+    const row = historyScrollRef.current.querySelector('[data-current="true"]');
+    row?.scrollIntoView({ block: 'center' });
+  }, [schedule, form?.no]);
 
   const fetchMissing = useCallback(async () => {
     try {
@@ -1035,9 +1051,18 @@ function MonthlyBillingView({ showToast, currentUser }) {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: selected ? '1fr 420px' : '1fr', gap: '1.2rem', alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
         {/* 청구 대상 목록 */}
         <div style={{ background: '#fff', border: '1px solid var(--border-color)', borderRadius: '10px', overflow: 'hidden' }}>
+          {/*
+            계약을 고르면 목록을 접는다.
+            83건이 다 펼쳐져 있으면 아래 이력까지 한참 내려야 해서, 고른 뒤에는
+            목록을 한 화면 높이로 묶고 이력과 편집이 바로 아래에 오게 한다.
+          */}
+          <div
+            ref={listScrollRef}
+            style={{ maxHeight: selected ? '340px' : 'none', overflowY: selected ? 'auto' : 'visible' }}
+          >
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead>
               <tr style={{ background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-bright)', fontWeight: '700' }}>
@@ -1102,6 +1127,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
                 return (
                   <tr
                     key={it.scheduleId}
+                    data-selected={active ? 'true' : undefined}
                     onClick={() => openRound(it)}
                     style={{
                       borderBottom: '1px solid var(--border-color)',
@@ -1200,10 +1226,26 @@ function MonthlyBillingView({ showToast, currentUser }) {
               ))}
             </tbody>
           </table>
+          </div>
+          {selected && (
+            <div style={{ borderTop: '1px solid var(--border-color)', padding: '0.45rem 0.9rem', background: 'var(--bg-main)', fontSize: '0.76rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span>목록을 접어 두었습니다. 아래에서 고른 계약을 처리하세요.</span>
+              <button
+                type="button"
+                onClick={() => { setSelected(null); setForm(null); setSchedule(null); }}
+                style={{ marginLeft: 'auto', border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-muted)', padding: '0.2rem 0.6rem', borderRadius: '5px', fontSize: '0.74rem', fontWeight: '700', cursor: 'pointer' }}
+              >
+                목록 전체 보기
+              </button>
+            </div>
+          )}
+        </div>
 
-          {/* 고른 계약의 회차 이력. 엑셀로 관리하시던 표와 같은 순서로 둔다. */}
-          {selected && schedule && (
-            <div style={{ borderTop: '1px solid var(--border-color)' }}>
+        {/* 고른 계약: 왼쪽에 이력, 오른쪽에 이번 회차 편집. 한 화면에서 같이 본다. */}
+        {selected && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 420px', gap: '1.2rem', alignItems: 'flex-start' }}>
+          {schedule && (
+            <div style={{ background: '#fff', border: '1px solid var(--border-color)', borderRadius: '10px', overflow: 'hidden' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.7rem 0.9rem', flexWrap: 'wrap', background: 'var(--bg-main)' }}>
                 <span style={{ fontSize: '0.88rem', fontWeight: '800', color: 'var(--text-bright)' }}>
                   {selected.company?.name || selected.customer?.name} 청구 이력
@@ -1223,7 +1265,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
                 </button>
               </div>
 
-              <div style={{ maxHeight: '640px', overflowY: 'auto' }}>
+              <div ref={historyScrollRef} style={{ maxHeight: '520px', overflowY: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                   <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                     <tr style={{ background: '#fff', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: '700' }}>
@@ -1248,7 +1290,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
                       const paidDocs = docs.filter((a) => Number(a.amount) > 0);
                       const isCurrent = r.no === form?.no;
                       return (
-                        <tr key={r.no} style={{ borderBottom: '1px solid var(--border-color)', background: isCurrent ? 'var(--primary-glow)' : 'transparent' }}>
+                        <tr key={r.no} data-current={isCurrent ? 'true' : undefined} style={{ borderBottom: '1px solid var(--border-color)', background: isCurrent ? 'var(--primary-glow)' : 'transparent' }}>
                           <td style={{ padding: '0.4rem 0.6rem', textAlign: 'center', fontWeight: '700' }}>{r.no}</td>
                           <td style={{ padding: '0.4rem 0.6rem', textAlign: 'center' }}>{ymd(r.dueDate)}</td>
                           <td style={{ padding: '0.4rem 0.6rem', textAlign: 'right', color: 'var(--text-muted)' }}>{won(r.monthlyRent)}</td>
@@ -1369,10 +1411,9 @@ function MonthlyBillingView({ showToast, currentUser }) {
               </div>
             </div>
           )}
-        </div>
 
-        {/* 회차 상세 */}
-        {selected && form && (
+          {/* 회차 상세 */}
+          {form && (
           <div style={{ background: '#fff', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '1.2rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div>
               <div style={{ fontWeight: '800', fontSize: '0.95rem', color: 'var(--text-bright)' }}>
@@ -1730,6 +1771,8 @@ function MonthlyBillingView({ showToast, currentUser }) {
               저장 위치: RENT\{selected.company?.name || '거래처'}\02.청구서\{selected.contract?.contractNo}\
             </div>
           </div>
+          )}
+        </div>
         )}
       </div>
 

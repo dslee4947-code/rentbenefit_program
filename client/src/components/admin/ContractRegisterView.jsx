@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Save, Plus, Trash2, FileSignature, ChevronDown, ChevronUp, ArrowLeft, UserPlus, Users, Upload, Download, List, Edit, Search, Clock, Truck, FolderCheck, RotateCcw } from 'lucide-react';
 import { formatCustomerName, toCommaString, parseNumber, extractQuoteVehicleDetail } from '../../utils/format.js';
 import { useTableSort } from './useTableSort.js';
+import { downloadFile } from '../../utils/authFetch.js';
 import { useSaveShortcut } from './useSaveShortcut.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
 
@@ -109,6 +110,8 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
   const [remainingPeriodCalc, setRemainingPeriodCalc] = useState('');
   const [finesEmail, setFinesEmail] = useState('');
   const [finesEmail2, setFinesEmail2] = useState('');
+  // 범칙금·과태료 고지서가 오면 어떻게 할지. 계약할 때 정해 두고 예외만 그때그때 바꾼다.
+  const [fineHandling, setFineHandling] = useState('대납청구');
   const [corporateRegistrationNo, setCorporateRegistrationNo] = useState('');
 
   // 3. Vehicle Fields
@@ -155,7 +158,9 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
   const [isUploading, setIsUploading] = useState(false);
 
   const handleExcelTemplateDownload = () => {
-    window.open(`${API_HOST}/api/contracts/template`, '_blank');
+    // 새 창으로 주소를 열면 로그인 토큰이 실리지 않아 막힌다. 받아서 저장한다.
+    downloadFile(`${API_HOST}/api/contracts/template`, '계약서_양식.xlsx')
+      .catch((err) => showToast(err.message, 'error'));
   };
 
   const handleExcelUpload = async () => {
@@ -581,6 +586,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     setManagerOpsPhone(prefilledContractData.managerOpsPhone || '');
     setFinesEmail(prefilledContractData.finesEmail || '');
     setFinesEmail2(prefilledContractData.finesEmail2 || '');
+    setFineHandling(prefilledContractData.fineHandling || '대납청구');
     setStatus(prefilledContractData.status || '진행중');
 
     // 1-3. Pricing Info
@@ -692,17 +698,10 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [resCustomers, resContracts] = await Promise.all([
-          fetch(`${API_HOST}/api/customers?all=true`),
-          fetch(`${API_HOST}/api/contracts`)
-        ]);
-
-        let customerData = [];
-        if (resCustomers.ok) {
-          customerData = await resCustomers.json();
-          customerData = Array.isArray(customerData) ? customerData : (customerData.customers || []);
-        }
-        setCustomers(customerData);
+        // 고객은 여기서 받지 않는다. 예전에는 고객 1만 8천 건(18MB)을 통째로 받아 검색창
+        // 자동완성에만 썼는데, 화면을 열 때마다 7초가 걸렸고 그동안 서버가 다른 사람 요청까지
+        // 처리하지 못했다. 지금은 아래 '검색어가 바뀔 때' 효과에서 필요한 만큼만 물어본다.
+        const resContracts = await fetch(`${API_HOST}/api/contracts`);
 
         if (resContracts.ok) {
           const contractData = await resContracts.json();
@@ -1054,6 +1053,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     remainingPeriodCalc: undefined,
     finesEmail,
     finesEmail2,
+    fineHandling,
     corporateRegistrationNo: customerBizNoTransfer || undefined,
 
     pricing: {
@@ -1460,6 +1460,32 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
   const contractListSort = useTableSort(filteredContractsList, CONTRACT_LIST_COLUMNS);
   const sortedContractsList = contractListSort.rows;
 
+  // 검색창에 글자를 넣으면 그때 서버에서 고객을 찾아온다.
+  //
+  // 타자 한 글자마다 부르지 않도록 250ms 기다렸다 보낸다. 서버는 하이픈·공백을 무시하고 찾으므로
+  // 사업자번호를 '1234567890'으로 쳐도 '123-45-67890'이 걸린다.
+  useEffect(() => {
+    const term = searchQuery.trim();
+    if (term.length < 2) {
+      setCustomers([]);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_HOST}/api/customers?limit=30&search=${encodeURIComponent(term)}`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        setCustomers(Array.isArray(data) ? data : (data.customers || []));
+      } catch {
+        /* 검색 실패는 조용히 넘긴다. 자동완성이 안 뜰 뿐 입력은 계속할 수 있다 */
+      }
+    }, 250);
+
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [searchQuery]);
+
   // Generate Search Suggestions dynamically based on multiple fields (Customer Name, BizNo, Manager, Plate No, etc.)
   // Normalized for space-insensitivity and dash-insensitivity
   const getSuggestions = () => {
@@ -1492,10 +1518,11 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     // 2. Contract-level matching (vehicle plateNo, vehicle vin, contract manager, contractNo)
     contracts.forEach(con => {
       const compName = con.leaseCompany || con.vehicle?.contractCompany || '';
-      if (!compName) return;
-      
-      const actualCustomer = customers.find(c => c.name === compName.trim());
-      if (!actualCustomer) return;
+      // 계약에 고객이 붙어 있으면 그걸 쓴다. 예전에는 고객 전체 목록에서 이름으로 되찾으려고
+      // 1만 8천 건을 미리 받아 두고 있었다.
+      const actualCustomer = con.customer
+        || (compName ? customers.find(c => c.name === compName.trim()) : null);
+      if (!actualCustomer?._id) return;
  
       const hasMatch = suggestionMap.has(actualCustomer._id);
       
@@ -2195,8 +2222,12 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.originalName || doc.fileName}</span>
                             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexShrink: 0 }}>
                               <a
-                                href={`${API_HOST}/api/companies/${selectedCompanyId}/documents/${doc._id}/download`}
-                                target="_blank" rel="noreferrer"
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  downloadFile(`${API_HOST}/api/companies/${selectedCompanyId}/documents/${doc._id}/download`, doc.fileName || '서류')
+                                    .catch((err) => showToast(err.message, 'error'));
+                                }}
                                 style={{ color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.2rem' }}
                               >
                                 <Download size={13} /> 다운로드
@@ -2368,10 +2399,38 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                 {renderInput('계약 담당자 연락처', 'text', managerOpsPhone, setManagerOpsPhone, '010-XXXX-XXXX')}
               </div>
 
-              {/* 하단 세부 정보: 이메일 1, 이메일 2, 연체이율, 위약금 */}
-              <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginTop: '0.2rem' }}>
+              {/* 하단 세부 정보: 이메일 1, 이메일 2, 고지서 처리 방식, 연체이율, 위약금 */}
+              <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem', marginTop: '0.2rem' }}>
                 {renderInput('범칙금 수신 E-MAIL 1', 'email', finesEmail, setFinesEmail, 'fines@example.com')}
                 {renderInput('범칙금 수신 E-MAIL 2', 'email', finesEmail2, setFinesEmail2, 'backup@example.com')}
+                {/*
+                  고지서를 어떻게 처리할지 계약할 때 정해 둔다.
+                  건마다 물어보면 매일 오는 고지서를 하나씩 판단해야 해서, 미리 정해 두고
+                  예외가 생긴 건만 고지서 관리 화면에서 바꾼다.
+                */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-main)' }}>
+                    고지서 처리 방식
+                  </label>
+                  <select
+                    value={fineHandling}
+                    onChange={(e) => setFineHandling(e.target.value)}
+                    style={{
+                      width: '100%', padding: '0.45rem 0.6rem', border: '1px solid var(--border-color)',
+                      borderRadius: '6px', fontSize: '0.85rem', backgroundColor: '#fff',
+                      color: 'var(--text-bright)', cursor: 'pointer'
+                    }}
+                  >
+                    <option value="대납청구">대납 후 청구</option>
+                    <option value="고객납부">고객 직접 납부</option>
+                    <option value="명의변경">명의 변경</option>
+                  </select>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    {fineHandling === '대납청구' && '우리가 먼저 내고 다음 청구서에 얹습니다'}
+                    {fineHandling === '고객납부' && '담당자를 거쳐 운전자가 냅니다. 기한을 지켜봐야 합니다'}
+                    {fineHandling === '명의변경' && '관공서에 넘겨 고객에게 직접 고지되게 합니다'}
+                  </span>
+                </div>
                 {renderInput('연체이율 (%)', 'number', pricing.overdueRate, (val) => handlePricingChange('overdueRate', val), '미입력 시 기본 25%')}
                 {renderInput('위약금 (%)', 'number', pricing.penaltyRate, (val) => handlePricingChange('penaltyRate', val), '미입력 시 기본 35%')}
               </div>

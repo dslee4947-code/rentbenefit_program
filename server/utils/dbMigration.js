@@ -7,25 +7,36 @@ export const runDatabaseMigration = async () => {
   try {
     console.log('--- Database Migration Started ---');
 
-    // 1. Migrate Customers (Assign unique sequential customerId if missing)
-    const customers = await Customer.find().sort({ createdAt: 1 });
-    let migratedCustomersCount = 0;
-    
-    for (let i = 0; i < customers.length; i++) {
-      const customer = customers[i];
-      if (!customer.customerId) {
-        const generatedId = `CUST${String(i + 1).padStart(3, '0')}`;
-        customer.customerId = generatedId;
-        await customer.save();
-        migratedCustomersCount++;
-        console.log(`Migrated Customer [${customer.name}]: Assigned customerId = ${generatedId}`);
-      }
-    }
+    // 1. 고객 코드(customerId)가 없는 고객에게만 코드를 매긴다.
+    //
+    // 예전에는 고객 1만 8천 건을 전부 메모리로 읽어 하나씩 확인했다. 바꿀 게 하나도 없어도
+    // 서버가 켜질 때마다 7초가 걸렸고, 배포 직후 첫 화면이 그만큼 늦게 떴다.
+    // 먼저 세어 보고, 매길 게 있을 때만 읽는다.
+    const missingIdFilter = {
+      $or: [{ customerId: { $exists: false } }, { customerId: null }, { customerId: '' }]
+    };
+    const missingIdCount = await Customer.countDocuments(missingIdFilter);
 
-    if (migratedCustomersCount > 0) {
-      console.log(`Successfully migrated ${migratedCustomersCount} customers.`);
-    } else {
+    if (missingIdCount === 0) {
       console.log('All customers already have customerId.');
+    } else {
+      // 이미 쓰고 있는 가장 큰 번호 다음부터 이어 붙인다.
+      // (번호 문자열로 정렬하면 CUST999가 CUST1000보다 뒤로 가므로 숫자로 뽑아 최댓값을 본다)
+      const [maxRow] = await Customer.aggregate([
+        { $match: { customerId: /^CUST\d+$/ } },
+        { $project: { seq: { $toInt: { $substrBytes: ['$customerId', 4, 10] } } } },
+        { $group: { _id: null, maxSeq: { $max: '$seq' } } }
+      ]);
+      let nextSeq = (maxRow?.maxSeq || 0) + 1;
+
+      const customersWithoutId = await Customer.find(missingIdFilter).sort({ createdAt: 1 });
+      for (const customer of customersWithoutId) {
+        customer.customerId = `CUST${String(nextSeq).padStart(3, '0')}`;
+        await customer.save();
+        console.log(`Migrated Customer [${customer.name}]: Assigned customerId = ${customer.customerId}`);
+        nextSeq += 1;
+      }
+      console.log(`Successfully migrated ${customersWithoutId.length} customers.`);
     }
 
     // 2. 계약번호가 비어 있는 계약에만 번호를 채운다.

@@ -116,14 +116,17 @@ export const sendInvoiceMail = async ({ to, subject, fileName, fileBuffer, extra
  * @param {string} params.fileName 고지서 파일명
  * @param {Buffer} params.fileBuffer 고지서 파일
  * @param {object} params.values 치환 값 ({{계약자}} {{차량번호}} {{종류}} {{위반일}} {{금액}} {{납부기한}})
+ * @param {string} [params.templateKey] 처리 방식에 맞는 양식
+ *   ('fine-notice' 대납 · 'fine-notice-driver' 고객납부 · 'fine-notice-transfer' 명의변경)
+ * @param {Array<{fileName: string, buffer: Buffer}>} [params.extraFiles] 함께 붙일 서류(명의변경은 계약서)
  */
-export const sendFineNoticeMail = async ({ to, cc, fileName, fileBuffer, values = {} }) => {
+export const sendFineNoticeMail = async ({ to, cc, fileName, fileBuffer, values = {}, templateKey = 'fine-notice', extraFiles = [] }) => {
   return sendTemplateMail({
     to,
     cc,
     values,
-    templateKey: 'fine-notice',
-    files: fileBuffer ? [{ fileName, buffer: fileBuffer }] : [],
+    templateKey,
+    files: [...(fileBuffer ? [{ fileName, buffer: fileBuffer }] : []), ...extraFiles],
     missingToMessage: '받는 사람 이메일이 없습니다. 계약서의 범칙금 E-MAIL을 먼저 등록해 주세요.'
   });
 };

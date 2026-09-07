@@ -15,6 +15,7 @@ import {
 import { formatCustomerName, PAYMENT_DAY_OPTIONS, formatPaymentDay } from '../../utils/format.js';
 import MoneyInput from './MoneyInput.jsx';
 import { useTableSort } from './useTableSort.js';
+import { downloadFile } from '../../utils/authFetch.js';
 import { useSaveShortcut } from './useSaveShortcut.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
 import { useDraggableDialog, DIALOG_TOP } from './useDraggableDialog.js';
@@ -1089,12 +1090,15 @@ function VehicleManagementView({ showToast, currentUser }) {
           <Plus size={16} /> 차량 추가
         </button>
 
-        <a
-          href={`${API_BASE_URL}/api/vehicles/template`}
-          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: '#fff', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding: '0.6rem 1.1rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: '700', cursor: 'pointer', textDecoration: 'none' }}
+        {/* 주소를 그대로 열면 로그인 토큰이 실리지 않아 막힌다. 받아서 저장하는 방식으로 연다. */}
+        <button
+          type="button"
+          onClick={() => downloadFile(`${API_BASE_URL}/api/vehicles/template`, '차량등록_양식.xlsx')
+            .catch((err) => showToast?.(err.message, 'error'))}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: '#fff', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding: '0.6rem 1.1rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: '700', cursor: 'pointer' }}
         >
           <Download size={16} /> 엑셀 양식
-        </a>
+        </button>
 
         {/* 파일 선택창은 input이 열어야 해서, 버튼을 눌러 숨겨둔 input을 대신 클릭시킨다 */}
         <input

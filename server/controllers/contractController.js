@@ -438,6 +438,10 @@ export const createContract = async (req, res) => {
 
       finesEmail: req.body.finesEmail,
       finesEmail2: req.body.finesEmail2,
+      // 고지서가 오면 어떻게 할지. 대부분 대납해서 청구하지만 법인마다 다르다.
+      fineHandling: ['대납청구', '고객납부', '명의변경'].includes(req.body.fineHandling)
+        ? req.body.fineHandling
+        : undefined,
       corporateRegistrationNo: req.body.corporateRegistrationNo,
 
       status: '진행중',
@@ -548,6 +552,10 @@ export const createDraftContract = async (req, res) => {
       managerOpsPhone: req.body.managerOpsPhone,
       finesEmail: req.body.finesEmail,
       finesEmail2: req.body.finesEmail2,
+      // 고지서가 오면 어떻게 할지. 대부분 대납해서 청구하지만 법인마다 다르다.
+      fineHandling: ['대납청구', '고객납부', '명의변경'].includes(req.body.fineHandling)
+        ? req.body.fineHandling
+        : undefined,
       corporateRegistrationNo: req.body.corporateRegistrationNo,
       status: '임시저장',
       pricing: req.body.pricing || {},
@@ -593,6 +601,10 @@ export const updateContract = async (req, res) => {
     contract.managerMainPhone = req.body.managerMainPhone !== undefined ? req.body.managerMainPhone : contract.managerMainPhone;
     contract.managerOps = req.body.managerOps !== undefined ? req.body.managerOps : contract.managerOps;
     contract.managerOpsPhone = req.body.managerOpsPhone !== undefined ? req.body.managerOpsPhone : contract.managerOpsPhone;
+    // 범칙금 처리 방식. 고지서가 올 때마다 판단하지 않도록 계약에 정해 둔다.
+    if (['대납청구', '고객납부', '명의변경'].includes(req.body.fineHandling)) {
+      contract.fineHandling = req.body.fineHandling;
+    }
 
     contract.rentPeriodYears = req.body.rentPeriodYears !== undefined ? req.body.rentPeriodYears : contract.rentPeriodYears;
     contract.rentStartDate = req.body.rentStartDate !== undefined ? req.body.rentStartDate : contract.rentStartDate;

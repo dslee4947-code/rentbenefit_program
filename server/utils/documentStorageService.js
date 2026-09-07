@@ -198,6 +198,48 @@ export const buildContractFolderName = (contractNo, vehicles = []) => {
 };
 
 /**
+ * 계약자 폴더에 넣어 둔 계약서 사본을 찾는다.
+ *
+ * 명의 변경을 요청할 때 관공서가 계약서를 함께 요구한다. 담당자가 매번 폴더를 열어
+ * 찾아 붙이면 엉뚱한 계약서를 붙이는 일이 생겨, 계약번호로 골라 준다.
+ *
+ * 계약번호가 든 파일을 먼저 찾고, 없으면 그 폴더에서 가장 최근 것을 쓴다.
+ * 폴더에 계약서를 넣어 두지 않았으면 null을 준다(메일 자체를 막지는 않는다).
+ *
+ * @param {string} partyName 계약자명 (폴더명)
+ * @param {string} [contractNo] 계약번호
+ * @returns {{fileName: string, localPath: string}|null} 찾은 계약서
+ */
+export const findContractDocument = (partyName, contractNo) => {
+  if (!partyName) return null;
+  const dir = path.join(getOneDriveRoot(), 'RENT', sanitizePathSegment(partyName), '01.계약서');
+  if (!fs.existsSync(dir)) return null;
+
+  // 계약번호로 만든 하위 폴더가 있으면 그 안만 본다. 계약이 여러 건인 법인이 많다.
+  const sub = contractNo ? path.join(dir, sanitizePathSegment(String(contractNo))) : '';
+  const searchDirs = sub && fs.existsSync(sub) ? [sub, dir] : [dir];
+
+  for (const target of searchDirs) {
+    let files;
+    try {
+      files = fs.readdirSync(target, { withFileTypes: true })
+        .filter((e) => e.isFile() && /\.(pdf|jpg|jpeg|png)$/i.test(e.name))
+        .map((e) => ({
+          fileName: e.name,
+          localPath: path.join(target, e.name),
+          mtime: fs.statSync(path.join(target, e.name)).mtimeMs
+        }));
+    } catch { continue; }
+    if (!files.length) continue;
+
+    const byNo = contractNo ? files.filter((f) => f.fileName.includes(String(contractNo))) : [];
+    const pick = (byNo.length ? byNo : files).sort((a, b) => b.mtime - a.mtime)[0];
+    return { fileName: pick.fileName, localPath: pick.localPath };
+  }
+  return null;
+};
+
+/**
  * 계약자 폴더 안의 문서 폴더에 파일을 저장한다.
  *
  * @param {object} params

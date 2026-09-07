@@ -1,6 +1,33 @@
 import Customer from '../models/Customer.js';
 import Company from '../models/Company.js';
 
+// 고객 검색이 훑는 항목. 계약서 등록 화면의 검색창이 찾던 범위와 같다.
+const SEARCHABLE_CUSTOMER_FIELDS = [
+  'name', 'surname', 'givenName', 'contactName', 'customerId',
+  'contactPhone', 'mobilePhone', 'email', 'bizNo', 'outlookCategory', 'companyName'
+];
+
+/**
+ * 하이픈·공백을 무시하는 검색 정규식을 만든다.
+ *
+ * 사업자번호를 '1234567890'으로 쳐도 '123-45-67890'을 찾아야 하고 전화번호도 마찬가지다.
+ * 글자 사이사이에 하이픈·공백이 와도 되도록 열어 둔다.
+ *
+ * @returns {RegExp|null} 찾을 글자가 없으면 null
+ */
+const looseSearchRegex = (raw) => {
+  const chars = String(raw ?? '').replace(/[-\s]/g, '');
+  if (!chars) return null;
+
+  // 너무 긴 검색어는 정규식이 무거워지므로 앞부분만 쓴다(찾는 결과는 달라지지 않는다)
+  const escaped = chars
+    .slice(0, 40)
+    .split('')
+    .map((ch) => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+
+  return new RegExp(escaped.join('[-\\s]*'), 'i');
+};
+
 // 고객 목록을 정렬할 수 있는 항목. 화면(고객 DB 표)의 열과 같은 이름을 쓴다.
 // 아무 값이나 그대로 넘기면 색인 없는 항목으로 정렬해 조회가 느려지므로 여기 적힌 것만 받는다.
 const SORTABLE_CUSTOMER_FIELDS = [
@@ -27,18 +54,8 @@ export const getCustomers = async (req, res) => {
     }
 
     if (search && search.trim()) {
-      const term = search.trim();
-      query.$or = [
-        { name: { $regex: term, $options: 'i' } },
-        { contactName: { $regex: term, $options: 'i' } },
-        { contactPhone: { $regex: term, $options: 'i' } },
-        { mobilePhone: { $regex: term, $options: 'i' } },
-        { email: { $regex: term, $options: 'i' } },
-        { bizNo: { $regex: term, $options: 'i' } },
-        { outlookCategory: { $regex: term, $options: 'i' } },
-        { surname: { $regex: term, $options: 'i' } },
-        { givenName: { $regex: term, $options: 'i' } }
-      ];
+      const searchRegex = looseSearchRegex(search);
+      if (searchRegex) query.$or = SEARCHABLE_CUSTOMER_FIELDS.map((field) => ({ [field]: searchRegex }));
     }
 
     // 목록 정렬. 페이지를 나눠 보내므로 정렬은 서버에서 해야 한다.

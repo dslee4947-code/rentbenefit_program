@@ -28,6 +28,39 @@ const labelOf = (sched) => sched.title
   || (sched.targetVehicle?.code ? `${sched.targetVehicle.code} 점검` : sched.type);
 
 /**
+ * 청구서 발송 건들이 며칠에 빠져나갈 돈인지 앞에 적어 준다.
+ *
+ * 캘린더에 찍히는 날은 '보내는 날'이라, 그것만 보면 며칠 출금 건인지 알 수 없다.
+ * 담당자는 "25일 건"으로 부르므로 출금일을 앞세운다.
+ * 휴일 때문에 다른 출금일 건이 같은 날로 당겨져 섞이면 둘 다 적는다.
+ *
+ * @param {object[]} items 그 날 같은 종류의 일정들
+ * @returns {string} '25일' 또는 '15·25일' (알 수 없으면 빈 값)
+ */
+const billingDayLabel = (items) => {
+  const labels = [];
+  for (const x of items) {
+    const due = x.invoice?.billingDueDate;
+    if (!due) continue;
+    const d = new Date(due);
+    // 말일 계약은 달마다 날짜가 달라(9월 30일, 10월 31일, 2월 28일) 숫자로 적으면
+    // 담당자가 말일 건인지 알아볼 수 없다. 설정값이 말일이면 그대로 '말일'로 적는다.
+    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    const isLast = x.invoice?.paymentDay === '말일' || d.getDate() === lastDay;
+    labels.push(isLast ? '말일' : `${d.getDate()}일`);
+  }
+  if (!labels.length) return '';
+
+  // 나온 순서가 아니라 날짜순으로 적는다. '말일'은 맨 뒤에 둔다.
+  const uniq = [...new Set(labels)].sort((a, b) => {
+    if (a === '말일') return 1;
+    if (b === '말일') return -1;
+    return parseInt(a, 10) - parseInt(b, 10);
+  });
+  return uniq.join('·');
+};
+
+/**
  * 하루치 일정을 종류별로 묶는다.
  *
  * 청구서 발송은 하루에 수십 건이 겹친다. 그대로 늘어놓으면 그 날 칸만 아래로 길어져
@@ -259,7 +292,12 @@ function CalendarView({ showToast, currentUser }) {
                       const many = group.items.length > 1;
                       const sched = group.items[0];
                       // 여러 건이면 건수만 적고 목록은 눌렀을 때 펼친다.
-                      const label = many ? `${group.type} ${group.items.length}건` : labelOf(sched);
+                      // 청구서 발송은 며칠 출금 건인지가 먼저 보여야 해서 출금일을 앞에 붙인다.
+                      const billDay = group.type === '청구서발송' ? billingDayLabel(group.items) : '';
+                      const prefix = billDay ? `${billDay} ` : '';  // '25일 ' / '말일 '
+                      const label = many
+                        ? `${prefix}${group.type} ${group.items.length}건`
+                        : `${prefix}${labelOf(sched)}`;
                       const allDone = group.items.every(x => x.status === '완료');
 
                       return (
@@ -284,8 +322,8 @@ function CalendarView({ showToast, currentUser }) {
                             textDecoration: allDone ? 'line-through' : 'none'
                           }}
                           title={many
-                            ? `${group.type} ${group.items.length}건 · 눌러서 목록 보기`
-                            : `[${sched.type}] ${labelOf(sched)}${sched.amount ? ` · ${Number(sched.amount).toLocaleString()}원` : ''}`}
+                            ? `${prefix}${group.type} ${group.items.length}건 · 눌러서 목록 보기`
+                            : `[${sched.type}] ${prefix}${labelOf(sched)}${sched.amount ? ` · ${Number(sched.amount).toLocaleString()}원` : ''}`}
                         >
                           {label}
                         </div>
@@ -312,7 +350,11 @@ function CalendarView({ showToast, currentUser }) {
             <div style={{ background: 'var(--bg-main)', padding: '1.2rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
               <div>
                 <h4 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text-bright)' }}>
-                  {groupModal.date.getMonth() + 1}월 {groupModal.date.getDate()}일 · {groupModal.type}
+                  {groupModal.date.getMonth() + 1}월 {groupModal.date.getDate()}일 발송 ·{' '}
+                  {billingDayLabel(groupModal.items) && (
+                    <span style={{ color: 'var(--primary)' }}>{billingDayLabel(groupModal.items)} 출금 </span>
+                  )}
+                  {groupModal.type}
                 </h4>
                 <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
                   {groupModal.items.length}건

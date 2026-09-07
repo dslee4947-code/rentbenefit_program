@@ -26,7 +26,7 @@ export const syncInvoiceSendSchedules = async () => {
   const horizon = new Date(today);
   horizon.setDate(horizon.getDate() + HORIZON_DAYS);
 
-  const schedules = await BillingSchedule.find({}).select('contract rounds').lean();
+  const schedules = await BillingSchedule.find({}).select('contract rounds paymentDay').lean();
 
   let created = 0;
   let movedCount = 0;
@@ -63,6 +63,7 @@ export const syncInvoiceSendSchedules = async () => {
           title,
           amount: next.round.total || 0,
           invoice: {
+            paymentDay: s.paymentDay || '',
             roundNo: next.round.no,
             billingDueDate: next.round.dueDate, // 출금일
             originalSendDate: next.rawSendDate, // 휴일이라 당기기 전의 날짜

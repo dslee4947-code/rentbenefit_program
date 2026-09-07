@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { formatBizNo, formatCorporateRegistrationNo, formatCustomerName, formatPersonalIdPrefix } from '../../utils/format.js';
 import { useTableSort } from './useTableSort.js';
+import { downloadFile } from '../../utils/authFetch.js';
 import { useSaveShortcut } from './useSaveShortcut.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
 
@@ -1785,9 +1786,12 @@ function CompanyManagementView({ showToast, currentUser }) {
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0 }}>
                               <a
-                                href={`${API_BASE_URL}/api/companies/${editingCompany._id}/documents/${doc._id}/download`}
-                                target="_blank"
-                                rel="noreferrer"
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  downloadFile(`${API_BASE_URL}/api/companies/${editingCompany._id}/documents/${doc._id}/download`, doc.fileName || '서류')
+                                    .catch((err) => showToast?.(err.message, 'error'));
+                                }}
                                 title="다운로드"
                                 style={{ display: 'flex', color: 'var(--primary)', padding: '0.2rem' }}
                               >

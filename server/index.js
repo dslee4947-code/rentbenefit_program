@@ -1,6 +1,7 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import compression from 'compression';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import connectDB from './config/db.js';
@@ -25,6 +26,7 @@ import inquiryRoutes from './routes/inquiryRoutes.js';
 dotenv.config();
 
 import cron from 'node-cron';
+import { protect } from './middleware/authMiddleware.js';
 import { runDatabaseMigration } from './utils/dbMigration.js';
 import { syncOutlookContacts } from './utils/outlookSyncService.js';
 import { syncInvoiceSendSchedules } from './utils/invoiceScheduleJob.js';
@@ -34,8 +36,14 @@ import { syncFineNoticeSchedules } from './utils/fineNoticeScheduleJob.js';
 connectDB().then(async () => {
   await runDatabaseMigration();
 
-  // Initial Outlook contact sync on startup
-  syncOutlookContacts();
+  // 아웃룩 연락처 동기화는 켜지자마자 하지 않는다.
+  //
+  // 연락처가 1만 8천 건이라 훑는 동안 서버가 다른 요청을 늦게 처리한다.
+  // 배포 직후가 사람들이 가장 많이 들어오는 때라, 2분 뒤로 미뤄 첫 화면부터 열리게 한다.
+  setTimeout(() => {
+    console.log('[Outlook Sync] 기동 2분 뒤 첫 동기화를 시작합니다.');
+    syncOutlookContacts();
+  }, 2 * 60 * 1000);
 
   // Schedule Outlook contact sync every 6 hours (0 */6 * * *)
   cron.schedule('0 */6 * * *', () => {
@@ -90,6 +98,12 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// 응답을 gzip으로 줄여서 보낸다.
+//
+// 이게 없으면 화면 코드(2.3MB)와 목록 응답이 통째로 오간다. 사무실 밖이나 휴대폰에서
+// 특히 느렸던 이유다. 압축하면 보통 3~5배 줄고, 서버가 쓰는 시간은 그보다 훨씬 적다.
+app.use(compression());
+
 // In production the client is built into client/dist and served by this same server,
 // so the browser calls /api/* on its own origin (no CORS, no mixed content).
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -105,22 +119,26 @@ app.get('/', (req, res) => {
   res.send('Rent Benefit API is running...');
 });
 
+// 로그인한 사람만 데이터에 접근할 수 있다.
+//
+// 예전에는 주소만 알면 로그인 없이 고객 1만 8천 명의 이름·전화번호·사업자번호가 그대로 나왔다.
+// 회원가입·로그인은 열려 있어야 하므로 users만 라우트 안에서 개별로 검사한다.
 app.use('/api/users', userRoutes);
-app.use('/api/vehicles', vehicleRoutes);
-app.use('/api/customers', customerRoutes);
-app.use('/api/quotes', quoteRoutes);
-app.use('/api/contracts', contractRoutes);
-app.use('/api/schedules', scheduleRoutes);
-app.use('/api/invoices', invoiceRoutes);
-app.use('/api/billing-schedules', billingScheduleRoutes);
-app.use('/api/mail-templates', mailTemplateRoutes);
-app.use('/api/ocr', ocrRoutes);
-app.use('/api/ledgers', ledgerRoutes);
-app.use('/api/documents', documentRoutes);
-app.use('/api/company-folders', companyFolderRoutes);
-app.use('/api/companies', companyRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/inquiries', inquiryRoutes);
+app.use('/api/vehicles', protect, vehicleRoutes);
+app.use('/api/customers', protect, customerRoutes);
+app.use('/api/quotes', protect, quoteRoutes);
+app.use('/api/contracts', protect, contractRoutes);
+app.use('/api/schedules', protect, scheduleRoutes);
+app.use('/api/invoices', protect, invoiceRoutes);
+app.use('/api/billing-schedules', protect, billingScheduleRoutes);
+app.use('/api/mail-templates', protect, mailTemplateRoutes);
+app.use('/api/ocr', protect, ocrRoutes);
+app.use('/api/ledgers', protect, ledgerRoutes);
+app.use('/api/documents', protect, documentRoutes);
+app.use('/api/company-folders', protect, companyFolderRoutes);
+app.use('/api/companies', protect, companyRoutes);
+app.use('/api/dashboard', protect, dashboardRoutes);
+app.use('/api/inquiries', protect, inquiryRoutes);
 
 // Client-side routing: any non-/api request falls through to the SPA entry point
 if (serveClient) {

@@ -7,6 +7,56 @@ const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? ''
 const won = (n) => (n || n === 0) ? `${Number(n).toLocaleString()}원` : '-';
 const ymd = (d) => (d ? String(d).slice(0, 10) : '-');
 
+// 고지서를 처리하는 세 갈래. 계약에 미리 정해 두고, 이 건만 다르면 그 자리에서 바꾼다.
+const HANDLINGS = {
+  대납청구: { label: '대납 후 청구', color: '#0284c7', hint: '우리가 먼저 내고 다음 청구서에 얹습니다' },
+  고객납부: { label: '고객 직접 납부', color: '#d97706', hint: '담당자를 거쳐 운전자가 냅니다. 기한을 지켜봐야 합니다' },
+  명의변경: { label: '명의 변경', color: '#7c3aed', hint: '관공서에 넘겨 고객에게 직접 고지되게 합니다' }
+};
+
+// 우리 손을 떠난 단계. 청구액에서 빠지고 더 챙길 일이 없다.
+const DONE_STATUSES = ['납부완료', '변경완료', '고객납부'];
+
+/**
+ * 방식마다 다음에 눌러야 할 것이 다르다.
+ *
+ * 단계마다 버튼을 여러 개 늘어놓으면 무엇을 눌러야 할지 헷갈린다.
+ * 지금 단계에서 할 일 하나만 보여 주고, 되돌리기는 따로 둔다.
+ */
+const NEXT_STEP = {
+  대납청구: {
+    접수: { to: '대납완료', label: '대납 완료', hint: '우리가 낸 것으로 표시합니다. 다음 청구서에 얹혀 나갑니다.' },
+    안내: { to: '대납완료', label: '대납 완료', hint: '우리가 낸 것으로 표시합니다. 다음 청구서에 얹혀 나갑니다.' },
+    기한초과: { to: '대납완료', label: '대납 완료', hint: '기한이 지났습니다. 우리가 내고 청구합니다.' }
+  },
+  고객납부: {
+    접수: { to: '운전자확인', label: '운전자 확인', hint: '누가 운전했는지 확인했습니다.' },
+    안내: { to: '운전자확인', label: '운전자 확인', hint: '누가 운전했는지 확인했습니다.' },
+    운전자확인: { to: '납부완료', label: '납부 확인', hint: '고객이 직접 냈습니다. 청구액에서 뺍니다.' },
+    기한초과: { to: '납부완료', label: '납부 확인', hint: '뒤늦게라도 고객이 냈으면 누르세요.' }
+  },
+  명의변경: {
+    접수: { to: '운전자확인', label: '운전자 확인', hint: '누가 운전했는지 확인했습니다.' },
+    안내: { to: '운전자확인', label: '운전자 확인', hint: '누가 운전했는지 확인했습니다.' },
+    운전자확인: { to: '접수중', label: '관공서 접수', hint: '계약서와 고지서를 보냈습니다.' },
+    접수중: { to: '변경완료', label: '변경 완료', hint: '명의가 넘어갔습니다. 청구액에서 뺍니다.' },
+    기한초과: { to: '변경완료', label: '변경 완료', hint: '명의가 넘어갔으면 누르세요.' }
+  }
+};
+
+const STATUS_STYLE = {
+  접수: { bg: '#f1f5f9', color: '#475569' },
+  안내: { bg: '#e0f2fe', color: '#0284c7' },
+  운전자확인: { bg: '#fef3c7', color: '#d97706' },
+  접수중: { bg: '#ede9fe', color: '#7c3aed' },
+  대납완료: { bg: '#dbeafe', color: '#2563eb' },
+  납부완료: { bg: '#dcfce7', color: '#16a34a' },
+  변경완료: { bg: '#dcfce7', color: '#16a34a' },
+  기한초과: { bg: '#fee2e2', color: '#ef4444' },
+  청구예정: { bg: '#f1f5f9', color: '#475569' },
+  고객납부: { bg: '#dcfce7', color: '#16a34a' }
+};
+
 /**
  * 거르기 기준.
  *
@@ -18,19 +68,27 @@ const FILTERS = [
   { key: 'overdue', label: '기한 지남', hint: '이번 청구서에 얹혀 나갑니다', color: 'var(--error)' },
   { key: 'soon', label: '7일 내 마감', hint: '아직 안내할 시간이 있습니다', color: '#d97706' },
   { key: 'waiting', label: '납부 대기', hint: '기한이 남은 건 전부', color: 'var(--primary)' },
-  { key: 'paid', label: '고객 납부', hint: '청구액에서 뺀 건', color: '#16a34a' },
-  { key: 'nodue', label: '기한 미상', hint: '기한을 못 읽어 추적이 안 됩니다', color: '#7c3aed' }
+  { key: 'paid', label: '처리 완료', hint: '고객이 냈거나 명의가 넘어가 청구액에서 뺀 건', color: '#16a34a' },
+  { key: 'nodue', label: '기한 미상', hint: '기한을 못 읽어 추적이 안 됩니다', color: '#7c3aed' },
+  // 방식마다 손이 가는 곳이 달라 따로 모아 본다
+  { key: '대납청구', label: '대납 후 청구', hint: '우리가 내고 청구할 건', color: '#0284c7' },
+  { key: '고객납부처리', label: '고객 직접 납부', hint: '고객이 낼 건. 기한을 지켜봐야 합니다', color: '#d97706' },
+  { key: '명의변경', label: '명의 변경', hint: '관공서에 넘길 건', color: '#7c3aed' }
 ];
 
 const matchesFilter = (key, x) => {
-  const paid = x.noticeStatus === '고객납부';
+  const done = DONE_STATUSES.includes(x.noticeStatus);
   switch (key) {
-    case 'unnotified': return !paid && !x.noticeMailSentAt;
-    case 'overdue': return !paid && x.dday !== null && x.dday < 0;
-    case 'soon': return !paid && x.dday !== null && x.dday >= 0 && x.dday <= 7;
-    case 'waiting': return !paid && x.dday !== null && x.dday >= 0;
-    case 'paid': return paid;
-    case 'nodue': return !paid && x.dday === null;
+    case 'unnotified': return !done && !x.noticeMailSentAt;
+    case 'overdue': return !done && x.dday !== null && x.dday < 0;
+    case 'soon': return !done && x.dday !== null && x.dday >= 0 && x.dday <= 7;
+    case 'waiting': return !done && x.dday !== null && x.dday >= 0;
+    case 'paid': return done;
+    case 'nodue': return !done && x.dday === null;
+    case '대납청구':
+    case '고객납부처리':
+    case '명의변경':
+      return !done && x.handling === (key === '고객납부처리' ? '고객납부' : key);
     default: return true;
   }
 };
@@ -97,7 +155,7 @@ function FineNoticeView({ showToast, currentUser }) {
    * 냈으면 청구액에서 빠지고 캘린더 일정도 닫힌다. 서류는 지우지 않는다.
    * 지우면 그 고지서가 있었다는 기록까지 사라져 나중에 되짚을 수 없다.
    */
-  const setNoticeStatus = async (row, noticeStatus) => {
+  const setNoticeStatus = async (row, noticeStatus, extra = {}) => {
     if (currentUser?.role === 'viewer') {
       showToast?.('권한이 없습니다. 관리자에게 문의하세요.', 'error');
       return;
@@ -110,7 +168,7 @@ function FineNoticeView({ showToast, currentUser }) {
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', 'X-User-Role': currentUser?.role || 'viewer' },
-          body: JSON.stringify({ noticeStatus })
+          body: JSON.stringify({ noticeStatus, ...extra })
         }
       );
       const data = await res.json();
@@ -121,6 +179,20 @@ function FineNoticeView({ showToast, currentUser }) {
     } finally {
       setBusy(null);
     }
+  };
+
+  /**
+   * 이 고지서만 다른 방식으로 처리한다.
+   *
+   * 방식은 계약에 정해 두지만 예외가 생긴다. 늘 대납하던 법인도 금액이 크면
+   * 운전자에게 직접 물리기도 한다. 그럴 때 이 건만 바꾼다.
+   */
+  const setHandling = async (row, handling) => {
+    if (handling === (row.handling || '대납청구')) return;
+    // 방식마다 거치는 단계가 달라 처음으로 되돌린다. 진행하던 것이 있으면 먼저 묻는다.
+    if (row.noticeStatus && row.noticeStatus !== '접수'
+      && !window.confirm(`${row.plateNo} · ${row.kind}\n\n처리 방식을 ${HANDLINGS[handling]?.label}(으)로 바꾸면 진행 단계가 [접수]로 돌아갑니다. 바꿀까요?`)) return;
+    await setNoticeStatus(row, '접수', { handling });
   };
 
   /**
@@ -139,6 +211,21 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
 
 다시 보낼까요?`)) return;
 
+    // 명의 변경은 받는 곳이 고객이 아니라 관공서다. 계약마다 다르고 건마다 달라 그때 묻는다.
+    let to;
+    if (row.handling === '명의변경') {
+      to = window.prompt(
+        `${row.plateNo} · ${row.kind}\n\n어디로 보낼까요? (예: 서초경찰서 · 서초구청 담당자 메일)\n계약서 사본을 고지서와 함께 붙여 보냅니다.`,
+        row.transferAgency && row.transferAgency.includes('@') ? row.transferAgency : (row.noticeMailTo || '')
+      );
+      if (to === null) return;
+      to = to.trim();
+      if (!to) {
+        showToast?.('보낼 주소를 적어 주세요.', 'error');
+        return;
+      }
+    }
+
     const id = `${row.scheduleId}-${row.roundNo}-${row.index}`;
     try {
       setBusy(id);
@@ -147,11 +234,13 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-User-Role': currentUser?.role || 'viewer' },
-          body: JSON.stringify({ resend })
+          body: JSON.stringify({ resend, ...(to ? { to } : {}) })
         }
       );
       const data = await res.json();
       showToast?.(data.message || (data.success ? '보냈습니다.' : '보내지 못했습니다.'), data.success ? 'success' : 'error');
+      // 계약서를 못 찾았으면 따로 알린다. 관공서는 계약서가 없으면 접수해 주지 않는다.
+      if (data.warning) showToast?.(data.warning, 'error');
       if (data.success) await fetchNotices();
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
@@ -168,6 +257,20 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
       .some((v) => (v || '').toLowerCase().includes(kw));
   });
   const shownTotal = shown.reduce((sum, x) => sum + x.amount, 0);
+
+  /**
+   * 사람이 정해 줘야 할 건.
+   *
+   * 고객이 내기로 한 건은 기한이 지나도 자동으로 대납으로 넘기지 않는다.
+   * 담당자가 늦게 회신하는 일이 잦아, 자동으로 넘기면 이미 낸 것을 또 청구하게 된다.
+   * 그래서 알림만 띄우고 넘길지 말지는 사람이 누른다.
+   */
+  const needsDecision = items.filter((x) => (
+    !DONE_STATUSES.includes(x.noticeStatus)
+    && x.handling !== '대납청구'
+    && x.dday !== null && x.dday <= 7
+    && !x.issued
+  ));
 
   const countOf = (key) => items.filter((x) => matchesFilter(key, x)).length;
   const sumOf = (key) => items.filter((x) => matchesFilter(key, x)).reduce((s, x) => s + x.amount, 0);
@@ -208,13 +311,62 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
         />
       )}
 
+      {/* 고객이 내기로 한 건 중 기한이 코앞이거나 지난 것. 자동으로 넘기지 않고 사람에게 묻는다. */}
+      {needsDecision.length > 0 && (
+        <div style={{ border: '1px solid #fca5a5', background: '#fef2f2', borderRadius: '10px', padding: '0.8rem 1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--error)', fontWeight: '800', fontSize: '0.88rem' }}>
+            <AlertCircle size={16} />
+            정해 주셔야 할 고지서 {needsDecision.length}건
+            <span style={{ fontWeight: '600', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
+              · 고객이 내기로 한 건인데 기한이 코앞이거나 지났습니다. 그냥 두면 아무 일도 일어나지 않습니다.
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.6rem' }}>
+            {needsDecision.slice(0, 5).map((x) => {
+              const id = `${x.scheduleId}-${x.roundNo}-${x.index}`;
+              return (
+                <div key={id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', fontSize: '0.82rem' }}>
+                  <strong style={{ color: 'var(--text-bright)' }}>{x.plateNo || '차량번호 미상'}</strong>
+                  <span style={{ color: 'var(--text-muted)' }}>{x.partyName}</span>
+                  <span style={{ color: 'var(--text-muted)' }}>{x.kind} {won(x.amount)}</span>
+                  <span style={{ color: ddayColor(x.dday, false), fontWeight: '800' }}>{ddayLabel(x.dday)}</span>
+                  <span style={{ color: HANDLINGS[x.handling]?.color, fontWeight: '700' }}>{HANDLINGS[x.handling]?.label}</span>
+                  <button
+                    type="button"
+                    onClick={() => setHandling(x, '대납청구')}
+                    disabled={busy === id}
+                    title="우리가 내고 다음 청구서에 얹습니다"
+                    style={{
+                      marginLeft: 'auto', border: '1px solid #0284c7', background: '#0284c7', color: '#fff',
+                      padding: '0.25rem 0.6rem', borderRadius: '6px', fontSize: '0.76rem', fontWeight: '800',
+                      cursor: busy === id ? 'not-allowed' : 'pointer', opacity: busy === id ? 0.5 : 1
+                    }}
+                  >
+                    대납으로 바꾸기
+                  </button>
+                </div>
+              );
+            })}
+            {needsDecision.length > 5 && (
+              <button
+                type="button"
+                onClick={() => setFilter('고객납부처리')}
+                style={{ alignSelf: 'flex-start', border: 'none', background: 'none', color: 'var(--error)', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer', padding: 0 }}
+              >
+                나머지 {needsDecision.length - 5}건 보기 →
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* 아침에 이 줄만 봐도 무엇을 챙겨야 하는지 알 수 있어야 한다 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.6rem' }}>
         {[
           { key: 'unnotified', label: '안내 전', icon: <Mail size={15} />, color: '#0284c7', bg: '#f0f9ff' },
           { key: 'overdue', label: '기한 지남', icon: <AlertCircle size={15} />, color: 'var(--error)', bg: '#fef2f2' },
           { key: 'soon', label: '7일 내 마감', icon: <Clock size={15} />, color: '#d97706', bg: '#fffbeb' },
-          { key: 'paid', label: '고객 납부', icon: <CheckCircle2 size={15} />, color: '#16a34a', bg: '#f0fdf4' },
+          { key: 'paid', label: '처리 완료', icon: <CheckCircle2 size={15} />, color: '#16a34a', bg: '#f0fdf4' },
           { key: 'nodue', label: '기한 미상', icon: <FileWarning size={15} />, color: '#7c3aed', bg: '#f5f3ff' }
         ].map((card) => (
           <button
@@ -295,7 +447,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
           <strong style={{ color: 'var(--text-bright)' }}>{shown.length}건</strong>
           <span style={{ color: 'var(--text-muted)' }}>· 합계 {won(shownTotal)}</span>
           <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
-            [안내]로 고객에게 알리고, 기한에 냈으면 [납부확인]. 안 냈으면 그대로 두면 다음 청구서에 얹혀 나갑니다.
+            계약마다 정해 둔 [처리 방식]대로 [다음 할 일]만 눌러 나가면 됩니다. 이 건만 다르면 방식을 그 자리에서 바꾸세요.
           </span>
         </div>
 
@@ -304,6 +456,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
             <thead>
               <tr style={{ background: '#fff', borderBottom: '1px solid var(--border-color)', color: 'var(--text-bright)' }}>
                 <th style={thStyle}>계약사</th>
+                <th style={{ ...thStyle, textAlign: 'center' }}>처리 방식</th>
                 <th style={thStyle}>차량번호</th>
                 <th style={thStyle}>종류</th>
                 <th style={{ ...thStyle, textAlign: 'center' }}>위반일</th>
@@ -311,18 +464,20 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                 <th style={{ ...thStyle, textAlign: 'right' }}>금액</th>
                 <th style={{ ...thStyle, textAlign: 'center' }}>붙은 회차</th>
                 <th style={{ ...thStyle, textAlign: 'center' }}>고객 안내</th>
-                <th style={{ ...thStyle, textAlign: 'center' }}>납부 확인</th>
+                <th style={{ ...thStyle, textAlign: 'center' }}>지금 단계</th>
+                <th style={{ ...thStyle, textAlign: 'center' }}>다음 할 일</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>불러오는 중...</td></tr>
+                <tr><td colSpan={11} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>불러오는 중...</td></tr>
               ) : shown.length === 0 ? (
-                <tr><td colSpan={9} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                <tr><td colSpan={11} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
                   {items.length ? '이 조건에 맞는 고지서가 없습니다.' : '등록된 고지서가 없습니다. [고지서 등록]으로 올려 주세요.'}
                 </td></tr>
               ) : shown.map((x) => {
-                const paid = x.noticeStatus === '고객납부';
+                // 더 손댈 일이 없는 건. 초록으로 눕혀 두고 기한 지남 표시도 하지 않는다.
+                const paid = DONE_STATUSES.includes(x.noticeStatus);
                 const id = `${x.scheduleId}-${x.roundNo}-${x.index}`;
                 const overdue = !paid && x.dday !== null && x.dday < 0;
                 return (
@@ -338,6 +493,31 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                     <td style={{ ...tdStyle, fontWeight: '700' }}>
                       {x.partyName || '-'}
                       <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', fontWeight: '600' }}>{x.contractNo}</div>
+                    </td>
+                    {/* 처리 방식. 계약에 정해 둔 것을 따르되 이 건만 바꿀 수 있다. */}
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                      <select
+                        value={x.handling || '대납청구'}
+                        onChange={(e) => setHandling(x, e.target.value)}
+                        disabled={x.issued || busy === id}
+                        title={HANDLINGS[x.handling]?.hint}
+                        style={{
+                          padding: '0.22rem 0.35rem', borderRadius: '5px', fontSize: '0.74rem', fontWeight: '800',
+                          cursor: (x.issued || busy === id) ? 'not-allowed' : 'pointer',
+                          border: `1px solid ${HANDLINGS[x.handling]?.color || 'var(--border-color)'}`,
+                          color: HANDLINGS[x.handling]?.color || 'var(--text-muted)',
+                          background: '#fff'
+                        }}
+                      >
+                        {Object.entries(HANDLINGS).map(([k, v]) => (
+                          <option key={k} value={k}>{v.label}</option>
+                        ))}
+                      </select>
+                      {x.handling !== x.contractHandling && (
+                        <div style={{ fontSize: '0.68rem', color: '#d97706', fontWeight: '700', marginTop: '0.1rem' }}>
+                          이 건만 예외
+                        </div>
+                      )}
                     </td>
                     <td style={{ ...tdStyle, fontWeight: '700', color: 'var(--primary)' }}>{x.plateNo || '-'}</td>
                     <td style={tdStyle}>
@@ -384,8 +564,10 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                           onClick={() => sendNotice(x)}
                           disabled={paid || busy === id}
                           title={paid
-                            ? '고객이 이미 낸 건입니다'
-                            : '계약서의 범칙금 E-MAIL로 고지서 원본을 붙여 보냅니다'}
+                            ? '더 처리할 일이 없는 건입니다'
+                            : (x.handling === '명의변경'
+                              ? '관공서로 계약서와 고지서를 함께 보냅니다'
+                              : '계약서의 범칙금 E-MAIL로 고지서 원본을 붙여 보냅니다')}
                           style={{
                             display: 'inline-flex', alignItems: 'center', gap: '0.25rem', whiteSpace: 'nowrap',
                             padding: '0.3rem 0.6rem', borderRadius: '6px', fontSize: '0.78rem', fontWeight: '800',
@@ -394,31 +576,89 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                             border: '1px solid #0284c7', background: '#fff', color: '#0284c7'
                           }}
                         >
-                          <Mail size={12} /> 안내
+                          <Mail size={12} /> {x.handling === '명의변경' ? '접수' : '안내'}
                         </button>
                       )}
                     </td>
 
+                    {/* 지금 어디까지 왔는지 */}
                     <td style={{ ...tdStyle, textAlign: 'center' }}>
-                      <button
-                        type="button"
-                        onClick={() => setNoticeStatus(x, paid ? '청구예정' : '고객납부')}
-                        disabled={x.issued || busy === id}
-                        title={x.issued
-                          ? '이미 발행한 회차라 바꿀 수 없습니다'
-                          : (paid ? '다시 청구 대상으로 되돌립니다' : '고객이 직접 냈습니다. 청구액에서 뺍니다.')}
-                        style={{
-                          whiteSpace: 'nowrap', padding: '0.3rem 0.7rem', borderRadius: '6px',
-                          fontSize: '0.78rem', fontWeight: '800',
-                          cursor: (x.issued || busy === id) ? 'not-allowed' : 'pointer',
-                          opacity: (x.issued || busy === id) ? 0.5 : 1,
-                          border: `1px solid ${paid ? '#16a34a' : 'var(--border-color)'}`,
-                          background: paid ? '#16a34a' : '#fff',
-                          color: paid ? '#fff' : 'var(--text-muted)'
-                        }}
-                      >
-                        {paid ? '납부완료' : '납부확인'}
-                      </button>
+                      {(() => {
+                        const st = STATUS_STYLE[x.noticeStatus] || STATUS_STYLE['접수'];
+                        return (
+                          <span style={{ background: st.bg, color: st.color, padding: '0.15rem 0.5rem', borderRadius: '20px', fontSize: '0.73rem', fontWeight: '800', whiteSpace: 'nowrap' }}>
+                            {x.noticeStatus}
+                          </span>
+                        );
+                      })()}
+                      {x.driverName && (
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>{x.driverName}</div>
+                      )}
+                      {x.transferAgency && (
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>{x.transferAgency}</div>
+                      )}
+                    </td>
+
+                    {/* 다음에 할 일 하나만. 여러 버튼을 늘어놓으면 무엇을 눌러야 할지 헷갈린다. */}
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                      {(() => {
+                        const step = NEXT_STEP[x.handling || '대납청구']?.[x.noticeStatus];
+                        if (!step) {
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => setNoticeStatus(x, '접수')}
+                              disabled={x.issued || busy === id}
+                              title="처음 단계로 되돌립니다"
+                              style={{
+                                whiteSpace: 'nowrap', padding: '0.28rem 0.6rem', borderRadius: '6px',
+                                fontSize: '0.75rem', fontWeight: '700',
+                                cursor: (x.issued || busy === id) ? 'not-allowed' : 'pointer',
+                                opacity: (x.issued || busy === id) ? 0.5 : 1,
+                                border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-muted)'
+                              }}
+                            >
+                              되돌리기
+                            </button>
+                          );
+                        }
+                        const needDriver = step.to === '운전자확인';
+                        const needAgency = step.to === '접수중';
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const extra = {};
+                              if (needDriver) {
+                                const name = window.prompt('운전자 이름을 적어 주세요.', x.driverName || '');
+                                if (name === null) return;
+                                extra.driverName = name;
+                                const phone = window.prompt('운전자 연락처 (없으면 비워 두세요)', x.driverPhone || '');
+                                if (phone !== null) extra.driverPhone = phone;
+                              }
+                              if (needAgency) {
+                                const agency = window.prompt('어디에 접수했나요? (예: 서초경찰서, 서초구청)', x.transferAgency || '');
+                                if (agency === null) return;
+                                extra.transferAgency = agency;
+                              }
+                              setNoticeStatus(x, step.to, extra);
+                            }}
+                            disabled={x.issued || busy === id}
+                            title={x.issued ? '이미 발행한 회차라 바꿀 수 없습니다' : step.hint}
+                            style={{
+                              whiteSpace: 'nowrap', padding: '0.3rem 0.7rem', borderRadius: '6px',
+                              fontSize: '0.78rem', fontWeight: '800',
+                              cursor: (x.issued || busy === id) ? 'not-allowed' : 'pointer',
+                              opacity: (x.issued || busy === id) ? 0.5 : 1,
+                              border: `1px solid ${HANDLINGS[x.handling]?.color || 'var(--primary)'}`,
+                              background: HANDLINGS[x.handling]?.color || 'var(--primary)',
+                              color: '#fff'
+                            }}
+                          >
+                            {step.label}
+                          </button>
+                        );
+                      })()}
                     </td>
                   </tr>
                 );

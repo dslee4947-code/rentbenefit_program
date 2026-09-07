@@ -39,6 +39,9 @@ const ScheduleSchema = new Schema({
    * "이게 원래 며칠 건이지"를 알 수 없다. 그래서 원래 날짜와 출금일을 함께 남긴다.
    */
   invoice: {
+    // 결제일 설정('5' '10' '15' '25' '말일'). 말일은 달마다 날짜가 달라(30일/31일/28일)
+    // 출금일 숫자만 봐서는 말일 계약인지 알 수 없어 설정값을 그대로 남긴다.
+    paymentDay: String,
     roundNo: Number,
     billingDueDate: Date, // 출금일
     originalSendDate: Date, // 휴일이라 당기기 전의 발송 예정일

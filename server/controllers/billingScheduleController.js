@@ -6,7 +6,7 @@ import Vehicle from '../models/Vehicle.js';
 import Company from '../models/Company.js';
 import Schedule from '../models/Schedule.js';
 import { buildDueDates, calcDailyRent, calcLateInterest, daysBetween, calcSendDate } from '../utils/billingDate.js';
-import { saveToCustomerFolder } from '../utils/documentStorageService.js';
+import { saveToCustomerFolder, findContractDocument } from '../utils/documentStorageService.js';
 import { parseHistoryWorkbook, applyHistoryRows } from '../utils/billingHistoryImport.js';
 import XLSX from 'xlsx';
 import { sendInvoiceMail, sendFineNoticeMail } from '../utils/mailService.js';
@@ -61,6 +61,22 @@ const resolvePartyName = (schedule) => schedule?.company?.name
  *
  * @param {object} round 회차 (mongoose 서브도큐먼트)
  */
+// 고지서 처리 방식과 단계. 모델(BillingSchedule.js)의 enum과 같은 값이라야 한다.
+export const NOTICE_HANDLINGS = ['대납청구', '고객납부', '명의변경'];
+export const NOTICE_STATUSES = [
+  '접수', '안내', '운전자확인', '대납완료', '접수중', '납부완료', '변경완료', '기한초과'
+];
+const NOTICE_STATUS_MESSAGE = {
+  접수: '접수',
+  안내: '고객 안내 완료',
+  운전자확인: '운전자 확인',
+  대납완료: '우리가 대납',
+  접수중: '관공서 접수',
+  납부완료: '고객이 직접 납부',
+  변경완료: '명의 변경 완료',
+  기한초과: '기한 초과'
+};
+
 const recalcRound = (round) => {
   const atts = round.attachments || [];
   const sumOf = (pick) => atts.filter(pick).reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
@@ -68,9 +84,13 @@ const recalcRound = (round) => {
 
   const isMaint = (a) => isMaintenanceKind(a.kind);
   const isFine = (a) => !isMaintenanceKind(a.kind);
-  // 고객이 기한 안에 직접 낸 고지서는 청구액에 넣지 않는다. 첨부는 그대로 두고 금액만 뺀다.
-  // '있는지'는 상태와 무관하게 보고 '얼마인지'만 걸러야, 모두 직접 납부한 회차에서 예전 금액이 남지 않는다.
-  const billable = (a) => a.noticeStatus !== '고객납부';
+  // 우리가 청구하지 않는 고지서는 금액에서 뺀다. 첨부는 그대로 두어 기록은 남긴다.
+  //  납부완료 - 고객이 직접 냈다
+  //  변경완료 - 명의가 고객에게 넘어가 우리 손을 떠났다
+  //  고객납부 - 예전 상태값. 쓰던 데이터를 살린다
+  // '있는지'는 상태와 무관하게 보고 '얼마인지'만 걸러야, 모두 빠진 회차에서 예전 금액이 남지 않는다.
+  const NOT_BILLED = ['납부완료', '변경완료', '고객납부'];
+  const billable = (a) => !NOT_BILLED.includes(a.noticeStatus);
 
   if (hasAmount(isFine)) round.fine = sumOf((a) => isFine(a) && billable(a));
   if (hasAmount(isMaint)) round.maintenance = sumOf((a) => isMaint(a) && billable(a));
@@ -1147,24 +1167,41 @@ export const updateAttachmentNoticeStatus = async (req, res) => {
       return res.status(400).json({ success: false, message: '이미 발행한 회차라 금액을 바꿀 수 없습니다.' });
     }
 
-    const status = req.body.noticeStatus === '고객납부' ? '고객납부' : '청구예정';
+    // 처리 방식은 이 건만 다르게 갈 때 바꾼다
+    if (NOTICE_HANDLINGS.includes(req.body.handling)) att.handling = req.body.handling;
+
+    const status = NOTICE_STATUSES.includes(req.body.noticeStatus) ? req.body.noticeStatus : '접수';
     att.noticeStatus = status;
-    att.paidByCustomerAt = status === '고객납부' ? new Date() : undefined;
+
+    // 단계마다 남겨야 할 것이 다르다. 되돌릴 수도 있어 해당하지 않는 날짜는 지운다.
+    att.paidByCustomerAt = status === '납부완료' ? (att.paidByCustomerAt || new Date()) : undefined;
+    att.paidByUsAt = status === '대납완료' ? (att.paidByUsAt || new Date()) : undefined;
+    att.transferDoneAt = status === '변경완료' ? (att.transferDoneAt || new Date()) : undefined;
+
+    if (req.body.driverName !== undefined) att.driverName = String(req.body.driverName).trim();
+    if (req.body.driverPhone !== undefined) att.driverPhone = String(req.body.driverPhone).trim();
+    if (req.body.transferAgency !== undefined) {
+      att.transferAgency = String(req.body.transferAgency).trim();
+      if (att.transferAgency && !att.transferSentAt) att.transferSentAt = new Date();
+    }
+
     recalcRound(round);
     await schedule.save();
 
-    // 캘린더 일정도 맞춘다. 고객이 냈으면 더 챙길 일이 없다.
+    // 캘린더 일정도 맞춘다. 우리 손을 떠난 건은 더 챙길 일이 없다.
+    const done = ['납부완료', '변경완료', '대납완료'].includes(status);
     await Schedule.updateOne(
       { 'source.key': noticeKeyOf(att, schedule._id, round.no) },
-      { $set: { status: status === '고객납부' ? '완료' : '예정' } }
+      { $set: { status: done ? '완료' : '예정' } }
     );
 
+    const billed = !['납부완료', '변경완료'].includes(status);
     res.json({
       success: true,
       round,
-      message: status === '고객납부'
-        ? `고객이 직접 낸 것으로 표시했습니다. ${round.no}회차 청구액에서 뺐습니다.`
-        : `다시 청구 대상으로 되돌렸습니다. ${round.no}회차 청구액에 더했습니다.`
+      attachment: att,
+      message: `${NOTICE_STATUS_MESSAGE[status] || status}로 표시했습니다.`
+        + (billed ? ` ${round.no}회차 청구액에 들어갑니다.` : ` ${round.no}회차 청구액에서 뺐습니다.`)
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -1187,7 +1224,7 @@ export const sendNoticeMail = async (req, res) => {
     const schedule = await BillingSchedule.findById(req.params.id)
       .populate('company', 'name')
       .populate('customer', 'name')
-      .populate('contract', 'contractNo leaseCompany finesEmail finesEmail2');
+      .populate('contract', 'contractNo leaseCompany finesEmail finesEmail2 fineHandling');
     if (!schedule) return res.status(404).json({ success: false, message: '회차표를 찾을 수 없습니다.' });
 
     const round = schedule.rounds.find((r) => r.no === Number(req.params.no));
@@ -1205,11 +1242,18 @@ export const sendNoticeMail = async (req, res) => {
       });
     }
 
-    const to = req.body.to?.trim() || schedule.contract?.finesEmail;
+    // 처리 방식은 이 건에 정한 것이 우선, 없으면 계약에 정해 둔 것을 따른다.
+    const handling = att.handling || schedule.contract?.fineHandling || '대납청구';
+
+    // 명의 변경은 받는 곳이 고객이 아니라 관공서다. 계약의 범칙금 메일로 보내면 엉뚱한 데로 간다.
+    const to = req.body.to?.trim()
+      || (handling === '명의변경' ? '' : schedule.contract?.finesEmail);
     if (!to) {
       return res.status(400).json({
         success: false,
-        message: '범칙금 E-MAIL이 등록되어 있지 않습니다. 계약서 등록에서 먼저 적어 주세요.'
+        message: handling === '명의변경'
+          ? '보낼 관공서 주소를 적어 주세요. (예: 서초경찰서 · 서초구청 담당자 메일)'
+          : '범칙금 E-MAIL이 등록되어 있지 않습니다. 계약서 등록에서 먼저 적어 주세요.'
       });
     }
 
@@ -1222,11 +1266,38 @@ export const sendNoticeMail = async (req, res) => {
     }
 
     const partyName = resolvePartyName(schedule);
+
+    // 방식마다 하려는 말이 다르다. 대납 안내와 같은 글로 보내면
+    // 고객이 우리가 알아서 낸 줄 알고 그냥 두고, 관공서는 근거가 없어 반려한다.
+    const TEMPLATE_BY_HANDLING = {
+      대납청구: 'fine-notice',
+      고객납부: 'fine-notice-driver',
+      명의변경: 'fine-notice-transfer'
+    };
+
+    // 명의 변경은 계약서 사본이 있어야 접수된다. 없으면 보내되 무엇이 빠졌는지 알려 준다.
+    const extraFiles = [];
+    let contractDoc = null;
+    if (handling === '명의변경') {
+      contractDoc = findContractDocument(partyName, schedule.contract?.contractNo);
+      if (contractDoc) {
+        try {
+          extraFiles.push({ fileName: contractDoc.fileName, buffer: fs.readFileSync(contractDoc.localPath) });
+        } catch (err) {
+          console.error('[명의변경] 계약서를 읽지 못했습니다:', err.message);
+          contractDoc = null;
+        }
+      }
+    }
+
     const sent = await sendFineNoticeMail({
       to,
-      cc: schedule.contract?.finesEmail2 || undefined,
+      // 관공서로 보낼 때 고객의 범칙금 메일을 참조로 넣으면 안 된다.
+      cc: handling === '명의변경' ? undefined : (schedule.contract?.finesEmail2 || undefined),
+      templateKey: TEMPLATE_BY_HANDLING[handling] || 'fine-notice',
       fileName: att.fileName || '고지서.pdf',
       fileBuffer,
+      extraFiles,
       values: {
         계약자: partyName,
         계약번호: schedule.contract?.contractNo || '',
@@ -1235,12 +1306,22 @@ export const sendNoticeMail = async (req, res) => {
         위반일: att.occurredAt ? formatYmd(att.occurredAt) : '-',
         금액: `${(Number(att.amount) || 0).toLocaleString()}원`,
         납부기한: att.noticeDueDate ? formatYmd(att.noticeDueDate) : '-',
-        고지번호: att.noticeNo || '-'
+        고지번호: att.noticeNo || '-',
+        운전자: att.driverName || '-',
+        운전자연락처: att.driverPhone || '-'
       }
     });
 
     att.noticeMailSentAt = new Date();
     att.noticeMailTo = to;
+    // 관공서에 넘긴 날을 남긴다. 회신이 늦을 때 언제 보냈는지 댈 수 있어야 한다.
+    if (handling === '명의변경') {
+      if (!att.transferAgency) att.transferAgency = to;
+      att.transferSentAt = att.transferSentAt || new Date();
+      if (att.noticeStatus === '접수' || att.noticeStatus === '운전자확인') att.noticeStatus = '접수중';
+    } else if (att.noticeStatus === '접수') {
+      att.noticeStatus = '안내';
+    }
     await schedule.save();
 
     res.json({
@@ -1248,6 +1329,11 @@ export const sendNoticeMail = async (req, res) => {
       sentAt: att.noticeMailSentAt,
       to,
       attachedFile: Boolean(fileBuffer),
+      handling,
+      contractDocAttached: Boolean(contractDoc),
+      ...(handling === '명의변경' && !contractDoc
+        ? { warning: `계약자 폴더(01.계약서)에서 계약서를 찾지 못해 고지서만 보냈습니다. ${partyName} 폴더에 계약서를 넣어 주세요.` }
+        : {}),
       message: fileBuffer
         ? `${partyName} ${att.kind} 안내 메일을 ${to}(으)로 보냈습니다.`
         : `${partyName} ${att.kind} 안내 메일을 보냈습니다. (원본 파일을 찾지 못해 본문만 나갔습니다)`
@@ -1271,16 +1357,26 @@ export const getFineNotices = async (req, res) => {
     res.json({
       success: true,
       items,
-      summary: {
-        total: items.length,
-        // 기한이 지났는데 고객이 안 낸 건. 이번 청구서에 얹혀 나간다.
-        overdue: items.filter((x) => x.noticeStatus !== '고객납부' && x.dday !== null && x.dday < 0).length,
-        // 일주일 안에 마감되는 건. 안내 메일을 보낼 시간이 남아 있다.
-        soon: items.filter((x) => x.noticeStatus !== '고객납부' && x.dday !== null && x.dday >= 0 && x.dday <= 7).length,
-        paid: items.filter((x) => x.noticeStatus === '고객납부').length,
-        // 기한을 못 읽어 추적이 안 되는 건. 사람이 채워 넣어야 한다.
-        noDueDate: items.filter((x) => !x.noticeDueDate).length
-      }
+      summary: (() => {
+        // 손을 떠난 건(고객이 냈거나 명의가 넘어감)은 더 챙길 일이 없다
+        const DONE = ['납부완료', '변경완료', '고객납부'];
+        const open = items.filter((x) => !DONE.includes(x.noticeStatus));
+        return {
+          total: items.length,
+          // 기한이 지났는데 아직 안 끝난 건. 어떻게 할지 사람이 정해야 한다.
+          overdue: open.filter((x) => x.dday !== null && x.dday < 0).length,
+          // 일주일 안에 마감되는 건. 안내할 시간이 남아 있다.
+          soon: open.filter((x) => x.dday !== null && x.dday >= 0 && x.dday <= 7).length,
+          paid: items.filter((x) => DONE.includes(x.noticeStatus)).length,
+          // 기한을 못 읽어 추적이 안 되는 건. 사람이 채워 넣어야 한다.
+          noDueDate: items.filter((x) => !x.noticeDueDate).length,
+          // 처리 방식별로 몇 건인지. 방식마다 다음에 할 일이 달라 나눠서 본다.
+          byHandling: NOTICE_HANDLINGS.reduce((acc, h) => {
+            acc[h] = open.filter((x) => x.handling === h).length;
+            return acc;
+          }, {})
+        };
+      })()
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

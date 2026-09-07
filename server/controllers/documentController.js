@@ -45,7 +45,7 @@ export const saveDocumentLocal = async (req, res) => {
       return res.status(400).json({ success: false, message: '필수 매개변수가 누락되었습니다.' });
     }
 
-    const { fileName: finalFileName, localPath } = saveFileLocally({
+    const { fileName: finalFileName, localPath } = await saveFileLocally({
       businessLine,
       companySubfolderName: companyFolderName || customerName,
       docType,

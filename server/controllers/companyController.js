@@ -6,7 +6,7 @@ import CompanyDocument from '../models/CompanyDocument.js';
 import Contract from '../models/Contract.js';
 import Vehicle from '../models/Vehicle.js';
 import { parseBusinessRegistration } from '../utils/ocrService.js';
-import { saveFileLocally, sanitizePathSegment } from '../utils/documentStorageService.js';
+import { saveFileLocally, readSavedFile, sanitizePathSegment } from '../utils/documentStorageService.js';
 
 // multer/busboy는 multipart 파일명(Content-Disposition)을 기본적으로 latin1로 디코딩한다.
 // 한글 등 비ASCII 파일명이 깨져서 들어오므로(예: "사업자등록증.pdf" -> mojibake), UTF-8로 재해석한다.
@@ -391,7 +391,7 @@ export const uploadCompanyDocument = async (req, res) => {
     const companyLabel = sanitizePathSegment(company.folderName || company.name);
     const generatedFileName = `${sanitizePathSegment(docType)}_${companyLabel}${ext}`;
 
-    const { fileName, localPath } = saveFileLocally({
+    const { fileName, localPath } = await saveFileLocally({
       businessLine: 'rental',
       companySubfolderName: company.folderName || company.name,
       docType,
@@ -452,10 +452,17 @@ export const downloadCompanyDocument = async (req, res) => {
     if (!doc) {
       return res.status(404).json({ message: '문서를 찾을 수 없습니다.' });
     }
-    if (!fs.existsSync(doc.localPath)) {
-      return res.status(410).json({ message: '파일이 원드라이브 폴더에서 이동되었거나 삭제되어 다운로드할 수 없습니다.' });
+    // 파일은 OneDrive에 있다. 받아서 그대로 내려 준다.
+    const buffer = await readSavedFile(doc.localPath);
+    if (!buffer) {
+      return res.status(410).json({ message: '파일이 원드라이브에서 이동되었거나 삭제되어 다운로드할 수 없습니다.' });
     }
-    res.download(doc.localPath, doc.originalName || doc.fileName);
+
+    const downloadName = doc.originalName || doc.fileName || '문서';
+    res.setHeader('Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent(downloadName)}`);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.send(buffer);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

@@ -466,7 +466,7 @@ export const createContract = async (req, res) => {
         ? (await Company.findById(savedContract.companyId).select('name').lean())?.name
         : customer.name;
       if (partyName) {
-        const { root } = ensureCustomerFolders(partyName);
+        const { root } = await ensureCustomerFolders(partyName);
         await Contract.findByIdAndUpdate(savedContract._id, { customerFolder: partyName });
         console.log(`[계약자 폴더] ${savedContract.contractNo}: ${root}`);
       }
@@ -778,7 +778,7 @@ export const archiveContract = async (req, res) => {
       return res.status(400).json({ message: '계약자명이 없어 폴더를 만들 수 없습니다.' });
     }
 
-    const { root } = ensureCustomerFolders(partyName);
+    const { root } = await ensureCustomerFolders(partyName);
 
     contract.status = '보관됨';
     contract.archivedAt = new Date();

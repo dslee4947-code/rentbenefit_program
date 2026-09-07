@@ -1,6 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 import { getGraphAccessToken } from './graphAuth.js';
+import { uploadFile, ensureFolder, listChildren, downloadById, downloadByPath } from './oneDriveStorage.js';
 
 /**
  * 사업부(businessLine) -> SharePoint/OneDrive 문서함 최상위 폴더 매핑
@@ -158,16 +159,16 @@ export const uploadDocumentToSharePoint = async ({
  * @param {string} partyName 계약자명 (법인이면 법인명)
  * @returns {{root: string, created: boolean}} 만들어진 계약자 폴더 경로
  */
-export const ensureCustomerFolders = (partyName) => {
-  const root = path.join(getOneDriveRoot(), 'RENT', sanitizePathSegment(partyName));
-  const created = !fs.existsSync(root);
+export const ensureCustomerFolders = async (partyName) => {
+  const root = ['RENT', sanitizePathSegment(partyName)];
+  const created = await ensureFolder(root);
 
-  fs.mkdirSync(root, { recursive: true });
   for (const folder of CUSTOMER_DOC_FOLDERS) {
-    fs.mkdirSync(path.join(root, folder), { recursive: true });
+    await ensureFolder([...root, folder]);
   }
-  return { root, created };
+  return { root: root.join('/'), created };
 };
+
 
 /**
  * 계약 폴더 이름을 만든다. "계약번호_차종_N대" 형태다.
@@ -210,34 +211,50 @@ export const buildContractFolderName = (contractNo, vehicles = []) => {
  * @param {string} [contractNo] 계약번호
  * @returns {{fileName: string, localPath: string}|null} 찾은 계약서
  */
-export const findContractDocument = (partyName, contractNo) => {
+export const findContractDocument = async (partyName, contractNo) => {
   if (!partyName) return null;
-  const dir = path.join(getOneDriveRoot(), 'RENT', sanitizePathSegment(partyName), '01.계약서');
-  if (!fs.existsSync(dir)) return null;
 
-  // 계약번호로 만든 하위 폴더가 있으면 그 안만 본다. 계약이 여러 건인 법인이 많다.
-  const sub = contractNo ? path.join(dir, sanitizePathSegment(String(contractNo))) : '';
-  const searchDirs = sub && fs.existsSync(sub) ? [sub, dir] : [dir];
+  const dir = ['RENT', sanitizePathSegment(partyName), '01.계약서'];
+  const no = contractNo ? String(contractNo).trim() : '';
 
-  for (const target of searchDirs) {
-    let files;
+  // 계약서는 계약 폴더('26060149_GV80_1대') 안에 넣는다. 계약이 여러 건인 법인이 많아
+  // 한 단계 아래 폴더까지 훑는다. 폴더 이름은 차종·대수가 붙어 계약번호와 정확히 같지 않다.
+  const found = [];
+  const walk = async (segments, depth) => {
+    let entries;
     try {
-      files = fs.readdirSync(target, { withFileTypes: true })
-        .filter((e) => e.isFile() && /\.(pdf|jpg|jpeg|png)$/i.test(e.name))
-        .map((e) => ({
-          fileName: e.name,
-          localPath: path.join(target, e.name),
-          mtime: fs.statSync(path.join(target, e.name)).mtimeMs
-        }));
-    } catch { continue; }
-    if (!files.length) continue;
+      entries = await listChildren(segments);
+    } catch {
+      return; // 폴더가 없거나 읽지 못하면 건너뛴다
+    }
 
-    const byNo = contractNo ? files.filter((f) => f.fileName.includes(String(contractNo))) : [];
-    const pick = (byNo.length ? byNo : files).sort((a, b) => b.mtime - a.mtime)[0];
-    return { fileName: pick.fileName, localPath: pick.localPath };
-  }
-  return null;
+    for (const entry of entries) {
+      const full = [...segments, entry.name];
+      if (entry.isFolder) {
+        if (depth > 0) await walk(full, depth - 1);
+      } else if (/\.(pdf|jpg|jpeg|png)$/i.test(entry.name)) {
+        found.push({
+          fileName: entry.name,
+          id: entry.id,
+          path: full.join('/'),
+          modified: new Date(entry.lastModified || 0).getTime(),
+          // 계약번호는 폴더 이름에 붙는 일이 많아 경로 전체에서 찾는다
+          matchesNo: Boolean(no) && full.join('/').includes(no)
+        });
+      }
+    }
+  };
+
+  await walk(dir, 2);
+  if (!found.length) return null;
+
+  // 계약번호가 든 것이 있으면 그것부터, 없으면 가장 최근 것
+  const matched = found.filter((f) => f.matchesNo);
+  const pick = (matched.length ? matched : found).sort((a, b) => b.modified - a.modified)[0];
+
+  return { fileName: pick.fileName, localPath: pick.path, buffer: await downloadById(pick.id) };
 };
+
 
 /**
  * 계약자 폴더 안의 문서 폴더에 파일을 저장한다.
@@ -250,62 +267,82 @@ export const findContractDocument = (partyName, contractNo) => {
  * @param {Buffer} params.fileBuffer 파일 내용
  * @returns {{fileName: string, localPath: string}}
  */
-export const saveToCustomerFolder = ({ partyName, docFolder, subFolder, fileName, fileBuffer, keepPrevious = false }) => {
-  const { root } = ensureCustomerFolders(partyName);
-  const targetDir = subFolder
-    ? path.join(root, docFolder, sanitizePathSegment(subFolder))
-    : path.join(root, docFolder);
-  fs.mkdirSync(targetDir, { recursive: true });
-
-  const ext = path.extname(fileName);
-  const baseName = path.basename(fileName, ext);
-
-  let finalFileName = sanitizePathSegment(fileName);
-  let targetFilePath = path.join(targetDir, finalFileName);
+export const saveToCustomerFolder = async ({ partyName, docFolder, subFolder, fileName, fileBuffer, keepPrevious = false }) => {
+  const segments = ['RENT', sanitizePathSegment(partyName), docFolder];
+  if (subFolder) segments.push(sanitizePathSegment(subFolder));
+  segments.push(sanitizePathSegment(fileName));
 
   // 기본은 덮어쓰기다. 같은 회차를 다시 저장하면 최종본 한 장만 남는 편이 찾기 쉽다.
-  //
-  // keepPrevious를 준 경우(이미 메일로 보낸 회차)에만 번호를 붙여 이전 파일을 남긴다.
-  // 보낸 청구서는 고객이 받은 그 문서라, 사라지면 나중에 무엇을 보냈는지 댈 수 없다.
-  if (keepPrevious) {
-    let counter = 1;
-    while (fs.existsSync(targetFilePath)) {
-      finalFileName = sanitizePathSegment(`${baseName}_ver${counter}${ext}`);
-      targetFilePath = path.join(targetDir, finalFileName);
-      counter += 1;
-    }
-  }
+  // keepPrevious를 준 경우(이미 메일로 보낸 회차)에만 이전 파일을 남긴다. 보낸 청구서는
+  // 고객이 받은 그 문서라, 사라지면 나중에 무엇을 보냈는지 댈 수 없다.
+  const saved = await uploadFile(segments, fileBuffer, { keepPrevious });
 
-  fs.writeFileSync(targetFilePath, fileBuffer);
-  return { fileName: finalFileName, localPath: targetFilePath };
+  // localPath라는 이름은 예전 이름 그대로 둔다. 화면과 DB가 이 이름으로 경로를 보여 준다.
+  return { fileName: saved.fileName, localPath: saved.path, webUrl: saved.webUrl };
 };
 
-export const saveFileLocally = ({ businessLine, companySubfolderName, docType, fileName, fileBuffer }) => {
-  const oneDriveRoot = getOneDriveRoot();
+
+export const saveFileLocally = async ({ businessLine, companySubfolderName, docType, fileName, fileBuffer }) => {
   const businessDir = businessLine === 'rental' ? 'RENT' : 'AS';
   const docRootFolder = businessLine === 'rental' ? RENT_DOC_TYPE_ROOT_FOLDER[docType] : null;
   const companySubfolder = sanitizePathSegment(companySubfolderName);
 
-  const targetDir = docRootFolder
-    ? path.join(oneDriveRoot, businessDir, docRootFolder, companySubfolder)
-    : path.join(oneDriveRoot, businessDir, companySubfolder, sanitizePathSegment(docType));
+  const segments = docRootFolder
+    ? [businessDir, docRootFolder, companySubfolder]
+    : [businessDir, companySubfolder, sanitizePathSegment(docType)];
+  segments.push(sanitizePathSegment(fileName));
 
-  fs.mkdirSync(targetDir, { recursive: true });
+  // 법인 서류는 같은 이름으로 다시 올리는 일이 잦고(재발급 사업자등록증 등)
+  // 이전 것도 남겨 둬야 해서 새 이름으로 저장한다.
+  const saved = await uploadFile(segments, fileBuffer, { keepPrevious: true });
 
-  const ext = path.extname(fileName);
-  const baseName = path.basename(fileName, ext);
+  return { fileName: saved.fileName, localPath: saved.path, webUrl: saved.webUrl };
+};
 
-  let finalFileName = sanitizePathSegment(fileName);
-  let counter = 1;
-  let targetFilePath = path.join(targetDir, finalFileName);
 
-  while (fs.existsSync(targetFilePath)) {
-    finalFileName = sanitizePathSegment(`${baseName}_ver${counter}${ext}`);
-    targetFilePath = path.join(targetDir, finalFileName);
-    counter++;
+/**
+ * 저장해 둔 파일을 다시 읽는다.
+ *
+ * 예전에 저장한 기록에는 'C:\Users\...' 같은 이 PC의 경로가 들어 있고,
+ * 지금부터 저장하는 것에는 'RENT/법인명/02.청구서/...' 같은 OneDrive 경로가 들어간다.
+ * 둘 다 읽을 수 있어야 예전 청구서도 메일에 붙일 수 있다.
+ *
+ * @param {string} savedPath 저장 당시 남겨 둔 경로
+ * @returns {Promise<Buffer|null>} 읽지 못하면 null (메일 자체를 막지는 않는다)
+ */
+export const readSavedFile = async (savedPath) => {
+  const target = String(savedPath || '').trim();
+  if (!target) return null;
+
+  // 이 PC에 실제로 있는 파일이면 그대로 읽는다(예전 기록)
+  const looksLocal = /^[a-zA-Z]:[\/]/.test(target) || target.startsWith('/');
+  if (looksLocal) {
+    try {
+      return fs.existsSync(target) ? fs.readFileSync(target) : null;
+    } catch {
+      return null;
+    }
   }
 
-  fs.writeFileSync(targetFilePath, fileBuffer);
+  try {
+    return await downloadByPath(target);
+  } catch (err) {
+    console.error('[문서] OneDrive에서 파일을 읽지 못했습니다:', err.message);
+    return null;
+  }
+};
 
-  return { fileName: finalFileName, localPath: targetFilePath };
+/**
+ * 계약자 폴더 안에 계약별 폴더를 만든다. ('가나상사/01.계약서/26060149_GV80_1대')
+ *
+ * 계약이 여러 건인 법인이 많아 계약서를 계약 폴더로 나눠 담는다.
+ *
+ * @param {string} partyName 계약자명
+ * @param {string} contractFolderName buildContractFolderName이 만든 폴더 이름
+ * @returns {Promise<string>} 만들어진 폴더 경로
+ */
+export const ensureContractFolder = async (partyName, contractFolderName) => {
+  const segments = ['RENT', sanitizePathSegment(partyName), '01.계약서', sanitizePathSegment(contractFolderName)];
+  await ensureFolder(segments);
+  return segments.join('/');
 };

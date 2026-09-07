@@ -3,7 +3,7 @@ import Vehicle from '../models/Vehicle.js';
 import Company from '../models/Company.js';
 import Contract from '../models/Contract.js';
 import { buildScheduleForContract } from './billingScheduleController.js';
-import { ensureCustomerFolders, buildContractFolderName, sanitizePathSegment } from '../utils/documentStorageService.js';
+import { ensureCustomerFolders, buildContractFolderName, sanitizePathSegment, ensureContractFolder } from '../utils/documentStorageService.js';
 import path from 'path';
 import fs from 'fs';
 import Customer from '../models/Customer.js';
@@ -1168,8 +1168,8 @@ export const importVehicles = async (req, res) => {
         const docFolderName = buildContractFolderName(contractNo, vehicles);
         await Contract.findByIdAndUpdate(contract._id, { docFolderName });
         try {
-          const { root } = ensureCustomerFolders(info.partyName);
-          fs.mkdirSync(path.join(root, '01.계약서', docFolderName), { recursive: true });
+          await ensureCustomerFolders(info.partyName);
+          await ensureContractFolder(info.partyName, docFolderName);
         } catch (err) {
           contractWarnings.push(`${at} ${contractNo}: 계약 폴더를 만들지 못했습니다 - ${err.message}`);
         }
@@ -1205,7 +1205,7 @@ export const importVehicles = async (req, res) => {
     const folderFailed = [];
     for (const name of partyNames) {
       try {
-        const { created: isNew } = ensureCustomerFolders(name);
+        const { created: isNew } = await ensureCustomerFolders(name);
         if (isNew) folderCreated.push(name);
       } catch (err) {
         folderFailed.push(`${name}: ${err.message}`);

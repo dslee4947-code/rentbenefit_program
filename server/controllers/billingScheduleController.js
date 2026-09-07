@@ -6,7 +6,7 @@ import Vehicle from '../models/Vehicle.js';
 import Company from '../models/Company.js';
 import Schedule from '../models/Schedule.js';
 import { buildDueDates, calcDailyRent, calcLateInterest, daysBetween, calcSendDate } from '../utils/billingDate.js';
-import { saveToCustomerFolder, findContractDocument } from '../utils/documentStorageService.js';
+import { saveToCustomerFolder, findContractDocument, readSavedFile } from '../utils/documentStorageService.js';
 import { parseHistoryWorkbook, applyHistoryRows } from '../utils/billingHistoryImport.js';
 import XLSX from 'xlsx';
 import { sendInvoiceMail, sendFineNoticeMail } from '../utils/mailService.js';
@@ -436,7 +436,7 @@ export const issueRound = async (req, res) => {
     //    5회차 청구서가 어느 계약 것인지 파일명만으로 구분되지 않는다.
     let saved;
     try {
-      saved = saveToCustomerFolder({
+      saved = await saveToCustomerFolder({
         partyName,
         docFolder: '02.청구서',
         subFolder: contractNo,
@@ -465,11 +465,8 @@ export const issueRound = async (req, res) => {
         // 이 회차에 올려 둔 서류를 함께 붙인다. 파일이 사라졌으면 그 건만 건너뛴다.
         const extraFiles = [];
         for (const att of round.attachments || []) {
-          try {
-            if (att.savedPath && fs.existsSync(att.savedPath)) {
-              extraFiles.push({ fileName: att.fileName, buffer: fs.readFileSync(att.savedPath) });
-            }
-          } catch { /* 읽지 못한 서류는 건너뛴다 */ }
+          const buffer = await readSavedFile(att.savedPath);
+          if (buffer) extraFiles.push({ fileName: att.fileName, buffer });
         }
 
         // 제목·본문은 화면에서 고친 양식을 쓰고, 아래 값들로 {{계약자}} 같은 자리를 채운다
@@ -702,7 +699,7 @@ const attachFileToRound = async (schedule, round, req) => {
   const suffix = plateNo ? `_${plateNo}` : (sameKind ? `_${sameKind + 1}` : '');
   const fileName = `${partyName}_청구서_${round.no}회차_${kind}${suffix}${ext}`;
 
-  const saved = saveToCustomerFolder({
+  const saved = await saveToCustomerFolder({
     partyName,
     docFolder: '02.청구서',
     subFolder: contractNo,
@@ -1258,12 +1255,7 @@ export const sendNoticeMail = async (req, res) => {
     }
 
     // 고지서 원본을 붙인다. 근거 없이 금액만 적어 보내면 법인이 그대로 되묻는다.
-    let fileBuffer = null;
-    try {
-      if (att.savedPath && fs.existsSync(att.savedPath)) fileBuffer = fs.readFileSync(att.savedPath);
-    } catch (err) {
-      console.error('[고지서 안내] 원본을 읽지 못했습니다:', err.message);
-    }
+    const fileBuffer = await readSavedFile(att.savedPath);
 
     const partyName = resolvePartyName(schedule);
 
@@ -1279,14 +1271,11 @@ export const sendNoticeMail = async (req, res) => {
     const extraFiles = [];
     let contractDoc = null;
     if (handling === '명의변경') {
-      contractDoc = findContractDocument(partyName, schedule.contract?.contractNo);
-      if (contractDoc) {
-        try {
-          extraFiles.push({ fileName: contractDoc.fileName, buffer: fs.readFileSync(contractDoc.localPath) });
-        } catch (err) {
-          console.error('[명의변경] 계약서를 읽지 못했습니다:', err.message);
-          contractDoc = null;
-        }
+      contractDoc = await findContractDocument(partyName, schedule.contract?.contractNo);
+      if (contractDoc?.buffer) {
+        extraFiles.push({ fileName: contractDoc.fileName, buffer: contractDoc.buffer });
+      } else {
+        contractDoc = null;
       }
     }
 

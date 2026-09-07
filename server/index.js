@@ -1,4 +1,5 @@
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import express from 'express';
 import compression from 'compression';
@@ -108,7 +109,12 @@ app.use(compression());
 // so the browser calls /api/* on its own origin (no CORS, no mixed content).
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const clientDistPath = path.resolve(__dirname, '../client/dist');
-const serveClient = process.env.NODE_ENV === 'production';
+
+// 화면 파일이 함께 올라온 경우에만 서버가 화면까지 내준다.
+//
+// 화면은 Vercel이 맡고 있어서 서버에는 화면 파일이 없을 수 있다. 그때도 화면을 내주려 하면
+// 없는 파일을 찾다가 오류가 난다. 파일이 실제로 있을 때만 켠다.
+const serveClient = process.env.NODE_ENV === 'production' && fs.existsSync(clientDistPath);
 
 if (serveClient) {
   app.use(express.static(clientDistPath));

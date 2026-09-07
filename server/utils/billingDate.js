@@ -3,6 +3,8 @@
 // 화면 쪽 client/src/utils/format.js에 같은 규칙이 있다. 클라이언트와 서버는 번들이 달라
 // 한 파일을 공유할 수 없어 각각 두되, 규칙이 갈리지 않도록 한쪽을 고치면 반대쪽도 함께 고친다.
 
+import { previousBusinessDay } from './koreanHolidays.js';
+
 export const PAYMENT_DAY_LAST = '말일';
 
 /**
@@ -57,13 +59,35 @@ export const INVOICE_SEND_LEAD_DAYS = 10;
 /**
  * 청구서 발송 예정일. 출금일에서 정해진 날수만큼 앞당긴다.
  *
+ * 그 날이 주말이나 공휴일이면 앞의 영업일로 다시 당긴다. 쉬는 날에 보낸 청구서는
+ * 법인 담당자가 다음 영업일에야 열어 보게 되어, 결재 올릴 시간이 그만큼 줄어든다.
+ * 뒤로 미루지 않는 이유도 같다. 하루 늦으면 그 달 출금이 밀린다.
+ *
  * 시각을 정오로 두는 이유는 resolvePaymentDate와 같다(UTC로 저장될 때 날짜가 밀리지 않게).
  *
  * @param {Date|string} dueDate 출금일
  * @param {number} [leadDays] 며칠 전에 보낼지
- * @returns {Date|null} 발송 예정일
+ * @returns {Date|null} 발송 예정일 (쉬는 날이면 앞의 영업일)
  */
 export const calcSendDate = (dueDate, leadDays = INVOICE_SEND_LEAD_DAYS) => {
+  const raw = calcRawSendDate(dueDate, leadDays);
+  if (!raw) return null;
+  const moved = previousBusinessDay(raw);
+  // 정오로 맞춰 둔다. previousBusinessDay가 날짜만 옮기므로 시각은 그대로 따라온다.
+  return moved ? new Date(moved.getFullYear(), moved.getMonth(), moved.getDate(), 12) : raw;
+};
+
+/**
+ * 쉬는 날을 따지지 않은 발송일. 출금일에서 날수만 뺀 값이다.
+ *
+ * 캘린더에서 "원래 며칠 건인데 휴일이라 당겼는지"를 보여 줄 때 쓴다.
+ * 당겨진 날짜만 남기면 담당자가 무슨 건인지 알 수 없다.
+ *
+ * @param {Date|string} dueDate 출금일
+ * @param {number} [leadDays] 며칠 전에 보낼지
+ * @returns {Date|null} 원래 발송 예정일
+ */
+export const calcRawSendDate = (dueDate, leadDays = INVOICE_SEND_LEAD_DAYS) => {
   const due = new Date(dueDate);
   if (Number.isNaN(due.getTime())) return null;
   return new Date(due.getFullYear(), due.getMonth(), due.getDate() - leadDays, 12);

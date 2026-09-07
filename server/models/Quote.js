@@ -66,6 +66,7 @@ const QuoteSchema = new Schema({
   // 계약서 등록 화면으로 바로 연결(불러오기)할 때 필요한 가격 상세 스냅샷
   pricing: {
     basePrice: Number,
+    optionPrice: Number, // 옵션가. 차량가에 합치지 않고 따로 넘겨야 계약·차량 DB에서 나눠 볼 수 있다
     discount: Number,
     supplyPrice: Number,
     deliveryFee: Number,

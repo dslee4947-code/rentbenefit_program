@@ -208,7 +208,7 @@ export const buildContractFolderName = (contractNo, vehicles = []) => {
  * @param {Buffer} params.fileBuffer 파일 내용
  * @returns {{fileName: string, localPath: string}}
  */
-export const saveToCustomerFolder = ({ partyName, docFolder, subFolder, fileName, fileBuffer }) => {
+export const saveToCustomerFolder = ({ partyName, docFolder, subFolder, fileName, fileBuffer, keepPrevious = false }) => {
   const { root } = ensureCustomerFolders(partyName);
   const targetDir = subFolder
     ? path.join(root, docFolder, sanitizePathSegment(subFolder))
@@ -219,14 +219,19 @@ export const saveToCustomerFolder = ({ partyName, docFolder, subFolder, fileName
   const baseName = path.basename(fileName, ext);
 
   let finalFileName = sanitizePathSegment(fileName);
-  let counter = 1;
   let targetFilePath = path.join(targetDir, finalFileName);
 
-  // 같은 이름이 있으면 덮어쓰지 않고 번호를 붙인다. 이미 보낸 청구서가 사라지면 안 된다.
-  while (fs.existsSync(targetFilePath)) {
-    finalFileName = sanitizePathSegment(`${baseName}_ver${counter}${ext}`);
-    targetFilePath = path.join(targetDir, finalFileName);
-    counter++;
+  // 기본은 덮어쓰기다. 같은 회차를 다시 저장하면 최종본 한 장만 남는 편이 찾기 쉽다.
+  //
+  // keepPrevious를 준 경우(이미 메일로 보낸 회차)에만 번호를 붙여 이전 파일을 남긴다.
+  // 보낸 청구서는 고객이 받은 그 문서라, 사라지면 나중에 무엇을 보냈는지 댈 수 없다.
+  if (keepPrevious) {
+    let counter = 1;
+    while (fs.existsSync(targetFilePath)) {
+      finalFileName = sanitizePathSegment(`${baseName}_ver${counter}${ext}`);
+      targetFilePath = path.join(targetDir, finalFileName);
+      counter += 1;
+    }
   }
 
   fs.writeFileSync(targetFilePath, fileBuffer);

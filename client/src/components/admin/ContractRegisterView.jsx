@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Save, Plus, Trash2, FileSignature, ChevronDown, ChevronUp, ArrowLeft, UserPlus, Users, Upload, Download, List, Edit, Search, Clock, Truck, FolderCheck, RotateCcw } from 'lucide-react';
 import { formatCustomerName, toCommaString, parseNumber, extractQuoteVehicleDetail } from '../../utils/format.js';
 import { useTableSort } from './useTableSort.js';
+import { useSaveShortcut } from './useSaveShortcut.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -247,6 +248,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
   // 4. Pricing details
   const [pricing, setPricing] = useState({
     basePrice: '',
+    optionPrice: '',
     discount: '',
     supplyPrice: '',
     deliveryFee: '',
@@ -747,9 +749,16 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
             }
           }
 
-          // 차량가는 차량가+옵션가가 합산된 견적서 총액(totalPrice)을 우선 쓴다.
-          // pricing.basePrice만 쓰면 차량 옵션 가격이 빠진 채로 넘어오는 문제가 있었다.
-          if (prefilledQuoteData.totalPrice) {
+          // 옵션가를 따로 받은 견적서는 차량가와 옵션가를 나눠 담는다.
+          // 옛 견적서는 옵션가가 없어 차량가+옵션가가 합쳐진 총액(totalPrice)만 있으므로 그대로 차량가에 넣는다.
+          if (prefilledQuoteData.pricing?.optionPrice) {
+            setPricing(prev => ({
+              ...prev,
+              basePrice: prefilledQuoteData.pricing.basePrice,
+              optionPrice: prefilledQuoteData.pricing.optionPrice
+            }));
+            setVehicleList((prev) => prev.map((v, i) => (i === 0 ? { ...v, price: prefilledQuoteData.pricing.basePrice } : v)));
+          } else if (prefilledQuoteData.totalPrice) {
             setPricing(prev => ({
               ...prev,
               basePrice: prefilledQuoteData.totalPrice,
@@ -1049,6 +1058,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
 
     pricing: {
       basePrice: pricing.basePrice ? Number(pricing.basePrice) : undefined,
+      optionPrice: pricing.optionPrice ? Number(pricing.optionPrice) : undefined,
       discount: pricing.discount ? Number(pricing.discount) : undefined,
       supplyPrice: pricing.supplyPrice ? Number(pricing.supplyPrice) : undefined,
       deliveryFee: pricing.deliveryFee ? Number(pricing.deliveryFee) : undefined,
@@ -1346,6 +1356,11 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
       showToast('서버 저장 실패', 'error');
     }
   };
+
+  // 계약서를 쓰는 동안 Ctrl+S로 임시저장한다.
+  // '계약서 등록'은 차량·계약·회차표를 한꺼번에 만드는 되돌리기 어려운 동작이라
+  // 단축키로는 임시저장까지만 한다.
+  useSaveShortcut(viewMode === 'form', () => handleSaveDraft());
 
   const handleCancelPrefill = () => {
     setPrefilledQuoteData(null);
@@ -2324,8 +2339,8 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                 {renderInput('중도해지 수수료율 (%)', 'number', earlyTerminationRate, setEarlyTerminationRate, '예: 35')}
               </div>
 
-              {/* 2번째 행: 월 렌트료, 보증금, 선수금, 인수가 */}
-              <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginTop: '0.2rem' }}>
+              {/* 2번째 행: 월 렌트료, 보증금, 선수금, 인수가, 옵션가 */}
+              <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem', marginTop: '0.2rem' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '0.3rem', color: 'var(--text-main)' }}>
                     월 렌트료 <span style={{ color: 'var(--error)' }}>*</span>
@@ -2342,6 +2357,8 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                 {renderMoneyInput('보증금 (원)', pricing.deposit, (val) => handlePricingChange('deposit', val))}
                 {renderMoneyInput('선수금 (원)', pricing.advancePayment, (val) => handlePricingChange('advancePayment', val))}
                 {renderMoneyInput('인수가 (원)', pricing.takeoverPrice, (val) => handlePricingChange('takeoverPrice', val))}
+                {/* 옵션가는 차량가와 따로 남긴다. 견적서에서 불러오면 자동으로 채워진다. */}
+                {renderMoneyInput('옵션가 (원)', pricing.optionPrice, (val) => handlePricingChange('optionPrice', val))}
               </div>
 
               {/* 일반 계약 세부 정보: 계약일, 담당자, 연락처 */}

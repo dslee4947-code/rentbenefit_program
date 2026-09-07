@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FileText, Paperclip, AlertCircle, Sparkles } from 'lucide-react';
 import MoneyInput from './MoneyInput.jsx';
+import { useSaveShortcut } from './useSaveShortcut.js';
 
 const BRAND_MODELS = {
   현대: ['아반떼', '쏘나타', '그랜저', '팰리세이드', '스타리아', '아이오닉 5', '투싼', '싼타페'],
@@ -134,9 +135,8 @@ function VehicleRegisterView({ onRegisterVehicle, setActiveTab, showToast }) {
     showToast('차량 등록증 파일이 첨부되었습니다.', 'success');
   };
 
-  // Form Submit Handler
   const handleSubmit = (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     setFormSubmitted(true);
 
     // Validations
@@ -196,6 +196,10 @@ function VehicleRegisterView({ onRegisterVehicle, setActiveTab, showToast }) {
 
     onRegisterVehicle(payload);
   };
+
+  // Form Submit Handler
+  // Ctrl+S로 등록한다
+  useSaveShortcut(true, () => handleSubmit());
 
   // Construct options display text
   const getOptionsDisplayText = () => {

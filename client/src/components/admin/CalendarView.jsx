@@ -5,6 +5,52 @@ import { createPortal } from 'react-dom';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
+const ymd = (d) => (d ? String(d).slice(0, 10) : '-');
+
+// 일정 종류별 색. 칸·팝업·범례가 같은 값을 보게 한 곳에 둔다.
+const TYPE_STYLE = {
+  '차량검사': { color: '#2563eb', bg: '#dbeafe' },
+  '렌트만료': { color: '#dc2626', bg: '#fee2e2' },
+  '청구서발송': { color: '#16a34a', bg: '#dcfce7' },
+  '고지서납부': { color: '#7c3aed', bg: '#ede9fe' },
+  '정기점검': { color: '#d97706', bg: '#fef3c7' }
+};
+const styleOf = (type) => TYPE_STYLE[type] || TYPE_STYLE['정기점검'];
+
+/**
+ * 일정 하나를 한 줄로 부르는 이름.
+ *
+ * 청구서 발송은 계약이 수십 건이라 계약사 이름이 먼저 보여야 한다.
+ * 고지서는 만들어 둔 이름(계약사_차량번호_납부기한)을 그대로 쓴다.
+ */
+const labelOf = (sched) => sched.title
+  || sched.targetContract?.leaseCompany
+  || (sched.targetVehicle?.code ? `${sched.targetVehicle.code} 점검` : sched.type);
+
+/**
+ * 하루치 일정을 종류별로 묶는다.
+ *
+ * 청구서 발송은 하루에 수십 건이 겹친다. 그대로 늘어놓으면 그 날 칸만 아래로 길어져
+ * 캘린더를 못 쓴다. 칸에는 '청구서발송 12건' 한 줄만 두고 목록은 눌렀을 때 펼친다.
+ *
+ * 나온 순서를 지킨다. 종류 이름으로 정렬하면 어제와 오늘 칸의 줄 순서가 달라져 눈이 헷갈린다.
+ *
+ * @param {object[]} daySchedules 그 날의 일정
+ * @returns {{type: string, items: object[]}[]}
+ */
+const groupByType = (daySchedules) => {
+  const order = [];
+  const byType = new Map();
+  for (const sched of daySchedules) {
+    if (!byType.has(sched.type)) {
+      byType.set(sched.type, []);
+      order.push(sched.type);
+    }
+    byType.get(sched.type).push(sched);
+  }
+  return order.map((type) => ({ type, items: byType.get(type) }));
+};
+
 function CalendarView({ showToast, currentUser }) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [schedules, setSchedules] = useState([]);
@@ -12,6 +58,9 @@ function CalendarView({ showToast, currentUser }) {
 
   // Selected schedule detail modal state
   const [selectedSchedule, setSelectedSchedule] = useState(null);
+  // 하루에 같은 종류가 여러 건이면 칸에 한 줄만 두고, 눌렀을 때 목록을 펼친다.
+  // 청구서 발송은 하루에 수십 건이라 그대로 늘어놓으면 캘린더가 아래로 끝없이 길어진다.
+  const [groupModal, setGroupModal] = useState(null); // { type, date, items }
 
   // 팝업을 제목 줄로 잡아 끌어 옮길 수 있게 한다
   const { dragHandleProps, dragStyle } = useDraggableDialog(Boolean(selectedSchedule));
@@ -125,10 +174,11 @@ function CalendarView({ showToast, currentUser }) {
 
         {/* Legend */}
         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '0.75rem', fontWeight: '600' }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f59e0b' }} /> 정기점검</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#3b82f6' }} /> 차량검사</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444' }} /> 렌트만료</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }} /> 청구서발송</span>
+          {['정기점검', '차량검사', '렌트만료', '청구서발송', '고지서납부'].map((type) => (
+            <span key={type} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: styleOf(type).color }} /> {type}
+            </span>
+          ))}
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -204,26 +254,20 @@ function CalendarView({ showToast, currentUser }) {
 
                   {/* Day Schedule Badges */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', overflowY: 'auto', flex: 1 }} className="calendar-badges-box">
-                    {daySchedules.map(sched => {
-                      let typeColor = '#d97706'; // default maintenance (amber)
-                      let typeBg = '#fef3c7';
-                      if (sched.type === '차량검사') {
-                        typeColor = '#2563eb'; // blue
-                        typeBg = '#dbeafe';
-                      }
-                      if (sched.type === '렌트만료') {
-                        typeColor = '#dc2626'; // red
-                        typeBg = '#fee2e2';
-                      }
-                      if (sched.type === '청구서발송') {
-                        typeColor = '#16a34a'; // green
-                        typeBg = '#dcfce7';
-                      }
+                    {groupByType(daySchedules).map(group => {
+                      const { color: typeColor, bg: typeBg } = styleOf(group.type);
+                      const many = group.items.length > 1;
+                      const sched = group.items[0];
+                      // 여러 건이면 건수만 적고 목록은 눌렀을 때 펼친다.
+                      const label = many ? `${group.type} ${group.items.length}건` : labelOf(sched);
+                      const allDone = group.items.every(x => x.status === '완료');
 
                       return (
-                        <div 
-                          key={sched._id}
-                          onClick={() => setSelectedSchedule(sched)}
+                        <div
+                          key={group.type}
+                          onClick={() => (many
+                            ? setGroupModal({ type: group.type, date: cell.date, items: group.items })
+                            : setSelectedSchedule(sched))}
                           style={{
                             background: typeBg,
                             color: typeColor,
@@ -236,12 +280,14 @@ function CalendarView({ showToast, currentUser }) {
                             textOverflow: 'ellipsis',
                             cursor: 'pointer',
                             border: `1px solid ${typeColor}33`,
-                            opacity: sched.status === '완료' ? 0.6 : 1,
-                            textDecoration: sched.status === '완료' ? 'line-through' : 'none'
+                            opacity: allDone ? 0.6 : 1,
+                            textDecoration: allDone ? 'line-through' : 'none'
                           }}
-                          title={`[${sched.type}] ${sched.targetVehicle?.model || '차량'}`}
+                          title={many
+                            ? `${group.type} ${group.items.length}건 · 눌러서 목록 보기`
+                            : `[${sched.type}] ${labelOf(sched)}${sched.amount ? ` · ${Number(sched.amount).toLocaleString()}원` : ''}`}
                         >
-                          {sched.targetVehicle?.code ? `${sched.targetVehicle.code} 점검` : sched.type}
+                          {label}
                         </div>
                       );
                     })}
@@ -252,6 +298,91 @@ function CalendarView({ showToast, currentUser }) {
           )}
         </div>
       </div>
+
+      {/* 하루치 목록. 청구서 발송처럼 한 날에 수십 건이 겹치는 종류를 눌렀을 때 펼친다. */}
+      {groupModal && createPortal(
+        <div
+          onClick={() => setGroupModal(null)}
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000, padding: `calc(${DIALOG_TOP} - 5px) 1rem 1rem` }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: '16px', maxWidth: '760px', width: '100%', maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)', overflow: 'hidden' }}
+          >
+            <div style={{ background: 'var(--bg-main)', padding: '1.2rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+              <div>
+                <h4 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text-bright)' }}>
+                  {groupModal.date.getMonth() + 1}월 {groupModal.date.getDate()}일 · {groupModal.type}
+                </h4>
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                  {groupModal.items.length}건
+                  {groupModal.items.some((x) => x.amount > 0) && (
+                    <> · 합계 {groupModal.items.reduce((sum, x) => sum + (x.amount || 0), 0).toLocaleString()}원</>
+                  )}
+                  {/* 휴일이라 당겨 온 건이 섞여 있으면 그 사실을 먼저 알려야 한다 */}
+                  {groupModal.items.some((x) => x.invoice?.movedForHoliday) && (
+                    <span style={{ color: '#d97706', fontWeight: '700' }}>
+                      {' · '}휴일이라 앞당긴 건 {groupModal.items.filter((x) => x.invoice?.movedForHoliday).length}건
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button onClick={() => setGroupModal(null)} style={{ border: 'none', background: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--text-muted)' }}>&times;</button>
+            </div>
+
+            <div style={{ overflowY: 'auto', flex: 1 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                  <tr style={{ background: '#fff', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: '700' }}>
+                    <th style={{ padding: '0.5rem 0.8rem', textAlign: 'left' }}>계약사</th>
+                    <th style={{ padding: '0.5rem 0.8rem', textAlign: 'left' }}>계약번호</th>
+                    <th style={{ padding: '0.5rem 0.8rem', textAlign: 'center' }}>차량번호</th>
+                    <th style={{ padding: '0.5rem 0.8rem', textAlign: 'center' }}>회차</th>
+                    <th style={{ padding: '0.5rem 0.8rem', textAlign: 'center' }}>출금일</th>
+                    <th style={{ padding: '0.5rem 0.8rem', textAlign: 'right' }}>금액</th>
+                    <th style={{ padding: '0.5rem 0.8rem', textAlign: 'center' }}>상태</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groupModal.items.map((x) => (
+                    <tr
+                      key={x._id}
+                      onClick={() => { setSelectedSchedule(x); setGroupModal(null); }}
+                      style={{ borderBottom: '1px solid var(--border-color)', cursor: 'pointer', opacity: x.status === '완료' ? 0.6 : 1 }}
+                    >
+                      <td style={{ padding: '0.5rem 0.8rem', fontWeight: '700' }}>
+                        {x.targetContract?.leaseCompany || x.targetContract?.customer?.name || x.title || '-'}
+                        {x.invoice?.movedForHoliday && (
+                          <div style={{ fontSize: '0.72rem', color: '#d97706', fontWeight: '700' }}>
+                            원래 {ymd(x.invoice.originalSendDate)} · 휴일이라 앞당김
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '0.5rem 0.8rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>{x.targetContract?.contractNo || '-'}</td>
+                      <td style={{ padding: '0.5rem 0.8rem', textAlign: 'center', color: 'var(--primary)', fontWeight: '700' }}>{x.targetVehicle?.plateNo || '-'}</td>
+                      <td style={{ padding: '0.5rem 0.8rem', textAlign: 'center' }}>{x.invoice?.roundNo ? `${x.invoice.roundNo}회차` : '-'}</td>
+                      <td style={{ padding: '0.5rem 0.8rem', textAlign: 'center', color: 'var(--text-muted)' }}>{ymd(x.invoice?.billingDueDate)}</td>
+                      <td style={{ padding: '0.5rem 0.8rem', textAlign: 'right', fontWeight: '700' }}>
+                        {x.amount ? `${Number(x.amount).toLocaleString()}원` : '-'}
+                      </td>
+                      <td style={{ padding: '0.5rem 0.8rem', textAlign: 'center' }}>
+                        <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '20px', fontWeight: '700', background: x.status === '완료' ? '#dcfce7' : '#fef3c7', color: x.status === '완료' ? '#16a34a' : '#d97706' }}>
+                          {x.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ background: 'var(--bg-main)', padding: '0.7rem 1.5rem', borderTop: '1px solid var(--border-color)', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              줄을 누르면 그 건의 상세 정보가 열립니다.
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Schedule Detail Modal */}
       {selectedSchedule && (
@@ -275,8 +406,8 @@ function CalendarView({ showToast, currentUser }) {
               <div>
                 <strong style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>일정 구분</strong>
                 <span style={{ 
-                  background: selectedSchedule.type === '렌트만료' ? '#fee2e2' : selectedSchedule.type === '차량검사' ? '#dbeafe' : selectedSchedule.type === '청구서발송' ? '#dcfce7' : '#fef3c7', 
-                  color: selectedSchedule.type === '렌트만료' ? '#dc2626' : selectedSchedule.type === '차량검사' ? '#2563eb' : selectedSchedule.type === '청구서발송' ? '#16a34a' : '#d97706',
+                  background: styleOf(selectedSchedule.type).bg,
+                  color: styleOf(selectedSchedule.type).color,
                   padding: '0.2rem 0.6rem', 
                   borderRadius: '4px', 
                   fontWeight: '700',
@@ -286,10 +417,55 @@ function CalendarView({ showToast, currentUser }) {
                 </span>
               </div>
 
+              {(selectedSchedule.targetContract?.leaseCompany || selectedSchedule.title) && (
+                <div>
+                  <strong style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>내용</strong>
+                  <span style={{ fontWeight: '700' }}>
+                    {selectedSchedule.targetContract?.leaseCompany || selectedSchedule.title}
+                  </span>
+                  {selectedSchedule.targetContract?.leaseCompany && selectedSchedule.title && (
+                    <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{selectedSchedule.title}</div>
+                  )}
+                </div>
+              )}
+
+              {selectedSchedule.invoice?.roundNo && (
+                <div>
+                  <strong style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>청구 회차</strong>
+                  <span style={{ fontWeight: '600' }}>
+                    {selectedSchedule.invoice.roundNo}회차 · 출금일 {ymd(selectedSchedule.invoice.billingDueDate)}
+                  </span>
+                </div>
+              )}
+
+              {/* 휴일이라 앞당긴 건은 원래 날짜를 함께 보여 준다. 당겨진 날짜만 보면 무슨 건인지 알 수 없다. */}
+              {selectedSchedule.invoice?.movedForHoliday && (
+                <div style={{ background: '#fffbeb', border: '1px solid #d97706', borderRadius: '6px', padding: '0.5rem 0.7rem', fontSize: '0.83rem' }}>
+                  <strong style={{ color: '#d97706' }}>휴일이라 앞당긴 일정입니다.</strong>
+                  <div style={{ color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                    원래 발송일 {ymd(selectedSchedule.invoice.originalSendDate)} → {ymd(selectedSchedule.dueDate)}
+                  </div>
+                </div>
+              )}
+
               <div>
-                <strong style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>예정일</strong>
+                <strong style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>
+                  {selectedSchedule.type === '고지서납부' ? '납부기한' : '예정일'}
+                </strong>
                 <span style={{ fontWeight: '600' }}>{new Date(selectedSchedule.dueDate).toLocaleDateString()}</span>
               </div>
+
+              {selectedSchedule.amount > 0 && (
+                <div>
+                  <strong style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>금액</strong>
+                  <span style={{ fontWeight: '700', color: '#7c3aed' }}>{Number(selectedSchedule.amount).toLocaleString()}원</span>
+                  {selectedSchedule.source?.noticeNo && (
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
+                      고지번호 {selectedSchedule.source.noticeNo}
+                    </span>
+                  )}
+                </div>
+              )}
 
               {selectedSchedule.targetVehicle && (
                 <div>

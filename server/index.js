@@ -11,6 +11,7 @@ import quoteRoutes from './routes/quoteRoutes.js';
 import contractRoutes from './routes/contractRoutes.js';
 import scheduleRoutes from './routes/scheduleRoutes.js';
 import mailTemplateRoutes from './routes/mailTemplateRoutes.js';
+import ocrRoutes from './routes/ocrRoutes.js';
 import invoiceRoutes from './routes/invoiceRoutes.js';
 import billingScheduleRoutes from './routes/billingScheduleRoutes.js';
 import ledgerRoutes from './routes/ledgerRoutes.js';
@@ -27,6 +28,7 @@ import cron from 'node-cron';
 import { runDatabaseMigration } from './utils/dbMigration.js';
 import { syncOutlookContacts } from './utils/outlookSyncService.js';
 import { syncInvoiceSendSchedules } from './utils/invoiceScheduleJob.js';
+import { syncFineNoticeSchedules } from './utils/fineNoticeScheduleJob.js';
 
 // Connect to MongoDB database
 connectDB().then(async () => {
@@ -49,6 +51,14 @@ connectDB().then(async () => {
     syncInvoiceSendSchedules().catch((err) => console.error('[청구서 발송 일정] 실패:', err.message));
   });
   console.log('[Cron Scheduler] 청구서 발송 일정 동기화 예약 완료 (매일 03:10).');
+
+  // 고지서 납부기한을 캘린더에 맞춰 둔다. 기한은 고지서마다 다르고 지나면 렌트료에 얹어 청구하므로
+  // 매일 한 번 훑어 새로 올라온 건을 올리고 고객이 낸 건은 닫는다.
+  syncFineNoticeSchedules().catch((err) => console.error('[고지서 납부기한] 실패:', err.message));
+  cron.schedule('20 3 * * *', () => {
+    syncFineNoticeSchedules().catch((err) => console.error('[고지서 납부기한] 실패:', err.message));
+  });
+  console.log('[Cron Scheduler] 고지서 납부기한 동기화 예약 완료 (매일 03:20).');
 });
 
 const app = express();
@@ -104,6 +114,7 @@ app.use('/api/schedules', scheduleRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/billing-schedules', billingScheduleRoutes);
 app.use('/api/mail-templates', mailTemplateRoutes);
+app.use('/api/ocr', ocrRoutes);
 app.use('/api/ledgers', ledgerRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/company-folders', companyFolderRoutes);

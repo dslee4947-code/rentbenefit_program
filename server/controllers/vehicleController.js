@@ -8,6 +8,14 @@ import path from 'path';
 import fs from 'fs';
 import Customer from '../models/Customer.js';
 import { looksLikeResidentRegistrationNumber } from '../utils/validators.js';
+import { inferPartyType, normalizePartyType, bizTypeFor } from '../utils/partyType.js';
+import { applyAccidentRentalParty, ACCIDENT_RENTAL_STATUS } from '../utils/accidentRentalCompany.js';
+import { applyColorSplit } from '../utils/vehicleColor.js';
+import { mergeCarModel } from '../utils/carModel.js';
+import { stripHonorific } from '../utils/personName.js';
+import { normalizeMaintenance } from '../utils/maintenance.js';
+import { applySupplyPrice, normalizeSellingAdminExpense } from '../utils/vehiclePricing.js';
+import { calculateVehicleProfit } from '../utils/vehicleProfit.js';
 
 const carModelEngMap = {
   '카니발': 'Carnival',
@@ -119,6 +127,39 @@ const generateVehicleCode = async (carModel, currentCode) => {
   return `${prefix}-${nextSeq}`;
 };
 
+/**
+ * 저장이 끝난 차량의 이익금·이익률을 다시 계산해 넣는다.
+ *
+ * 렌트 기간은 차량에 없고 계약이 들고 있어(대부분 납입개월수가 비어 있다) 계약에서 가져온다.
+ * 기간이나 월 렌트료가 없어 계산할 수 없으면 예전 값을 그대로 둔다(지우면 보던 숫자가 사라진다).
+ *
+ * @returns {Promise<object|null>} 다시 읽은 차량 문서
+ */
+const refreshVehicleProfit = async (vehicleId) => {
+  const vehicle = await Vehicle.findById(vehicleId).lean();
+  if (!vehicle) return null;
+
+  let termMonths = Number(vehicle.paymentTerm) || 0;
+  if (!termMonths && vehicle.contract) {
+    const contract = await Contract.findById(vehicle.contract).select('termMonths rentPeriodYears').lean();
+    termMonths = Number(contract?.termMonths) || Number(contract?.rentPeriodYears || 0) * 12;
+  }
+
+  const profit = calculateVehicleProfit(vehicle, termMonths);
+  if (!profit.ok) return vehicle;
+
+  await Vehicle.updateOne({ _id: vehicleId }, {
+    $set: {
+      profitAmount: Math.round(profit.profitAmount),
+      companyCommission: Math.round(profit.profitRatePercent * 100) / 100
+    }
+  });
+  return Vehicle.findById(vehicleId).lean();
+};
+
+// 검색어에 들어 있는 정규식 기호를 글자 그대로 찾도록 막는다. '(주)삼지', 'K5(H)' 같은 상호·차종이 흔하다.
+const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // @desc    Get paginated & filtered vehicles
 // @route   GET /api/vehicles
 // @access  Public
@@ -133,13 +174,35 @@ export const getVehicles = async (req, res) => {
     let filter = {};
 
     if (search && search.trim()) {
-      const searchRegex = new RegExp(search.trim(), 'i');
+      // '(주)다산제약'처럼 괄호가 들어간 상호를 그대로 쳐도 되게 정규식 기호를 막아 둔다.
+      // 막지 않으면 괄호가 정규식으로 해석돼 엉뚱한 결과가 나오거나 조회 자체가 실패한다.
+      const searchRegex = new RegExp(escapeRegExp(search.trim()), 'i');
+
+      // 계약사·계약자는 차량 문서에 없다. 법인/고객/계약에서 먼저 찾아 그 id로 차량을 건다.
+      // (화면의 '계약사' 칸이 법인명 -> 고객명 -> 차량에 적힌 계약자명 순으로 표시되므로 셋 다 본다)
+      const [companyIds, customerIds] = await Promise.all([
+        Company.find({
+          $or: [{ name: searchRegex }, { bizNo: searchRegex }, { ceoName: searchRegex }]
+        }).distinct('_id'),
+        Customer.find({
+          $or: [{ name: searchRegex }, { surname: searchRegex }, { givenName: searchRegex }]
+        }).distinct('_id')
+      ]);
+
+      const contractOr = [{ contractNo: searchRegex }];
+      if (companyIds.length) contractOr.push({ companyId: { $in: companyIds } });
+      if (customerIds.length) contractOr.push({ customer: { $in: customerIds } });
+      const contractIds = await Contract.find({ $or: contractOr }).distinct('_id');
+
       filter.$or = [
         { code: searchRegex },
         { carModel: searchRegex },
         { plateNo: searchRegex },
-        { vin: searchRegex }
+        { vin: searchRegex },
+        { contractorName: searchRegex }
       ];
+      if (companyIds.length) filter.$or.push({ company: { $in: companyIds } });
+      if (contractIds.length) filter.$or.push({ contract: { $in: contractIds } });
     }
 
     if (status && status !== 'all') {
@@ -175,7 +238,7 @@ export const getVehicles = async (req, res) => {
       ])
     ]);
 
-    const stats = { total: 0, '계약중': 0, '장기렌트': 0, '사고대차': 0, '예약': 0, '거래완료': 0 };
+    const stats = { total: 0, '계약중': 0, '장기렌트': 0, '사고대차': 0, '거래완료': 0 };
     statsResult.forEach(item => {
       if (item._id && Object.prototype.hasOwnProperty.call(stats, item._id)) {
         stats[item._id] = item.count;
@@ -236,15 +299,24 @@ const resolveCompanyLink = async ({ partyType, companyInput = {}, contractorName
   // 그것 때문에 법인 정보 수정이 통째로 무시되던 문제가 있었다.
   const editingKnownCompany = Boolean(companyInput._id);
 
-  const isCorporate = editingKnownCompany || (partyType
-    ? String(partyType).startsWith('법인')
-    : Boolean(companyInput.bizNo || companyInput.corporateRegistrationNo));
-
-  if (!isCorporate) {
-    return { partyType: '개인', company: null, contractorName: contractorName || '', createdCompanyName: null };
-  }
-
   const companyName = contractorName || companyInput.name || companyInput.ceoName;
+
+  // 계약구분은 적혀 있으면 그대로 따르고, 안 적혀 있을 때만 상호를 보고 정한다.
+  // 예전에는 사업자번호만 있어도 전부 '법인'으로 넣었는데, 개인사업자도 사업자번호가 있어
+  // 엑셀에 법인이라고 쓴 적이 없는 계약자까지 모두 법인으로 표시됐다.
+  const declaredPartyType = normalizePartyType(partyType, companyInput);
+  const resolvedPartyType = declaredPartyType || inferPartyType(companyName, companyInput);
+
+  // 회사 정보를 법인 문서로 남길지.
+  //
+  // 법인과 개인사업자는 남긴다. 사업자번호·대표자·사업장주소는 차량이 아니라 법인 문서에만
+  // 저장되는 값이라, 여기서 연결하지 않으면 엑셀에 적어 온 값이 통째로 버려진다.
+  // 일반개인은 사업자 정보가 없으므로 차량에 이름만 적는다.
+  const linkCompany = editingKnownCompany || resolvedPartyType !== '일반개인';
+
+  if (!linkCompany) {
+    return { partyType: resolvedPartyType, company: null, contractorName: contractorName || '', createdCompanyName: null };
+  }
 
   // 어느 법인을 고치는지 id로 정해서 온 경우(계약에 이미 연결된 법인을 화면에서 수정할 때)는
   // 그 법인을 그대로 고친다. 사업자번호로 다시 찾으면, 사업자번호 자체를 고치는 순간
@@ -277,7 +349,8 @@ const resolveCompanyLink = async ({ partyType, companyInput = {}, contractorName
     const { _id, ...newCompanyFields } = companyInput;
     company = await Company.create({
       name: companyName || companyInput.bizNo,
-      bizType: '법인사업자',
+      // 법인이 아니면 개인사업자로 남긴다. 전부 '법인사업자'로 만들면 법인 관리의 구분이 무의미해진다.
+      bizType: bizTypeFor(resolvedPartyType, companyInput),
       ...newCompanyFields
     });
     createdCompanyName = company.name;
@@ -285,7 +358,7 @@ const resolveCompanyLink = async ({ partyType, companyInput = {}, contractorName
 
   return {
     // id로 지정해 고친 경우엔 계약구분을 바꾸지 않는다(계약이 정본이다)
-    partyType: editingKnownCompany && partyType ? partyType : '법인',
+    partyType: editingKnownCompany && partyType ? partyType : resolvedPartyType,
     company,
     contractorName: '',
     createdCompanyName
@@ -352,9 +425,16 @@ export const createVehicle = async (req, res) => {
     }
 
     await applyCompanyLinkToBody(req.body);
+    // 사고대차는 계약사·대표자가 우리 회사로 고정이다
+    await applyAccidentRentalParty(req.body);
+    if (req.body.maintenance) req.body.maintenance = normalizeMaintenance(req.body.maintenance);
+    normalizeSellingAdminExpense(req.body);
+    applySupplyPrice(req.body);
 
     const newVehicle = await Vehicle.create(req.body);
-    res.status(201).json({ success: true, vehicle: newVehicle, message: '차량이 성공적으로 등록되었습니다.' });
+    // 이익금·이익률(회사수수료)은 저장된 값으로 다시 계산한다
+    const withProfit = await refreshVehicleProfit(newVehicle._id);
+    res.status(201).json({ success: true, vehicle: withProfit || newVehicle, message: '차량이 성공적으로 등록되었습니다.' });
   } catch (error) {
     console.error('Error creating vehicle:', error);
     res.status(500).json({ success: false, message: '차량 등록 중 오류 발생', error: error.message });
@@ -397,8 +477,16 @@ export const updateVehicle = async (req, res) => {
     }
 
     await applyCompanyLinkToBody(req.body);
+    // 사고대차는 계약사·대표자가 우리 회사로 고정이다
+    await applyAccidentRentalParty(req.body);
+    if (req.body.maintenance) req.body.maintenance = normalizeMaintenance(req.body.maintenance);
+    normalizeSellingAdminExpense(req.body);
+    applySupplyPrice(req.body);
 
-    const updatedVehicle = await Vehicle.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
+    await Vehicle.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    // 이익금·이익률(회사수수료)은 저장된 값으로 다시 계산한다
+    await refreshVehicleProfit(req.params.id);
+    const updatedVehicle = await Vehicle.findById(req.params.id)
       .populate('company', 'name bizNo bizType ceoName corporateRegistrationNo address billingEmail');
 
     // 청구 회차표를 다시 만든다.
@@ -455,9 +543,19 @@ export const deleteVehicle = async (req, res) => {
  */
 const VEHICLE_EXCEL_COLUMNS = [
   // 계약자 - 사업자번호가 있으면 법인을 찾아 연결하고, 없으면 그 정보로 법인을 새로 만든다
-  { key: 'partyType', type: 'text', labels: ['계약구분'], hint: '법인 / 개인' },
-  { key: '_contractorName', type: 'text', labels: ['계약자', '계약사'], hint: '법인이면 법인명, 개인이면 이름' },
-  { key: '_company.ceoName', type: 'text', labels: ['대표자명'] },
+  { key: 'partyType', type: 'text', labels: ['계약구분'], hint: '법인 / 개인사업자 / 일반개인' },
+  { key: '_contractorName', type: 'text', labels: ['계약자', '계약사', '계약자명', '계약사명', '법인명', '상호'], hint: '법인이면 법인명, 개인이면 이름' },
+  // 제목이 하나만 적혀 있으면, 운영 엑셀이 '대표자'라고만 써도 그 열이 통째로 무시된다.
+  // 무시된 열은 오류로 남지 않아서 화면에서 대표자 칸만 비어 보인다. 흔한 표기를 함께 받는다.
+  // 대표자명. 운영 엑셀은 이 자리에 '책임담당자'를 적어 쓰고 있어 같은 값으로 받는다
+  // (그 값은 계약의 '책임담당자'에도 적힌 그대로 들어간다 - 아래 _managerMain 참고).
+  // 대표자 칸은 이름만 들어가는 자리라 "유영석 사장님"의 직함은 떼고 넣는다.
+  {
+    key: '_company.ceoName',
+    type: 'text',
+    labels: ['대표자명', '대표자', '대표이사', '대표자성명', '대표', '책임담당자'],
+    transform: stripHonorific
+  },
   { key: '_company.bizNo', type: 'text', labels: ['사업자번호', '사업자/주민번호'], hint: '이 번호로 법인을 찾아 연결' },
   { key: '_company.corporateRegistrationNo', type: 'text', labels: ['법인등록번호', '법인/식별번호'] },
   { key: '_company.address', type: 'text', labels: ['사업장주소', '사업장 주소', '사업자 주소'] },
@@ -476,10 +574,12 @@ const VEHICLE_EXCEL_COLUMNS = [
 
   { key: 'code', type: 'text', labels: ['차량코드', '구분'], hint: '비우면 차종 기준으로 자동 생성' },
   { key: 'carModel', type: 'text', labels: ['차종'], required: true, hint: '예: 그랜저 하이브리드' },
-  { key: 'carSpec', type: 'text', labels: ['사양', '차량 사양'] },
+  // 사양은 따로 두지 않고 차종에 붙인다. 양식에 남겨 두는 건 예전 파일도 그대로 올릴 수 있게 하기 위함이다.
+  { key: 'carSpec', type: 'text', labels: ['사양', '차량 사양'], hint: '차종 칸에 함께 적어도 됩니다' },
   { key: 'fuelType', type: 'text', labels: ['유종'], hint: '가솔린/디젤/LPG/하이브리드/전기' },
   { key: 'cc', type: 'number', labels: ['배기량', '배기량cc', 'CC'] },
-  { key: 'exteriorColor', type: 'text', labels: ['외장색상', '외장색', '색상'] },
+  // 한 칸에 "외장 / 내장"으로 같이 적어 온 색상은 첫 '/' 기준으로 나눠 담는다
+  { key: 'exteriorColor', type: 'text', labels: ['외장색상', '외장색', '색상'], hint: '외장 / 내장 을 함께 적어도 됩니다' },
   { key: 'interiorColor', type: 'text', labels: ['내장색상', '내장색'] },
   { key: 'options', type: 'text', labels: ['옵션', '차량옵션'] },
 
@@ -489,8 +589,10 @@ const VEHICLE_EXCEL_COLUMNS = [
   { key: 'registrationDate', type: 'date', labels: ['등록일'], hint: 'YYYY-MM-DD' },
 
   { key: 'carPrice', type: 'number', labels: ['차량가', '차량가격'] },
+  { key: 'optionPrice', type: 'number', labels: ['옵션가', '옵션가격'] },
   { key: 'discount', type: 'number', labels: ['할인금액'] },
-  { key: 'supplyPrice', type: 'number', labels: ['공급가액'] },
+  // 공급가액은 적어 와도 무시하고 계산한다(차량가 + 옵션가 + 탁송료 - 할인금액)
+  { key: 'supplyPrice', type: 'number', labels: ['공급가액'], hint: '자동 계산됩니다' },
   { key: 'deliveryFee', type: 'number', labels: ['탁송료'] },
   { key: 'acquisitionTax', type: 'number', labels: ['취득세'] },
   { key: 'publicBond', type: 'number', labels: ['공채'] },
@@ -501,8 +603,10 @@ const VEHICLE_EXCEL_COLUMNS = [
   { key: 'monthlyFee', type: 'number', labels: ['월렌트료', '월대여료', '월 납입금'] },
   { key: 'paymentTerm', type: 'number', labels: ['납입개월수', '납입기간'] },
   { key: 'individualConsumptionTax', type: 'number', labels: ['자동차세', '개별소비세'], hint: '계약기간 총액' },
+  // 국산차를 렌터카로 살 때 받은 면세 혜택 금액. 장기렌트로 가면 환입 대상이 된다.
+  { key: 'taxExemptionAmount', type: 'number', labels: ['면세금액', '면세'], hint: '장기렌트면 환입 대상' },
 
-  { key: 'status', type: 'text', labels: ['상태', '운영'], hint: '장기렌트/사고대차/예약/거래완료 (비우면 장기렌트)' },
+  { key: 'status', type: 'text', labels: ['상태', '운영'], hint: '장기렌트/사고대차/계약중/거래완료 (비우면 장기렌트)' },
 
   { key: 'insurance.company', type: 'text', labels: ['보험사', '보험 회사'] },
   { key: 'insurance.type', type: 'text', labels: ['보험등급'], hint: '일반형/고급형' },
@@ -514,12 +618,12 @@ const VEHICLE_EXCEL_COLUMNS = [
   { key: 'insurance.deductible', type: 'number', labels: ['자기부담금'] },
   { key: 'insurance.emergencyService', type: 'text', labels: ['긴급출동'] },
 
-  { key: 'maintenance.enabled', type: 'boolean', labels: ['정비가입'], hint: '가입/미가입' },
   { key: 'maintenance.tireType', type: 'text', labels: ['타이어등급', '타이어'] },
   { key: 'maintenance.mileage', type: 'number', labels: ['연간주행거리', '약정주행거리', '운행 거리'] },
+  // 순회정비·소모품교환은 일반정비를 따라간다. 엑셀에 적어 와도 일반정비 값으로 맞춰진다.
   { key: 'maintenance.regularCheck', type: 'text', labels: ['순회점검', '정기점검'] },
   { key: 'maintenance.consumables', type: 'text', labels: ['소모품'] },
-  { key: 'maintenance.generalMaintenance', type: 'text', labels: ['일반정비'] },
+  { key: 'maintenance.generalMaintenance', type: 'text', labels: ['일반정비'], hint: '가입/미가입 (순회정비·소모품교환도 함께 정해짐)' },
 
   { key: 'deliveryDate', type: 'date', labels: ['인도일', '인도 날짜'], hint: 'YYYY-MM-DD' },
   { key: 'rentBillingDate', type: 'date', labels: ['렌트료게시일', '렌트료 개시일'], hint: 'YYYY-MM-DD' },
@@ -545,7 +649,7 @@ const VEHICLE_EXCEL_COLUMNS = [
   { key: '_contractDate', type: 'date', labels: ['계약일'], hint: 'YYYY-MM-DD' },
   { key: '_rentYears', type: 'number', labels: ['렌트 기간(Y)', '렌트기간년'], hint: '년 단위 (예: 4)' },
   { key: '_finesEmail', type: 'text', labels: ['범칙금 E-MAIL', '범칙금이메일'] },
-  { key: '_managerMain', type: 'text', labels: ['책임담당자'] },
+  { key: '_managerMain', type: 'text', labels: ['책임담당자'] }, // 같은 값이 법인 대표자명으로도 들어간다
   { key: '_managerOps', type: 'text', labels: ['실무담당자'] },
   { key: '_branch', type: 'text', labels: ['지점'] }
 ];
@@ -634,11 +738,11 @@ const generateContractNoForImport = async (customer, date) => {
 };
 
 const STATUS_BY_LABEL = {
-  '장기렌트': '장기렌트', '사고대차': '사고대차', '예약': '예약', '거래완료': '거래완료',
+  '장기렌트': '장기렌트', '사고대차': '사고대차', '계약중': '계약중', '거래완료': '거래완료',
   // 이전 상태값으로 올라온 엑셀도 새 분류로 매핑해 받아준다
   '가용': '장기렌트', '대여중': '장기렌트', '정비': '사고대차',
-  // 운영 엑셀의 '운영' 열에 쓰던 값들
-  '계약전': '예약', '계약변경': '거래완료'
+  // 운영 엑셀의 '운영' 열에 쓰던 값들. '예약'은 뜻이 같은 '계약중'으로 합쳤다.
+  '예약': '계약중', '계약전': '계약중', '계약변경': '거래완료'
 };
 
 const normalizeHeader = (value) => String(value ?? '').replace(/[\s()·/_-]/g, '').toLowerCase();
@@ -762,17 +866,23 @@ export const importVehicles = async (req, res) => {
       return res.status(400).json({ success: false, message: '엑셀에 입력된 데이터가 없습니다.' });
     }
 
-    // 열 제목 -> 컬럼 정의 매핑
+    // 열 제목 -> 컬럼 정의 매핑.
+    //
+    // 한 열이 두 곳에 들어가는 경우가 있어 맞는 정의를 모두 담는다.
+    // 예: '책임담당자'는 계약의 책임담당자이자, 렌트차량 DB의 '대표자'로 쓰는 값이다.
     const columnByIndex = {};
+    // 양식에 없는 제목의 열. 조용히 버리면 "엑셀에는 적혀 있는데 화면에는 없다"가 되므로 알려 준다.
+    const ignoredHeaders = [];
     (rows[0] || []).forEach((header, index) => {
       const normalized = normalizeHeader(header).replace(/\*$/, '');
-      const column = VEHICLE_EXCEL_COLUMNS.find((col) =>
+      const columns = VEHICLE_EXCEL_COLUMNS.filter((col) =>
         col.labels.some((label) => normalizeHeader(label) === normalized)
       );
-      if (column) columnByIndex[index] = column;
+      if (columns.length) columnByIndex[index] = columns;
+      else if (String(header ?? '').trim()) ignoredHeaders.push(String(header).trim());
     });
 
-    if (!Object.values(columnByIndex).some((col) => col.key === 'carModel')) {
+    if (!Object.values(columnByIndex).flat().some((col) => col.key === 'carModel')) {
       return res.status(400).json({
         success: false,
         message: '"차종" 열을 찾지 못했습니다. 내려받은 양식의 첫 줄(열 제목)을 지우거나 바꾸지 말고 그대로 사용해 주세요.'
@@ -808,12 +918,17 @@ export const importVehicles = async (req, res) => {
       if (looksLikeHintRow) continue;
 
       const payload = {};
-      Object.entries(columnByIndex).forEach(([index, column]) => {
-        let value = parseCellValue(row[index], column.type);
-        if (value === undefined) return;
-        if (PERCENT_KEYS.has(column.key)) value = normalizePercent(value);
-        if (column.key === 'monthlyPaymentDay') value = normalizePaymentDay(value);
-        setNestedValue(payload, column.key, value);
+      Object.entries(columnByIndex).forEach(([index, columns]) => {
+        columns.forEach((column) => {
+          let value = parseCellValue(row[index], column.type);
+          if (value === undefined) return;
+          if (PERCENT_KEYS.has(column.key)) value = normalizePercent(value);
+          if (column.key === 'monthlyPaymentDay') value = normalizePaymentDay(value);
+          // 같은 칸이 두 항목으로 갈 때 항목마다 다듬는 방식이 다르다(대표자는 직함을 뗀다)
+          if (typeof column.transform === 'function') value = column.transform(value);
+          if (value === '' || value === undefined) return;
+          setNestedValue(payload, column.key, value);
+        });
       });
 
       if (!payload.carModel) {
@@ -822,6 +937,31 @@ export const importVehicles = async (req, res) => {
           errors.push({ row: excelRowNo, message: '차종이 비어 있어 건너뛰었습니다.' });
         }
         continue;
+      }
+
+      // 정비는 일반정비 하나로 정해진다(순회정비·소모품교환도 함께 가입)
+      if (payload.maintenance) payload.maintenance = normalizeMaintenance(payload.maintenance);
+
+      // 판관비 칸에 비율(0.03)이 적혀 오면 금액으로 바꾼다
+      normalizeSellingAdminExpense(payload);
+
+      // 공급가액 = 차량가 + 옵션가 + 탁송료 - 할인금액
+      applySupplyPrice(payload);
+
+      // 차종과 사양은 한 칸으로 합쳐 둔다
+      if (payload.carSpec) {
+        payload.carModel = mergeCarModel(payload.carModel, payload.carSpec);
+        payload.carSpec = '';
+      }
+
+      // 색상 칸에 "외장 / 내장"이 같이 적혀 있으면 두 칸으로 나눈다.
+      // 운영 엑셀이 색상을 한 칸에 적어 와, 내장 색상 칸이 비고 외장 칸에 둘이 붙어 있었다.
+      const colorSplit = applyColorSplit(payload);
+      if (colorSplit.conflict) {
+        errors.push({
+          row: excelRowNo,
+          message: `외장색상에서 떼어낸 내장 색상("${colorSplit.conflict}")이 내장색상 칸의 값과 달라 그대로 두었습니다.`
+        });
       }
 
       // 계약자 정보를 법인 연결로 바꾼다.
@@ -842,7 +982,7 @@ export const importVehicles = async (req, res) => {
         });
         delete companyInput.bizNo;
         delete companyInput.corporateRegistrationNo;
-        payload.partyType = '개인';
+        payload.partyType = '일반개인';
       }
 
       try {
@@ -855,16 +995,16 @@ export const importVehicles = async (req, res) => {
         payload.partyType = linked.partyType;
         if (linked.createdCompanyName) createdCompanies.push(linked.createdCompanyName);
 
-        if (linked.partyType === '법인') {
-          if (linked.company) {
-            payload.company = linked.company._id;
-            partyNames.add(linked.company.name);
-          } else {
-            errors.push({ row: excelRowNo, message: '법인명과 사업자번호가 모두 비어 법인을 연결하지 못했습니다.' });
-          }
+        // 개인사업자로 판단된 줄도 사업자번호가 있으면 법인 문서가 만들어진다.
+        // 그 문서에 대표자·사업장주소가 들어 있으므로 차량에 연결해야 화면에 보인다.
+        if (linked.company) {
+          payload.company = linked.company._id;
+          partyNames.add(linked.company.name);
         } else if (linked.contractorName) {
           payload.contractorName = linked.contractorName;
           partyNames.add(linked.contractorName);
+        } else {
+          errors.push({ row: excelRowNo, message: '계약사(계약자)와 사업자번호가 모두 비어 계약자를 남기지 못했습니다.' });
         }
       } catch (err) {
         errors.push({ row: excelRowNo, message: `법인 연결 실패: ${err.message}` });
@@ -877,6 +1017,10 @@ export const importVehicles = async (req, res) => {
         }
         payload.status = mapped || '장기렌트';
       }
+
+      // 사고대차는 계약자가 따로 없고 우리가 내주는 차다. 계약사·대표자를 고정으로 덮어쓴다.
+      // (엑셀에는 대차를 받은 고객 이름이 계약자 자리에 적혀 오는 일이 많다)
+      if (payload.status === ACCIDENT_RENTAL_STATUS) await applyAccidentRentalParty(payload);
       if (payload.insurance?.type) {
         payload.insurance.type = payload.insurance.type === '고급형' || payload.insurance.type === 'premium'
           ? 'premium'
@@ -994,7 +1138,7 @@ export const importVehicles = async (req, res) => {
         const contract = await Contract.create({
           contractNo,
           customer: customer._id,
-          partyType: head.partyType || '개인',
+          partyType: head.partyType || '일반개인',
           companyId: head.company || undefined,
           leaseCompany: info.partyName,
           vehicles: vehicles.map((v) => v._id),
@@ -1044,6 +1188,11 @@ export const importVehicles = async (req, res) => {
       }
     }
 
+    // 올린 차량의 이익금·이익률을 계산한다. 계약이 이 아래에서 만들어지므로 계약을 만든 뒤에 다시 한 번 돌린다.
+    for (const vehicle of created) {
+      await refreshVehicleProfit(vehicle._id);
+    }
+
     const uniqueNewCompanies = [...new Set(createdCompanies)];
 
     // 계약자 폴더를 만든다.
@@ -1075,6 +1224,7 @@ export const importVehicles = async (req, res) => {
       scheduleCount: contractResults.filter((c) => c.rounds > 0).length,
       contracts: contractResults,
       contractWarnings,
+      ignoredHeaders,
       message: [
         `${created.length}대가 등록되었습니다.`,
         uniqueNewCompanies.length ? ` 법인 ${uniqueNewCompanies.length}곳이 새로 등록되었습니다.` : '',
@@ -1083,7 +1233,8 @@ export const importVehicles = async (req, res) => {
         folderCreated.length ? ` 계약자 폴더 ${folderCreated.length}개를 만들었습니다.` : '',
         folderFailed.length ? ` (폴더 ${folderFailed.length}건 실패)` : '',
         contractWarnings.length ? ` 계약 관련 확인 필요 ${contractWarnings.length}건.` : '',
-        errors.length ? ` (${errors.length}건은 처리하지 못했습니다)` : ''
+        errors.length ? ` (${errors.length}건은 처리하지 못했습니다)` : '',
+        ignoredHeaders.length ? ` 읽지 못한 열: ${ignoredHeaders.join(', ')}` : ''
       ].join('')
     });
   } catch (error) {

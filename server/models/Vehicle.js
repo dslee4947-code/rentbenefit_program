@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { PARTY_TYPES } from '../utils/partyType.js';
 const { Schema } = mongoose;
 
 // 견적서 -> 계약서 등록 흐름에서 넘어오는 정보를 그대로 담는 렌트차량 DB.
@@ -27,7 +28,9 @@ const VehicleSchema = new Schema({
   // 3. 가격 스냅샷 (목록 화면에서 매번 계약을 populate하지 않고 바로 표시하기 위한 용도, 원본은 Contract.pricing)
   // 견적서 가격 상세 항목을 빠짐없이 그대로 담는다.
   carPrice: Number, // 차량가 (견적서의 basePrice)
+  optionPrice: Number, // 옵션가 (견적서의 carOptionPrice)
   discount: Number, // 할인금액
+  // 공급가액 = 차량가 + 옵션가 + 탁송료 - 할인금액. 저장할 때 utils/vehiclePricing.js가 계산해 넣는다.
   supplyPrice: Number, // 공급가액
   deliveryFee: Number, // 탁송료
   acquisitionTax: Number, // 취득세
@@ -37,8 +40,18 @@ const VehicleSchema = new Schema({
   advancePayment: Number, // 선수금
   takeoverPrice: Number, // 인수가
   monthlyFee: Number, // 월 렌트료
+  // 아래 둘은 저장할 때 utils/vehicleProfit.js가 계산해 넣는 값이다(사람이 입력하지 않는다).
+  profitAmount: Number, // 이익금 = 매출 - 원가
   paymentTerm: Number, // 납입 개월 수
   individualConsumptionTax: Number, // 개별소비세(교육세·가산세 포함)
+
+  // 면세금액 - 국산차를 렌터카로 살 때 받은 개별소비세·교육세 면세 혜택 금액.
+  //
+  // 단기렌트로 운용하면 혜택이 그대로 유지되지만, 장기렌트로 세금계산서를 발행하면
+  // 받았던 면세분을 다시 환입해야 한다. 고객이 중도에 반납할 수도 있어서
+  // 일단 면세를 받아 두고, 장기렌트가 이어지면 환입하고 중도 반납하면 혜택으로 남는다.
+  // 그래서 환입 대상 금액을 차량마다 남겨 둔다.
+  taxExemptionAmount: Number, // 면세금액
 
   // 4. 보험 정보 (견적서의 insurance 선택값 기반)
   insurance: {
@@ -72,7 +85,9 @@ const VehicleSchema = new Schema({
   // 법인 정보를 문자열로 복사하지 않고 Company를 참조하는 이유:
   // 법인 주소나 대표자가 바뀌면 법인 관리에서 한 번만 고쳐도 전 차량에 반영되어야 한다.
   // 복사해 두면 차량 수만큼 따로 고쳐야 하고, 고치다 말면 값이 어긋난다.
-  partyType: { type: String, enum: ['법인', '개인'] },
+  // 계약구분. 개인사업자는 사업자번호가 있어 청구서·세금계산서가 법인과 같은 방식으로 나가고,
+  // 일반개인은 사업자가 없다. 예전에는 둘을 '개인' 하나로 묶어 구분이 되지 않았다.
+  partyType: { type: String, enum: PARTY_TYPES },
   company: { type: Schema.Types.ObjectId, ref: 'Company' }, // partyType이 '법인'일 때
   contractorName: String, // 개인 계약자명. 법인이면 Company.name을 쓰므로 비워 둔다
 
@@ -96,7 +111,8 @@ const VehicleSchema = new Schema({
   // 6. 운영 상태
   status: {
     type: String,
-    enum: ['계약중', '장기렌트', '사고대차', '예약', '거래완료'],
+    // '예약'은 뜻이 겹쳐 '계약중'으로 합쳤다(2026-09). 남은 자료는 서버가 켜질 때 dbMigration이 바꾼다.
+    enum: ['계약중', '장기렌트', '사고대차', '거래완료'],
     default: '장기렌트'
   },
   currentMileage: { type: Number, default: 0 }, // 실제 누적 주행거리
@@ -114,7 +130,7 @@ const VehicleSchema = new Schema({
   // 정본은 Contract.terms이고, 여기 값은 차량 DB만 보고도 조건을 확인하려고 함께 둔다.
   lateInterestRate: Number, // 연체 이율 (연 %)
   earlyTerminationRate: Number, // 중도해지 수수료율 (%)
-  companyCommission: Number, // 회사수수료 - 계약 등록 시 자동으로 넘어옴
+  companyCommission: Number, // 이익률(%) = 이익금 / 차량가. 회사가 남기는 몫을 비율로 본 값이다.
   dealerCommission: Number, // 타딜러수수료 - 계약 등록 시 자동으로 넘어옴
   sellingAdminExpense: Number, // 판관비 - 계약 등록 시 자동으로 넘어옴
   driver: { type: String, default: '' }, // 운전자 (대표자가 아닌 경우에만 입력)

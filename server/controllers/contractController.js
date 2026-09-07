@@ -9,6 +9,9 @@ import { buildScheduleForContract } from './billingScheduleController.js';
 import { createLedgersForVehicles } from './ledgerController.js';
 import { ensureCustomerFolders } from '../utils/documentStorageService.js';
 import XLSX from 'xlsx';
+import { mergeCarModel } from '../utils/carModel.js';
+import { normalizeMaintenance } from '../utils/maintenance.js';
+import { computeSupplyPrice } from '../utils/vehiclePricing.js';
 
 // 차종명으로 차량 코드를 자동 채번한다 (예: "그랜저 하이브리드" -> "그랜저-003").
 // createContract(신규 등록)와 updateContract의 임시저장 확정(finalize) 양쪽에서 공유한다.
@@ -45,8 +48,9 @@ const resolveContractBank = async (body) => {
 // 견적/폼에서 넘어온 vehicleInfo + pricing으로 Vehicle 문서에 넣을 필드를 구성한다.
 // status는 호출하는 쪽(신규 등록/임시저장 확정)에서 정한다 - 계약이 처음 만들어질 때는 항상 '계약중'.
 const buildVehicleFields = (vehicleInfo, pricing, status, bank, terms) => ({
-  carModel: vehicleInfo.model,
-  carSpec: vehicleInfo.spec,
+  // 렌트차량 DB는 차종 한 칸으로 본다. 계약서에는 사양이 따로 남는다(contract.vehicles[].spec).
+  carModel: mergeCarModel(vehicleInfo.model, vehicleInfo.spec),
+  carSpec: '',
   fuelType: vehicleInfo.fuelType,
   cc: vehicleInfo.cc,
   exteriorColor: vehicleInfo.color,
@@ -60,8 +64,15 @@ const buildVehicleFields = (vehicleInfo, pricing, status, bank, terms) => ({
   registrationDate: vehicleInfo.registrationDate || undefined,
 
   carPrice: vehicleInfo.vehiclePrice || pricing?.basePrice || 0,
+  optionPrice: pricing?.optionPrice,
   discount: pricing?.discount,
-  supplyPrice: pricing?.supplyPrice,
+  // 공급가액은 받아 적지 않고 계산한다. 차량가·할인금액을 고쳐도 늘 맞는 값이 남는다.
+  supplyPrice: computeSupplyPrice({
+    carPrice: vehicleInfo.vehiclePrice || pricing?.basePrice || 0,
+    optionPrice: pricing?.optionPrice,
+    deliveryFee: pricing?.deliveryFee,
+    discount: pricing?.discount
+  }),
   deliveryFee: pricing?.deliveryFee,
   acquisitionTax: pricing?.acquisitionTax,
   publicBond: pricing?.publicBond,
@@ -91,14 +102,12 @@ const buildVehicleFields = (vehicleInfo, pricing, status, bank, terms) => ({
     emergencyService: vehicleInfo.maintenance?.emergencyService || vehicleInfo.insurance?.emergencyCall || '가입'
   },
 
-  maintenance: {
-    enabled: vehicleInfo.maintenance?.enabled !== false,
+  // 정비는 일반정비 하나로 정해진다. 순회정비·소모품교환은 normalizeMaintenance가 맞춰 준다.
+  maintenance: normalizeMaintenance({
     tireType: vehicleInfo.maintenance?.tireType || '',
     mileage: vehicleInfo.maintenance?.mileage || vehicleInfo.mileage || 0,
-    regularCheck: vehicleInfo.maintenance?.regularCheck || '미가입',
-    consumables: vehicleInfo.maintenance?.consumables || '미가입',
     generalMaintenance: vehicleInfo.maintenance?.generalMaintenance || '미가입'
-  },
+  }),
 
   status,
   currentMileage: vehicleInfo.mileage || 0,
@@ -667,8 +676,8 @@ export const updateContract = async (req, res) => {
       // 이미 정식 등록된 계약의 차량 정보 수정 - 보내온 값만 부분 반영한다
       const vInfo = req.body.vehicleInfo;
       const mappedVehicleInfo = {
-        carModel: vInfo.model,
-        carSpec: vInfo.spec,
+        carModel: mergeCarModel(vInfo.model, vInfo.spec),
+        carSpec: '',
         carPrice: vInfo.vehiclePrice,
         exteriorColor: vInfo.color,
         interiorColor: vInfo.colorInterior,

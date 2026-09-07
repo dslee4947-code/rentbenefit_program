@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Lock, Save, Mail, Phone, Building2, MapPin } from 'lucide-react';
+import { useSaveShortcut } from './useSaveShortcut.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -59,7 +60,7 @@ function MyPageView({ showToast, currentUser, onUpdateUser }) {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
 
     if (!profile.name || !profile.phone || !profile.department) {
       showToast('이름, 연락처, 소속은 필수 항목입니다.', 'error');
@@ -132,6 +133,9 @@ function MyPageView({ showToast, currentUser, onUpdateUser }) {
       setSaving(false);
     }
   };
+
+  // Ctrl+S로 저장한다
+  useSaveShortcut(!saving, () => handleSubmit());
 
   const inputStyle = {
     width: '100%',

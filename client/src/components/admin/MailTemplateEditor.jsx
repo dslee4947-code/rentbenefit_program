@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Mail, X, Save, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { useSaveShortcut } from './useSaveShortcut.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -75,6 +76,9 @@ function MailTemplateEditor({ onClose, showToast, currentUser }) {
       setSaving(false);
     }
   };
+
+  // 편집기가 열려 있는 동안 Ctrl+S로 저장한다
+  useSaveShortcut(!saving, () => handleSave());
 
   const handleUpload = async (file) => {
     if (!file) return;

@@ -15,26 +15,249 @@ import {
 import { formatCustomerName, PAYMENT_DAY_OPTIONS, formatPaymentDay } from '../../utils/format.js';
 import MoneyInput from './MoneyInput.jsx';
 import { useTableSort } from './useTableSort.js';
+import { useSaveShortcut } from './useSaveShortcut.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
 import { useDraggableDialog, DIALOG_TOP } from './useDraggableDialog.js';
 import { createPortal } from 'react-dom';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
+// 목록에 보이는 순서이자 상태 선택 상자의 순서.
+// 계약중(출고 전) -> 장기렌트(운용 중) -> 사고대차 -> 거래완료 순으로, 지금 손이 가는 차가 위로 온다.
+// 예전에 쓰던 '예약'은 뜻이 같은 '계약중'으로 합쳤다(서버가 켜질 때 남은 자료도 함께 바꾼다).
 const STATUS_LABELS = {
   '계약중': '계약중',
   '장기렌트': '장기렌트',
   '사고대차': '사고대차',
-  '예약': '예약',
   '거래완료': '거래완료'
 };
 
+const STATUS_ORDER = Object.keys(STATUS_LABELS);
+
+/**
+ * 옆으로 넘길 때 왼쪽에 붙여 둘 열.
+ *
+ * 열이 80개가 넘어 오른쪽 끝으로 가면 지금 보는 줄이 어느 회사 차인지 알 수 없었다.
+ * 계약사까지 붙여 두면 어떤 값을 봐도 주인을 알 수 있다.
+ * 붙여 둔 칸은 나란히 놓여야 하므로 너비를 정해 두고, 그 너비를 더해 왼쪽 위치를 잡는다.
+ */
+const FROZEN_COLUMN_WIDTHS = [
+  ['no', 52],
+  ['status', 92],
+  ['partyType', 92],
+  ['contractCompany', 180]
+];
+
+const FROZEN_COLUMNS = FROZEN_COLUMN_WIDTHS.reduce((acc, [key, width], index) => {
+  const left = FROZEN_COLUMN_WIDTHS.slice(0, index).reduce((sum, [, w]) => sum + w, 0);
+  const isLast = index === FROZEN_COLUMN_WIDTHS.length - 1;
+  acc[key] = { width, left, isLast };
+  return acc;
+}, {});
+
+/** 왼쪽에 붙여 둔 칸의 공통 모양. 마지막 칸에는 경계선을 그어 고정 구역을 알 수 있게 한다. */
+const frozenCellStyle = (key, background, zIndex) => {
+  const frozen = FROZEN_COLUMNS[key];
+  if (!frozen) return null;
+  return {
+    position: 'sticky',
+    left: frozen.left,
+    width: frozen.width,
+    minWidth: frozen.width,
+    maxWidth: frozen.width,
+    zIndex,
+    background,
+    boxShadow: frozen.isLast ? 'inset -1px 0 0 var(--border-color)' : undefined
+  };
+};
+
+// 계약구분. 개인사업자는 사업자번호가 있어 청구서가 법인과 같은 방식으로 나가고,
+// 일반개인은 사업자가 없다. 예전에는 둘을 '개인' 하나로 묶어 구분이 되지 않았다.
+const PARTY_TYPES = ['법인', '개인사업자', '일반개인'];
+
+// 사업자 정보(사업자번호·대표자·사업장주소)를 두는 계약구분
+const hasBusinessInfo = (partyType) => partyType === '법인' || partyType === '개인사업자';
+
+/**
+ * 화면에 보여 줄 계약구분.
+ * 차량에 적힌 값이 이 화면에서 고치는 값이라 먼저 보고, 없으면 계약 쪽 값을 본다.
+ * 예전 값 '개인'은 사업자번호가 있으면 개인사업자, 없으면 일반개인으로 나눠 보여 준다.
+ */
+const partyTypeOf = (v) => {
+  const raw = v.partyType || v.contract?.partyType;
+  if (PARTY_TYPES.includes(raw)) return raw;
+  if (raw === '개인') {
+    const bizNo = v.contract?.companyId?.bizNo || v.company?.bizNo;
+    return bizNo ? '개인사업자' : '일반개인';
+  }
+  return raw || '-';
+};
+
+// bg는 상태 배지 색, row는 줄 전체에 까는 음영이다.
+// 줄 음영은 배지보다 훨씬 옅게 잡는다. 진하면 글자가 읽기 어렵고 배지가 묻힌다.
 const STATUS_COLORS = {
-  '계약중': { bg: '#f0e6ff', text: '#7c3aed' },
-  '장기렌트': { bg: '#e6f7ff', text: '#1890ff' },
-  '사고대차': { bg: '#fff1f0', text: '#ff4d4f' },
-  '예약': { bg: '#fffbe6', text: '#faad14' },
-  '거래완료': { bg: '#f6ffed', text: '#52c41a' }
+  '계약중': { bg: '#f0e6ff', text: '#7c3aed', row: '#faf6ff' },
+  '장기렌트': { bg: '#e6f7ff', text: '#1890ff', row: '#f4fbff' },
+  '사고대차': { bg: '#fff1f0', text: '#ff4d4f', row: '#fff7f6' },
+  '거래완료': { bg: '#f6ffed', text: '#52c41a', row: '#f8fdf4' }
+};
+
+/** 상태에 따른 줄 색. 고쳐지는 줄은 그 표시가 우선한다(어느 줄을 고치는지가 더 급한 정보다). */
+const rowBackgroundFor = (vehicle, isEditing) => {
+  if (isEditing) return '#f5f3ff';
+  return STATUS_COLORS[vehicle.status]?.row || '#fff';
+};
+
+/**
+ * 목록의 기본 순서.
+ *
+ * 1) 상태: 계약중 -> 장기렌트 -> 사고대차 -> 거래완료 (모르는 상태는 맨 뒤)
+ * 2) 같은 상태 안에서는 출고일(인도일)이 최근인 차가 위로.
+ *    출고일이 아직 없는 차(출고 준비 전)는 그 상태의 아래쪽에 모인다.
+ *
+ * 머리글을 눌러 정렬하면 그 기준이 우선하고, 정렬을 풀면 다시 이 순서로 돌아온다.
+ */
+const byDefaultOrder = (a, b) => {
+  const rank = (v) => {
+    const i = STATUS_ORDER.indexOf(v.status);
+    return i === -1 ? STATUS_ORDER.length : i;
+  };
+  const diff = rank(a) - rank(b);
+  if (diff !== 0) return diff;
+
+  const delivered = (v) => {
+    const t = v.deliveryDate ? new Date(v.deliveryDate).getTime() : NaN;
+    return Number.isNaN(t) ? null : t;
+  };
+  const ta = delivered(a);
+  const tb = delivered(b);
+  if (ta === null && tb === null) return 0;
+  if (ta === null) return 1; // 출고일이 없는 차는 아래로
+  if (tb === null) return -1;
+  return tb - ta; // 최근 출고가 위로
+};
+
+/**
+ * 표에서 바로 고칠 수 있는 칸.
+ *
+ * key는 표의 열이고, path는 수정 폼(formData)에서 그 값이 앉아 있는 자리다.
+ * 여기 없는 열(NO·계약번호·사은품)은 표에서 읽기만 한다 - 계약이 정본이거나
+ * 목록이라 한 칸에 넣기 어려운 값들이다.
+ */
+const CELL_EDITORS = {
+  status: { path: 'status', type: 'select', options: () => STATUS_ORDER.map((v) => ({ value: v, label: v })) },
+  partyType: { path: 'partyType', type: 'select', options: () => PARTY_TYPES.map((v) => ({ value: v, label: v })) },
+  contractCompany: { path: 'company.name', type: 'text' },
+  ceoName: { path: 'company.ceoName', type: 'text' },
+  bizNo: { path: 'company.bizNo', type: 'text' },
+  corporateRegistrationNo: { path: 'company.corporateRegistrationNo', type: 'text' },
+  companyAddress: { path: 'company.address', type: 'text' },
+  billingEmail: { path: 'company.billingEmail', type: 'text' },
+  bankHolder: { path: 'banking.holder', type: 'text' },
+  bankName: { path: 'banking.bankName', type: 'text' },
+  bankAccountNo: { path: 'banking.accountNo', type: 'text' },
+  loanExecuted: { path: 'loan.executed', type: 'checkbox' },
+  loanLender: { path: 'loan.lender', type: 'text' },
+  loanExecutedDate: { path: 'loan.executedDate', type: 'date' },
+  loanAmount: { path: 'loan.amount', type: 'money' },
+  loanTermMonths: { path: 'loan.termMonths', type: 'number' },
+  loanMonthlyPayment: { path: 'loan.monthlyPayment', type: 'money' },
+  code: { path: 'code', type: 'text' },
+  carModel: { path: 'carModel', type: 'text' },
+  fuelType: { path: 'fuelType', type: 'text' },
+  cc: { path: 'cc', type: 'number' },
+  exteriorColor: { path: 'exteriorColor', type: 'text' },
+  interiorColor: { path: 'interiorColor', type: 'text' },
+  options: { path: 'options', type: 'text' },
+  year: { path: 'year', type: 'text' },
+  vin: { path: 'vin', type: 'text' },
+  plateNo: { path: 'plateNo', type: 'text' },
+  registrationDate: { path: 'registrationDate', type: 'date' },
+  carPrice: { path: 'carPrice', type: 'money' },
+  optionPrice: { path: 'optionPrice', type: 'money' },
+  discount: { path: 'discount', type: 'money' },
+  // 공급가액은 차량가 + 옵션가 + 탁송료 - 할인금액으로 저장할 때 계산된다
+  supplyPrice: { path: 'supplyPrice', type: 'readonly' },
+  deliveryFee: { path: 'deliveryFee', type: 'money' },
+  acquisitionTax: { path: 'acquisitionTax', type: 'money' },
+  publicBond: { path: 'publicBond', type: 'money' },
+  registrationAgencyFee: { path: 'registrationAgencyFee', type: 'money' },
+  deposit: { path: 'deposit', type: 'money' },
+  advancePayment: { path: 'advancePayment', type: 'money' },
+  takeoverPrice: { path: 'takeoverPrice', type: 'money' },
+  monthlyFee: { path: 'monthlyFee', type: 'money' },
+  paymentTerm: { path: 'paymentTerm', type: 'number' },
+  individualConsumptionTax: { path: 'individualConsumptionTax', type: 'money' },
+  insuranceCompany: { path: 'insurance.company', type: 'text' },
+  insuranceType: {
+    path: 'insurance.type',
+    type: 'select',
+    options: () => ([{ value: 'standard', label: '일반형' }, { value: 'premium', label: '고급형' }])
+  },
+  driverAge: { path: 'insurance.driverAge', type: 'text' },
+  liabilityLimit: { path: 'insurance.liabilityLimit', type: 'text' },
+  propertyLimit: { path: 'insurance.propertyLimit', type: 'text' },
+  personalInjury: { path: 'insurance.personalInjury', type: 'text' },
+  uninsuredInjury: { path: 'insurance.uninsuredInjury', type: 'text' },
+  deductible: { path: 'insurance.deductible', type: 'money' },
+  emergencyService: { path: 'insurance.emergencyService', type: 'text' },
+  tireType: { path: 'maintenance.tireType', type: 'text' },
+  maintenanceMileage: { path: 'maintenance.mileage', type: 'number' },
+  // 순회정비·소모품교환은 일반정비를 따라가므로 보여만 준다
+  regularCheck: { path: 'maintenance.regularCheck', type: 'readonly' },
+  consumables: { path: 'maintenance.consumables', type: 'readonly' },
+  generalMaintenance: {
+    path: 'maintenance.generalMaintenance',
+    type: 'select',
+    options: () => ([{ value: '가입', label: '가입' }, { value: '미가입', label: '미가입' }]),
+    // 일반정비에 가입하면 순회정비·소모품교환도 함께 가입이다
+    apply: (form, value) => ({
+      ...form,
+      maintenance: {
+        ...form.maintenance,
+        generalMaintenance: value,
+        regularCheck: value,
+        consumables: value,
+        enabled: value === '가입'
+      }
+    })
+  },
+  deliveryDate: { path: 'deliveryDate', type: 'date' },
+  rentBillingDate: { path: 'rentBillingDate', type: 'date' },
+  monthlyPaymentDay: { path: 'monthlyPaymentDay', type: 'select', options: () => PAYMENT_DAY_OPTIONS },
+  interestRate: { path: 'interestRate', type: 'number' },
+  lateInterestRate: { path: 'lateInterestRate', type: 'number' },
+  earlyTerminationRate: { path: 'earlyTerminationRate', type: 'number' },
+  // 회사수수료(이익률)와 이익금은 저장할 때 서버가 계산한다. 사람이 고치는 값이 아니다.
+  companyCommission: { path: 'companyCommission', type: 'readonly' },
+  profitAmount: { path: 'profitAmount', type: 'readonly' },
+  dealerCommission: { path: 'dealerCommission', type: 'money' },
+  sellingAdminExpense: { path: 'sellingAdminExpense', type: 'money' },
+  taxExemptionAmount: { path: 'taxExemptionAmount', type: 'money' },
+  driver: { path: 'driver', type: 'text' },
+  vehicleManager: { path: 'vehicleManager', type: 'text' },
+  blackboxPrice: { path: 'accessories.blackboxPrice', type: 'money' },
+  blackboxInfo: { path: 'accessories.blackboxInfo', type: 'text' },
+  tintingPrice: { path: 'accessories.tintingPrice', type: 'money' },
+  tintingInfo: { path: 'accessories.tintingInfo', type: 'text' },
+  tireInfo: { path: 'accessories.tireInfo', type: 'text' }
+};
+
+/** 'company.name'처럼 점으로 이어진 자리에서 값을 꺼낸다 */
+const readPath = (obj, path) =>
+  path.split('.').reduce((node, key) => (node === null || node === undefined ? node : node[key]), obj);
+
+/** 값을 바꾼 새 객체를 만든다. 중간 객체도 새로 만들어야 화면이 다시 그려진다 */
+const writePath = (obj, path, value) => {
+  const keys = path.split('.');
+  const next = { ...obj };
+  let node = next;
+  for (let i = 0; i < keys.length - 1; i += 1) {
+    node[keys[i]] = { ...node[keys[i]] };
+    node = node[keys[i]];
+  }
+  node[keys[keys.length - 1]] = value;
+  return next;
 };
 
 const EMPTY_CONTRACT_PARTY = {
@@ -49,7 +272,6 @@ const EMPTY_FORM = {
   ...EMPTY_CONTRACT_PARTY,
   code: '',
   carModel: '',
-  carSpec: '',
   fuelType: '가솔린',
   cc: '',
   exteriorColor: '',
@@ -61,6 +283,7 @@ const EMPTY_FORM = {
   plateNo: '',
   registrationDate: '',
   carPrice: '',
+  optionPrice: '',
   discount: '',
   supplyPrice: '',
   deliveryFee: '',
@@ -73,6 +296,7 @@ const EMPTY_FORM = {
   monthlyFee: '',
   paymentTerm: '',
   individualConsumptionTax: '',
+  taxExemptionAmount: '',
   lateInterestRate: '',
   earlyTerminationRate: '',
   insurance: {
@@ -104,6 +328,7 @@ const EMPTY_FORM = {
   monthlyPaymentDay: '',
   interestRate: '',
   companyCommission: '',
+  profitAmount: '',
   dealerCommission: '',
   sellingAdminExpense: '',
   driver: '',
@@ -124,9 +349,11 @@ function VehicleManagementView({ showToast, currentUser }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [stats, setStats] = useState({ total: 0, '장기렌트': 0, '사고대차': 0, '예약': 0, '거래완료': 0 });
+  const [stats, setStats] = useState({ total: 0, '계약중': 0, '장기렌트': 0, '사고대차': 0, '거래완료': 0 });
 
   const [showModal, setShowModal] = useState(false);
+  // 표에서 고치고 있는 줄. 수정 단추를 누르면 그 줄이 입력칸으로 바뀐다.
+  const [editingRowId, setEditingRowId] = useState(null);
 
   // 팝업을 제목 줄로 잡아 끌어 옮길 수 있게 한다
 
@@ -196,7 +423,7 @@ function VehicleManagementView({ showToast, currentUser }) {
       const data = await res.json();
       if (data.success) {
         setVehicles(data.vehicles || []);
-        setStats(data.stats || { total: 0, '장기렌트': 0, '사고대차': 0, '예약': 0, '거래완료': 0 });
+        setStats(data.stats || { total: 0, '계약중': 0, '장기렌트': 0, '사고대차': 0, '거래완료': 0 });
       }
     } catch (err) {
       console.error(err);
@@ -217,13 +444,14 @@ function VehicleManagementView({ showToast, currentUser }) {
     setShowModal(true);
   };
 
-  const openEditModal = (vehicle) => {
+  // 고칠 차량을 폼에 싣는다. 표에서 고치든 팝업에서 고치든 같은 폼을 쓴다.
+  const loadVehicleIntoForm = (vehicle) => {
     setEditingVehicle(vehicle);
     // 계약서로 등록된 차량은 계약이 정본이라 아래 값들을 편집하지 않는다(화면에서도 읽기 전용).
     // 계약에 묶인 차량은 계약이 가리키는 법인이 정본이고, 아니면 차량에 붙은 법인을 본다
     const company = vehicle.contract?.companyId || vehicle.company || {};
     setFormData({
-      partyType: vehicle.partyType || (vehicle.company ? '법인' : '개인'),
+      partyType: partyTypeOf(vehicle),
       contractorName: vehicle.contractorName || '',
       company: {
         // 어느 법인을 고치는지 서버가 알 수 있게 id를 함께 들고 간다.
@@ -251,7 +479,6 @@ function VehicleManagementView({ showToast, currentUser }) {
       },
       code: vehicle.code || '',
       carModel: vehicle.carModel || '',
-      carSpec: vehicle.carSpec || '',
       fuelType: vehicle.fuelType || '가솔린',
       cc: vehicle.cc ?? '',
       exteriorColor: vehicle.exteriorColor || '',
@@ -263,6 +490,7 @@ function VehicleManagementView({ showToast, currentUser }) {
       plateNo: vehicle.plateNo || '',
       registrationDate: vehicle.registrationDate ? String(vehicle.registrationDate).slice(0, 10) : '',
       carPrice: vehicle.carPrice ?? '',
+      optionPrice: vehicle.optionPrice ?? '',
       discount: vehicle.discount ?? '',
       supplyPrice: vehicle.supplyPrice ?? '',
       deliveryFee: vehicle.deliveryFee ?? '',
@@ -275,6 +503,7 @@ function VehicleManagementView({ showToast, currentUser }) {
       monthlyFee: vehicle.monthlyFee ?? '',
       paymentTerm: vehicle.paymentTerm ?? '',
       individualConsumptionTax: vehicle.individualConsumptionTax ?? '',
+      taxExemptionAmount: vehicle.taxExemptionAmount ?? '',
       lateInterestRate: vehicle.lateInterestRate ?? '',
       earlyTerminationRate: vehicle.earlyTerminationRate ?? '',
       insurance: {
@@ -305,6 +534,7 @@ function VehicleManagementView({ showToast, currentUser }) {
       monthlyPaymentDay: vehicle.monthlyPaymentDay ?? '',
       interestRate: vehicle.interestRate ?? '',
       companyCommission: vehicle.companyCommission ?? '',
+      profitAmount: vehicle.profitAmount ?? '',
       dealerCommission: vehicle.dealerCommission ?? '',
       sellingAdminExpense: vehicle.sellingAdminExpense ?? '',
       driver: vehicle.driver || '',
@@ -320,7 +550,7 @@ function VehicleManagementView({ showToast, currentUser }) {
         ? vehicle.gifts.map(g => ({ name: g.name || '', price: g.price ?? '' }))
         : [{ name: '', price: '' }]
     });
-    setShowModal(true);
+    // 팝업은 여기서 열지 않는다. 수정은 표에서 하고, 팝업은 '차량 추가'와 '자세히'에서만 연다.
   };
 
   const handleRentBillingDateChange = (value) => {
@@ -336,6 +566,47 @@ function VehicleManagementView({ showToast, currentUser }) {
       gifts[index] = { ...gifts[index], [field]: value };
       return { ...prev, gifts };
     });
+  };
+
+  /** 표에서 그 줄을 바로 고친다 */
+  const startInlineEdit = (vehicle) => {
+    if (currentUser?.role === 'viewer') {
+      showToast?.('수정 권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
+    loadVehicleIntoForm(vehicle);
+    setEditingRowId(vehicle._id);
+  };
+
+  const cancelInlineEdit = () => {
+    setEditingRowId(null);
+    setEditingVehicle(null);
+  };
+
+  /** 표에 없는 항목(사은품·비고 등)까지 고칠 때. 지금 싣고 있는 폼 그대로 팝업을 연다. */
+  const openDetailPopup = () => setShowModal(true);
+
+  // 표에서 고치는 중에 Esc를 누르면 되돌린다
+  useEffect(() => {
+    if (!editingRowId) return undefined;
+    const onKeyDown = (e) => { if (e.key === 'Escape') cancelInlineEdit(); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingRowId]);
+
+  /** 일반정비에 가입하면 순회정비·소모품교환도 함께 가입이다 */
+  const setGeneralMaintenance = (value) => {
+    setFormData((prev) => ({
+      ...prev,
+      maintenance: {
+        ...prev.maintenance,
+        generalMaintenance: value,
+        regularCheck: value,
+        consumables: value,
+        enabled: value === '가입'
+      }
+    }));
   };
 
   const handleAddGift = () => {
@@ -387,7 +658,7 @@ function VehicleManagementView({ showToast, currentUser }) {
   };
 
   const handleSave = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     if (currentUser?.role === 'viewer') {
       showToast?.('등록 및 수정 권한이 없습니다. 관리자에게 문의하세요.', 'error');
       return;
@@ -399,9 +670,14 @@ function VehicleManagementView({ showToast, currentUser }) {
 
     try {
       setSaving(true);
-      const isCorporate = formData.partyType === '법인';
+      const isBusiness = hasBusinessInfo(formData.partyType);
       // 계약에 묶인 차량은 계약이 정본이라, 법인 정보만 고치고 차량-법인 연결은 그대로 둔다
       const linkedToContract = Boolean(editingVehicle?.contract);
+      // 개인사업자처럼 계약구분이 '개인'이어도 사업자 정보(사업자번호·대표자·주소)가
+      // 붙어 있는 계약자가 있다. 그 정보는 법인 문서에만 저장되므로, 연결이 있으면
+      // 계약구분과 상관없이 함께 보내야 저장하면서 지워지지 않는다.
+      const hasCompanyDoc = Boolean(formData.company?._id);
+      const sendCompany = isBusiness || linkedToContract || hasCompanyDoc;
       const payload = {
         _keepContractLink: linkedToContract || undefined,
         ...formData,
@@ -409,8 +685,8 @@ function VehicleManagementView({ showToast, currentUser }) {
         // 계약으로 만들어진 차량은 법인을 계약이 들고 있어서 차량 쪽 partyType이 '개인'이다.
         // 그 경우에도 법인 정보를 고칠 수 있어야 하므로, 계약에 묶인 차량이면 항상 보낸다.
         // (예전에는 차량 partyType이 '법인'일 때만 보내서, 고친 값이 전송조차 되지 않았다)
-        _contractorName: isCorporate ? formData.company.name : formData.contractorName,
-        _company: (isCorporate || linkedToContract) ? formData.company : {},
+        _contractorName: sendCompany ? (formData.company.name || formData.contractorName) : formData.contractorName,
+        _company: sendCompany ? formData.company : {},
         company: undefined,
         contractorName: undefined,
         banking: { ...formData.banking },
@@ -424,6 +700,7 @@ function VehicleManagementView({ showToast, currentUser }) {
         },
         cc: formData.cc === '' ? undefined : Number(formData.cc),
         carPrice: formData.carPrice === '' ? undefined : Number(formData.carPrice),
+        optionPrice: formData.optionPrice === '' ? undefined : Number(formData.optionPrice),
         discount: formData.discount === '' ? undefined : Number(formData.discount),
         supplyPrice: formData.supplyPrice === '' ? undefined : Number(formData.supplyPrice),
         deliveryFee: formData.deliveryFee === '' ? undefined : Number(formData.deliveryFee),
@@ -436,6 +713,7 @@ function VehicleManagementView({ showToast, currentUser }) {
         monthlyFee: formData.monthlyFee === '' ? undefined : Number(formData.monthlyFee),
         paymentTerm: formData.paymentTerm === '' ? undefined : Number(formData.paymentTerm),
         individualConsumptionTax: formData.individualConsumptionTax === '' ? undefined : Number(formData.individualConsumptionTax),
+        taxExemptionAmount: formData.taxExemptionAmount === '' ? undefined : Number(formData.taxExemptionAmount),
         lateInterestRate: formData.lateInterestRate === '' ? undefined : Number(formData.lateInterestRate),
         earlyTerminationRate: formData.earlyTerminationRate === '' ? undefined : Number(formData.earlyTerminationRate),
         currentMileage: formData.currentMileage === '' ? undefined : Number(formData.currentMileage),
@@ -449,7 +727,9 @@ function VehicleManagementView({ showToast, currentUser }) {
         rentBillingDate: formData.rentBillingDate || undefined,
         monthlyPaymentDay: formData.monthlyPaymentDay || undefined,
         interestRate: formData.interestRate === '' ? undefined : Number(formData.interestRate),
-        companyCommission: formData.companyCommission === '' ? undefined : Number(formData.companyCommission),
+        // 회사수수료(이익률)·이익금은 서버가 계산하므로 보내지 않는다
+        companyCommission: undefined,
+        profitAmount: undefined,
         dealerCommission: formData.dealerCommission === '' ? undefined : Number(formData.dealerCommission),
         sellingAdminExpense: formData.sellingAdminExpense === '' ? undefined : Number(formData.sellingAdminExpense),
         accessories: {
@@ -480,6 +760,7 @@ function VehicleManagementView({ showToast, currentUser }) {
       if (res.ok && data.success) {
         showToast?.(data.message || '저장되었습니다.', 'success');
         setShowModal(false);
+        setEditingRowId(null);
         fetchVehicles();
       } else {
         showToast?.(data.message || '저장에 실패했습니다.', 'error');
@@ -491,6 +772,10 @@ function VehicleManagementView({ showToast, currentUser }) {
       setSaving(false);
     }
   };
+
+  // 팝업이 열려 있는 동안 Ctrl+S로 저장한다
+  // 팝업이든 표에서든 고치는 중이면 Ctrl+S로 저장한다
+  useSaveShortcut((showModal || Boolean(editingRowId)) && !saving, () => handleSave());
 
   const handleDelete = async (vehicle) => {
     if (currentUser?.role === 'viewer') {
@@ -524,13 +809,110 @@ function VehicleManagementView({ showToast, currentUser }) {
   const inputStyle = { width: '100%', padding: '0.55rem 0.7rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-bright)', fontSize: '0.85rem' };
   const labelStyle = { fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' };
 
+  // 표 머리글을 위에 붙여 둔다(엑셀의 틀 고정).
+  //
+  // borderCollapse가 collapse라 붙어 있는 칸에는 아래 테두리가 그려지지 않는다.
+  // 그래서 테두리 대신 안쪽 그림자로 밑줄을 만든다.
+  const stickyHeadStyle = {
+    padding: '0.8rem',
+    whiteSpace: 'nowrap',
+    position: 'sticky',
+    top: 0,
+    zIndex: 2,
+    background: 'var(--bg-main)',
+    boxShadow: 'inset 0 -1px 0 var(--border-color)'
+  };
+
+  // 표 안에서 쓰는 작은 입력칸
+  const cellInputStyle = {
+    width: '100%', minWidth: '92px', padding: '0.3rem 0.4rem',
+    border: '1px solid var(--primary)', borderRadius: '4px',
+    fontSize: '0.82rem', background: '#fff', color: 'var(--text-bright)'
+  };
+
+  /**
+   * 표의 한 칸을 고치는 입력칸을 그린다.
+   * 고칠 수 없는 칸(CELL_EDITORS에 없는 열)은 null을 돌려주고, 부르는 쪽에서 원래 값을 보여 준다.
+   */
+  const renderCellEditor = (col) => {
+    const editor = CELL_EDITORS[col.key];
+    if (!editor) return null;
+
+    const value = readPath(formData, editor.path);
+    // apply가 있는 칸은 옆 칸까지 함께 정한다(일반정비 -> 순회정비·소모품교환)
+    const onChange = (next) => setFormData((prev) => (
+      editor.apply ? editor.apply(prev, next) : writePath(prev, editor.path, next)
+    ));
+
+    if (editor.type === 'readonly') {
+      return (
+        <span title="일반정비를 따라갑니다" style={{ color: 'var(--text-muted)' }}>
+          {value || '-'}
+        </span>
+      );
+    }
+
+    if (editor.type === 'money') {
+      return <MoneyInput value={value ?? ''} onChange={(e) => onChange(e.target.value)} style={cellInputStyle} />;
+    }
+    if (editor.type === 'number') {
+      return <input type="number" value={value ?? ''} onChange={(e) => onChange(e.target.value)} style={{ ...cellInputStyle, textAlign: 'right' }} />;
+    }
+    if (editor.type === 'date') {
+      return <input type="date" value={String(value || '').slice(0, 10)} onChange={(e) => onChange(e.target.value)} style={cellInputStyle} />;
+    }
+    if (editor.type === 'checkbox') {
+      return <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} />;
+    }
+    if (editor.type === 'select') {
+      const options = editor.options();
+      // 목록에 없는 값이 저장돼 있으면(예전 자료) 그 값도 보여 줘야 모르는 새 바뀌지 않는다
+      const unlisted = value !== '' && value !== null && value !== undefined
+        && !options.some((o) => String(o.value) === String(value));
+      return (
+        <select value={value ?? ''} onChange={(e) => onChange(e.target.value)} style={cellInputStyle}>
+          <option value="">-</option>
+          {unlisted && <option value={value}>{String(value)}</option>}
+          {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      );
+    }
+    return <input type="text" value={value ?? ''} onChange={(e) => onChange(e.target.value)} style={cellInputStyle} />;
+  };
+
+  // 공급가액은 입력받지 않고 계산해서 보여 준다. 저장 값도 서버가 같은 식으로 다시 계산한다.
+  const supplyPricePreview = (() => {
+    const num = (value) => (value === '' || value === null || value === undefined ? 0 : Number(value) || 0);
+    const parts = [formData.carPrice, formData.optionPrice, formData.deliveryFee, formData.discount];
+    if (parts.every((v) => v === '' || v === null || v === undefined)) return '';
+    return num(formData.carPrice) + num(formData.optionPrice) + num(formData.deliveryFee) - num(formData.discount);
+  })();
+
   const formatMoney = (v) => (v || v === 0) ? `${Number(v).toLocaleString()}원` : '-';
+  // 이익률은 소수 둘째 자리까지. 적자는 눈에 띄게 붉게 보여 준다.
+  const formatRate = (v) => {
+    if (v === null || v === undefined || v === '') return '-';
+    const rate = Number(v);
+    return <span style={{ fontWeight: '700', color: rate < 0 ? 'var(--error)' : 'var(--text-bright)' }}>{rate.toFixed(2)}%</span>;
+  };
   const formatDateCell = (v) => v ? new Date(v).toLocaleDateString() : '-';
+
+  // 계약의 고객 이름. 고객이 없으면 빈 값을 돌려준다.
+  //
+  // formatCustomerName은 고객이 없을 때 화면에 찍을 '-'를 돌려주는데,
+  // 그 '-'가 아래 계약사 계산에서 "값이 있다"로 취급돼 뒤 항목까지 내려가지 못했다.
+  // 계약이 없는 차량(엑셀로 직접 올린 차량 등)은 차량에 법인·계약자명이 붙어 있는데도
+  // 계약사 칸이 전부 '-'로 보이던 원인이다.
+  const getContractCustomerName = (v) => {
+    if (!v.contract?.customer) return '';
+    const name = formatCustomerName(v.contract.customer);
+    return name === '-' ? '' : name;
+  };
 
   // 계약사(법인명/개인명) - contract가 있으면 계약 쪽 정보를 우선으로, 없으면 재고 차량에 직접 붙은 정보를 본다
   const getContractCompanyName = (v) =>
     v.contract?.companyId?.name
-    || formatCustomerName(v.contract?.customer)
+    || getContractCustomerName(v)
     || v.company?.name
     || v.contractorName
     || '-';
@@ -552,9 +934,11 @@ function VehicleManagementView({ showToast, currentUser }) {
       const c = STATUS_COLORS[v.status] || STATUS_COLORS['장기렌트'];
       return <span style={{ background: c.bg, color: c.text, padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '700' }}>{STATUS_LABELS[v.status] || v.status}</span>;
     } },
-    { key: 'partyType', label: '계약구분', render: (v) => v.contract?.partyType || v.partyType || '-' },
+    { key: 'partyType', label: '계약구분', render: (v) => partyTypeOf(v) },
     { key: 'contractCompany', label: '계약사', render: (v) => getContractCompanyName(v) },
     { key: 'ceoName', label: '대표자', render: (v) => getContractCeoName(v) },
+    // 사양은 차량 칸에 함께 적는다(예: "G80 3.5T AWD"). 따로 두면 두 칸을 오가며 봐야 했다.
+    { key: 'carModel', label: '차량', render: (v) => v.carModel || '-' },
     { key: 'bizNo', label: '사업자번호', render: (v) => getCompanyField(v, 'bizNo') },
     { key: 'corporateRegistrationNo', label: '법인등록번호', render: (v) => getCompanyField(v, 'corporateRegistrationNo') },
     { key: 'companyAddress', label: '사업장주소', render: (v) => getCompanyField(v, 'address') },
@@ -569,8 +953,6 @@ function VehicleManagementView({ showToast, currentUser }) {
     { key: 'loanTermMonths', label: '할부기간', render: (v) => v.loan?.termMonths ? `${v.loan.termMonths}개월` : '-' },
     { key: 'loanMonthlyPayment', label: '월할부금', render: (v) => formatMoney(v.loan?.monthlyPayment) },
     { key: 'code', label: '코드', render: (v) => <span style={{ fontWeight: '700' }}>{v.code || '-'}</span> },
-    { key: 'carModel', label: '차량', render: (v) => v.carModel || '-' },
-    { key: 'carSpec', label: '사양', render: (v) => v.carSpec || '-' },
     { key: 'fuelType', label: '유종', render: (v) => v.fuelType || '-' },
     { key: 'cc', label: '배기량', render: (v) => v.cc ? `${v.cc}cc` : '-' },
     { key: 'exteriorColor', label: '외장색상', render: (v) => v.exteriorColor || '-' },
@@ -581,7 +963,9 @@ function VehicleManagementView({ showToast, currentUser }) {
     { key: 'plateNo', label: '차량번호', render: (v) => v.plateNo || '-' },
     { key: 'registrationDate', label: '등록일', sortValue: (v) => v.registrationDate, render: (v) => formatDateCell(v.registrationDate) },
     { key: 'carPrice', label: '차량가', render: (v) => formatMoney(v.carPrice) },
+    { key: 'optionPrice', label: '옵션가', render: (v) => formatMoney(v.optionPrice) },
     { key: 'discount', label: '할인금액', render: (v) => formatMoney(v.discount) },
+    // 공급가액 = 차량가 + 옵션가 + 탁송료 - 할인금액 (저장할 때 서버가 계산)
     { key: 'supplyPrice', label: '공급가액', render: (v) => formatMoney(v.supplyPrice) },
     { key: 'deliveryFee', label: '탁송료', render: (v) => formatMoney(v.deliveryFee) },
     { key: 'acquisitionTax', label: '취득세', render: (v) => formatMoney(v.acquisitionTax) },
@@ -604,9 +988,10 @@ function VehicleManagementView({ showToast, currentUser }) {
     { key: 'uninsuredInjury', label: '무보험차상해', render: (v) => v.insurance?.uninsuredInjury || '-' },
     { key: 'deductible', label: '자기부담금', render: (v) => formatMoney(v.insurance?.deductible) },
     { key: 'emergencyService', label: '긴급출동', render: (v) => v.insurance?.emergencyService || '-' },
-    { key: 'maintenanceEnabled', label: '정비가입', render: (v) => v.maintenance?.enabled ? '가입' : '미가입' },
     { key: 'tireType', label: '타이어등급', render: (v) => v.maintenance?.tireType || '-' },
     { key: 'maintenanceMileage', label: '연간주행거리', render: (v) => v.maintenance?.mileage ? `${v.maintenance.mileage.toLocaleString()}km` : '-' },
+    // 순회정비·소모품교환은 일반정비를 따라간다(일반정비에 가입하면 셋 다 가입되는 상품).
+    // 그래서 표에서는 읽기만 하고, 고치는 것은 일반정비 한 칸이다.
     { key: 'regularCheck', label: '순회정비', render: (v) => v.maintenance?.regularCheck || '-' },
     { key: 'consumables', label: '소모품교환', render: (v) => v.maintenance?.consumables || '-' },
     { key: 'generalMaintenance', label: '일반정비', render: (v) => v.maintenance?.generalMaintenance || '-' },
@@ -616,7 +1001,9 @@ function VehicleManagementView({ showToast, currentUser }) {
     { key: 'interestRate', label: '금리', render: (v) => (v.interestRate || v.interestRate === 0) ? `${v.interestRate}%` : '-' },
     { key: 'lateInterestRate', label: '연체이율', render: (v) => (v.lateInterestRate || v.lateInterestRate === 0) ? `연 ${v.lateInterestRate}%` : '-' },
     { key: 'earlyTerminationRate', label: '중도해지수수료율', render: (v) => (v.earlyTerminationRate || v.earlyTerminationRate === 0) ? `${v.earlyTerminationRate}%` : '-' },
-    { key: 'companyCommission', label: '회사수수료', render: (v) => formatMoney(v.companyCommission) },
+    // 회사수수료 = 이익률(%) = 이익금 / 차량가. 옆의 이익금과 짝이다(둘 다 저장할 때 계산된다).
+    { key: 'companyCommission', label: '회사수수료(이익률)', render: (v) => formatRate(v.companyCommission) },
+    { key: 'profitAmount', label: '이익금', render: (v) => formatMoney(v.profitAmount) },
     { key: 'dealerCommission', label: '타딜러수수료', render: (v) => formatMoney(v.dealerCommission) },
     { key: 'sellingAdminExpense', label: '판관비', render: (v) => formatMoney(v.sellingAdminExpense) },
     { key: 'driver', label: '운전자', render: (v) => v.driver || '-' },
@@ -637,18 +1024,23 @@ function VehicleManagementView({ showToast, currentUser }) {
       ) : (
         <span style={{ color: 'var(--text-muted)' }}>미연결 (재고)</span>
       )
-    ) }
+    ) },
+    // 면세금액 - 국산차를 렌터카로 살 때 받은 개별소비세·교육세 면세분.
+    // 단기렌트면 그대로 혜택이지만, 장기렌트로 세금계산서를 발행하면 환입해야 한다.
+    { key: 'taxExemptionAmount', label: '면세금액', render: (v) => formatMoney(v.taxExemptionAmount) }
   ];
 
   // 표 머리글을 눌러 정렬한다. 검색·상태는 서버가 걸러 주고, 정렬은 받아 온 목록에서 한다.
-  const sort = useTableSort(vehicles, VEHICLE_COLUMNS);
+  // 정렬을 고르지 않았을 때는 기본 순서(상태 -> 최근 출고순)로 보여 준다.
+  const orderedVehicles = [...vehicles].sort(byDefaultOrder);
+  const sort = useTableSort(orderedVehicles, VEHICLE_COLUMNS);
   const sortedVehicles = sort.rows;
 
   const statCards = [
     { key: 'total', label: '전체 차량', value: stats.total, color: 'var(--primary)' },
+    { key: '계약중', label: '계약중', value: stats['계약중'], color: STATUS_COLORS['계약중'].text },
     { key: '장기렌트', label: '장기렌트', value: stats['장기렌트'], color: STATUS_COLORS['장기렌트'].text },
     { key: '사고대차', label: '사고대차', value: stats['사고대차'], color: STATUS_COLORS['사고대차'].text },
-    { key: '예약', label: '예약 차량', value: stats['예약'], color: STATUS_COLORS['예약'].text },
     { key: '거래완료', label: '거래완료', value: stats['거래완료'], color: STATUS_COLORS['거래완료'].text }
   ];
 
@@ -670,7 +1062,7 @@ function VehicleManagementView({ showToast, currentUser }) {
           <Search size={14} style={{ position: 'absolute', left: '0.8rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
           <input
             type="text"
-            placeholder="차량 코드, 차종, 차량번호, 차대번호 검색..."
+            placeholder="계약사 · 대표자 · 차량코드 · 차종 · 차량번호 · 차대번호 · 계약번호 검색..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             style={{ width: '100%', padding: '0.6rem 1rem 0.6rem 2.2rem', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.88rem' }}
@@ -685,7 +1077,7 @@ function VehicleManagementView({ showToast, currentUser }) {
         {/* 정렬 - 표 머리글을 눌러도 같은 기준으로 바뀝니다 */}
         <SortControls
           sort={sort}
-          defaultLabel="정렬 안 함 (최근 등록순)"
+          defaultLabel="기본 순서 (상태 · 최근 출고순)"
           show={sort.active || Boolean(searchTerm) || statusFilter !== 'all'}
           onReset={() => { setSearchTerm(''); setStatusFilter('all'); }}
         />
@@ -730,16 +1122,26 @@ function VehicleManagementView({ showToast, currentUser }) {
 
       {/* 목록 - 렌트차량 DB에 저장된 항목을 전부 열로 보여주고, 옆으로 스크롤해서 확인합니다 */}
       <div style={{ background: '#fff', borderRadius: '10px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
-        <div style={{ overflowX: 'auto' }}>
+        {/* 표를 화면 안에서 스크롤시킨다. 머리글을 이 안에 붙여 둬야 아래로 내려도 항목 이름이 계속 보인다. */}
+        <div style={{ overflow: 'auto', maxHeight: 'calc(100vh - 420px)', minHeight: '300px' }}>
           <table style={{ width: 'max-content', minWidth: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
             <thead>
-              <tr style={{ background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-bright)', fontWeight: '700' }}>
-                {VEHICLE_COLUMNS.map((col) => (
-                  <SortableTh key={col.key} sort={sort} columnKey={col.key} style={{ padding: '0.8rem', whiteSpace: 'nowrap' }}>
-                    {col.label}
-                  </SortableTh>
-                ))}
-                <th style={{ padding: '0.8rem', width: '80px', position: 'sticky', right: 0, background: 'var(--bg-main)' }}>관리</th>
+              <tr style={{ background: 'var(--bg-main)', color: 'var(--text-bright)', fontWeight: '700' }}>
+                {VEHICLE_COLUMNS.map((col) => {
+                  const frozen = frozenCellStyle(col.key, 'var(--bg-main)', 4);
+                  return (
+                    <SortableTh
+                      key={col.key}
+                      sort={sort}
+                      columnKey={col.key}
+                      style={frozen ? { ...stickyHeadStyle, ...frozen } : stickyHeadStyle}
+                    >
+                      {col.label}
+                    </SortableTh>
+                  );
+                })}
+                {/* 관리 열은 가로로도 고정이라 위·오른쪽 둘 다 붙는다 */}
+                <th style={{ ...stickyHeadStyle, width: '80px', right: 0, zIndex: 3 }}>관리</th>
               </tr>
             </thead>
             <tbody>
@@ -748,23 +1150,55 @@ function VehicleManagementView({ showToast, currentUser }) {
               ) : vehicles.length === 0 ? (
                 <tr><td colSpan={VEHICLE_COLUMNS.length + 1} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>등록된 차량이 없습니다.</td></tr>
               ) : (
-                sortedVehicles.map((v, idx) => (
-                  <tr key={v._id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                    {VEHICLE_COLUMNS.map((col) => (
-                      <td key={col.key} style={{ padding: '0.8rem', whiteSpace: 'nowrap' }}>{col.render(v, idx)}</td>
-                    ))}
-                    <td style={{ padding: '0.8rem', position: 'sticky', right: 0, background: '#fff' }}>
-                      <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
-                        <button onClick={() => openEditModal(v)} title="수정" style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer' }}>
-                          <Edit3 size={16} />
-                        </button>
-                        <button onClick={() => handleDelete(v)} title="삭제" style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}>
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
+                sortedVehicles.map((v, idx) => {
+                  const isEditing = editingRowId === v._id;
+                  // 왼쪽·오른쪽에 붙여 둔 칸은 배경이 비치면 안 되므로 줄과 같은 색을 직접 칠한다
+                  const rowBackground = rowBackgroundFor(v, isEditing);
+                  return (
+                  <tr key={v._id} style={{ borderBottom: '1px solid var(--border-color)', background: rowBackground }}>
+                    {VEHICLE_COLUMNS.map((col) => {
+                      const frozen = frozenCellStyle(col.key, rowBackground, 1);
+                      return (
+                        <td
+                          key={col.key}
+                          style={{
+                            padding: isEditing ? '0.35rem 0.4rem' : '0.8rem',
+                            whiteSpace: 'nowrap',
+                            ...(frozen || {})
+                          }}
+                        >
+                          {(isEditing && renderCellEditor(col)) || col.render(v, idx)}
+                        </td>
+                      );
+                    })}
+                    <td style={{ padding: '0.8rem', position: 'sticky', right: 0, background: rowBackground }}>
+                      {isEditing ? (
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <button onClick={() => handleSave()} disabled={saving} title="저장 (Ctrl+S)" style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: saving ? 'not-allowed' : 'pointer' }}>
+                            <Save size={16} />
+                          </button>
+                          <button onClick={cancelInlineEdit} title="취소 (Esc)" style={{ border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                            <X size={16} />
+                          </button>
+                          {/* 사은품·비고처럼 표에 없는 항목은 팝업에서 고친다. 지금 고치던 값이 그대로 열린다. */}
+                          <button onClick={openDetailPopup} title="자세히 (표에 없는 항목까지)" style={{ border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-muted)', borderRadius: '4px', fontSize: '0.72rem', fontWeight: '700', padding: '0.15rem 0.35rem', cursor: 'pointer' }}>
+                            자세히
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                          <button onClick={() => startInlineEdit(v)} title="수정 (표에서 바로 고치기)" style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer' }}>
+                            <Edit3 size={16} />
+                          </button>
+                          <button onClick={() => handleDelete(v)} title="삭제" style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}>
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -865,6 +1299,9 @@ function VehicleManagementView({ showToast, currentUser }) {
                 }
 
                 const isCorporate = formData.partyType === '법인';
+                // 일반개인으로 골랐어도 사업자 정보가 이미 붙어 있으면 그대로 보여 주고 고칠 수 있게 한다.
+                // 숨기면 저장할 때 사업자번호·대표자가 함께 지워진다.
+                const showCompanyFields = hasBusinessInfo(formData.partyType) || Boolean(formData.company?._id);
                 const setCompany = (field, value) => setFormData((prev) => ({ ...prev, company: { ...prev.company, [field]: value } }));
                 const setBanking = (field, value) => setFormData((prev) => ({ ...prev, banking: { ...prev.banking, [field]: value } }));
                 const setLoan = (field, value) => setFormData((prev) => ({ ...prev, loan: { ...prev.loan, [field]: value } }));
@@ -877,14 +1314,13 @@ function VehicleManagementView({ showToast, currentUser }) {
                         <div>
                           <label style={labelStyle}>계약 구분</label>
                           <select value={formData.partyType} onChange={(e) => setFormData({ ...formData, partyType: e.target.value })} style={inputStyle}>
-                            <option value="법인">법인</option>
-                            <option value="개인">개인</option>
+                            {PARTY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                           </select>
                         </div>
-                        {isCorporate ? (
+                        {showCompanyFields ? (
                           <>
                             <div>
-                              <label style={labelStyle}>법인명 (계약자)</label>
+                              <label style={labelStyle}>{isCorporate ? '법인명 (계약자)' : '상호 · 이름 (계약자)'}</label>
                               <input value={formData.company.name} onChange={(e) => setCompany('name', e.target.value)} style={inputStyle} placeholder="예: 주식회사 삼지" />
                             </div>
                             <div>
@@ -915,7 +1351,7 @@ function VehicleManagementView({ showToast, currentUser }) {
                           </div>
                         )}
                       </div>
-                      {isCorporate && (
+                      {showCompanyFields && (
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem', lineHeight: 1.5 }}>
                           사업자번호가 같은 법인이 이미 있으면 그 법인에 연결되고, 없으면 새 법인으로 등록됩니다.
                           여기서 고친 법인 정보는 같은 법인을 쓰는 다른 차량에도 함께 반영됩니다.
@@ -982,16 +1418,13 @@ function VehicleManagementView({ showToast, currentUser }) {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.8rem' }}>
                   <div>
                     <label style={labelStyle}>차종 *</label>
-                    <input required value={formData.carModel} onChange={(e) => setFormData({ ...formData, carModel: e.target.value })} style={inputStyle} placeholder="예: 그랜저 하이브리드" />
+                    <input required value={formData.carModel} onChange={(e) => setFormData({ ...formData, carModel: e.target.value })} style={inputStyle} placeholder="예: 그랜저(H) 1.6T 프리미엄 (사양까지 함께)" />
                   </div>
                   <div>
                     <label style={labelStyle}>차량 코드</label>
                     <input value={formData.code} onChange={(e) => setFormData({ ...formData, code: e.target.value })} style={inputStyle} placeholder="비워두면 자동 생성" />
                   </div>
-                  <div>
-                    <label style={labelStyle}>사양</label>
-                    <input value={formData.carSpec} onChange={(e) => setFormData({ ...formData, carSpec: e.target.value })} style={inputStyle} />
-                  </div>
+                  
                   <div>
                     <label style={labelStyle}>유종</label>
                     <select value={formData.fuelType} onChange={(e) => setFormData({ ...formData, fuelType: e.target.value })} style={inputStyle}>
@@ -1053,12 +1486,23 @@ function VehicleManagementView({ showToast, currentUser }) {
                     <MoneyInput value={formData.carPrice} onChange={(e) => setFormData({ ...formData, carPrice: e.target.value })} style={inputStyle} />
                   </div>
                   <div>
+                    <label style={labelStyle}>옵션가 (원)</label>
+                    <MoneyInput value={formData.optionPrice} onChange={(e) => setFormData({ ...formData, optionPrice: e.target.value })} style={inputStyle} />
+                  </div>
+                  <div>
                     <label style={labelStyle}>할인금액 (원)</label>
                     <MoneyInput value={formData.discount} onChange={(e) => setFormData({ ...formData, discount: e.target.value })} style={inputStyle} />
                   </div>
                   <div>
                     <label style={labelStyle}>공급가액 (원)</label>
-                    <MoneyInput value={formData.supplyPrice} onChange={(e) => setFormData({ ...formData, supplyPrice: e.target.value })} style={inputStyle} />
+                    <MoneyInput
+                      value={supplyPricePreview}
+                      readOnly
+                      style={{ ...inputStyle, background: 'var(--bg-main)', color: 'var(--text-muted)' }}
+                    />
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                      차량가 + 옵션가 + 탁송료 - 할인금액
+                    </div>
                   </div>
                   <div>
                     <label style={labelStyle}>탁송료 (원)</label>
@@ -1091,6 +1535,13 @@ function VehicleManagementView({ showToast, currentUser }) {
                   <div>
                     <label style={labelStyle}>월 렌트료 (원)</label>
                     <MoneyInput value={formData.monthlyFee} onChange={(e) => setFormData({ ...formData, monthlyFee: e.target.value })} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>면세금액 (원)</label>
+                    <MoneyInput value={formData.taxExemptionAmount} onChange={(e) => setFormData({ ...formData, taxExemptionAmount: e.target.value })} style={inputStyle} />
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                      국산차 렌터카 면세분. 장기렌트면 환입 대상입니다.
+                    </div>
                   </div>
                   <div>
                     <label style={labelStyle}>자동차세 (계약기간 총액)</label>
@@ -1153,10 +1604,9 @@ function VehicleManagementView({ showToast, currentUser }) {
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.6rem' }}>
                   <div style={{ fontWeight: '700', fontSize: '0.85rem', color: 'var(--text-bright)' }}>🔧 정비 서비스</div>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem', color: 'var(--text-muted)', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={formData.maintenance.enabled} onChange={(e) => setFormData({ ...formData, maintenance: { ...formData.maintenance, enabled: e.target.checked } })} />
-                    포함
-                  </label>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    일반정비에 가입하면 순회정비·소모품교환도 함께 가입됩니다
+                  </span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.8rem' }}>
                   <div>
@@ -1168,16 +1618,23 @@ function VehicleManagementView({ showToast, currentUser }) {
                     <input type="number" value={formData.maintenance.mileage} onChange={(e) => setFormData({ ...formData, maintenance: { ...formData.maintenance, mileage: e.target.value } })} style={inputStyle} />
                   </div>
                   <div>
+                    <label style={labelStyle}>일반정비</label>
+                    <select
+                      value={formData.maintenance.generalMaintenance}
+                      onChange={(e) => setGeneralMaintenance(e.target.value)}
+                      style={inputStyle}
+                    >
+                      <option value="가입">가입</option>
+                      <option value="미가입">미가입</option>
+                    </select>
+                  </div>
+                  <div>
                     <label style={labelStyle}>순회정비</label>
-                    <input value={formData.maintenance.regularCheck} onChange={(e) => setFormData({ ...formData, maintenance: { ...formData.maintenance, regularCheck: e.target.value } })} style={inputStyle} />
+                    <input value={formData.maintenance.regularCheck} readOnly style={{ ...inputStyle, background: 'var(--bg-main)', color: 'var(--text-muted)' }} />
                   </div>
                   <div>
                     <label style={labelStyle}>소모품 교환</label>
-                    <input value={formData.maintenance.consumables} onChange={(e) => setFormData({ ...formData, maintenance: { ...formData.maintenance, consumables: e.target.value } })} style={inputStyle} />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>일반정비</label>
-                    <input value={formData.maintenance.generalMaintenance} onChange={(e) => setFormData({ ...formData, maintenance: { ...formData.maintenance, generalMaintenance: e.target.value } })} style={inputStyle} />
+                    <input value={formData.maintenance.consumables} readOnly style={{ ...inputStyle, background: 'var(--bg-main)', color: 'var(--text-muted)' }} />
                   </div>
                 </div>
               </div>
@@ -1233,8 +1690,17 @@ function VehicleManagementView({ showToast, currentUser }) {
                     <input type="number" step="0.1" value={formData.interestRate} onChange={(e) => setFormData({ ...formData, interestRate: e.target.value })} style={inputStyle} />
                   </div>
                   <div>
-                    <label style={labelStyle}>회사수수료 (원)</label>
-                    <MoneyInput value={formData.companyCommission} onChange={(e) => setFormData({ ...formData, companyCommission: e.target.value })} style={inputStyle} />
+                    <label style={labelStyle}>회사수수료 (이익률)</label>
+                    <input
+                      value={formData.companyCommission === '' || formData.companyCommission === null || formData.companyCommission === undefined
+                        ? ''
+                        : `${Number(formData.companyCommission).toFixed(2)}%`}
+                      readOnly
+                      style={{ ...inputStyle, background: 'var(--bg-main)', color: 'var(--text-muted)' }}
+                    />
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                      이익금 ÷ 차량가 (저장하면 다시 계산됩니다)
+                    </div>
                   </div>
                   <div>
                     <label style={labelStyle}>타딜러수수료 (원)</label>

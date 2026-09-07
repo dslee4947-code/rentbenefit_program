@@ -10,8 +10,10 @@ import PendingInquiriesView from './PendingInquiriesView.jsx';
 import CompanyManagementView from './CompanyManagementView.jsx';
 import UserManagementView from './UserManagementView.jsx';
 import MonthlyBillingView from './MonthlyBillingView.jsx';
+import FineNoticeView from './FineNoticeView.jsx';
 import LedgerView from './LedgerView.jsx';
 import MyPageView from './MyPageView.jsx';
+import HandbookView from './HandbookView.jsx';
 
 import {
   LayoutDashboard,
@@ -26,18 +28,20 @@ import {
   X,
   Key,
   FileText,
+  FileWarning,
   Settings,
   Building2,
   Truck,
   MessageCircleQuestion,
-  Wallet
+  Wallet,
+  BookOpen
 } from 'lucide-react';
 
 function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   const getTabFromHash = () => {
     const hash = window.location.hash.replace('#/', '');
     // 메뉴를 새로 추가하면 여기에도 넣어야 한다. 빠지면 주소는 바뀌는데 화면은 대시보드로 되돌아간다.
-    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'delivery-prep', 'vehicles', 'calendar', 'users', 'billing', 'ledgers', 'mypage'];
+    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'delivery-prep', 'vehicles', 'calendar', 'users', 'billing', 'fine-notices', 'ledgers', 'handbook', 'mypage'];
     return validTabs.includes(hash) ? hash : 'dashboard';
   };
 
@@ -94,6 +98,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
     { id: 'delivery-prep', name: '출고 준비', icon: <Truck size={20} /> },
     { id: 'vehicles', name: '렌트차량 DB', icon: <Car size={20} /> },
     { id: 'billing', name: '장기렌트 청구서', icon: <FileText size={20} /> },
+    { id: 'fine-notices', name: '고지서 관리', icon: <FileWarning size={20} /> },
     { id: 'ledgers', name: '차량 손익 원장', icon: <Wallet size={20} /> },
     { id: 'calendar', name: '일정표 캘린더', icon: <Calendar size={20} /> }
   ];
@@ -101,6 +106,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   if (currentUser?.role === 'admin') {
     menuItems.push({ id: 'users', name: '사용자 권한 관리', icon: <Key size={20} /> });
   }
+  menuItems.push({ id: 'handbook', name: '업무 매뉴얼', icon: <BookOpen size={20} /> });
   menuItems.push({ id: 'mypage', name: '마이페이지', icon: <Settings size={20} /> });
 
   const navigateToTab = (tabId) => {
@@ -392,6 +398,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'delivery-prep' && '출고 준비'}
               {activeTab === 'vehicles' && '렌트차량 DB 관리'}
               {activeTab === 'billing' && '장기렌트 청구서'}
+              {activeTab === 'fine-notices' && '고지서 관리'}
               {activeTab === 'ledgers' && '차량 손익 원장 (갑지)'}
               {activeTab === 'calendar' && '캘린더 관리 일정표'}
               {activeTab === 'users' && '사용자 권한 관리'}
@@ -407,9 +414,11 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'delivery-prep' && '계약은 완료됐지만 차량번호/차대번호 등 실물 등록이 아직 안 끝난 차량을 정리합니다.'}
               {activeTab === 'vehicles' && '전체 렌트 차량의 계약정보, 잔여일정, 담당 정비 내역을 상세 조회합니다.'}
               {activeTab === 'billing' && '계약 건별 대여료 및 기타 추가 납입 항목을 취합하여 프리미엄 청구서를 발행 및 관리합니다.'}
+              {activeTab === 'fine-notices' && '범칙금·과태료·미납통행료 고지서를 모아 보고, 기한 안에 고객이 냈는지 확인해 청구 여부를 정합니다.'}
               {activeTab === 'ledgers' && '차량 1대에 들어간 돈과 들어온 돈을 갑지 한 장으로 모아 정산 결과를 확인합니다.'}
               {activeTab === 'calendar' && '정기점검, 종합검사, 렌트만료, 계산서발행 예정일을 한눈에 보여주는 관리 일정표입니다.'}
               {activeTab === 'users' && '가입된 사내 직원들의 권한(조회/수정 및 삭제/관리자)을 조정하고 승인합니다.'}
+              {activeTab === 'handbook' && '문의 접수부터 견적·계약·출고·청구·정산까지, 업무 순서와 화면 사용법을 정리한 인수인계 문서입니다.'}
               {activeTab === 'mypage' && '내 계정의 비밀번호와 개인정보를 수정합니다.'}
             </p>
           </div>
@@ -488,6 +497,13 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
             />
           )}
 
+          {activeTab === 'fine-notices' && (
+            <FineNoticeView
+              showToast={showToast}
+              currentUser={currentUser}
+            />
+          )}
+
           {activeTab === 'ledgers' && (
             <LedgerView
               showToast={showToast}
@@ -506,6 +522,12 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
             <UserManagementView
               showToast={showToast}
               currentUser={currentUser}
+            />
+          )}
+
+          {activeTab === 'handbook' && (
+            <HandbookView
+              setActiveTab={navigateToTab}
             />
           )}
 

@@ -57,9 +57,28 @@ const BillingRoundSchema = new Schema({
     kind: { type: String }, // 범칙금 / 과태료 / 통행료 / 정비내역 / 기타
     amount: { type: Number, default: 0 }, // 이 서류의 청구 금액
     plateNo: String, // 어느 차량 건인지. 법인이 가장 먼저 묻는 정보다
-    occurredAt: Date, // 위반일 / 발생일
+    occurredAt: Date, // 위반일 / 발생일. 어느 계약자 건인지를 가르는 값이다
+    // 고지서에 적힌 번호. 같은 고지서를 다시 스캔하면 파일 지문이 달라져 중복을 못 잡으므로,
+    // 이 번호를 진짜 열쇠로 쓴다.
+    noticeNo: String,
+    noticeDueDate: Date, // 고지서상 납부기한. 지나면 다음 회차 렌트료에 얹어 청구한다
+    /**
+     * 고객이 기한 안에 직접 냈는지.
+     *
+     * 직접 낸 건은 청구서에서 빠져야 한다. 첨부를 지우면 그 고지서가 있었다는 기록까지
+     * 사라져 나중에 되짚을 수 없으므로, 지우지 않고 상태로 남기고 금액만 뺀다.
+     */
+    noticeStatus: { type: String, enum: ['청구예정', '고객납부'], default: '청구예정' },
+    paidByCustomerAt: Date,
+    // 고객에게 안내 메일을 보낸 시각과 받는 곳.
+    // 같은 고지서를 두 번 보내면 법인이 이중 청구로 오해한다. 보낸 기록이 있어야 막을 수 있다.
+    noticeMailSentAt: Date,
+    noticeMailTo: String,
     fileName: String,
     savedPath: String, // 실제로 저장된 경로. 폴더를 뒤지지 않고 바로 열기 위해 남긴다
+    // 파일 내용의 지문(sha256). 같은 고지서를 두 번 올려 금액이 두 배로 청구되는 것을 막는다.
+    // 파일 이름이 아니라 내용으로 본다. 이름은 저장할 때 바뀌기도 한다.
+    fileHash: String,
     uploadedAt: { type: Date, default: Date.now }
   }],
 
@@ -87,6 +106,8 @@ const BillingScheduleSchema = new Schema({
 
 BillingScheduleSchema.index({ company: 1 });
 BillingScheduleSchema.index({ 'rounds.dueDate': 1 });
+// 고지서를 올릴 때마다 "이미 올린 번호인가"를 전 계약에서 찾는다. 인덱스가 없으면 전수 조회가 된다.
+BillingScheduleSchema.index({ 'rounds.attachments.noticeNo': 1 });
 
 const BillingSchedule = mongoose.model('BillingSchedule', BillingScheduleSchema);
 export default BillingSchedule;

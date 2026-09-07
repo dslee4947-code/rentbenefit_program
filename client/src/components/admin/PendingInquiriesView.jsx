@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { MessageCircleQuestion, Plus, X, Save, CheckCircle2, Trash2, Search } from 'lucide-react';
 import { formatCustomerName } from '../../utils/format.js';
 import { useTableSort } from './useTableSort.js';
+import { useSaveShortcut } from './useSaveShortcut.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
 import { useDraggableDialog, DIALOG_TOP } from './useDraggableDialog.js';
 import { createPortal } from 'react-dom';
@@ -79,7 +80,7 @@ function PendingInquiriesView({ showToast, currentUser }) {
   };
 
   const handleCreateInquiry = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     if (currentUser?.role === 'viewer') {
       showToast?.('등록 권한이 없습니다. 관리자에게 문의하세요.', 'error');
       return;
@@ -120,6 +121,9 @@ function PendingInquiriesView({ showToast, currentUser }) {
       setSaving(false);
     }
   };
+
+  // 팝업이 열려 있는 동안 Ctrl+S로 저장한다
+  useSaveShortcut(showModal && !saving, () => handleCreateInquiry());
 
   const handleResolve = async (inquiry) => {
     if (currentUser?.role === 'viewer') {

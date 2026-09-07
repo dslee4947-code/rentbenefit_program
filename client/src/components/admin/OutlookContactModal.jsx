@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSaveShortcut } from './useSaveShortcut.js';
 import {
   X,
   Save,
@@ -257,7 +258,6 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
     }
   };
 
-  // 4. Save Handler
   const handleSave = async () => {
     try {
       setSaving(true);
@@ -271,6 +271,10 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
       setSaving(false);
     }
   };
+
+  // 4. Save Handler
+  // 카드가 열려 있는 동안 Ctrl+S로 저장한다
+  useSaveShortcut(!saving, () => handleSave());
 
   // 5. Attempt Close Handler
   const attemptClose = () => {

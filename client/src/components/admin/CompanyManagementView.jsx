@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { formatBizNo, formatCorporateRegistrationNo, formatCustomerName, formatPersonalIdPrefix } from '../../utils/format.js';
 import { useTableSort } from './useTableSort.js';
+import { useSaveShortcut } from './useSaveShortcut.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -542,7 +543,7 @@ function CompanyManagementView({ showToast, currentUser }) {
   };
 
   const handleSaveCompany = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     if (currentUser?.role === 'viewer') {
       showToast?.('등록 및 수정 권한이 없습니다. 관리자에게 문의하세요.', 'error');
       return;
@@ -622,6 +623,9 @@ function CompanyManagementView({ showToast, currentUser }) {
       setSaving(false);
     }
   };
+
+  // 팝업이 열려 있는 동안 Ctrl+S로 저장한다
+  useSaveShortcut(showModal && !saving, () => handleSaveCompany());
 
   // 법인 목록에서 정렬할 수 있는 항목. 검색은 서버가 하고, 구분 필터와 정렬은 받아 온 목록에서 한다.
   const COMPANY_COLUMNS = [

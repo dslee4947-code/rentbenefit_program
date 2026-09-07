@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import OutlookContactModal from './OutlookContactModal';
 import { useServerTableSort } from './useTableSort.js';
+import { useSaveShortcut } from './useSaveShortcut.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
 import * as XLSX from 'xlsx';
 
@@ -225,9 +226,8 @@ function CustomerListView({ showToast, currentUser }) {
     setShowModal(true);
   };
 
-  // 5. 고객 정보 저장 (생성/수정)
   const handleSaveCustomer = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     if (currentUser?.role === 'viewer') {
       showToast?.('수정 및 등록 권한이 없습니다. 관리자에게 문의하세요.', 'error');
       return;
@@ -281,6 +281,10 @@ function CustomerListView({ showToast, currentUser }) {
       showToast?.(err.message, 'error');
     }
   };
+
+  // 5. 고객 정보 저장 (생성/수정)
+  // 팝업이 열려 있는 동안 Ctrl+S로 저장한다
+  useSaveShortcut(showModal, () => handleSaveCustomer());
 
   // 6. 고객 삭제
   const handleDeleteCustomer = async (id, name) => {

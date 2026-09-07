@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { PARTY_TYPES } from '../utils/partyType.js';
 const { Schema } = mongoose;
 
 const ContractSchema = new Schema({
@@ -18,7 +19,9 @@ const ContractSchema = new Schema({
   vehicleInfo: Schema.Types.Mixed,
   customer: { type: Schema.Types.ObjectId, ref: 'Customer', required: true },
   quote: { type: Schema.Types.ObjectId, ref: 'Quote' },
-  partyType: { type: String, enum: ['개인', '법인'], default: '개인' },
+  // 계약구분. '개인'은 계약서 등록 화면이 아직 쓰는 예전 값이라 함께 받아 둔다
+  // (렌트차량 DB는 개인사업자/일반개인으로 나눠 본다).
+  partyType: { type: String, enum: [...PARTY_TYPES, '개인'], default: '일반개인' },
   companyId: { type: Schema.Types.ObjectId, ref: 'Company' }, // partyType이 '법인'일 때만 사용
   leaseCompany: String, // 계약사
   contractDate: Date,
@@ -65,6 +68,7 @@ const ContractSchema = new Schema({
   docFolderName: String,
   pricing: {
     basePrice: Number,
+    optionPrice: Number, // 옵션가
     discount: Number,
     supplyPrice: Number,
     deliveryFee: Number,

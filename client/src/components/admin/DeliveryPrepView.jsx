@@ -3,6 +3,7 @@ import { Truck, Search, X, Save, CheckCircle2, Plus, Trash2, Edit } from 'lucide
 import { formatCustomerName, PAYMENT_DAY_OPTIONS } from '../../utils/format.js';
 import MoneyInput from './MoneyInput.jsx';
 import { useTableSort } from './useTableSort.js';
+import { useSaveShortcut } from './useSaveShortcut.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
 import { useDraggableDialog, DIALOG_TOP } from './useDraggableDialog.js';
 import { createPortal } from 'react-dom';
@@ -438,6 +439,9 @@ function DeliveryPrepView({ showToast, currentUser }) {
     }
   };
 
+  // 팝업이 열려 있는 동안 Ctrl+S로 저장한다
+  useSaveShortcut(showModal && !saving, () => handleSave());
+
   const filteredVehicles = vehicles.filter(v => {
     if (missingFilter === 'plate' && v.plateNo) return false;
     if (missingFilter === 'vin' && v.vin) return false;
@@ -531,7 +535,6 @@ function DeliveryPrepView({ showToast, currentUser }) {
                   <td style={{ padding: '0.8rem', fontWeight: '700' }}>{v.code || '-'}</td>
                   <td style={{ padding: '0.8rem' }}>
                     <div style={{ fontWeight: '600' }}>{v.carModel}</div>
-                    {v.carSpec && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{v.carSpec}</div>}
                   </td>
                   <td style={{ padding: '0.8rem' }}>
                     {v.contract ? (
@@ -600,7 +603,6 @@ function DeliveryPrepView({ showToast, currentUser }) {
                   ['계약자', company ? company.name : formatCustomerName(c?.customer)],
                   ['차량코드', v.code],
                   ['차종', v.carModel],
-                  ['사양', v.carSpec],
                   ['유종 / 배기량', [v.fuelType, v.cc ? `${v.cc}cc` : ''].filter(Boolean).join(' / ')],
                   ['외장 / 내장', [v.exteriorColor, v.interiorColor].filter(Boolean).join(' / ')],
                   ['옵션', v.options],

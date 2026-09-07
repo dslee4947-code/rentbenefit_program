@@ -93,40 +93,84 @@ const buildHtmlBody = (body, tail) => {
  * @param {string} [params.cc] 참조
  */
 export const sendInvoiceMail = async ({ to, subject, fileName, fileBuffer, extraFiles = [], values = {}, cc }) => {
-  if (!to) throw new Error('받는 사람 이메일이 없습니다. 법인 관리에서 청구 이메일을 먼저 등록해 주세요.');
+  return sendTemplateMail({
+    to,
+    cc,
+    subject,
+    values,
+    files: [{ fileName, buffer: fileBuffer, contentType: 'application/pdf' }, ...extraFiles],
+    missingToMessage: '받는 사람 이메일이 없습니다. 법인 관리에서 청구 이메일을 먼저 등록해 주세요.'
+  });
+};
+
+/**
+ * 고지서 안내 메일.
+ *
+ * 고지서가 오면 먼저 고객에게 알린다. 기한 안에 직접 내면 청구하지 않고,
+ * 안 내면 다음 달 렌트료에 얹어 청구한다. 그 순서가 실제 업무다.
+ * 받는 곳은 계약에 적어 둔 범칙금 전용 메일(finesEmail)이다.
+ *
+ * @param {object} params
+ * @param {string} params.to 받는 사람 (계약의 범칙금 메일)
+ * @param {string} [params.cc] 참조 (범칙금 메일 2)
+ * @param {string} params.fileName 고지서 파일명
+ * @param {Buffer} params.fileBuffer 고지서 파일
+ * @param {object} params.values 치환 값 ({{계약자}} {{차량번호}} {{종류}} {{위반일}} {{금액}} {{납부기한}})
+ */
+export const sendFineNoticeMail = async ({ to, cc, fileName, fileBuffer, values = {} }) => {
+  return sendTemplateMail({
+    to,
+    cc,
+    values,
+    templateKey: 'fine-notice',
+    files: fileBuffer ? [{ fileName, buffer: fileBuffer }] : [],
+    missingToMessage: '받는 사람 이메일이 없습니다. 계약서의 범칙금 E-MAIL을 먼저 등록해 주세요.'
+  });
+};
+
+/**
+ * 저장된 양식으로 메일을 보낸다. 청구서와 고지서 안내가 같은 길을 쓴다.
+ *
+ * Microsoft Graph의 앱 전용 토큰을 쓴다(아웃룩 동기화와 같은 Azure 앱).
+ * 보내려면 그 앱에 Mail.Send 응용 프로그램 권한과 관리자 동의가 있어야 한다.
+ *
+ * @param {object} params
+ * @param {string} params.to 받는 사람
+ * @param {string} [params.cc] 참조
+ * @param {string} [params.subject] 제목. 주지 않으면 저장된 양식을 쓴다
+ * @param {object} [params.values] 치환 값
+ * @param {string} [params.templateKey] 양식 종류
+ * @param {Array<{fileName: string, buffer: Buffer, contentType?: string}>} [params.files] 붙일 파일
+ * @param {string} [params.missingToMessage] 받는 사람이 없을 때 알릴 말
+ */
+const sendTemplateMail = async ({ to, cc, subject, values = {}, templateKey = 'invoice', files = [], missingToMessage }) => {
+  if (!to) throw new Error(missingToMessage || '받는 사람 이메일이 없습니다.');
 
   const sender = process.env.INVOICE_SENDER_EMAIL || process.env.OUTLOOK_TARGET_EMAIL;
   if (!sender) {
     throw new Error('보내는 메일 주소가 설정되지 않았습니다. INVOICE_SENDER_EMAIL 또는 OUTLOOK_TARGET_EMAIL을 설정해 주세요.');
   }
 
-  const template = await getOrCreateTemplate();
+  const template = await getOrCreateTemplate(templateKey);
   const finalSubject = applyPlaceholders(subject || template.subject, values);
   const finalBody = applyPlaceholders(template.body, values);
 
   const token = await getGraphAccessToken();
 
-  const attachments = [
-    {
-      '@odata.type': '#microsoft.graph.fileAttachment',
-      name: fileName,
-      contentType: 'application/pdf',
-      contentBytes: fileBuffer.toString('base64')
-    }
-  ];
-  // 청구서에 딸린 서류를 함께 붙인다. 범칙금 고지서 등은 청구서만 보내면 근거가 빠진다.
-  for (const extra of extraFiles) {
-    attachments.push({
-      '@odata.type': '#microsoft.graph.fileAttachment',
-      name: extra.fileName,
-      contentBytes: extra.buffer.toString('base64')
-    });
-  }
+  const attachments = files.map((f) => ({
+    '@odata.type': '#microsoft.graph.fileAttachment',
+    name: f.fileName,
+    ...(f.contentType ? { contentType: f.contentType } : {}),
+    contentBytes: f.buffer.toString('base64')
+  }));
+
+  // 서명은 종류가 달라도 같은 회사 서명이다. 청구서 양식에 올려 둔 것을 함께 쓴다.
+  const signatureSource = templateKey === 'invoice' ? template : await getOrCreateTemplate('invoice');
 
   // 서명 이미지를 올려 두었으면 그것만 붙인다(그 안에 이미 로고가 들어 있다).
   // 없을 때만 예전처럼 로고를 붙인다.
   let tail = null;
-  const signature = template.signature;
+  const signature = signatureSource.signature;
   if (signature?.data?.length) {
     attachments.push({
       '@odata.type': '#microsoft.graph.fileAttachment',

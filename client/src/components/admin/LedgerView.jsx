@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Search, Plus, Save, Trash2, RefreshCw, ArrowLeft, Link2, Printer, FileSpreadsheet, ArrowUp, ArrowDown, CalendarPlus, Pencil, Check, X } from 'lucide-react';
+import { Search, Plus, Save, Trash2, RefreshCw, ArrowLeft, Link2, Printer, FileSpreadsheet, ArrowUp, ArrowDown, CalendarPlus, Pencil, Check } from 'lucide-react';
 import { toCommaString } from '../../utils/format.js';
 import MoneyInput from './MoneyInput.jsx';
+import { useSaveShortcut } from './useSaveShortcut.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -41,15 +42,6 @@ const parseDateInput = (raw) => {
   if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== day) return null;
   return `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 };
-
-// 항목 분류. 화면에 찍히는 이름(내용)은 자유 입력이고, 이건 나중에 통계를 내기 위한 꼬리표다.
-const CATEGORIES = [
-  '계약금', '차량가', '등록비용', '할부이자', '할부금',
-  '보험', '자동차세', '검사비', '정기점검', '과태료·통행료',
-  '공제조합', '차량작업', '수리·사고', '유류·세차', '탁송',
-  '제세공과', '보증금', '선납금', '인수가', '렌트료',
-  '수수료', '캐시백', '환급', '기타'
-];
 
 // 엑셀 갑지의 3개 열. group이 열 위치를, side가 정산 부호를 정한다.
 const COLUMNS = [
@@ -93,14 +85,19 @@ const card = {
   background: '#fff', borderRadius: '12px', border: '1px solid var(--border-color)',
   boxShadow: 'var(--shadow-premium)'
 };
-const cellInput = {
-  width: '100%', border: '1px solid transparent', background: 'transparent',
-  padding: '0.3rem 0.35rem', fontSize: '0.78rem', borderRadius: '4px', color: 'var(--text-bright)'
-};
 const th = {
   padding: '0.5rem 0.4rem', fontSize: '0.75rem', fontWeight: '700',
   color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)', textAlign: 'left'
 };
+const cellPad = { padding: '0.4rem 0.45rem' };
+const addCell = {
+  width: '100%', padding: '0.4rem 0.45rem', border: '1px solid var(--border-color)',
+  borderRadius: '6px', fontSize: '0.78rem', background: '#fff', boxSizing: 'border-box'
+};
+const editCell = { ...addCell, padding: '0.3rem 0.4rem' };
+const iconBtn = (color) => ({
+  border: 'none', background: 'none', color, cursor: 'pointer', padding: '0 0.15rem'
+});
 
 /**
  * 날짜 입력칸. 달력을 열지 않고 261029처럼 쳐 넣으면 2026-10-29가 된다.
@@ -110,7 +107,10 @@ const th = {
  */
 function DateText({ value, onChange, disabled, style, placeholder = 'YYMMDD' }) {
   const [text, setText] = useState(value || '');
-  useEffect(() => { setText(value || ''); }, [value]);
+  // 바깥에서 값이 바뀌면 칸에 다시 비춘다. useEffect로 하면 한 번 더 그려지므로
+  // 리액트가 권하는 대로 그리는 도중에 맞춘다.
+  const [seen, setSeen] = useState(value || '');
+  if (seen !== (value || '')) { setSeen(value || ''); setText(value || ''); }
 
   const commit = () => {
     const parsed = parseDateInput(text);
@@ -439,6 +439,9 @@ function LedgerView({ showToast, currentUser }) {
     }
   };
 
+  // 갑지를 열어 둔 동안 Ctrl+S로 저장한다
+  useSaveShortcut(viewMode === 'detail' && canEdit && !saving, () => handleSave());
+
   const handleSync = async () => {
     if (!ledger) return;
     if (dirty && !window.confirm('저장하지 않은 내용은 사라집니다. 계속할까요?')) return;
@@ -674,8 +677,9 @@ function LedgerView({ showToast, currentUser }) {
   const headerFields = [
     ['구분', 'ledgerNo', null], ['고객명', 'customerName', 'text'], ['계약자명', 'contractorName', 'text'],
     ['차량번호', 'plateNo', 'text'], ['차종', 'carModel', 'text'], ['차량 사양', 'carSpec', 'text'],
-    ['등록일', 'registeredAt', 'date'], ['계약일', 'contractedAt', 'date'], ['계약종료일', 'contractEndAt', 'date'],
-    ['출고일', 'deliveredAt', 'date'], ['차대번호', 'vin', 'text'], ['배기량', 'cc', 'number']
+    ['등록일', 'registeredAt', 'date'], ['출고일', 'deliveredAt', 'date'],
+    ['계약일', 'contractedAt', 'date'], ['계약종료일', 'contractEndAt', 'date'],
+    ['배기량', 'cc', 'number']
   ];
 
   return (
@@ -744,10 +748,17 @@ function LedgerView({ showToast, currentUser }) {
               <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>{label}</label>
               {type === null ? (
                 <div style={{ padding: '0.45rem 0.5rem', background: 'var(--bg-main)', borderRadius: '6px', fontSize: '0.82rem', fontWeight: '700' }}>{ledger.ledgerNo}</div>
+              ) : type === 'date' ? (
+                <DateText
+                  value={toDateInput(h[key])}
+                  onChange={(v) => setHeaderField(key, v)}
+                  disabled={!canEdit}
+                  style={{ width: '100%', padding: '0.45rem 0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.82rem', background: '#fff' }}
+                />
               ) : (
                 <input
-                  type={type === 'date' ? 'date' : (type === 'number' ? 'number' : 'text')}
-                  value={type === 'date' ? toDateInput(h[key]) : (h[key] ?? '')}
+                  type={type === 'number' ? 'number' : 'text'}
+                  value={h[key] ?? ''}
                   onChange={(e) => setHeaderField(key, e.target.value)}
                   disabled={!canEdit}
                   style={{ width: '100%', padding: '0.45rem 0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.82rem', background: '#fff' }}
@@ -800,7 +811,7 @@ function LedgerView({ showToast, currentUser }) {
               <div style={{ padding: '0.4rem 0.7rem' }}>
                 {summary.rows.map((r) => (
                   <div key={r.bank} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', padding: '0.2rem 0' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>{r.bank}</span>
+                    <span style={{ color: 'var(--text-muted)' }}>{bankText(r.bank)}</span>
                     <span>{signed(box.pick(r))}</span>
                   </div>
                 ))}
@@ -813,109 +824,165 @@ function LedgerView({ showToast, currentUser }) {
         </div>
       </div>
 
-      {/* 3열 입력 그리드 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '1rem', alignItems: 'start' }}>
+      {/* 3열 입력 그리드 - 엑셀 갑지의 회사출금액 / 고객입금액 / 기타 열 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1rem', alignItems: 'start' }}>
         {COLUMNS.map((column) => {
           const rows = entries.filter((e) => (e.group || '회사출금') === column.group
             && (periodView === null || (e.periodSeq || 1) === periodView));
           const subtotal = rows.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+          const d = draft[column.group] || {};
+
           return (
             <div key={column.group} style={{ ...card, overflow: 'hidden' }}>
-              <div style={{ padding: '0.7rem 0.9rem', borderBottom: `2px solid ${column.accent}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-main)' }}>
+              <div style={{ padding: '0.7rem 0.9rem', borderBottom: `2px solid ${column.accent}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-main)' }}>
                 <span style={{ fontWeight: '800', fontSize: '0.85rem', color: column.accent }}>{column.title}</span>
-                <span style={{ fontSize: '0.82rem', fontWeight: '700' }}>{toCommaString(subtotal)} 원</span>
+                <span style={{ fontSize: '0.82rem', fontWeight: '700', whiteSpace: 'nowrap' }}>{toCommaString(subtotal)} 원</span>
               </div>
 
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '460px' }}>
-                  <thead>
-                    <tr style={{ background: '#fafafa' }}>
-                      <th style={{ ...th, width: '32%' }}>내용</th>
-                      <th style={{ ...th, width: '22%', textAlign: 'right' }}>금액</th>
-                      <th style={{ ...th, width: '14%' }}>은행</th>
-                      <th style={{ ...th, width: '22%' }}>날짜</th>
-                      <th style={{ ...th, width: '10%' }} />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((e) => (
-                      <tr key={e._id} style={{ borderBottom: '1px solid var(--border-color)', background: e.source && e.source !== 'manual' && !e.locked ? '#f4f8ff' : '#fff' }}>
-                        <td style={{ padding: '0.15rem 0.25rem' }}>
-                          <input
-                            value={e.label || ''}
-                            onChange={(ev) => updateEntry(e._id, 'label', ev.target.value)}
-                            disabled={!canEdit}
-                            placeholder="항목명"
-                            title={e.source && e.source !== 'manual'
-                              ? `계약·청구·차량 정보에서 자동으로 가져온 줄입니다${e.locked ? ' (직접 고쳐서 더 이상 자동으로 바뀌지 않습니다)' : ''}`
-                              : undefined}
-                            style={{ ...cellInput, fontWeight: e.locked ? '700' : '400' }}
-                          />
-                          <select
-                            value={e.category || '기타'}
-                            onChange={(ev) => updateEntry(e._id, 'category', ev.target.value)}
-                            disabled={!canEdit}
-                            style={{ ...cellInput, fontSize: '0.68rem', color: 'var(--text-muted)', padding: '0 0.35rem' }}
-                          >
-                            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                          </select>
-                        </td>
-                        <td style={{ padding: '0.15rem 0.25rem' }}>
-                          <MoneyInput
-                            value={e.amount}
-                            onChange={(ev) => updateEntry(e._id, 'amount', ev.target.value)}
-                            disabled={!canEdit}
-                            style={cellInput}
-                          />
-                        </td>
-                        <td style={{ padding: '0.15rem 0.25rem' }}>
-                          <input
-                            list="ledger-banks"
-                            value={e.bank || ''}
-                            onChange={(ev) => updateEntry(e._id, 'bank', ev.target.value)}
-                            disabled={!canEdit}
-                            style={cellInput}
-                          />
-                        </td>
-                        <td style={{ padding: '0.15rem 0.25rem' }}>
-                          <input
-                            type="date"
-                            value={e.date || ''}
-                            onChange={(ev) => updateEntry(e._id, 'date', ev.target.value)}
-                            disabled={!canEdit}
-                            style={{ ...cellInput, fontSize: '0.72rem' }}
-                          />
-                        </td>
-                        <td style={{ padding: '0.15rem 0.25rem', textAlign: 'center' }}>
-                          {canEdit && (
-                            <button type="button" onClick={() => removeRow(e._id)} style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}>
-                              <Trash2 size={13} />
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                    {rows.length === 0 && (
-                      <tr><td colSpan={5} style={{ padding: '1.2rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.78rem' }}>아직 적은 내역이 없습니다.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
+              {/* 맨 위 추가 칸. 여기서 친 줄이 아래 목록 맨 위에 쌓인다 */}
               {canEdit && (
-                <button
-                  type="button"
-                  onClick={() => addRow(column)}
-                  style={{ width: '100%', border: 'none', borderTop: '1px solid var(--border-color)', background: '#fff', padding: '0.55rem', fontSize: '0.78rem', fontWeight: '700', color: column.accent, cursor: 'pointer' }}
-                >
-                  <Plus size={13} style={{ verticalAlign: '-2px' }} /> 줄 추가
-                </button>
+                <div style={{ padding: '0.6rem 0.7rem', background: '#fbfcfe', borderBottom: '1px solid var(--border-color)' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem', marginBottom: '0.35rem' }}>
+                    <input
+                      list={`labels-${column.group}`}
+                      value={d.label || ''}
+                      onChange={(e) => setDraftField(column.group, 'label', e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') addFromDraft(column); }}
+                      placeholder="내용 (예: 주유비)"
+                      style={addCell}
+                    />
+                    <MoneyInput
+                      value={d.amount ?? ''}
+                      onChange={(e) => setDraftField(column.group, 'amount', e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') addFromDraft(column); }}
+                      placeholder="금액"
+                      style={addCell}
+                    />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '0.35rem' }}>
+                    <input
+                      list="ledger-banks"
+                      value={d.bank ?? 'B'}
+                      onChange={(e) => setDraftField(column.group, 'bank', e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') addFromDraft(column); }}
+                      placeholder="은행"
+                      style={addCell}
+                    />
+                    <DateText
+                      value={d.date || ''}
+                      onChange={(v) => setDraftField(column.group, 'date', v)}
+                      style={addCell}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => addFromDraft(column)}
+                      style={{ background: column.accent, color: '#fff', border: 'none', padding: '0 0.9rem', borderRadius: '6px', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    >
+                      <Plus size={13} style={{ verticalAlign: '-2px' }} /> 추가
+                    </button>
+                  </div>
+                </div>
               )}
+
+              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                <thead>
+                  <tr style={{ background: '#fafafa' }}>
+                    <th style={{ ...th, width: '36%' }}>내용</th>
+                    <th style={{ ...th, width: '22%', textAlign: 'right' }}>금액</th>
+                    <th style={{ ...th, width: '16%' }}>은행</th>
+                    <th style={{ ...th, width: '17%' }}>날짜</th>
+                    <th style={{ ...th, width: '9%' }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((e) => {
+                    const editing = editingId === e._id;
+                    const auto = e.source && e.source !== 'manual';
+                    return (
+                      <tr
+                        key={e._id}
+                        style={{
+                          borderBottom: '1px solid var(--border-color)',
+                          background: editing ? '#fffbe6' : (auto && !e.locked ? '#f4f8ff' : '#fff')
+                        }}
+                      >
+                        {editing ? (
+                          <>
+                            <td style={cellPad}>
+                              <input
+                                list={`labels-${column.group}`}
+                                value={e.label || ''}
+                                onChange={(ev) => updateEntry(e._id, 'label', ev.target.value)}
+                                placeholder="내용"
+                                autoFocus
+                                style={editCell}
+                              />
+                            </td>
+                            <td style={cellPad}>
+                              <MoneyInput value={e.amount} onChange={(ev) => updateEntry(e._id, 'amount', ev.target.value)} style={editCell} />
+                            </td>
+                            <td style={cellPad}>
+                              <input list="ledger-banks" value={e.bank || ''} onChange={(ev) => updateEntry(e._id, 'bank', ev.target.value)} style={editCell} />
+                            </td>
+                            <td style={cellPad}>
+                              <DateText value={e.date || ''} onChange={(v) => updateEntry(e._id, 'date', v)} style={editCell} />
+                            </td>
+                            <td style={{ ...cellPad, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                              <button type="button" onClick={() => setEditingId(null)} title="입력 마침" style={iconBtn('#2f6f4e')}>
+                                <Check size={14} />
+                              </button>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td
+                              style={{ ...cellPad, fontSize: '0.78rem', fontWeight: e.locked ? '700' : '400', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                              title={auto
+                                ? `${e.label} — 계약·청구·차량 정보에서 자동으로 가져온 줄입니다${e.locked ? ' (직접 고쳐서 더 이상 자동으로 바뀌지 않습니다)' : ''}`
+                                : e.label}
+                            >
+                              {e.label || <span style={{ color: 'var(--text-muted)' }}>(내용 없음)</span>}
+                            </td>
+                            <td style={{ ...cellPad, fontSize: '0.78rem', textAlign: 'right', whiteSpace: 'nowrap' }}>{toCommaString(e.amount)}</td>
+                            <td style={{ ...cellPad, fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={bankText(e.bank)}>
+                              {e.bank || '-'}
+                            </td>
+                            <td style={{ ...cellPad, fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{e.date || '-'}</td>
+                            <td style={{ ...cellPad, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                              {canEdit && (
+                                <>
+                                  <button type="button" onClick={() => setEditingId(e._id)} title="수정" style={iconBtn('var(--primary)')}>
+                                    <Pencil size={13} />
+                                  </button>
+                                  <button type="button" onClick={() => removeRow(e._id)} title="삭제" style={iconBtn('var(--error)')}>
+                                    <Trash2 size={13} />
+                                  </button>
+                                </>
+                              )}
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    );
+                  })}
+                  {rows.length === 0 && (
+                    <tr><td colSpan={5} style={{ padding: '1.2rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.78rem' }}>아직 적은 내역이 없습니다.</td></tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           );
         })}
       </div>
-      <datalist id="ledger-banks">{BANKS.map((b) => <option key={b} value={b} />)}</datalist>
+
+      <datalist id="ledger-banks">
+        {BANKS.map((b) => <option key={b} value={b}>{BANK_LABELS[b] || b}</option>)}
+      </datalist>
+      {COLUMNS.map((column) => (
+        <datalist key={column.group} id={`labels-${column.group}`}>
+          {(labelHints[column.group] || []).map((l) => <option key={l} value={l} />)}
+        </datalist>
+      ))}
 
       {/* 계약 구간 이력 */}
       <div style={{ ...card, padding: '1.2rem' }}>

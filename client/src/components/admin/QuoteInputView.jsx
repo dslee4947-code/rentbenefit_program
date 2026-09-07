@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Sparkles, Save, ArrowRight, UserPlus, Users, Car, Coins, Settings, HelpCircle, CheckCircle, Plus, Trash2, FolderOpen, X, Search, List, Edit, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatCustomerName, cleanSpecValue, extractQuoteVehicleDetail } from '../../utils/format.js';
 import { useDraggableDialog, DIALOG_TOP } from './useDraggableDialog.js';
+import { useSaveShortcut } from './useSaveShortcut.js';
 import { createPortal } from 'react-dom';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -1237,6 +1238,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
     // 나중에 "불러오기"로 계약서 등록에 바로 연결할 수 있도록 가격 상세를 항상 함께 저장한다
     const pricing = {
       basePrice: activeVehicle.carPrice,
+      // 옵션가는 차량가에 합치지 않고 따로 넘긴다. 계약서·렌트차량 DB에서 나눠 봐야 한다.
+      optionPrice: activeVehicle.carOptionPrice,
       discount: calculated.discountAmount,
       supplyPrice: calculated.netVehiclePrice,
       deliveryFee: activeVehicle.consignmentFee,
@@ -1452,6 +1455,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
       }, 800);
     }
   };
+
+  // 견적을 쓰는 동안 Ctrl+S로 저장한다
+  useSaveShortcut(viewMode === 'form', () => handleSaveQuote());
 
   // 견적비교에서 "최종선택"을 누르면 저장/전환 없이 그 옵션에 표시만 해둔다.
   // 실제 저장 및 계약서 등록 화면으로의 전환은 "계약서 등록 전환" 버튼을 눌러야 실행된다.

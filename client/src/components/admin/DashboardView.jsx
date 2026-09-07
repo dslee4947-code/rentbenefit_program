@@ -10,7 +10,9 @@ import {
   ChevronRight,
   Bell,
   Clock,
-  ArrowRight
+  ArrowRight,
+  AlertTriangle,
+  Truck
 } from 'lucide-react';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -30,6 +32,20 @@ const fetchDashboardSummary = async () => {
   return res.json();
 };
 
+/**
+ * 청구가 시작되지 않은 계약.
+ *
+ * 출고 준비를 저장하지 않으면 회차표가 없고, 회차표가 없으면 청구 대상 목록에 뜨지 않는다.
+ * 계약 등록 화면은 이걸 막지 않으므로, 대시보드에서 잡아 주지 않으면 아무도 모른다.
+ */
+const fetchBillingGaps = async () => {
+  const res = await fetch(`${API_HOST}/api/dashboard/billing-gaps`);
+  if (!res.ok) throw new Error('청구 누락 계약을 불러오지 못했습니다.');
+  return res.json();
+};
+
+const won = (n) => `${Number(n || 0).toLocaleString()}원`;
+
 function DashboardView({ setActiveTab, showToast }) {
   const queryClient = useQueryClient();
 
@@ -40,6 +56,15 @@ function DashboardView({ setActiveTab, showToast }) {
     queryFn: fetchDashboardSummary,
     staleTime: 30 * 1000
   });
+
+  // 이 목록은 대개 비어 있다. 비었을 때는 화면에 아무것도 그리지 않으므로,
+  // 실패해도 토스트를 띄우지 않는다(대시보드를 열 때마다 경고가 뜨면 본문을 가린다).
+  const { data: gapData } = useQuery({
+    queryKey: ['dashboard-billing-gaps'],
+    queryFn: fetchBillingGaps,
+    staleTime: 60 * 1000
+  });
+  const gaps = gapData?.items || [];
 
   React.useEffect(() => {
     if (isError) {
@@ -148,6 +173,87 @@ function DashboardView({ setActiveTab, showToast }) {
           </div>
         </div>
       </div>
+
+      {/* 청구가 시작되지 않은 계약 - 있을 때만 보여 준다 */}
+      {gaps.length > 0 && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '12px', padding: '1.5rem', boxShadow: 'var(--shadow-premium)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
+              <AlertTriangle size={22} style={{ color: '#b45309', flexShrink: 0, marginTop: '0.1rem' }} />
+              <div>
+                <h3 style={{ fontSize: '1.15rem', fontWeight: '700', color: '#92400e', margin: 0 }}>
+                  청구가 시작되지 않은 계약 {gapData.count}건
+                </h3>
+                <p style={{ color: '#b45309', fontSize: '0.85rem', margin: '0.25rem 0 0', lineHeight: 1.55 }}>
+                  회차표가 없어 청구 대상 목록에 뜨지 않습니다. 이대로 두면 매달 렌트료가 청구되지 않습니다.
+                </p>
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '0.75rem', color: '#b45309', fontWeight: '600' }}>매달 빠지는 금액</div>
+              <div style={{ fontSize: '1.4rem', fontWeight: '700', color: '#b45309' }}>{won(gapData.monthlyLoss)}</div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            {gaps.map((it) => (
+              <div
+                key={it._id}
+                style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  gap: '1rem', flexWrap: 'wrap',
+                  background: '#fff', border: '1px solid #fde68a',
+                  borderRadius: '8px', padding: '0.9rem 1.1rem'
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: '600', color: 'var(--text-bright)', fontSize: '0.95rem' }}>
+                    {it.partyName}
+                    <span style={{ color: 'var(--text-muted)', fontWeight: '400', fontSize: '0.85rem' }}>
+                      {' '}· {it.contractNo}
+                      {it.carModel ? ` · ${it.carModel}` : ''}
+                      {it.plateNo ? ` (${it.plateNo})` : ''}
+                    </span>
+                  </div>
+                  <div style={{ color: '#b45309', fontSize: '0.83rem', marginTop: '0.25rem', lineHeight: 1.5 }}>
+                    {it.reason}
+                  </div>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: '0.2rem' }}>
+                    계약일 {it.contractDate ? new Date(it.contractDate).toLocaleDateString() : '-'}
+                    {it.termMonths ? ` · ${it.termMonths}개월` : ''}
+                    {it.monthlyFee ? ` · 월 ${won(it.monthlyFee)}` : ''}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('delivery-prep')}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '0.35rem',
+                    background: '#b45309', color: '#fff', border: 'none',
+                    padding: '0.5rem 0.9rem', borderRadius: '6px',
+                    fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  <Truck size={15} /> 출고 준비에서 입력
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {gapData.noBillingNeededCount > 0 && (
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: '0.8rem', marginBottom: 0 }}>
+              이 밖에 월 렌트료가 0원이라 청구가 필요 없는 계약이 {gapData.noBillingNeededCount}건 있습니다(완납 등 정상 상태라 위 목록에서 뺐습니다).
+            </p>
+          )}
+
+          {gapData.truncated && (
+            <p style={{ color: '#b45309', fontSize: '0.78rem', marginTop: '0.5rem', marginBottom: 0 }}>
+              최근 계약 {gapData.scanned}건까지만 확인했습니다. 처리한 뒤 다시 열면 그 앞의 계약도 확인합니다.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Quick Action Link Row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem' }}>

@@ -3,7 +3,7 @@ import { Search, Plus, Save, Trash2, RefreshCw, ArrowLeft, Link2, Printer, FileS
 import { toCommaString } from '../../utils/format.js';
 import MoneyInput from './MoneyInput.jsx';
 import { useSaveShortcut } from './useSaveShortcut.js';
-import { calculateQuoteOption } from '../../utils/quoteCalc.js';
+import { calculateQuoteOption } from '../../../../shared/quoteCalc.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 

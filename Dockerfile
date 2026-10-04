@@ -9,6 +9,8 @@ COPY server/package.json server/package-lock.json ./server/
 RUN npm ci --omit=dev --prefix server
 
 COPY server ./server
+# 견적 계산식. 화면과 서버가 같은 파일을 써서 렌트차량 DB 이익과 견적서 숫자가 어긋나지 않게 한다.
+COPY shared ./shared
 
 ENV NODE_ENV=production
 ENV PORT=8080

@@ -69,28 +69,91 @@ export const defaultMaintenanceItems = [
   { name: '기타 보충', cycle: '수시', desc: '-', price: 0, checked: true }
 ];
 
-export const getCalculatedMaintenanceFee = (opt, vehicle) => {
-  if (!opt || !vehicle) return 50000;
-  
-  const rawItems = opt.maintenanceItems || vehicle.maintenanceItems || defaultMaintenanceItems;
-  const totalMileage = (opt.termYears || 4) * (opt.mileage || 20000);
-  const computedTireCount = Math.floor(totalMileage / 60000) * 4;
-  const computedTireCost = computedTireCount * (opt.tireUnitCost || 150000);
-  
-  const totalSum = rawItems
-    .filter(item => item.checked)
-    .reduce((sum, item) => {
-      if (item.name === '타이어 교체') {
-        return sum + computedTireCost;
-      }
-      return sum + (item.price || 0);
-    }, 0);
-    
-  const termMonths = (opt.termYears || 4) * 12;
-  if (termMonths <= 0) return 0;
-  
-  return Math.floor((totalSum / termMonths) / 1000) * 1000;
+// ───── 견적 화면과 서버(렌트차량 DB 이익 계산)가 같이 쓰는 기본 식. 한쪽만 고치면 숫자가 어긋나므로 여기서만 고친다.
+
+// 기간별 금리 가산 (E14 기간별 적용금리)
+export const addedRateForTerm = (termMonths) => {
+  if (termMonths <= 12) return 0.0031;
+  if (termMonths <= 24) return 0.0025;
+  if (termMonths <= 36) return 0.0019;
+  if (termMonths <= 48) return 0.0014;
+  return 0.0010;
 };
+
+// 취득세 (E21): 공급가 기준 4%, 10원 미만 버림
+export const acquisitionTaxFor = (netVehiclePrice) => Math.floor(((netVehiclePrice / 1.1) * 0.04) / 10) * 10;
+
+// 공채 (E22): 공급가 × 3% × 16%, 10원 미만 버림
+export const publicBondFor = (netVehiclePrice) => Math.floor(((netVehiclePrice / 1.1) * 0.03 * 0.16) / 10) * 10;
+
+// 자차보험료율 (E24): 공급가가 클수록 낮아진다.
+// 엑셀은 천만 원 단위로 올린 값에 곱해 4,990만 원 → 5,010만 원에서 보험료가 16만 원 뛰었다. 공급가에 그대로 곱한다.
+export const ownCarInsuranceRate = (netVehiclePrice) => {
+  if (netVehiclePrice <= 10000000) return 0.022;
+  if (netVehiclePrice >= 500000000) return 0.012;
+  return 0.017 - (netVehiclePrice - 10000000) * (0.01 / (500000000 - 10000000));
+};
+
+// 연간 자동차세 (E25, 영업용): 배기량 기준. 배기량을 모르면 20,000원
+export const annualCarTax = (cc) => {
+  const engine = Number(cc) || 0;
+  if (engine <= 0) return 20000;
+  if (engine <= 1600) return engine * 18;
+  if (engine <= 2500) return engine * 19;
+  return engine * 24;
+};
+
+// 조달이자 총액 (E15). balloon은 만기에 남기는 원금(만기 인수가 상환일 때만, 아니면 0)
+export const fundingInterestFor = ({ annualRate, months, principal, balloon = 0 }) => {
+  if (!months) return 0;
+  return PMT(annualRate / 12, months, -principal, balloon) * months + balloon - principal;
+};
+
+// 타이어는 계약 기간에 달리는 거리(연 약정거리 × 연수) 6만km마다 4본을 준다.
+export const TIRE_REPLACE_INTERVAL_KM = 60000;
+export const TIRES_PER_REPLACEMENT = 4;
+export const getTireCount = (opt) =>
+  Math.floor(((opt?.termYears || 4) * (opt?.mileage || 20000)) / TIRE_REPLACE_INTERVAL_KM) * TIRES_PER_REPLACEMENT;
+
+// 견적서·계약서에 적는 타이어 제공 문구. 기간·주행거리를 모르면 본수를 지어내지 않는다.
+export const describeTireProvision = (termMonths, annualMileage) => {
+  const months = Number(termMonths) || 0;
+  const mileage = Number(annualMileage) || 0;
+  if (!months || !mileage) return '계약 기간 주행거리에 따라 제공';
+  const count = getTireCount({ termYears: months / 12, mileage });
+  return count > 0 ? `계약 기간 동안 ${count}본 제공` : '제공 없음 (총 주행거리 6만km 미만)';
+};
+
+/**
+ * 정비 내역을 타이어와 나머지로 나눠 계산한다.
+ *
+ * 정비 내역 표에는 '타이어 교체' 줄이 들어 있어서, 월 정비비에 타이어 값이 이미 들어간다.
+ * 예전에는 원가를 낼 때 이 월 정비비에 타이어 교체비를 한 번 더 더해 타이어가 두 번 잡혔다
+ * (48개월·연 2만km면 64만 원). 원가와 손익 원장 정비 예산이 같은 값을 쓰도록 여기서 한 번만 나눈다.
+ * 정비 내역에서 '타이어 교체'를 끄면 타이어는 0원이다.
+ */
+export const getMaintenanceBreakdown = (opt, vehicle) => {
+  const termMonths = (opt?.termYears || 4) * 12;
+  if (!opt || !vehicle || termMonths <= 0) {
+    return { monthlyFee: !opt || !vehicle ? 50000 : 0, tireCount: 0, tireCost: 0, otherSum: 0 };
+  }
+
+  const rawItems = opt.maintenanceItems || vehicle.maintenanceItems || defaultMaintenanceItems;
+  const checked = rawItems.filter(item => item.checked);
+  const tireIncluded = checked.some(item => item.name === '타이어 교체');
+  const tireCount = tireIncluded ? getTireCount(opt) : 0;
+  const tireCost = tireCount * (opt.tireUnitCost || 150000);
+  const otherSum = checked
+    .filter(item => item.name !== '타이어 교체')
+    .reduce((sum, item) => sum + (item.price || 0), 0);
+
+  // 월 정비비는 타이어까지 포함해 1000원 단위로 버린다(화면의 '월 정비비')
+  const monthlyFee = Math.floor(((otherSum + tireCost) / termMonths) / 1000) * 1000;
+  return { monthlyFee, tireCount, tireCost, otherSum };
+};
+
+// 화면에 보여 주는 월 정비비 (타이어 포함)
+export const getCalculatedMaintenanceFee = (opt, vehicle) => getMaintenanceBreakdown(opt, vehicle).monthlyFee;
 
 /**
  * 견적 한 안(opt)의 원가·렌트료·이익을 계산한다.
@@ -158,38 +221,16 @@ export const calculateQuoteOption = (opt, vehicle) => {
   // 차량가격 (11행: E11) -> 8번 결론식: 기본차량가 + 옵션가 - 할인가 + 탁송료
   const netVehiclePrice = carPrice + carOptionPrice - discountPrice + consignmentFee;
   
-  // 취득세 (E21) -> ROUNDDOWN(E11/1.1*0.04, -1)
-  const acquisitionTax = Math.floor(((netVehiclePrice / 1.1) * 0.04) / 10) * 10;
-  
-  // 공채 (E22) -> ROUNDDOWN(E11/1.1*3%*16%,-1) (면제 시 0)
-  const publicBond = isBondExempt ? 0 : Math.floor(((netVehiclePrice / 1.1) * 0.03 * 0.16) / 10) * 10;
-  
-  // 자차보험비 (E24) -> E7(netVehiclePrice) 기준으로 계산
-  let ownCarRate;
-  if (netVehiclePrice <= 10000000) {
-    ownCarRate = 0.022;
-  } else if (netVehiclePrice >= 500000000) {
-    ownCarRate = 0.012;
-  } else {
-    ownCarRate = 0.017 - (netVehiclePrice - 10000000) * (0.01 / (500000000 - 10000000));
-  }
-  // 기존의 ceilingCarPrice(천만 원 단위 올림) 곱하기 방식 대신, 실제 차량 공급가액(netVehiclePrice)을 기준으로 계산하여 역전 현상을 해결합니다.
-  const ownCarInsuranceFee = netVehiclePrice * ownCarRate;
-  
-  // 자동차세 (E25) -> 배기량(cc) 기준 IF 조건 적용
-  let carTaxAnnual = 20000;
-  if (cc <= 0 || !cc) {
-    carTaxAnnual = 20000;
-  } else if (cc <= 1600) {
-    carTaxAnnual = cc * 18;
-  } else if (cc <= 2500) {
-    carTaxAnnual = cc * 19;
-  } else if (cc > 2500) {
-    carTaxAnnual = cc * 24;
-  } else {
-    carTaxAnnual = 20000;
-  }
-  
+  // 취득세 (E21), 공채 (E22, 면제 시 0)
+  const acquisitionTax = acquisitionTaxFor(netVehiclePrice);
+  const publicBond = isBondExempt ? 0 : publicBondFor(netVehiclePrice);
+
+  // 자차보험비 (E24) - 공급가액에 요율을 곱한다
+  const ownCarInsuranceFee = netVehiclePrice * ownCarInsuranceRate(netVehiclePrice);
+
+  // 자동차세 (E25)
+  const carTaxAnnual = annualCarTax(cc);
+
   // 보증금 (E38) 및 선수금 (E40) -> 천단위 미만 버림
   const deposit = Math.floor((totalCarPrice * opt.depositRate) / 1000) * 1000;
   const advancePayment = Math.floor((totalCarPrice * opt.advancePaymentRate) / 1000) * 1000;
@@ -199,13 +240,7 @@ export const calculateQuoteOption = (opt, vehicle) => {
   
   // 이자부담율 (E14)
   const termMonths = Math.round(Number(opt.termYears) * 12);
-  let addedRate = 0.014;
-  if (termMonths <= 12) addedRate = 0.0031;
-  else if (termMonths <= 24) addedRate = 0.0025;
-  else if (termMonths <= 36) addedRate = 0.0019;
-  else if (termMonths <= 48) addedRate = 0.0014;
-  else addedRate = 0.0010;
-  const interestRate = baseInterestRate + addedRate;
+  const interestRate = baseInterestRate + addedRateForTerm(termMonths);
   
   const rentPeriodMonths = opt.termYears * 12; // E32
 
@@ -218,7 +253,7 @@ export const calculateQuoteOption = (opt, vehicle) => {
   // 원금을 기간보다 빨리 갚는 대출은 없으므로 0 아래로 내려가지 않게 막는다.
   const fundingRepaymentMode = vehicle.fundingRepaymentMode || DEFAULT_FUNDING_REPAYMENT_MODE;
   const fundingBalloon = fundingRepaymentMode === 'balloon' ? Math.max(0, takeoverPrice - deposit) : 0;
-  const fundingInterest = PMT(interestRate / 12, rentPeriodMonths, -fundingPrincipal, fundingBalloon) * rentPeriodMonths + fundingBalloon - fundingPrincipal;
+  const fundingInterest = fundingInterestFor({ annualRate: interestRate, months: rentPeriodMonths, principal: fundingPrincipal, balloon: fundingBalloon });
   
   // 선수금분이자 (E16)
   const advancePaymentInterest = advancePayment * ADVANCE_PAYMENT_INTEREST_RATE * opt.termYears;
@@ -241,16 +276,12 @@ export const calculateQuoteOption = (opt, vehicle) => {
   // 판관비/노무비 (E28) - 글로벌 설정 기준
   const pandanbi = isPandanbiEnabled ? totalCarPrice * 0.03 : 0;
   
-  // 동적 타이어 본수 계산 (6만km당 4본)
-  const totalMileage = opt.termYears * opt.mileage;
-  const computedTireCount = Math.floor(totalMileage / 60000) * 4;
-
-  // 타이어 교체 비용 (AD13)
-  const tireCostTotal = computedTireCount * opt.tireUnitCost;
-  
-  // 정기점검 비용 (AD16) - 옵션별 실시간 계산 적용 (1000원 단위 버림)
-  const calculatedMaintenanceFee = getCalculatedMaintenanceFee(opt, vehicle);
-  const maintenanceFeeTotal = calculatedMaintenanceFee * rentPeriodMonths;
+  // 정비비와 타이어 교체비 (AD16, AD13)
+  // 월 정비비(타이어 포함) × 개월 수가 정비 원가 전체다. 그중 타이어 몫을 떼어 타이어 교체비로 따로 보여 주고,
+  // 나머지를 정기점검 등 정비비로 둔다. 둘을 더하면 정비 원가 전체가 되어 타이어가 한 번만 잡힌다.
+  const maintenance = getMaintenanceBreakdown(opt, vehicle);
+  const tireCostTotal = maintenance.tireCost;
+  const maintenanceFeeTotal = Math.max(0, maintenance.monthlyFee * rentPeriodMonths - tireCostTotal);
   
   // 고잔가(인수가 연동) 수수료 (E147)
   // 인수가율이 일반잔가 상한을 넘으면, 넘은 %p마다 차량가의 일정 비율을 원가에 더한다. 10원 미만 버림.

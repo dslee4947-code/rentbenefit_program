@@ -1,0 +1,6 @@
+{
+  "name": "rentbenefit-shared",
+  "private": true,
+  "description": "화면(client)과 서버(server)가 같이 쓰는 계산식. 의존 라이브러리 없이 순수 함수만 둔다.",
+  "type": "module"
+}

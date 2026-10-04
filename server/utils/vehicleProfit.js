@@ -1,7 +1,7 @@
 /**
  * 차량 한 대의 영업이익 계산.
  *
- * 견적서 화면(QuoteInputView의 calculateOptionValues)이 쓰는 식을 그대로 옮겼다.
+ * 견적서 화면과 같은 계산식 파일(shared/quoteCalc.js)의 식을 쓴다.
  * 견적서는 "월 렌트료를 정하면 이익이 얼마"를 계산하는데, 렌트차량 DB에는 이미 월 렌트료가
  * 저장돼 있으므로 같은 식의 '월 렌트료 직접 입력' 갈래를 쓴다.
  *
@@ -16,13 +16,11 @@
  * 어떤 값을 가정했는지는 결과의 assumptions에 남긴다. 가정을 모르면 숫자를 믿을 수 없다.
  */
 
-/** 월 납입액. 엑셀 PMT와 같다. fv는 만기에 남기는 잔액. */
-const PMT = (rate, nper, pv, fv = 0) => {
-  if (!nper) return 0;
-  if (rate === 0) return -(pv + fv) / nper;
-  const pvif = Math.pow(1 + rate, nper);
-  return (rate * (pv * pvif + fv)) / (1 - pvif);
-};
+// 계산식은 견적 화면과 같은 파일(shared/quoteCalc.js)을 쓴다. 여기서 따로 고치면 견적서와 숫자가 어긋난다.
+import {
+  addedRateForTerm, acquisitionTaxFor, publicBondFor, ownCarInsuranceRate, annualCarTax,
+  fundingInterestFor, getMaintenanceBreakdown, ADVANCE_PAYMENT_INTEREST_RATE
+} from '../../shared/quoteCalc.js';
 
 /** 견적서 기본값. 차량에 값이 없을 때만 쓴다. */
 export const QUOTE_DEFAULTS = {
@@ -32,7 +30,6 @@ export const QUOTE_DEFAULTS = {
   insuranceFeeAnnual: 800000,    // 대인·대물 등 기본 보험료(연)
   registrationAgencyFee: 100000, // 등록대행료
   pandanbiRate: 0.03,            // 판관비율
-  monthlyMaintenanceFee: 50000,  // 월 정비비
   tireUnitCost: 160000,          // 타이어 1본 단가
   annualMileage: 20000           // 연간 주행거리(정비 타이어 본수 계산용)
 };
@@ -43,31 +40,6 @@ const num = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 const has = (value) => value !== '' && value !== null && value !== undefined && Number(value) !== 0;
-
-/** 기간에 따라 금리에 얹는 가산율 (견적서 E14) */
-const addedRateFor = (termMonths) => {
-  if (termMonths <= 12) return 0.0031;
-  if (termMonths <= 24) return 0.0025;
-  if (termMonths <= 36) return 0.0019;
-  if (termMonths <= 48) return 0.0014;
-  return 0.0010;
-};
-
-/** 자차보험료율 (견적서 E24) - 공급가액이 클수록 낮아진다 */
-const ownCarInsuranceRate = (netVehiclePrice) => {
-  if (netVehiclePrice <= 10000000) return 0.022;
-  if (netVehiclePrice >= 500000000) return 0.012;
-  return 0.017 - (netVehiclePrice - 10000000) * (0.01 / (500000000 - 10000000));
-};
-
-/** 배기량 기준 연간 자동차세 (견적서 E25) */
-const annualCarTax = (cc) => {
-  const engine = num(cc);
-  if (engine <= 0) return 20000;
-  if (engine <= 1600) return engine * 18;
-  if (engine <= 2500) return engine * 19;
-  return engine * 24;
-};
 
 /**
  * @param {object} vehicle 차량 문서(lean)
@@ -94,12 +66,12 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
   // 등록비용 - 차량에 실제 값이 있으면 그것이 정본이고, 없으면 견적서 식으로 낸다
   let acquisitionTax = num(vehicle.acquisitionTax);
   if (!acquisitionTax) {
-    acquisitionTax = Math.floor(((netVehiclePrice / 1.1) * 0.04) / 10) * 10;
+    acquisitionTax = acquisitionTaxFor(netVehiclePrice);
     assumptions.push('취득세: 공급가액 기준으로 계산');
   }
   let publicBond = num(vehicle.publicBond);
   if (!publicBond) {
-    publicBond = Math.floor(((netVehiclePrice / 1.1) * 0.03 * 0.16) / 10) * 10;
+    publicBond = publicBondFor(netVehiclePrice);
     assumptions.push('공채: 공급가액 기준으로 계산(면제 아님으로 봄)');
   }
   let registrationAgencyFee = num(vehicle.registrationAgencyFee);
@@ -133,14 +105,13 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
     baseInterestRate = defaults.baseInterestRate;
     assumptions.push(`금리: 연 ${(defaults.baseInterestRate * 100).toFixed(1)}%`);
   }
-  const interestRate = baseInterestRate + addedRateFor(months);
+  const interestRate = baseInterestRate + addedRateForTerm(months);
 
   // 조달이자는 견적서 기본값인 원리금 균등상환으로 낸다. 실제 대출이 만기 잔액 없이 다 갚는 구조다.
   // 차량 DB에는 상환방식을 두지 않아, 만기 인수가 상환으로 들여온 차도 여기서는 균등상환으로 본다.
-  const fundingInterest = PMT(interestRate / 12, months, -fundingPrincipal) * months - fundingPrincipal;
+  const fundingInterest = fundingInterestFor({ annualRate: interestRate, months, principal: fundingPrincipal });
   assumptions.push('조달이자: 원리금 균등상환');
-  // 선수금분이자율 연 3% - 견적서(ADVANCE_PAYMENT_INTEREST_RATE)와 같은 값. 선수금으로 아끼는 조달이자와 거의 같은 중립값이다.
-  const advancePaymentInterest = advancePayment * 0.03 * years;
+  const advancePaymentInterest = advancePayment * ADVANCE_PAYMENT_INTEREST_RATE * years;
   const totalBuyPriceWithFinancing = netVehiclePrice + fundingInterest + advancePaymentInterest;
 
   // 판관비는 차량가의 3%로 본다
@@ -154,10 +125,16 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
   let maintenanceFeeTotal = 0;
   let tireCostTotal = 0;
   if (maintenanceJoined) {
-    maintenanceFeeTotal = defaults.monthlyMaintenanceFee * months;
+    // 견적서 기본 정비 내역과 같은 식. 타이어는 계약 기간 주행거리 6만km마다 4본, 한 번만 잡는다.
+    // 차량 DB에는 정비 항목별 금액이 없어 견적서 기본 정비 내역을 쓴다.
     const annualMileage = num(vehicle.maintenance?.mileage) || defaults.annualMileage;
-    tireCostTotal = Math.floor((annualMileage * years) / 60000) * 4 * defaults.tireUnitCost;
-    assumptions.push(`정비비: 월 ${defaults.monthlyMaintenanceFee.toLocaleString()}원 · 타이어 ${defaults.tireUnitCost.toLocaleString()}원/본`);
+    const plan = getMaintenanceBreakdown(
+      { termYears: years, mileage: annualMileage, tireUnitCost: defaults.tireUnitCost },
+      {}
+    );
+    tireCostTotal = plan.tireCost;
+    maintenanceFeeTotal = Math.max(0, plan.monthlyFee * months - tireCostTotal);
+    assumptions.push(`정비비: 견적서 기본 정비 내역 월 ${plan.monthlyFee.toLocaleString()}원(타이어 ${plan.tireCount}본 포함)`);
   }
 
   // 회사수수료는 원가에 넣지 않는다.

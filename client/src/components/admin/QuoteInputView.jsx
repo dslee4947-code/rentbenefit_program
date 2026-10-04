@@ -7,8 +7,9 @@ import { useSaveShortcut } from './useSaveShortcut.js';
 import { createPortal } from 'react-dom';
 import {
   FUNDING_REPAYMENT_MODES, DEFAULT_FUNDING_REPAYMENT_MODE,
-  DEFAULT_HIGH_RESIDUAL_FEE_RATE_PER_POINT, defaultMaintenanceItems, getCalculatedMaintenanceFee, calculateQuoteOption
-} from '../../utils/quoteCalc.js';
+  DEFAULT_HIGH_RESIDUAL_FEE_RATE_PER_POINT, defaultMaintenanceItems, getCalculatedMaintenanceFee, calculateQuoteOption,
+  getTireCount, getMaintenanceBreakdown
+} from '../../../../shared/quoteCalc.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -1368,8 +1369,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
 
   const renderMaintenancePage = () => {
     // Determine dynamic tire count and cost for selected option
-    const totalMileage = (selectedOpt?.termYears || 4) * (selectedOpt?.mileage || 20000);
-    const computedTireCount = Math.floor(totalMileage / 60000) * 4;
+    const computedTireCount = getTireCount(selectedOpt);
     const computedTireCost = computedTireCount * (selectedOpt?.tireUnitCost || 150000);
 
     const rawItems = tempMaintenanceItems.length > 0 ? tempMaintenanceItems : defaultMaintenanceItems;
@@ -2602,7 +2602,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
               <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>제공 타이어 본수 (본)</label>
               <input 
                 type="text" 
-                value={toCommaString(Math.floor(((selectedOpt?.termYears || 4) * (selectedOpt?.mileage || 20000)) / 60000) * 4) + ' 본 (자동 계산)'} 
+                value={toCommaString(getTireCount(selectedOpt)) + ' 본 (자동 계산)'}
                 disabled 
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#f5f5f5', color: '#666', fontWeight: '600' }} 
               />
@@ -4598,9 +4598,12 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                     <tr>
                       <td style={{ padding: '2px 4px', border: '1px solid #000' }}>• 타이어 교체</td>
                       <td style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>
-                        {firstOption?.opt.isMaintenanceEnabled !== false 
-                          ? `${Math.floor(((firstOption?.opt.termYears || 4) * (firstOption?.opt.mileage || 20000)) / 60000) * 4}본 제공` 
-                          : '미제공'}
+                        {(() => {
+                          // 정비 내역에서 타이어 교체를 뺐거나 주행거리가 6만km에 못 미치면 '미제공'이다
+                          if (firstOption?.opt.isMaintenanceEnabled === false) return '미제공';
+                          const tireCount = getMaintenanceBreakdown(firstOption?.opt, firstOption?.veh).tireCount;
+                          return tireCount > 0 ? `${tireCount}본 제공` : '미제공';
+                        })()}
                       </td>
                     </tr>
                   </tbody>

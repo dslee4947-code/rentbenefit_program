@@ -6,6 +6,7 @@ import Company from '../models/Company.js';
 import Customer from '../models/Customer.js';
 import Quote from '../models/Quote.js';
 import { calculateVehicleProfit, QUOTE_DEFAULTS } from '../utils/vehicleProfit.js';
+import { getMaintenanceRates } from '../utils/maintenanceRates.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
 
 /**
@@ -921,7 +922,7 @@ export const getLedgerQuote = async (req, res) => {
     // 견적은 최초 계약 기간을 놓고 계산한다. 고정 조건(terms)은 연장하면 연장 계약 기간으로 바뀌므로 마지막에 본다.
     const termMonths = Number(vehicle.paymentTerm) || Number(first?.termMonths) || Number(contract?.termMonths)
       || Number(contract?.rentPeriodYears || 0) * 12 || Number(ledger.terms?.termMonths) || 0;
-    const profit = calculateVehicleProfit(vehicle, termMonths);
+    const profit = calculateVehicleProfit(vehicle, termMonths, { maintenanceRates: await getMaintenanceRates() });
     if (!profit.ok) return res.json({ quote: null, reason: `${reason} 렌트차량 DB로도 계산할 수 없습니다(${profit.reason}).` });
 
     res.json({

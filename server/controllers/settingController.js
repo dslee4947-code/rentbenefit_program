@@ -9,6 +9,10 @@ import {
   buildPreview,
   invalidateSettingsCache
 } from '../utils/documentPath.js';
+import { MAINTENANCE_RATES_KEY, invalidateMaintenanceRatesCache } from '../utils/maintenanceRates.js';
+import {
+  DEFAULT_MAINTENANCE_RATES, VEHICLE_GRADES, MAINTENANCE_ITEMS, mergeMaintenanceRates
+} from '../../shared/maintenanceRates.js';
 
 const SETTING_KEY = 'documentStorage';
 
@@ -127,4 +131,74 @@ const validate = (settings) => {
     return '계약 폴더 이름에는 {계약번호}가 있어야 합니다. 없으면 계약을 구분하지 못합니다.';
   }
   return '';
+};
+
+// ───────────────────────── 정비 단가표
+
+/**
+ * 차종 등급별 정비 단가표를 읽는다. 저장본이 없으면 기본값(근거 포함)을 준다.
+ * 견적 화면이 새 견적의 정비 내역을 채울 때와 단가표 화면이 함께 쓴다.
+ *
+ * @route GET /api/settings/maintenance-rates
+ */
+export const getMaintenanceRatesSetting = async (req, res) => {
+  try {
+    const doc = await Setting.findOne({ key: MAINTENANCE_RATES_KEY }).lean();
+    res.json({
+      success: true,
+      rates: mergeMaintenanceRates(doc?.value),
+      defaults: DEFAULT_MAINTENANCE_RATES,
+      grades: VEHICLE_GRADES,
+      items: MAINTENANCE_ITEMS,
+      updatedAt: doc?.updatedAt || null,
+      updatedBy: doc?.updatedBy || ''
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 단가표를 저장한다. 이미 낸 견적은 그때 단가가 견적서에 함께 저장돼 있어 숫자가 바뀌지 않는다.
+ * 렌트차량 DB 이익(견적서가 없는 차)은 다음에 계산할 때부터 새 단가를 쓴다.
+ *
+ * @route PUT /api/settings/maintenance-rates
+ */
+export const updateMaintenanceRatesSetting = async (req, res) => {
+  try {
+    const merged = mergeMaintenanceRates(req.body?.rates);
+
+    // 숫자가 아니거나 음수인 단가는 받지 않는다. 0원은 '해당 없음'(전기차 점화플러그 등)이라 허용한다.
+    for (const { key, label } of VEHICLE_GRADES) {
+      const grade = merged.grades[key];
+      const prices = [...Object.entries(grade.items), ['tire.standard', grade.tire.standard], ['tire.premium', grade.tire.premium]];
+      for (const [itemKey, value] of prices) {
+        const n = Number(value);
+        if (!Number.isFinite(n) || n < 0) {
+          return res.status(400).json({ success: false, message: `${label}의 ${itemKey} 단가가 올바르지 않습니다: ${value}` });
+        }
+        if (itemKey.startsWith('tire.')) grade.tire[itemKey.slice(5)] = Math.round(n);
+        else grade.items[itemKey] = Math.round(n);
+      }
+    }
+    const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+    merged.version = `${today} ${req.user?.name || '관리자'} 수정`;
+
+    const doc = await Setting.findOneAndUpdate(
+      { key: MAINTENANCE_RATES_KEY },
+      { value: merged, updatedBy: req.user?.name || req.user?.email || '' },
+      { upsert: true, new: true }
+    ).lean();
+    invalidateMaintenanceRatesCache();
+
+    res.json({
+      success: true,
+      rates: merged,
+      updatedAt: doc.updatedAt,
+      updatedBy: doc.updatedBy,
+      message: '정비 단가표를 저장했습니다. 새로 내는 견적부터 새 단가를 씁니다.'
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };

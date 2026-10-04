@@ -111,3 +111,74 @@ test('렌트차량 DB 이익 계산이 견적서와 같은 조달이자·정비�
   // 차량 DB 이익 = 견적 영업이익 + 회사수수료 (회사가 가져가는 몫)
   near(profit.profitAmount, quote.profitMargin + quote.companyCommission, 1, '이익금');
 });
+
+// ───────── 차종 등급별 정비 단가표
+import {
+  detectVehicleGrade, buildMaintenanceItemsFromRates, mergeMaintenanceRates, DEFAULT_MAINTENANCE_RATES, VEHICLE_GRADES
+} from '../../shared/maintenanceRates.js';
+
+test('차종 이름으로 등급을 고른다', () => {
+  const cases = {
+    'Ray Van 스탠다드 A/T': 'compact', '아반떼 1.6 Modern': 'small', 'K5(H)': 'mid', '그랜저 2.5T 프리미엄': 'large',
+    'G80 2.5T AWD': 'large', 'GV80 5인승 2.5T': 'suv', '니로 HEV 프레스티지': 'suv', '코나 하이브리드 2WD': 'suv',
+    'Cona SX2 런칭 전기모터 2WD': 'ev', '아이오닉6 2WD': 'ev', 'Model S Plaid': 'ev',
+    'S580 4Matic L': 'import', 'GLE450 4M': 'import', 'ES300h EXECUTIVE': 'import', 'CLE 200 Carbriolet': 'import'
+  };
+  for (const [name, grade] of Object.entries(cases)) assert.equal(detectVehicleGrade({ carModel: name }), grade, name);
+  assert.equal(detectVehicleGrade({ carModel: '코나', fuelType: '전기' }), 'ev');
+  assert.equal(detectVehicleGrade({ carModel: '' }), null);
+});
+
+test('단가표 기본값에 7등급 모두 근거가 있다', () => {
+  for (const { key } of VEHICLE_GRADES) {
+    const g = DEFAULT_MAINTENANCE_RATES.grades[key];
+    assert.ok(g && g.basis && g.basis.length > 10, `${key} 근거`);
+    assert.ok(g.tire.standard > 0 && g.tire.premium >= g.tire.standard, `${key} 타이어`);
+  }
+});
+
+test('단가표로 낸 정비 원가 = 항목별 1회 단가 × 계약 기간 횟수 (대형 세단 48개월·연 2만km)', () => {
+  const rates = mergeMaintenanceRates(null);
+  const items = buildMaintenanceItemsFromRates(rates, 'large');
+  const opt = baseOption({ maintenanceItems: items, tireUnitCost: rates.grades.large.tire.standard });
+  const plan = getMaintenanceBreakdown(opt, baseVehicle());
+  const byKey = Object.fromEntries(plan.lines.map((l) => [l.key, l]));
+  // 총 8만km, 48개월
+  assert.equal(byKey.regularCheck.times, 8);     // 1만km마다
+  assert.equal(byKey.acFilter.times, 4);         // 12개월마다
+  assert.equal(byKey.brakeFront.times, 2);       // 4만km마다
+  assert.equal(byKey.brakeRear.times, 1);        // 6만km마다
+  assert.equal(byKey.battery.times, 1);          // 48개월마다
+  assert.equal(byKey.coolant.times, 0);         // 10만km마다 → 0회
+  assert.equal(byKey.tire.times, 4);
+  const expectedOther = 8 * 85000 + 4 * 50000 + 4 * 35000 + 4 * 30000 + 2 * 180000 + 1 * 150000 + 1 * 180000 + 1 * 230000 + 1 * 150000;
+  assert.equal(plan.otherSum, expectedOther);
+  assert.equal(plan.tireCost, 4 * 270000);
+});
+
+test('단가표를 고쳐도 이미 낸 견적(저장된 정비 내역)의 숫자는 그대로', () => {
+  const rates = mergeMaintenanceRates(null);
+  const items = buildMaintenanceItemsFromRates(rates, 'compact'); // 견적 낼 때 저장된 정비 내역
+  const before = getMaintenanceBreakdown(baseOption({ maintenanceItems: items }), baseVehicle()).otherSum;
+  const edited = mergeMaintenanceRates({ grades: { compact: { items: { regularCheck: 999999 } } } });
+  assert.equal(edited.grades.compact.items.regularCheck, 999999);
+  const after = getMaintenanceBreakdown(baseOption({ maintenanceItems: items }), baseVehicle()).otherSum;
+  assert.equal(after, before);
+});
+
+test('전기차는 점화플러그가 꺼져 있고 브레이크 주기가 길다', () => {
+  const items = buildMaintenanceItemsFromRates(mergeMaintenanceRates(null), 'ev');
+  assert.equal(items.find((i) => i.key === 'sparkPlug').checked, false);
+  assert.equal(items.find((i) => i.key === 'brakeFront').cycleKm, 60000);
+});
+
+test('렌트차량 DB 이익은 차종 등급의 단가표를 쓴다', () => {
+  const profit = calculateVehicleProfit({
+    carModel: 'G80 2.5T AWD', carPrice: 65250000, monthlyFee: 1135000, deposit: 19575000, takeoverPrice: 36540000, cc: 2497,
+    maintenance: { generalMaintenance: '가입', mileage: 20000 }
+  }, 48, { maintenanceRates: mergeMaintenanceRates(null) });
+  assert.equal(profit.breakdown.grade, 'large');
+  assert.equal(profit.breakdown.tireCount, 4);
+  assert.equal(profit.breakdown.tireFee, 4 * 270000);
+  assert.ok(profit.assumptions.some((a) => a.includes('대형 세단')));
+});

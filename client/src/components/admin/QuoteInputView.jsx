@@ -8,8 +8,11 @@ import { createPortal } from 'react-dom';
 import {
   FUNDING_REPAYMENT_MODES, DEFAULT_FUNDING_REPAYMENT_MODE,
   DEFAULT_HIGH_RESIDUAL_FEE_RATE_PER_POINT, defaultMaintenanceItems, getCalculatedMaintenanceFee, calculateQuoteOption,
-  getTireCount, getMaintenanceBreakdown
+  getTireCount, getMaintenanceBreakdown, maintenanceTimes
 } from '../../../../shared/quoteCalc.js';
+import {
+  VEHICLE_GRADES, GRADE_LABEL, detectVehicleGrade, buildMaintenanceItemsFromRates, mergeMaintenanceRates
+} from '../../../../shared/maintenanceRates.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -345,6 +348,45 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
   const updateActiveVehicleOption = (optionId, fields) => {
     updateVehicleOption(selectedVehicleId, optionId, fields);
   };
+
+  // 차종 등급별 정비 단가표. 관리자가 '정비 단가표'에서 고친 값을 받아 오고, 못 받으면 기본값(근거 포함)을 쓴다.
+  const [maintenanceRates, setMaintenanceRates] = useState(() => mergeMaintenanceRates(null));
+  useEffect(() => {
+    fetch(`${API_HOST}/api/settings/maintenance-rates`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (data?.rates) setMaintenanceRates(data.rates); })
+      .catch(() => {});
+  }, []);
+
+  /**
+   * 이 차의 모든 안에 등급 단가표를 채운다. 정비 내역(항목별 1회 단가·주기)과 타이어 1본 가격이 바뀐다.
+   * 견적서에는 이 값이 그대로 저장되므로, 나중에 단가표를 고쳐도 이 견적의 숫자는 바뀌지 않는다.
+   */
+  const applyMaintenanceRates = (gradeKey) => {
+    const grade = maintenanceRates.grades?.[gradeKey];
+    if (!grade) {
+      updateActiveVehicle({ vehicleGrade: '' });
+      return;
+    }
+    updateActiveVehicle({
+      vehicleGrade: gradeKey,
+      options: activeVehicle.options.map((opt) => ({
+        ...opt,
+        maintenanceItems: buildMaintenanceItemsFromRates(maintenanceRates, gradeKey),
+        tireUnitCost: opt.tireType === 'premium' ? grade.tire.premium : grade.tire.standard
+      }))
+    });
+  };
+
+  // 새 견적에서 차종을 적으면 등급을 알아서 고르고 단가표를 채운다.
+  // 불러온 견적(quoteId 있음)과 이미 정비 내역을 손본 견적은 건드리지 않는다. 지난 견적 숫자가 바뀌면 안 된다.
+  useEffect(() => {
+    if (activeVehicle.vehicleGrade || activeVehicle.quoteId) return;
+    if ((activeVehicle.options || []).some((o) => o.maintenanceItems)) return;
+    const detected = detectVehicleGrade(activeVehicle);
+    if (detected) applyMaintenanceRates(detected);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeVehicle.carModel, activeVehicle.fuelType, maintenanceRates]);
 
   const handleAddVehicle = () => {
     // Generate next ID
@@ -1286,7 +1328,19 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
   const options = activeVehicle.options || [];
   const selectedOpt = options.find(o => o.id === primarySelectedId) || options[0] || {};
   const selectedCalc = calculateOptionValues(selectedOpt, activeVehicle);
-  const recTires = getRecommendedTirePrices(activeVehicle.carModel);
+  // 타이어 추천 가격: 등급을 정했으면 정비 단가표의 등급 가격, 아니면 예전 차종 이름 기준 추천표
+  const tirePricesFor = (vehicle) => {
+    const grade = maintenanceRates.grades?.[vehicle?.vehicleGrade];
+    if (!grade) return getRecommendedTirePrices(vehicle?.carModel);
+    const label = GRADE_LABEL[vehicle.vehicleGrade];
+    return {
+      standard: grade.tire.standard,
+      premium: grade.tire.premium,
+      standardLabel: `정비 단가표 ${label} 표준 (${toCommaString(grade.tire.standard)}원/본)`,
+      premiumLabel: `정비 단가표 ${label} 프리미엄 (${toCommaString(grade.tire.premium)}원/본)`
+    };
+  };
+  const recTires = tirePricesFor(activeVehicle);
   const totalCarPrice = activeVehicle.carPrice + activeVehicle.carOptionPrice;
   const activeIndex = vehicles.findIndex(v => v.id === selectedVehicleId) + 1;
   const displayOpts = options.filter(o => selectedOptionIds.includes(o.id));
@@ -1374,7 +1428,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
 
     const rawItems = tempMaintenanceItems.length > 0 ? tempMaintenanceItems : defaultMaintenanceItems;
     
-    // Dynamically adjust the "타이어 교체" row price and description
+    // 타이어 줄은 본수 × 1본 가격, 단가표에서 온 줄은 1회 단가 × 계약 기간 횟수로 금액을 낸다.
+    // 예전 견적의 줄(단가 없이 금액만 있는 줄)은 금액을 그대로 쓴다.
     const items = rawItems.map(item => {
       if (item.name === '타이어 교체') {
         return {
@@ -1382,6 +1437,10 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
           desc: `타이어*마모 한계선 도래 시 교체 (${computedTireCount}본)`,
           price: computedTireCost
         };
+      }
+      if (item.unitPrice !== undefined && item.unitPrice !== null && item.basis) {
+        const times = maintenanceTimes(item, selectedOpt);
+        return { ...item, times, price: (Number(item.unitPrice) || 0) * times };
       }
       return item;
     });
@@ -1519,7 +1578,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                 <th style={{ padding: '0.8rem 1rem', fontWeight: '700', color: 'var(--text-bright)', borderRight: '1px solid var(--border-color)', textAlign: 'left', width: '25%' }}>부품내역</th>
                 <th style={{ padding: '0.8rem 1rem', fontWeight: '700', color: 'var(--text-bright)', textAlign: 'right', width: '15%' }}>
                   <div style={{ fontSize: '0.78rem', color: 'var(--primary)', marginBottom: '0.2rem' }}>총 {toCommaString(totalSum)} 원</div>
-                  금액 (원)
+                  1회 단가 / 금액 (원)
                 </th>
               </tr>
             </thead>
@@ -1544,10 +1603,39 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                     />
                   </td>
                   <td style={{ padding: '0.65rem 1rem', fontWeight: '700', borderRight: '1px solid var(--border-color)', color: row.checked ? 'var(--text-main)' : 'var(--text-muted)' }}>{row.name}</td>
-                  <td style={{ padding: '0.65rem 1rem', borderRight: '1px solid var(--border-color)', color: row.checked ? '#444' : 'var(--text-muted)' }}>{row.cycle}</td>
+                  <td style={{ padding: '0.65rem 1rem', borderRight: '1px solid var(--border-color)', color: row.checked ? '#444' : 'var(--text-muted)' }}>
+                    {row.cycle}
+                    {row.times !== undefined && <span style={{ marginLeft: '0.4rem', fontWeight: '700', color: 'var(--primary)' }}>· 계약 기간 {row.times}회</span>}
+                  </td>
                   <td style={{ padding: '0.65rem 1rem', borderRight: '1px solid var(--border-color)', color: row.checked ? '#444' : 'var(--text-muted)' }}>{row.desc}</td>
                   <td style={{ padding: '0.4rem 1rem', textAlign: 'right' }}>
-                    <input 
+                    {row.times !== undefined ? (
+                      <>
+                        {/* 단가표에서 온 줄은 1회 단가를 고친다. 금액은 횟수를 곱해 자동으로 나온다 */}
+                        <input
+                          type="text"
+                          disabled={!row.checked}
+                          value={toCommaString(row.unitPrice)}
+                          title="1회 단가"
+                          onChange={(e) => updateTempItem(idx, { unitPrice: parseNumber(e.target.value) })}
+                          style={{
+                            padding: '0.3rem 0.5rem',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '4px',
+                            fontSize: '0.85rem',
+                            fontWeight: '700',
+                            textAlign: 'right',
+                            width: '120px',
+                            background: row.checked ? '#fff' : '#f5f5f5',
+                            color: row.checked ? 'var(--text-bright)' : '#999'
+                          }}
+                        />
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                          × {row.times}회 = {toCommaString(row.price)}원
+                        </div>
+                      </>
+                    ) : (
+                    <input
                       type="text"
                       disabled={!row.checked}
                       value={toCommaString(row.price)}
@@ -1574,6 +1662,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                         color: row.checked ? 'var(--text-bright)' : '#999'
                       }}
                     />
+                    )}
                   </td>
                 </tr>
               ))}
@@ -2551,6 +2640,42 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
               📋 상세내역
             </button>
           </div>
+          {/* 차종 등급: 정비 단가표에서 이 등급의 정비 단가와 타이어 가격을 가져온다 */}
+          {(() => {
+            const detected = detectVehicleGrade(activeVehicle);
+            const current = activeVehicle.vehicleGrade || '';
+            return (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', fontSize: '0.78rem' }}>
+                <label style={{ color: 'var(--text-muted)', fontWeight: '600' }}>차종 등급</label>
+                <select
+                  value={current}
+                  onChange={(e) => {
+                    applyMaintenanceRates(e.target.value);
+                    if (e.target.value) showToast(`${GRADE_LABEL[e.target.value]} 정비 단가표를 모든 안에 적용했습니다.`, 'success');
+                  }}
+                  style={{ padding: '0.35rem 0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.8rem', fontWeight: '600', background: '#fff' }}
+                >
+                  <option value="">등급 미지정 (예전 기본 정비 내역)</option>
+                  {VEHICLE_GRADES.map((g) => <option key={g.key} value={g.key}>{g.label} — {g.examples}</option>)}
+                </select>
+                {current && (
+                  <button
+                    type="button"
+                    onClick={() => { applyMaintenanceRates(current); showToast('정비 단가표를 다시 불러왔습니다. 손으로 고친 정비 단가는 단가표 값으로 바뀝니다.', 'success'); }}
+                    style={{ padding: '0.3rem 0.6rem', border: '1px solid var(--border-color)', borderRadius: '6px', background: 'var(--bg-surface)', fontSize: '0.75rem', fontWeight: '600', cursor: 'pointer' }}
+                  >
+                    단가표 다시 적용
+                  </button>
+                )}
+                {!current && detected && (
+                  <span style={{ color: '#e08a1e', fontWeight: '600' }}>차종으로 보면 {GRADE_LABEL[detected]}입니다. 등급을 고르면 단가표가 적용됩니다.</span>
+                )}
+                {current && detected && detected !== current && (
+                  <span style={{ color: '#e08a1e', fontWeight: '600' }}>차종 이름으로는 {GRADE_LABEL[detected]}로 보입니다.</span>
+                )}
+              </div>
+            );
+          })()}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.8rem' }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2981,7 +3106,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                         value={opt.tireType || 'standard'}
                         onChange={(e) => {
                           const type = e.target.value;
-                          const recTiresForOpt = getRecommendedTirePrices(activeVehicle.carModel);
+                          const recTiresForOpt = tirePricesFor(activeVehicle);
                           const price = type === 'premium' ? recTiresForOpt.premium : recTiresForOpt.standard;
                           updateActiveVehicleOption(opt.id, { tireType: type, tireUnitCost: price });
                         }}

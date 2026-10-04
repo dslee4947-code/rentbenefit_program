@@ -4,6 +4,7 @@ import { toCommaString } from '../../utils/format.js';
 import MoneyInput from './MoneyInput.jsx';
 import { useSaveShortcut } from './useSaveShortcut.js';
 import { calculateQuoteOption } from '../../../../shared/quoteCalc.js';
+import { GRADE_LABEL } from '../../../../shared/maintenanceRates.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -441,6 +442,15 @@ const quotePlanOf = (quote) => {
       maintenanceOn,
       maintenanceFee: calc.maintenanceFeeTotal || 0,
       tireFee: calc.tireCostTotal || 0,
+      // 정비 항목별 계획(횟수 × 단가)과 타이어 본수, 차종 등급
+      maintenanceLines: calc.maintenanceLines || [],
+      tireCount: calc.tireCount || 0,
+      gradeLabel: GRADE_LABEL[vehicle.vehicleGrade] || '',
+      // 차 구입·등록·금융·세금. 원장의 실제 출금과 맞대 본다.
+      netVehiclePrice: calc.netVehiclePrice || 0,
+      registrationCost: calc.registrationCost || 0,
+      fundingInterest: calc.fundingInterest || 0,
+      carTaxTotal: calc.carTaxTotal || 0,
       // 견적 원가에는 베네핏 수수료가 들어 있다. 수수료도 회사 몫이라 예상 이익에서는 원가에서 빼고 본다.
       costExCommission: (calc.totalCost || 0) - (calc.companyCommission || 0),
       quoteMonthlyRent: calc.monthlyLeaseFee || 0,
@@ -457,6 +467,34 @@ const quotePlanOf = (quote) => {
 // 대출금(캐피탈·렌공에서 빌려 들어온 돈)과 할부금(그 상환)은 차를 사는 돈이라 운영비가 아니다.
 const NOT_OPERATING = new Set(['계약금', '차량가', '등록비용', '할부이자', '할부금', '대출금', '보험', '자동차세', '검사비', '제세공과', '수리·사고', '정기점검', '차량작업']);
 const TIRE_LABEL = /타이어/;
+
+/**
+ * 원장 출금 줄을 견적의 정비 항목에 맞춘다. 이름(자유 입력)으로 판정하므로 위에서부터 먼저 맞는 것을 쓴다.
+ * "브레이크 오일"은 브레이크 패드가 아니라 오일류라 먼저 본다. 브레이크 앞·뒤는 원장에서 구분이 안 돼 한 줄로 본다.
+ * 정비 항목인데 분류가 '기타'라 운영비(판관비)로 잡히던 줄(배터리 교체 등)도 여기서 정비로 옮긴다.
+ */
+const MAINTENANCE_MATCH = [
+  { key: 'tire', name: '타이어', rx: TIRE_LABEL },
+  { key: 'transmissionOil', name: '변속기·브레이크 오일', rx: /미션|변속기|감속기|브레이크\s*오일/ },
+  { key: 'brake', name: '브레이크 패드·라이닝', rx: /브레이크|패드|라이닝/ },
+  { key: 'regularCheck', name: '정기점검·엔진오일', rx: /정기\s*점검|엔진\s*오일|오일\s*교환|오일및/ },
+  { key: 'acFilter', name: '에어컨 필터', rx: /에어컨\s*필터|향균|항균/ },
+  { key: 'wiper', name: '와이퍼', rx: /와이퍼/ },
+  { key: 'tireRotation', name: '타이어 위치 교환', rx: /위치\s*교환|로테이션/ },
+  { key: 'battery', name: '배터리', rx: /배터리|밧데리/ },
+  { key: 'sparkPlug', name: '점화플러그', rx: /점화\s*플러그|플러그/ },
+  { key: 'coolant', name: '부동액·냉각수', rx: /부동액|냉각수/ }
+];
+// 견적 정비 항목 key를 원장 대조 줄로 묶는다(브레이크 앞·뒤 → 브레이크)
+const planKeyOf = (key) => (key === 'brakeFront' || key === 'brakeRear' ? 'brake' : key);
+const matchMaintenance = (e) => {
+  const label = e.label || '';
+  // 차량작업(썬팅·블랙박스 등)과 수리·사고는 정비가 아니다. 단 타이어는 차량작업으로 분류돼 있어도 정비로 본다.
+  const hit = MAINTENANCE_MATCH.find((m) => m.rx.test(label));
+  if (!hit) return e.category === '정기점검' ? 'regularCheck' : null;
+  if (hit.key !== 'tire' && ['차량작업', '수리·사고'].includes(e.category)) return null;
+  return hit.key;
+};
 
 // 차량작업비는 판매 수수료의 이 비율까지만 쓴다. 화면에 한도 금액은 보이지 않고 막대 색으로만 알린다
 const VEHICLE_WORK_LIMIT_RATE = 0.5;
@@ -508,6 +546,110 @@ function Section({ no, title, children }) {
 const Divider = () => <div style={{ borderTop: '1px dashed var(--border-color)', margin: '0.35rem 0' }} />;
 
 /**
+ * 정비 항목별 견적 대 실제.
+ * 견적은 "1회 단가 × 계약 기간 횟수"(단가표로 낸 견적) 또는 항목 금액(예전 견적)이다.
+ * 실제는 원장 출금 줄 이름으로 항목을 맞춘 합계다. 계약 중간이면 실제가 적은 게 정상이라 '쓴 비율'로 본다.
+ */
+function MaintenanceByItem({ plan, actual }) {
+  const lines = plan.maintenanceLines || [];
+  if (!lines.length) return null;
+  const rows = new Map();
+  lines.forEach((l) => {
+    const key = planKeyOf(l.key);
+    const name = key === 'brake' ? '브레이크 패드·라이닝' : (key === 'tire' ? `타이어 (${plan.tireCount || l.times || 0}본)` : l.name);
+    const r = rows.get(key) || { key, name, times: 0, plan: 0, unitText: [] };
+    r.plan += l.cost || 0;
+    if (l.times !== null && l.times !== undefined) {
+      r.times += l.times;
+      if (l.unitPrice !== null && l.unitPrice !== undefined) r.unitText.push(`${toCommaString(l.unitPrice)}×${l.times}${l.unit || '회'}`);
+    }
+    rows.set(key, r);
+  });
+  // 견적에 없는데 실제로 나간 정비 항목도 보여 준다
+  Object.entries(actual.maintByKey || {}).forEach(([key]) => {
+    if (!rows.has(key)) {
+      const m = MAINTENANCE_MATCH.find((x) => x.key === key);
+      rows.set(key, { key, name: m ? m.name : key, times: 0, plan: 0, unitText: [], notInQuote: true });
+    }
+  });
+
+  const cell = { padding: '0.22rem 0.3rem', borderBottom: '1px solid var(--border-color)', fontSize: '0.72rem' };
+  return (
+    <div style={{ marginTop: '0.6rem' }}>
+      <div style={{ fontSize: '0.74rem', fontWeight: '800', marginBottom: '0.25rem' }}>
+        항목별 견적 대 실제{plan.gradeLabel ? ` · 정비 단가표 ${plan.gradeLabel}` : ''}
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ color: 'var(--text-muted)' }}>
+            <th style={{ ...cell, textAlign: 'left' }}>항목</th>
+            <th style={{ ...cell, textAlign: 'right' }}>견적</th>
+            <th style={{ ...cell, textAlign: 'right' }}>실제</th>
+            <th style={{ ...cell, textAlign: 'right' }}>쓴 비율</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[...rows.values()].map((r) => {
+            const used = actual.maintByKey?.[r.key] || { count: 0, amount: 0 };
+            const p = r.plan > 0 ? Math.round((used.amount / r.plan) * 100) : null;
+            const color = r.plan <= 0 ? (used.amount > 0 ? '#d9534f' : 'inherit') : (p > 100 ? '#d9534f' : (p >= 80 ? '#e08a1e' : '#2f6f4e'));
+            return (
+              <tr key={r.key}>
+                <td style={cell} title={r.unitText.join(' + ')}>
+                  {r.name}
+                  {r.notInQuote && <span style={{ color: '#d9534f' }}> (견적에 없음)</span>}
+                  {r.unitText.length > 0 && <div style={{ color: 'var(--text-muted)', fontSize: '0.66rem' }}>{r.unitText.join(' + ')}</div>}
+                </td>
+                <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap' }}>{toCommaString(r.plan)}</td>
+                <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap' }}>{toCommaString(used.amount)}{used.count ? <span style={{ color: 'var(--text-muted)' }}> ({used.count}건)</span> : ''}</td>
+                <td style={{ ...cell, textAlign: 'right', fontWeight: '800', color }}>{p === null ? (used.amount > 0 ? '초과' : '-') : `${p}%`}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: '0.25rem', lineHeight: 1.5 }}>
+        실제는 원장 출금 이름으로 항목을 맞춘 값입니다(예: '정기점검비-카랑' → 정기점검·엔진오일). 계약 중간이면 쓴 비율이 낮은 것이 정상입니다.
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 차 구입·등록·금융·세금: 견적에서 잡은 금액과 원장의 실제 출금.
+ * 조달이자는 견적이 '빌렸다고 보고' 잡은 금융비용이다. 실제로는 할부이자 줄이나, 이자가 섞인 할부금 상환으로 나간다.
+ */
+function PurchaseCheck({ plan, actual }) {
+  if (!(plan.netVehiclePrice > 0)) return null;
+  const diffRow = (label, planned, real, note) => {
+    const diff = real - planned;
+    const color = Math.abs(diff) < 1 ? '#2f6f4e' : (diff > 0 ? '#d9534f' : '#2f6f4e');
+    return (
+      <div key={label} style={{ marginBottom: '0.35rem' }}>
+        <Row label={`견적 ${label}`} value={won(planned)} muted />
+        <Row label={`실제 ${label}`} value={won(real)} />
+        {real > 0 && <Row label={diff > 0 ? '· 견적보다 더 나감' : '· 견적보다 덜 나감'} value={won(Math.abs(diff))} color={color} />}
+        {note && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{note}</div>}
+      </div>
+    );
+  };
+  return (
+    <Section no={4} title="차 구입 · 등록 · 금융 · 세금">
+      {diffRow('차량 구입가', plan.netVehiclePrice, actual.vehiclePurchase, '견적: 차량가 + 옵션 − 할인 + 탁송료. 실제: 원장 차량가 출금(대출로 낸 금액 포함).')}
+      <Divider />
+      {diffRow('취득세·공채·등록', plan.registrationCost, actual.registration, '실제: 원장 등록비용·제세공과.')}
+      <Divider />
+      {diffRow('조달이자', plan.fundingInterest, actual.loanInterest,
+        actual.loanRepayment > 0
+          ? `할부금 상환 ${won(actual.loanRepayment)}에는 원금과 이자가 섞여 있어 이자만 따로 볼 수 없습니다.`
+          : '실제: 원장 할부이자. 회사 돈으로 산 차는 0원이 정상입니다(견적은 빌렸다고 보고 잡은 금액).')}
+      <Divider />
+      {diffRow('자동차세', plan.carTaxTotal, actual.carTax, '견적은 계약 기간 전체 금액입니다. 계약 중간이면 실제가 적습니다.')}
+    </Section>
+  );
+}
+
+/**
  * 수익성 검토.
  *
  * 견적서에서 잡아 둔 비용(보험·자차·판관비·베네핏 수수료·정비)과 원장에 실제로 쌓인 출금을 나란히 놓는다.
@@ -531,7 +673,11 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
   const plan = quotePlan || state.estimate;
 
   const actual = useMemo(() => {
-    const out = { insurance: 0, repair: 0, maintenance: 0, tire: 0, operating: 0, operatingByCat: {}, rentReceived: 0, salesCommission: 0, vehicleWork: 0, fines: 0, rentExtra: 0 };
+    const out = {
+      insurance: 0, repair: 0, maintenance: 0, tire: 0, operating: 0, operatingByCat: {}, rentReceived: 0, salesCommission: 0, vehicleWork: 0, fines: 0, rentExtra: 0,
+      // 정비 항목별 실제 지출(건수·금액)과 차 구입·등록·금융·세금 실제 출금
+      maintByKey: {}, vehiclePurchase: 0, registration: 0, loanInterest: 0, loanRepayment: 0, carTax: 0
+    };
     entries.forEach((e) => {
       const amount = Number(e.amount) || 0;
       if (!amount) return;
@@ -545,7 +691,20 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
         return;
       }
       const cat = e.category || '기타';
-      if (TIRE_LABEL.test(e.label || '')) { out.tire += amount; return; }
+      if (cat === '차량가') out.vehiclePurchase += amount;
+      if (cat === '등록비용' || cat === '제세공과') out.registration += amount;
+      if (cat === '할부이자') out.loanInterest += amount;
+      if (cat === '할부금') out.loanRepayment += amount;
+      if (cat === '자동차세') out.carTax += amount;
+      const maintKey = matchMaintenance(e);
+      if (maintKey) {
+        const slot = out.maintByKey[maintKey] || (out.maintByKey[maintKey] = { count: 0, amount: 0 });
+        slot.count += 1;
+        slot.amount += amount;
+        if (maintKey === 'tire') out.tire += amount;
+        else out.maintenance += amount;
+        return;
+      }
       if (cat === '과태료·통행료') out.fines += amount;
       else if (cat === '차량작업') out.vehicleWork += amount;
       else if (cat === '보험') out.insurance += amount;
@@ -790,6 +949,7 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
                 strong
                 color={(plan.maintenanceFee + plan.tireFee) - (actual.maintenance + actual.tire) >= 0 ? '#2f6f4e' : '#d9534f'}
               />
+              <MaintenanceByItem plan={plan} actual={actual} />
             </>
           ) : (
             <>
@@ -801,6 +961,8 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
             </>
           )}
         </Section>
+
+        <PurchaseCheck plan={plan} actual={actual} />
       </div>
     );
   }

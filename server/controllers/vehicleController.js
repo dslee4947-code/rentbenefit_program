@@ -17,6 +17,7 @@ import { stripHonorific } from '../utils/personName.js';
 import { normalizeMaintenance } from '../utils/maintenance.js';
 import { applySupplyPrice, normalizeSellingAdminExpense } from '../utils/vehiclePricing.js';
 import { calculateVehicleProfit } from '../utils/vehicleProfit.js';
+import { getMaintenanceRates } from '../utils/maintenanceRates.js';
 
 const carModelEngMap = {
   '카니발': 'Carnival',
@@ -146,7 +147,7 @@ const refreshVehicleProfit = async (vehicleId) => {
     termMonths = Number(contract?.termMonths) || Number(contract?.rentPeriodYears || 0) * 12;
   }
 
-  const profit = calculateVehicleProfit(vehicle, termMonths);
+  const profit = calculateVehicleProfit(vehicle, termMonths, { maintenanceRates: await getMaintenanceRates() });
   if (!profit.ok) return vehicle;
 
   await Vehicle.updateOne({ _id: vehicleId }, {

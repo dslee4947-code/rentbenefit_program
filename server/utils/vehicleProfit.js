@@ -21,6 +21,9 @@ import {
   addedRateForTerm, acquisitionTaxFor, publicBondFor, ownCarInsuranceRate, annualCarTax,
   fundingInterestFor, getMaintenanceBreakdown, ADVANCE_PAYMENT_INTEREST_RATE
 } from '../../shared/quoteCalc.js';
+import {
+  detectVehicleGrade, buildMaintenanceItemsFromRates, mergeMaintenanceRates, GRADE_LABEL
+} from '../../shared/maintenanceRates.js';
 
 /** 견적서 기본값. 차량에 값이 없을 때만 쓴다. */
 export const QUOTE_DEFAULTS = {
@@ -44,7 +47,7 @@ const has = (value) => value !== '' && value !== null && value !== undefined && 
 /**
  * @param {object} vehicle 차량 문서(lean)
  * @param {number} termMonths 렌트 기간(개월). 차량에 없으면 계약에서 가져와 넘긴다.
- * @param {object} [overrides] 기본값을 바꿔 쓰고 싶을 때
+ * @param {object} [overrides] 기본값을 바꿔 쓰고 싶을 때. maintenanceRates에 정비 단가표(getMaintenanceRates)를 넘긴다.
  * @returns {object|null} 계산에 필요한 값이 없으면 reason과 함께 돌려준다
  */
 export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
@@ -124,17 +127,29 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
   const maintenanceJoined = vehicle.maintenance?.generalMaintenance === '가입';
   let maintenanceFeeTotal = 0;
   let tireCostTotal = 0;
+  let maintenanceLines = [];
+  let tireCount = 0;
+  // 차종 등급. 정비 단가표에서 이 등급의 단가를 쓴다. 못 고르면 예전 견적서 기본 정비 내역을 쓴다.
+  const grade = detectVehicleGrade({ carModel: vehicle.carModel, fuelType: vehicle.fuelType });
   if (maintenanceJoined) {
-    // 견적서 기본 정비 내역과 같은 식. 타이어는 계약 기간 주행거리 5만km마다 4본, 한 번만 잡는다.
-    // 차량 DB에는 정비 항목별 금액이 없어 견적서 기본 정비 내역을 쓴다.
+    // 견적서와 같은 식. 항목마다 계약 기간·주행거리로 횟수를 세고, 타이어는 5만km마다 4본을 한 번만 잡는다.
     const annualMileage = num(vehicle.maintenance?.mileage) || defaults.annualMileage;
+    const rates = defaults.maintenanceRates || mergeMaintenanceRates(null);
+    const items = grade ? buildMaintenanceItemsFromRates(rates, grade) : null;
+    const tireUnitCost = grade
+      ? (vehicle.maintenance?.tireType === 'premium' ? rates.grades[grade].tire.premium : rates.grades[grade].tire.standard)
+      : defaults.tireUnitCost;
     const plan = getMaintenanceBreakdown(
-      { termYears: years, mileage: annualMileage, tireUnitCost: defaults.tireUnitCost },
+      { termYears: years, mileage: annualMileage, tireUnitCost, maintenanceItems: items },
       {}
     );
     tireCostTotal = plan.tireCost;
     maintenanceFeeTotal = Math.max(0, plan.monthlyFee * months - tireCostTotal);
-    assumptions.push(`정비비: 견적서 기본 정비 내역 월 ${plan.monthlyFee.toLocaleString()}원(타이어 ${plan.tireCount}본 포함)`);
+    maintenanceLines = plan.lines;
+    tireCount = plan.tireCount;
+    assumptions.push(grade
+      ? `정비비: 정비 단가표 ${GRADE_LABEL[grade]} 기준 월 ${plan.monthlyFee.toLocaleString()}원(타이어 ${plan.tireCount}본 포함)`
+      : `정비비: 차종 등급을 몰라 견적서 기본 정비 내역 월 ${plan.monthlyFee.toLocaleString()}원(타이어 ${plan.tireCount}본 포함)`);
   }
 
   // 회사수수료는 원가에 넣지 않는다.
@@ -180,6 +195,15 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
       maintenanceOn: maintenanceJoined,
       maintenanceFee: maintenanceFeeTotal,
       tireFee: tireCostTotal,
+      maintenanceLines,
+      tireCount,
+      grade,
+      gradeLabel: grade ? GRADE_LABEL[grade] : '',
+      // 차 구입·등록·금융·세금: 원장의 실제 출금과 맞대 본다
+      netVehiclePrice,
+      registrationCost: acquisitionTax + publicBond + registrationAgencyFee,
+      fundingInterest,
+      carTaxTotal,
       // 예상 이익 계산용. 원가에는 회사수수료가 빠져 있다(위 설명 참고).
       costExCommission: totalCost,
       quoteMonthlyRent: num(vehicle.monthlyFee),

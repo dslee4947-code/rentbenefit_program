@@ -4,6 +4,9 @@ import Contract from '../models/Contract.js';
 import BillingSchedule from '../models/BillingSchedule.js';
 import Company from '../models/Company.js';
 import Customer from '../models/Customer.js';
+import Quote from '../models/Quote.js';
+import { calculateVehicleProfit, QUOTE_DEFAULTS } from '../utils/vehicleProfit.js';
+import { logActivity, ACTIONS } from '../utils/activityLog.js';
 
 /**
  * 갑지 번호를 채번한다. 차량 코드와 같은 체계(Ray-001, Grander-012)라
@@ -84,13 +87,13 @@ const buildSnapshot = (vehicle, contract, company, customer) => {
 /**
  * 렌트차량 DB의 상태를 갑지의 성격(ledgerType)과 진행 상태(status)로 옮긴다.
  *
- * 두 축을 나눠 둔 이유: "사고대차 차량인데 아직 운용중"과 "장기렌트인데 거래완료"가
- * 모두 성립한다. 하나로 합치면 사고대차 차가 끝났을 때 둘 중 하나를 버려야 한다.
+ * 두 축을 나눠 둔 이유: "단기렌트 차량인데 아직 운용중"과 "장기렌트인데 거래완료"가
+ * 모두 성립한다. 하나로 합치면 단기렌트 차가 끝났을 때 둘 중 하나를 버려야 한다.
  */
 const resolveKind = (vehicle) => {
   const vs = vehicle?.status;
   return {
-    ledgerType: vs === '사고대차' ? '사고대차' : '장기렌트',
+    ledgerType: vs === '단기렌트' ? '단기렌트' : '장기렌트',
     status: vs === '거래완료' ? '거래완료' : '운용중'
   };
 };
@@ -225,6 +228,11 @@ export const syncLedgerEntries = async (ledger) => {
       const amount = Math.round(base * share);
       if (!amount) return;
 
+      // 자금팀이 회차표에서 먼저 입금 완료를 찍어 둔 회차는 건너뛴다. 같은 회차가 두 줄이 되면 입금이 두 번 잡힌다.
+      const handMarked = ledger.entries.some((e) => e.source === 'manual' && e.category === '렌트료'
+        && (e.periodSeq || 1) === seq && (e.round || 0) === r.no);
+      if (handMarked) return;
+
       if (upsertAutoEntry(ledger, {
         side: '입금',
         group: '고객입금',
@@ -244,7 +252,9 @@ export const syncLedgerEntries = async (ledger) => {
   // 3. 차량에서 가져오는 지출 - 실제 가입한 보험료와 출고 전 작업(선팅·블랙박스 등)
   if (vehicle) {
     const premium = Number(vehicle.insuranceEnrollment?.premium) || 0;
-    if (premium && vehicle.insuranceEnrollment?.enrolled) {
+    // 원장 보험료 회차표에서 1회차를 먼저 찍어 둔 경우는 건너뛴다 (같은 보험료가 두 번 잡히지 않게)
+    const insuranceMarked = ledger.entries.some((e) => e.source === 'manual' && e.category === '보험' && (e.round || 0) === 1);
+    if (premium && vehicle.insuranceEnrollment?.enrolled && !insuranceMarked) {
       if (upsertAutoEntry(ledger, {
         side: '지출', group: '회사출금', category: '보험', label: '보험 1회차',
         amount: premium, date: vehicle.insuranceEnrollment.startDate,
@@ -297,7 +307,7 @@ const withSummary = (doc) => {
 // @route   GET /api/ledgers
 export const getLedgers = async (req, res) => {
   try {
-    const { q, status, ledgerType, companyId, sort = 'createdAt', order = 'desc' } = req.query;
+    const { q, status, ledgerType, form, companyId, sort = 'purchasedAt', order = 'desc' } = req.query;
     const filter = {};
     if (status) filter.status = status;
     if (ledgerType) filter.ledgerType = ledgerType;
@@ -314,9 +324,29 @@ export const getLedgers = async (req, res) => {
       ];
     }
 
-    const ledgers = (await VehicleLedger.find(filter)
+    /**
+     * 차량 구매일. 갑지의 등록일(차를 사서 등록한 날)을 쓰고, 비어 있으면 차량가를 치른 줄의 날짜를 쓴다.
+     * 출고일은 엑셀에서 옮겨 온 갑지에 한 장도 채워져 있지 않아 기준으로 쓸 수 없다.
+     */
+    const purchasedAtOf = (l) => {
+      if (l.header?.registeredAt) return l.header.registeredAt;
+      const paid = (l.entries || []).filter((e) => e.category === '차량가' && e.date).map((e) => e.date).sort();
+      return paid[0] || null;
+    };
+
+    /**
+     * 형태: 장기 / 단기 / 완료. 목록 맨 앞 칸과 필터에 쓴다.
+     * 판매가 끝난 차(거래완료)는 장기였든 단기였든 완료로 모은다. 정산 리스트 엑셀도 그렇게 나뉘어 있다.
+     */
+    const formOf = (l) => {
+      if (l.status === '거래완료') return '완료';
+      return l.ledgerType === '단기렌트' ? '단기' : '장기';
+    };
+
+    let ledgers = (await VehicleLedger.find(filter)
       .populate('company', 'name bizNo')
-      .lean()).map(withSummary);
+      .lean()).map((l) => ({ ...withSummary(l), purchasedAt: purchasedAtOf(l), form: formOf(l) }));
+    if (form) ledgers = ledgers.filter((l) => l.form === form);
 
     /**
      * 정렬은 DB가 아니라 여기서 한다.
@@ -325,11 +355,13 @@ export const getLedgers = async (req, res) => {
      * "계약자명으로 정렬" 과 "정산금액으로 정렬" 이 따로 놀지 않는다.
      */
     const pick = {
+      form: (l) => ({ 장기: 1, 단기: 2, 완료: 3 }[l.form] || 9),
       ledgerNo: (l) => l.ledgerNo,
       contractorName: (l) => l.header?.contractorName || l.company?.name || '',
       customerName: (l) => l.header?.customerName || '',
       carModel: (l) => l.header?.carModel || '',
       plateNo: (l) => l.header?.plateNo || '',
+      purchasedAt: (l) => (l.purchasedAt ? new Date(l.purchasedAt).getTime() : null),
       deliveredAt: (l) => (l.header?.deliveredAt ? new Date(l.header.deliveredAt).getTime() : null),
       contractEndAt: (l) => (l.header?.contractEndAt ? new Date(l.header.contractEndAt).getTime() : null),
       paidOut: (l) => l.summary.paidOut,
@@ -482,6 +514,8 @@ export const updateLedger = async (req, res) => {
     if (req.body.ledgerType !== undefined) ledger.ledgerType = req.body.ledgerType;
     if (req.body.status !== undefined) ledger.status = req.body.status;
     if (req.body.note !== undefined) ledger.note = req.body.note;
+    if (req.body.profitReport !== undefined) ledger.profitReport = String(req.body.profitReport || '');
+    if (['미정', '인수', '반납'].includes(req.body.maturityPlan)) ledger.maturityPlan = req.body.maturityPlan;
 
     await ledger.save();
     res.json(withSummary(ledger));
@@ -521,6 +555,7 @@ export const saveLedgerEntries = async (req, res) => {
           bank: row.bank || '',
           date: row.date || undefined,
           round: row.round || undefined,
+          periodSeq: Number(row.periodSeq) || 1,
           memo: row.memo || undefined,
           source: 'manual',
           locked: false
@@ -550,6 +585,8 @@ export const saveLedgerEntries = async (req, res) => {
         bank: row.bank ?? prev.bank,
         date: row.date || undefined,
         round: row.round ?? prev.round,
+        // 빠뜨리면 연장 구간 줄이 저장할 때마다 최초 계약(1)으로 되돌아간다
+        periodSeq: Number(row.periodSeq) || prev.periodSeq || 1,
         memo: row.memo ?? prev.memo,
         source: prev.source,
         sourceRef: prev.sourceRef,
@@ -559,6 +596,12 @@ export const saveLedgerEntries = async (req, res) => {
 
     ledger.entries = next;
     await ledger.save();
+    logActivity({
+      req, dept: '재무부', action: ACTIONS.LEDGER_EDIT,
+      target: { model: 'VehicleLedger', id: ledger._id },
+      summary: `${ledger.header?.carModel || ''} ${ledger.header?.plateNo || ''} 원장 수정`.replace(/\s+/g, ' ').trim(),
+      meta: { entries: next.length, added: next.filter((e) => !e._id).length }
+    });
     res.json(withSummary(ledger));
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -608,7 +651,7 @@ export const linkVehicle = async (req, res) => {
     if (contract) ledger.contract = contract._id;
     if (companyId) ledger.company = companyId;
     if (contract?.customer) ledger.customer = contract.customer;
-    // 사고대차 차량을 이어 붙였으면 갑지 성격도 그때 정해진다
+    // 단기렌트 차량을 이어 붙였으면 갑지 성격도 그때 정해진다
     const kind = resolveKind(vehicle);
     ledger.ledgerType = kind.ledgerType;
     if (ledger.status === '차량미배정') ledger.status = kind.status;
@@ -829,6 +872,64 @@ export const getLinkableVehicles = async (req, res) => {
       .lean();
 
     res.json(vehicles);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    이 갑지 차량의 견적서 (수익성 검토용). 갑지 -> 최초 계약 -> 견적서 순으로 찾는다
+// @route   GET /api/ledgers/:id/quote
+export const getLedgerQuote = async (req, res) => {
+  try {
+    const ledger = await VehicleLedger.findById(req.params.id).select('contract contractPeriods vehicle terms').lean();
+    if (!ledger) return res.status(404).json({ message: '갑지를 찾을 수 없습니다.' });
+
+    // 견적은 차를 들여올 때 한 번 쓴다. 연장 계약에는 견적서가 따로 없으므로 최초 계약을 본다.
+    const first = [...(ledger.contractPeriods || [])].sort((a, b) => a.seq - b.seq)[0];
+    // 구간이 있으면 1구간의 계약만 본다. ledger.contract는 연장하면 연장 계약으로 바뀌어 견적과 상관없다.
+    const contractId = first ? first.contract : ledger.contract;
+    const contract = contractId
+      ? await Contract.findById(contractId).select('quote contractNo termMonths rentPeriodYears').lean()
+      : null;
+
+    let reason;
+    if (!contract) reason = '연결된 계약이 없습니다.';
+    else if (!contract.quote) reason = `계약 ${contract.contractNo || ''}은(는) 견적서에서 만들어지지 않았습니다.`.replace(/\s+/g, ' ');
+    else {
+      const quote = await Quote.findById(contract.quote)
+        .select('vehicleModel totalPrice pricing insurance maintenance comparisonVehicles activeVehicleId monthlyEstimates createdAt')
+        .lean();
+      if (quote) return res.json({ quote });
+      reason = '계약에 적힌 견적서가 삭제되었습니다.';
+    }
+
+    /**
+     * 견적서가 없는 차(엑셀에서 옮겨 온 계약 대부분)는 렌트차량 DB 값에 견적서 식을 돌려 대신 보여 준다.
+     * 렌트차량 목록의 이익금과 같은 계산이다. 값이 없는 항목은 견적서 기본값으로 채우고 무엇을 가정했는지 함께 내려 준다.
+     */
+    const vehicle = ledger.vehicle ? await Vehicle.findById(ledger.vehicle).lean() : null;
+    if (!vehicle) return res.json({ quote: null, reason });
+
+    // 견적은 최초 계약 기간을 놓고 계산한다. 고정 조건(terms)은 연장하면 연장 계약 기간으로 바뀌므로 마지막에 본다.
+    const termMonths = Number(vehicle.paymentTerm) || Number(first?.termMonths) || Number(contract?.termMonths)
+      || Number(contract?.rentPeriodYears || 0) * 12 || Number(ledger.terms?.termMonths) || 0;
+    const profit = calculateVehicleProfit(vehicle, termMonths);
+    if (!profit.ok) return res.json({ quote: null, reason: `${reason} 렌트차량 DB로도 계산할 수 없습니다(${profit.reason}).` });
+
+    res.json({
+      quote: null,
+      reason,
+      estimate: {
+        ...profit.breakdown,
+        months: profit.termMonths,
+        vehicleLabel: [vehicle.carModel, vehicle.plateNo].filter(Boolean).join(' '),
+        // 판관비는 차량 DB에 금액이 있으면 그 값을 썼으므로 '차량가의 3%' 가정은 빼고 보여 준다
+        assumptions: [
+          ...profit.assumptions.filter((a) => !(Number(vehicle.sellingAdminExpense) > 0 && a.startsWith('판관비'))),
+          `베네핏 수수료: 차량가의 ${(QUOTE_DEFAULTS.commissionRate * 100).toFixed(1)}%`
+        ]
+      }
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

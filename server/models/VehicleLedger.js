@@ -135,13 +135,14 @@ const VehicleLedgerSchema = new Schema({
   customer: { type: Schema.Types.ObjectId, ref: 'Customer', default: null },
 
   /**
-   * 갑지의 성격. 장기렌트가 대부분이지만 사고대차·단기렌트 차량도 갑지를 따로 만든다.
-   * 진행 상태(status)와는 다른 축이다. "사고대차인데 아직 운용중"이 성립하기 때문이다.
+   * 갑지의 성격. 장기렌트가 대부분이지만 단기렌트(대차) 차량도 갑지를 따로 만든다.
+   * 진행 상태(status)와는 다른 축이다. "단기렌트인데 아직 운용중"이 성립하기 때문이다.
+   * 사고대차는 단기렌트로 통일했다(2026-09). 사고대차 매출인지는 대차 기록(RentalRecord)에서 가른다.
    * 차량을 연결하면 렌트차량 DB의 상태(Vehicle.status)를 보고 자동으로 정해진다.
    */
   ledgerType: {
     type: String,
-    enum: ['장기렌트', '사고대차', '단기렌트', '기타'],
+    enum: ['장기렌트', '단기렌트', '기타'],
     default: '장기렌트'
   },
 
@@ -230,7 +231,18 @@ const VehicleLedgerSchema = new Schema({
 
   entries: [LedgerEntrySchema],
 
-  note: String
+  note: String,
+
+  // 갑지 화면 '기타' 칸. 이 차의 수익성을 자금팀이 글로 적어 두는 자리다 (예: 인수 여부, 손익 전망).
+  profitReport: { type: String, default: '' },
+
+  /**
+   * 만기에 차를 어떻게 하는지. 수익성 검토의 예상 매출이 달라진다.
+   *   인수: 고객이 인수가를 내고 차를 가져간다 - 인수가가 매출
+   *   반납: 차가 돌아온다 - 인수가 대신 중고차로 팔아야 하고, 목표 매각가를 보여 준다
+   *   미정: 아직 모름 - 인수로 보고 계산한다(견적이 인수를 전제로 짜여 있다)
+   */
+  maturityPlan: { type: String, enum: ['미정', '인수', '반납'], default: '미정' }
 }, { timestamps: true });
 
 VehicleLedgerSchema.index({ vehicle: 1 });

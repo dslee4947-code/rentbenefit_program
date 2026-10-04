@@ -11,7 +11,8 @@ import {
   getLinkableVehicles,
   extendLedger,
   searchContracts,
-  getLedgerLabels
+  getLedgerLabels,
+  getLedgerQuote
 } from '../controllers/ledgerController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
 
@@ -31,6 +32,7 @@ router.route('/:id')
   .put(checkWritePermission, updateLedger)
   .delete(checkWritePermission, deleteLedger);
 
+router.get('/:id/quote', getLedgerQuote);
 router.put('/:id/entries', checkWritePermission, saveLedgerEntries);
 router.post('/:id/sync', checkWritePermission, syncLedger);
 router.post('/:id/link-vehicle', checkWritePermission, linkVehicle);

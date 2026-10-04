@@ -1,5 +1,7 @@
 import Contract from '../models/Contract.js';
 import Vehicle from '../models/Vehicle.js';
+import RentalRecord from '../models/RentalRecord.js';
+import { RENTAL_FLEET_STATUSES } from './accidentRentalCompany.js';
 
 /**
  * 차량 한 대의 실제 렌트 기간.
@@ -116,5 +118,79 @@ export const findContractAtDate = async (plateNo, at) => {
     candidates,
     matched: null,
     reason: '위반일이 장기렌트 기간 밖입니다. 사고대차 · 단기렌트 건일 수 있습니다.'
+  };
+};
+
+/**
+ * 한국 날짜로 며칠째인지. 고지서의 위반일은 시각이 없는 일이 많아 하루 단위로 비교한다.
+ * 서버(도쿄 리전)의 시간대와 상관없이 같은 값이 나오도록 KST(+9시간)로 맞춘다.
+ */
+const DAY = 864e5;
+// 반납 정보가 없는 대여 기록을 얼마나 열어 둘지. 사고대차 수리 기간이 길어도 대개 이 안에 끝난다.
+const OPEN_RENTAL_DAYS = 60;
+const dayOf = (d) => Math.floor((new Date(d).getTime() + 9 * 3600e3) / DAY);
+
+/**
+ * 차량번호와 위반일로 그때 대차 차량을 쓰던 대여 건을 찾는다.
+ *
+ * 장기렌트 계약 기간 밖에서 난 위반은 대부분 대차(단기렌트·사고대차) 운행 중에 생긴다.
+ * 대여 기록(RentalRecord)의 인도일~반납일(반납 전이면 반납 예정일, 그것도 없으면 오늘)에
+ * 위반일이 드는 건을 찾는다. 인도·반납이 같은 날 겹치면 둘 다 걸리므로 고르지 않고 후보만 준다.
+ *
+ * 대여 기록이 없어도 차가 대차 차량(상태 '단기렌트')이면 fleet로 알려 준다.
+ * 그 경우 고객은 사람이 채운다.
+ *
+ * @param {string} plateNo 차량번호
+ * @param {Date|string|null} at 위반일
+ * @returns {Promise<{fleet: boolean, vehicleId: any, matched: object|null, candidates: object[], reason: string}>}
+ */
+export const findRentalAtDate = async (plateNo, at) => {
+  const plate = String(plateNo || '').replace(/\s+/g, '');
+  const empty = { fleet: false, vehicleId: null, matched: null, candidates: [], reason: '' };
+  if (!plate) return { ...empty, reason: '차량번호가 없습니다.' };
+
+  const vehicles = await Vehicle.find({ plateNo: plate }).select('status').lean();
+  const fleetVehicle = vehicles.find((v) => RENTAL_FLEET_STATUSES.includes(v.status));
+
+  const when = at ? new Date(at) : null;
+  const hasWhen = when && !Number.isNaN(when.getTime());
+  let candidates = [];
+  if (hasWhen) {
+    const day = dayOf(when);
+    const records = await RentalRecord.find({ rentCarNumber: plate, deliveredAt: { $lte: new Date((day + 1) * DAY) } })
+      .select('rentalType customerName customerContact deliveredAt returnedAt returnDueAt insurance.company')
+      .sort({ deliveredAt: -1 })
+      .limit(20)
+      .lean();
+    candidates = records
+      .filter((r) => {
+        // 반납일·반납 예정일이 모두 비어 있으면 끝을 모른다. 오늘까지 열어 두면 닫지 않은 옛 기록이
+        // 그 뒤의 모든 위반에 걸리므로, 인도 후 OPEN_RENTAL_DAYS까지만 본다.
+        const end = r.returnedAt || r.returnDueAt
+          || new Date(Math.min(Date.now(), new Date(r.deliveredAt).getTime() + OPEN_RENTAL_DAYS * DAY));
+        return dayOf(r.deliveredAt) <= day && day <= dayOf(end);
+      })
+      .map((r) => ({
+        rentalId: r._id,
+        rentalType: r.rentalType,
+        customerName: r.customerName || '',
+        customerContact: r.customerContact || '',
+        insuranceCompany: r.insurance?.company || '',
+        deliveredAt: r.deliveredAt,
+        returnedAt: r.returnedAt || null,
+        returnDueAt: r.returnDueAt || null
+      }));
+  }
+
+  const fleet = Boolean(fleetVehicle) || candidates.length > 0;
+  const vehicleId = (fleetVehicle || vehicles[0])?._id || null;
+  if (candidates.length === 1) return { fleet, vehicleId, matched: candidates[0], candidates, reason: '' };
+  if (candidates.length > 1) {
+    return { fleet, vehicleId, matched: null, candidates, reason: '그날 이 차를 쓴 대여 건이 둘 이상입니다. 위반 시각으로 골라 주세요.' };
+  }
+  if (!fleet) return { ...empty, vehicleId, reason: '' };
+  return {
+    fleet, vehicleId, matched: null, candidates,
+    reason: hasWhen ? '대차 차량이지만 그날의 대여 기록이 없습니다. 고객을 직접 적어 주세요.' : '위반일을 읽지 못했습니다.'
   };
 };

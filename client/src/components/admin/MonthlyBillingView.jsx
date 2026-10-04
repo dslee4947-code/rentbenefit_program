@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
+import { loadStorageSettings, contractFolderPath } from './storagePaths.js';
 import { Calendar, RefreshCw, Save, FileText, Send, Paperclip, Trash2, AlertCircle, Plus, Upload, History, Mail, Search, X, ChevronDown, ChevronRight } from 'lucide-react';
-import html2pdf from 'html2pdf.js';
+import InvoiceSheet, { isMaintenanceKind, sumAmount, isBilledNotice, makeInvoicePdf } from './InvoiceSheet.jsx';
 import MoneyInput from './MoneyInput.jsx';
+import { NOTICE_KINDS, isReadableFile, readNotice } from './noticeOcr.js';
+import AmountChoices from './AmountChoices.jsx';
 import IssuedInvoicesView from './IssuedInvoicesView.jsx';
 import UpcomingDocUpload from './UpcomingDocUpload.jsx';
 import MailTemplateEditor from './MailTemplateEditor.jsx';
@@ -63,14 +66,6 @@ const STATUS_STYLE = {
 // 자유 입력이면 '범칙금'/'범칙금(1월)'/'과태료 범칙금'처럼 제각각이 되어 파일명이 흐트러진다.
 const ATTACHMENT_KINDS = ['범칙금', '과태료', '통행료', '정비내역', '기타'];
 
-// 서류에 적은 금액이 어느 청구 항목으로 합산되는지. 서버(billingScheduleController.js)와 같은 규칙이다.
-// 정비내역만 '정기점검/정비'로 가고 나머지는 모두 '범칙금/과태료'로 묶는다.
-// 종류 이름을 직접 적을 수 있어(주차위반 등) 정해진 목록으로 판정하지 않는다.
-const MAINTENANCE_KINDS = ['정비내역', '정비'];
-const isMaintenanceKind = (kind) => MAINTENANCE_KINDS.includes(String(kind || '').trim());
-
-const sumAmount = (list) => (list || []).reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
-
 // 회차에 붙는 추가 청구 항목. 월 렌트료는 계약에서 정해지므로 여기서 고치지 않는다.
 // 기타 청구는 항목명을 적을 수 있어야 해서 아래에서 따로 그린다.
 const EXTRA_FIELDS = [
@@ -80,143 +75,6 @@ const EXTRA_FIELDS = [
   { key: 'fine', label: '범칙금 / 과태료' },
   { key: 'maintenance', label: '정기점검 / 정비' }
 ];
-
-/**
- * 청구서 양식. PDF로 만들 대상이라 화면에는 숨겨 두고 이 요소만 캡처한다.
- * 엑셀로 쓰던 청구서 양식(결제금액 내역 / 청구내역 / 상세내역 / 차량 표)을 그대로 옮겼다.
- */
-function InvoiceSheet({ innerRef, item, round, vehicles, total }) {
-  const company = item?.company;
-  const name = company?.name || item?.customer?.name || '-';
-  const cell = { border: '1px solid #ccc', padding: '4px 8px', fontSize: '11px' };
-  const head = { ...cell, background: '#e8e8e8', fontWeight: 700, textAlign: 'center' };
-
-  // 금액이 적힌 서류. 범칙금이 여러 건이면 합계만 찍지 않고 명세로 펼친다.
-  // 고객이 직접 낸 건은 청구액에 안 들어가므로 명세에서도 빼야 한다.
-  // 합계에 없는 줄이 명세에 찍히면 법인이 바로 되묻는다.
-  const fineDocs = (round?.attachments || [])
-    .filter((a) => !isMaintenanceKind(a.kind) && Number(a.amount) > 0 && a.noticeStatus !== '고객납부');
-  // 발생일은 적는 칸을 없앴다. 예전에 적어 둔 건이 있을 때만 열을 보여 준다.
-  const hasOccurred = fineDocs.some((a) => a.occurredAt);
-  const interestLabel = round?.interestRate
-    ? `연체 이자 (연 ${round.interestRate}% · ${round.interestDays || 0}일)`
-    : '연체 이자';
-
-  const rows = [
-    ['전월 미결제금액', round?.prevUnpaid],
-    ['전월 초과 입금액', round?.prevOverpaid],
-    ['당월 결제금액', round?.monthlyRent],
-    ['정기점검', round?.maintenance],
-    ['범칙금 / 과태료', round?.fine],
-    [interestLabel, round?.interest],
-    // 기타 청구는 '기타 80,000원'만 찍히면 무슨 돈인지 되묻게 되므로 적어 둔 항목명을 그대로 쓴다
-    ...((round?.extras || []).length
-      ? round.extras.map((e) => [e.label || '기타 청구', e.amount])
-      : [['기타 청구', round?.other]])
-  ];
-  const details = [
-    ['고객명', name],
-    ['거래은행', company?.bank?.bankName || '-'],
-    ['계좌번호', company?.bank?.accountNo || '-'],
-    ['납입회차', `${round?.no || '-'} 회`],
-    ['출금일', ymd(round?.dueDate)]
-  ];
-
-  return (
-    <div ref={innerRef} style={{ width: '780px', padding: '28px', background: '#fff', color: '#111', fontFamily: "'Malgun Gothic', sans-serif" }}>
-      <div style={{ fontSize: '20px', fontWeight: 800, marginBottom: '16px' }}>{name}</div>
-
-      <div style={{ background: '#8a8a8a', color: '#fff', padding: '5px 10px', fontWeight: 700, fontSize: '12px' }}>결제금액 내역</div>
-      <div style={{ textAlign: 'right', fontSize: '18px', fontWeight: 800, margin: '10px 0' }}>
-        {Number(total || 0).toLocaleString()} 원
-      </div>
-
-      <div style={{ display: 'flex', gap: '16px', marginTop: '12px' }}>
-        <table style={{ width: '50%', borderCollapse: 'collapse' }}>
-          <thead><tr><th colSpan={3} style={head}>청구내역</th></tr></thead>
-          <tbody>
-            {rows.map(([label, value], i) => (
-              <tr key={label}>
-                <td style={{ ...cell, width: '28px', textAlign: 'center' }}>{i + 1}</td>
-                <td style={cell}>{label}</td>
-                <td style={{ ...cell, textAlign: 'right' }}>{value ? Number(value).toLocaleString() : '-'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        <table style={{ width: '50%', borderCollapse: 'collapse' }}>
-          <thead><tr><th colSpan={3} style={head}>상세내역</th></tr></thead>
-          <tbody>
-            {details.map(([label, value], i) => (
-              <tr key={label}>
-                <td style={{ ...cell, width: '28px', textAlign: 'center' }}>{i + 1}</td>
-                <td style={cell}>{label}</td>
-                <td style={{ ...cell, textAlign: 'right', fontWeight: 700 }}>{value}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {fineDocs.length > 0 && (
-        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '16px' }}>
-          <thead>
-            <tr>
-              <th style={{ ...head, width: '36px' }}>No</th>
-              <th style={head}>구분</th>
-              <th style={head}>차량번호</th>
-              {hasOccurred && <th style={head}>발생일</th>}
-              <th style={head}>금액</th>
-            </tr>
-          </thead>
-          <tbody>
-            {fineDocs.map((a, i) => (
-              <tr key={a.fileName || i}>
-                <td style={{ ...cell, textAlign: 'center' }}>{i + 1}</td>
-                <td style={{ ...cell, textAlign: 'center' }}>{a.kind}</td>
-                <td style={{ ...cell, textAlign: 'center' }}>{a.plateNo || '-'}</td>
-                {hasOccurred && <td style={{ ...cell, textAlign: 'center' }}>{a.occurredAt ? ymd(a.occurredAt) : '-'}</td>}
-                <td style={{ ...cell, textAlign: 'right' }}>{Number(a.amount).toLocaleString()}</td>
-              </tr>
-            ))}
-            <tr>
-              <td colSpan={hasOccurred ? 4 : 3} style={{ ...cell, textAlign: 'right', fontWeight: 700 }}>범칙금 / 과태료 합계</td>
-              <td style={{ ...cell, textAlign: 'right', fontWeight: 700 }}>{sumAmount(fineDocs).toLocaleString()}</td>
-            </tr>
-          </tbody>
-        </table>
-      )}
-
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '16px' }}>
-        <thead>
-          <tr>
-            <th style={{ ...head, width: '36px' }}>No</th>
-            <th style={head}>차량번호</th>
-            <th style={head}>월 렌트료</th>
-            <th style={head}>인도일</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(vehicles || []).map((v, i) => (
-            <tr key={v._id}>
-              <td style={{ ...cell, textAlign: 'center' }}>{i + 1}</td>
-              <td style={{ ...cell, textAlign: 'center' }}>{v.plateNo || v.code || '-'}</td>
-              <td style={{ ...cell, textAlign: 'right' }}>{v.monthlyFee ? Number(v.monthlyFee).toLocaleString() : '-'}</td>
-              <td style={{ ...cell, textAlign: 'center' }}>{ymd(v.deliveryDate)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <div style={{ marginTop: '28px', borderTop: '2px solid #333', paddingTop: '10px', fontSize: '11px', color: '#444' }}>
-        <div style={{ fontWeight: 800, fontSize: '13px', color: '#111' }}>(주)렌트베네핏</div>
-        <div>서울시 서초구 양재대로 11길 36, 은관 505호 (양재동, 서울오토갤러리)</div>
-        <div>대표이사 신동일 | 사업자번호 422-88-02467 &nbsp;&nbsp; T. 02-547-0303 &nbsp; F. 02-529-3303</div>
-      </div>
-    </div>
-  );
-}
 
 /**
  * 월 청구 화면.
@@ -241,6 +99,10 @@ function MonthlyBillingView({ showToast, currentUser }) {
   // 회차에 딸린 서류(범칙금 고지서 등)
   const [attachments, setAttachments] = useState([]);
   const [attachKind, setAttachKind] = useState(ATTACHMENT_KINDS[0]);
+
+  // 화면에 적어 주는 저장 경로. 설정에서 폴더 이름을 바꾸면 이 안내도 따라 바뀐다.
+  const [storageSettings, setStorageSettings] = useState(null);
+  useEffect(() => { loadStorageSettings().then(setStorageSettings); }, []);
   const [attachAmount, setAttachAmount] = useState('');
   const [attachCustomKind, setAttachCustomKind] = useState(''); // '기타'일 때 실제 종류 이름
   const [attachPlateNo, setAttachPlateNo] = useState('');
@@ -250,6 +112,27 @@ function MonthlyBillingView({ showToast, currentUser }) {
   const [roundPayInput, setRoundPayInput] = useState({}); // 이력 표에서 회차별 일부 납부액
   const [uploading, setUploading] = useState(false);
   const attachInputRef = useRef(null);
+  // 고지서는 고르자마자 올리지 않는다. 글자를 읽어 칸을 채우고, 사람이 확인한 뒤 [올리기]로 저장한다.
+  const [pendingAttach, setPendingAttach] = useState(null);
+  const [attachReading, setAttachReading] = useState(false);
+  const [attachRead, setAttachRead] = useState(null); // 서버가 읽은 값 (실패하면 { error })
+  const [attachOccurredAt, setAttachOccurredAt] = useState('');
+  const [attachNoticeNo, setAttachNoticeNo] = useState('');
+  const [attachNoticeDueDate, setAttachNoticeDueDate] = useState('');
+  const readTokenRef = useRef(0); // 마지막으로 시작한 글자 읽기. 늦게 온 결과를 가려낸다
+
+  /** 읽어 둔 고지서를 치운다. 올렸거나 취소했을 때. */
+  const clearPendingAttach = () => {
+    readTokenRef.current += 1; // 읽고 있던 결과가 늦게 와도 버린다
+    setAttachReading(false);
+    setPendingAttach(null);
+    setAttachAmount('');
+    setAttachRead(null);
+    setAttachOccurredAt('');
+    setAttachNoticeNo('');
+    setAttachNoticeDueDate('');
+    if (attachInputRef.current) attachInputRef.current.value = '';
+  };
   // 계약번호는 외우기 어려워 계약자 이름으로 찾는다
   const [keyword, setKeyword] = useState('');
   // 상태로도 걸러 본다 (미납만 모아 보는 일이 잦다)
@@ -266,6 +149,9 @@ function MonthlyBillingView({ showToast, currentUser }) {
   const [showMailTemplate, setShowMailTemplate] = useState(false);
   // 회차표가 없어 청구 대상에 뜨지 못하는 계약. 원인을 화면에서 바로 알려 준다.
   const [missing, setMissing] = useState([]);
+  // 회차표가 없는 계약 중 고쳐야 하는 것과, 완납이라 청구할 것이 없는 것을 가른다
+  const needsSchedule = missing.filter((m) => m.code !== 'NO_RENT');
+  const noBillingNeeded = missing.filter((m) => m.code === 'NO_RENT');
   const sheetRef = useRef(null);
   const listScrollRef = useRef(null);      // 접힌 목록 스크롤 영역
   const historyScrollRef = useRef(null);   // 이력 표 스크롤 영역
@@ -360,6 +246,8 @@ function MonthlyBillingView({ showToast, currentUser }) {
   };
 
   const openRound = async (item) => {
+    // 다른 청구서로 옮겨 가면 읽어 둔 고지서를 버린다. 엉뚱한 청구서에 올라가지 않게.
+    clearPendingAttach();
     setSelected(item);
     setSchedule(null);
     setForm(null);
@@ -410,8 +298,8 @@ function MonthlyBillingView({ showToast, currentUser }) {
   };
 
   // 서류에 금액을 적어 두면 그 합계가 청구 금액이 된다(사람이 더하다 틀리는 일을 없앤다).
-  // 고객이 기한 안에 직접 낸 건은 뺀다. 서버가 청구액을 그렇게 계산하므로 화면도 같아야 한다.
-  const willBeBilled = (a) => a.noticeStatus !== '고객납부';
+  // 고객이 직접 냈거나 명의가 넘어간 건은 뺀다. 서버가 청구액을 그렇게 계산하므로 화면도 같아야 한다.
+  const willBeBilled = isBilledNotice;
   const docFine = sumAmount(attachments.filter((a) => !isMaintenanceKind(a.kind) && willBeBilled(a)));
   const docMaintenance = sumAmount(attachments.filter((a) => isMaintenanceKind(a.kind) && willBeBilled(a)));
   const hasDocFine = attachments.some((a) => !isMaintenanceKind(a.kind) && Number(a.amount) > 0);
@@ -497,15 +385,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
       const element = sheetRef.current;
       if (!element) throw new Error('청구서 양식을 찾지 못했습니다.');
 
-      const blob = await html2pdf()
-        .set({
-          margin: 5,
-          image: { type: 'png' },
-          html2canvas: { scale: 2, useCORS: true },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        })
-        .from(element)
-        .outputPdf('blob');
+      const blob = await makeInvoicePdf(element);
 
       const fd = new FormData();
       fd.append('file', blob, 'invoice.pdf');
@@ -545,6 +425,10 @@ function MonthlyBillingView({ showToast, currentUser }) {
       // 금액이 청구에 반영되는 종류일 때만 보낸다. 종류를 바꾼 뒤 남은 값이 딸려 들어가면 안 된다.
       fd.append('amount', String(Number(attachAmount) || 0));
       if (attachPlateNo.trim()) fd.append('plateNo', attachPlateNo.trim());
+      // 고지서에서 읽은 값. 중복 판정·납부기한 추적·어느 계약자 건인지 되짚는 데 쓴다.
+      if (attachOccurredAt) fd.append('occurredAt', attachOccurredAt);
+      if (attachNoticeNo.trim()) fd.append('noticeNo', attachNoticeNo.trim());
+      if (attachNoticeDueDate) fd.append('noticeDueDate', attachNoticeDueDate);
       const res = await fetch(`${API_HOST}/api/billing-schedules/${schedule._id}/rounds/${form.no}/attachments`, {
         method: 'POST',
         headers: { 'X-User-Role': currentUser?.role || 'viewer' },
@@ -568,8 +452,46 @@ function MonthlyBillingView({ showToast, currentUser }) {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
     } finally {
       setUploading(false);
-      if (attachInputRef.current) attachInputRef.current.value = '';
+      clearPendingAttach();
     }
+  };
+
+
+  /**
+   * 파일을 고르면 고지서는 먼저 글자를 읽어 칸을 채운다. 정비내역·기타는 예전처럼 바로 올린다.
+   *
+   * 읽은 값을 그대로 저장하지 않는다. 잘못 읽은 금액이 청구서로 나가면 되돌리기 어려워
+   * 사람이 눈으로 확인하고 [올리기]를 눌러야 저장된다.
+   */
+  const handlePickAttachment = async (file) => {
+    if (!file) return;
+    if (!NOTICE_KINDS.includes(attachKind) || !isReadableFile(file)) {
+      handleUploadAttachment(file);
+      return;
+    }
+    setPendingAttach(file);
+    setAttachRead(null);
+    setAttachReading(true);
+    const token = ++readTokenRef.current;
+    const data = await readNotice(file);
+    // 읽는 동안 다른 청구서로 옮겼거나 취소했으면 결과를 버린다. 다른 청구서 칸에 들어가면 안 된다.
+    if (token !== readTokenRef.current) return;
+    setAttachReading(false);
+    if (!data.success) {
+      setAttachRead({ error: `${data.message} 칸을 직접 채워 주세요.` });
+      return;
+    }
+    setAttachRead(data);
+    if (data.kind && NOTICE_KINDS.includes(data.kind)) setAttachKind(data.kind);
+    if (data.amount) setAttachAmount(data.amount);
+    if (data.plateNo) {
+      // 목록에 없는 번호면 직접 입력 칸으로 바꿔 읽은 번호를 그대로 보여 준다
+      if (platedVehicles.length > 1 && !platedVehicles.some((v) => v.plateNo === data.plateNo)) setCustomPlate(true);
+      setAttachPlateNo(data.plateNo);
+    }
+    setAttachOccurredAt(data.violationDate || '');
+    setAttachNoticeNo(data.noticeNo || '');
+    setAttachNoticeDueDate(data.noticeDueDate || '');
   };
 
   const handleRemoveAttachment = async (index) => {
@@ -1128,6 +1050,8 @@ function MonthlyBillingView({ showToast, currentUser }) {
                   <tr
                     key={it.scheduleId}
                     data-selected={active ? 'true' : undefined}
+                    // 클릭 때만 불리는 함수라 렌더 중에 ref를 읽지 않는다. 컴파일러 규칙이 이를 가리지 못해 끈다.
+                    // eslint-disable-next-line react-hooks/refs
                     onClick={() => openRound(it)}
                     style={{
                       borderBottom: '1px solid var(--border-color)',
@@ -1712,12 +1636,88 @@ function MonthlyBillingView({ showToast, currentUser }) {
               <input
                 ref={attachInputRef}
                 type="file"
-                onChange={(e) => handleUploadAttachment(e.target.files?.[0])}
-                disabled={uploading}
+                accept={NOTICE_KINDS.includes(attachKind) ? 'image/*,application/pdf' : undefined}
+                onChange={(e) => handlePickAttachment(e.target.files?.[0])}
+                disabled={uploading || attachReading}
                 style={{ ...inputStyle, padding: '0.3rem' }}
               />
+
+              {(attachReading || pendingAttach) && (() => {
+                // 이 청구서에 붙이면 안 되는 이유들. 있으면 올릴 때 한 번 더 묻는다.
+                const r = attachRead || {};
+                const warnings = [];
+                if (r.duplicate) {
+                  warnings.push(r.duplicate.contractNo
+                    ? `이미 올라간 고지서입니다: ${r.duplicate.partyName} ${r.duplicate.contractNo} ${r.duplicate.roundNo}회차`
+                    : `이미 대차 고지서로 올라가 있습니다 (${r.duplicate.plateNo})`);
+                }
+                if (r.matched && String(r.matched.contractId) !== String(selected.contract?._id)) {
+                  warnings.push(`위반일 기준으로 다른 계약 건입니다: ${r.matched.partyName} (${r.matched.contractNo})`);
+                }
+                if (r.route === 'rental') {
+                  warnings.push(`대차 운행 중 위반으로 보입니다${r.rental?.matched?.customerName ? ` (${r.rental.matched.customerName})` : ''}. 고지서 관리의 [여러 장 올리기]에서 대차 고지서로 올려 주세요.`);
+                } else if (!r.matched && r.reason && !r.error) {
+                  warnings.push(r.reason);
+                }
+                const confirmUpload = () => {
+                  if (warnings.length && !window.confirm(`${warnings.join('\n')}\n\n그래도 이 청구서에 올릴까요?`)) return;
+                  handleUploadAttachment(pendingAttach);
+                };
+                return (
+                  <div style={{ marginTop: '0.4rem', border: `1px solid ${warnings.length ? '#f59e0b' : 'var(--primary)'}`, borderRadius: '8px', padding: '0.5rem 0.6rem', background: warnings.length ? '#fffbeb' : 'var(--primary-glow)', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                    {attachReading ? (
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>고지서 글자를 읽는 중입니다...</div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: '0.76rem', color: 'var(--text-main)' }}>
+                          {r.error
+                            ? <span style={{ color: 'var(--error)' }}>{r.error}</span>
+                            : <>읽은 값을 칸에 채웠습니다. <strong>금액·차량번호·위반일을 고지서와 대조</strong>한 뒤 올려 주세요.</>}
+                        </div>
+                        <AmountChoices candidates={r.candidates} value={attachAmount} onPick={setAttachAmount} surcharge={r.surcharge} />
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.3rem' }}>
+                          <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>위반일
+                            <input type="date" value={attachOccurredAt} onChange={(e) => setAttachOccurredAt(e.target.value)} style={{ ...inputStyle, padding: '0.25rem 0.4rem', fontSize: '0.78rem' }} />
+                          </label>
+                          <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>납부기한
+                            <input type="date" value={attachNoticeDueDate} onChange={(e) => setAttachNoticeDueDate(e.target.value)} style={{ ...inputStyle, padding: '0.25rem 0.4rem', fontSize: '0.78rem' }} />
+                          </label>
+                          <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>고지번호
+                            <input value={attachNoticeNo} onChange={(e) => setAttachNoticeNo(e.target.value)} style={{ ...inputStyle, padding: '0.25rem 0.4rem', fontSize: '0.78rem' }} />
+                          </label>
+                        </div>
+                        {warnings.map((w) => (
+                          <div key={w} style={{ fontSize: '0.74rem', color: '#b45309', fontWeight: 700 }}>⚠ {w}</div>
+                        ))}
+                        <div style={{ display: 'flex', gap: '0.4rem' }}>
+                          <button
+                            type="button"
+                            onClick={confirmUpload}
+                            disabled={uploading}
+                            style={{ flex: 1, padding: '0.4rem', borderRadius: '6px', border: 'none', background: warnings.length ? '#d97706' : 'var(--primary)', color: '#fff', fontWeight: 800, fontSize: '0.8rem', cursor: uploading ? 'not-allowed' : 'pointer' }}
+                          >
+                            {uploading ? '올리는 중...' : (warnings.length ? '확인했습니다, 올리기' : `올리기 (${attachAmount ? `${Number(attachAmount).toLocaleString()}원` : '금액 없음'})`)}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={clearPendingAttach}
+                            disabled={uploading}
+                            style={{ padding: '0.4rem 0.7rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}
+                          >
+                            취소
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
+
               <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
-                파일을 고르면 바로 올라갑니다. 여러 건이면 한 건씩 올리세요.
+                {NOTICE_KINDS.includes(attachKind)
+                  ? '고지서를 고르면 글자를 읽어 금액·차량번호·위반일을 채웁니다. 확인한 뒤 [올리기]를 누르세요. 미납통행료는 원금만 청구합니다.'
+                  : '파일을 고르면 바로 올라갑니다.'}
+                {' '}여러 장이면 고지서 관리의 [여러 장 올리기]가 편합니다.
                 <br />
                 {(selected.company?.name || selected.customer?.name || '거래처')}_청구서_{form.no}회차_
                 {attachKind === '기타' ? (attachCustomKind.trim() || '기타') : attachKind}
@@ -1767,9 +1767,15 @@ function MonthlyBillingView({ showToast, currentUser }) {
               )}
             </div>
 
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', wordBreak: 'break-all' }}>
-              저장 위치: RENT\{selected.company?.name || '거래처'}\02.청구서\{selected.contract?.contractNo}\
-            </div>
+            {storageSettings && (
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', wordBreak: 'break-all' }}>
+                저장 위치: {contractFolderPath(storageSettings, {
+                  partyName: selected.company?.name || '거래처',
+                  kind: 'invoice',
+                  subFolder: selected.contract?.docFolderName || selected.contract?.contractNo
+                })}
+              </div>
+            )}
           </div>
           )}
         </div>
@@ -1796,19 +1802,19 @@ function MonthlyBillingView({ showToast, currentUser }) {
         </div>
       )}
 
-      {missing.length > 0 && (
+      {needsSchedule.length > 0 && (
         <div style={{ background: '#fff', border: '1px solid #f59e0b', borderRadius: '10px', padding: '0.9rem 1.1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
             <AlertCircle size={15} style={{ color: '#d97706' }} />
             <span style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--text-bright)' }}>
-              아직 청구 대상에 없는 계약 {missing.length}건
+              아직 청구 대상에 없는 계약 {needsSchedule.length}건
             </span>
           </div>
           <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.6rem' }}>
             회차표가 있어야 청구 대상에 뜹니다. 회차표는 출고 준비에서 <strong>월 대여료 결제일</strong>과
             <strong> 렌트료 게시일</strong>을 저장하면 자동으로 만들어집니다.
           </div>
-          {missing.map((m) => (
+          {needsSchedule.map((m) => (
             <div key={m.contractId} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.4rem 0', borderTop: '1px solid var(--border-color)' }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: '0.82rem', fontWeight: '700', color: 'var(--text-bright)' }}>
@@ -1835,6 +1841,14 @@ function MonthlyBillingView({ showToast, currentUser }) {
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* 완납 등으로 월 렌트료가 0원인 계약. 고칠 것이 없으므로 경고에 섞지 않고 이름만 알려 준다. */}
+      {noBillingNeeded.length > 0 && (
+        <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', padding: '0 0.2rem' }}>
+          청구할 것이 없는 계약(완납 · 월 렌트료 0원) {noBillingNeeded.length}건:{' '}
+          {noBillingNeeded.map((m) => `${m.partyName || '계약자 미상'} ${m.contractNo}`).join(', ')}
         </div>
       )}
       </div>

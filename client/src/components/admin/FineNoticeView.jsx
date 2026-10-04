@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { AlertCircle, RefreshCw, Search, X, Upload, CheckCircle2, Clock, FileWarning, Mail } from 'lucide-react';
+import { AlertCircle, RefreshCw, Search, X, Upload, CheckCircle2, Clock, FileWarning, Mail, Trash2 } from 'lucide-react';
 import UpcomingDocUpload from './UpcomingDocUpload.jsx';
+import BulkNoticeUpload from './BulkNoticeUpload.jsx';
+import RentalNoticeList from './RentalNoticeList.jsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -14,8 +16,18 @@ const HANDLINGS = {
   명의변경: { label: '명의 변경', color: '#7c3aed', hint: '관공서에 넘겨 고객에게 직접 고지되게 합니다' }
 };
 
-// 우리 손을 떠난 단계. 청구액에서 빠지고 더 챙길 일이 없다.
+// 우리 손을 떠난 단계. 청구액에서 빠진다.
 const DONE_STATUSES = ['납부완료', '변경완료', '고객납부'];
+
+// 더 손댈 일이 없는 단계. 대납완료는 청구액에는 들어가지만 사람이 할 일은 끝났다.
+// 청구액에서 빼는 것(DONE)과 목록에서 감추는 것(SETTLED)은 다른 이야기라 따로 둔다.
+const SETTLED_STATUSES = [...DONE_STATUSES, '대납완료'];
+
+// 방식마다 '다 끝났다'가 가리키는 단계가 다르다. 한꺼번에 처리할 때 건마다 이 값을 쓴다.
+const DONE_BY_HANDLING = { 대납청구: '대납완료', 고객납부: '납부완료', 명의변경: '변경완료' };
+
+/** 화면에서 줄을 가리키는 이름. 회차표·회차·순번이 있어야 한 건이 정해진다. */
+const rowIdOf = (x) => `${x.scheduleId}-${x.roundNo}-${x.index}`;
 
 /**
  * 방식마다 다음에 눌러야 할 것이 다르다.
@@ -118,15 +130,24 @@ const ddayColor = (dday, paid) => {
  * 여기서 하는 일은 하나다. "기한에 고객이 냈는지 확인하고 표시하는 것."
  * 냈으면 청구액에서 빠지고, 안 냈으면 그대로 다음 청구서에 얹혀 나간다.
  *
- * 장기렌트 계약에만 해당한다. 사고대차·단기렌트는 회차표가 없어 여기 뜨지 않는다.
+ * 장기렌트 건은 계약의 청구 회차에 붙고, 대차(단기렌트·사고대차) 건은 [대차 고지서] 탭에 따로 모인다.
+ * [여러 장 올리기]는 둘을 가리지 않고 받아 위반일로 나눈다.
  */
 function FineNoticeView({ showToast, currentUser }) {
   const [items, setItems] = useState([]);
   const [summary, setSummary] = useState({});
+  // 고른 줄. 목록을 다시 불러오면 순번이 밀리므로 그때마다 비운다.
+  const [picked, setPicked] = useState(() => new Set());
+  // 끝난 건은 기본으로 감춘다. 지우지 않아도 오늘 할 일만 남는다.
+  const [hideSettled, setHideSettled] = useState(true);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState('unnotified'); // 고지서가 오면 알리는 것이 먼저다
   const [keyword, setKeyword] = useState('');
   const [showUpload, setShowUpload] = useState(false);
+  // 스캔한 고지서 묶음을 한꺼번에 올리는 패널. 장기렌트·대차를 가리지 않는다.
+  const [showBulk, setShowBulk] = useState(false);
+  const [scope, setScope] = useState('longterm'); // longterm: 장기렌트 고지서, rental: 대차 고지서
+  const [rentalReload, setRentalReload] = useState(0);
   const [busy, setBusy] = useState(null); // 처리 중인 줄
 
   const fetchNotices = useCallback(async () => {
@@ -137,6 +158,8 @@ function FineNoticeView({ showToast, currentUser }) {
       if (data.success) {
         setItems(data.items || []);
         setSummary(data.summary || {});
+        // 지우거나 처리하면 뒤의 순번이 당겨진다. 고른 것을 그대로 두면 엉뚱한 줄이 잡힌다.
+        setPicked(new Set());
       } else {
         showToast?.(data.message || '고지서를 불러오지 못했습니다.', 'error');
       }
@@ -249,9 +272,62 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
     }
   };
 
+  /**
+   * 고른 고지서를 한꺼번에 처리한다.
+   *
+   * 지우는 것은 되돌릴 수 없으니 몇 건인지 세어서 묻는다. 저장된 파일은 남으므로
+   * 잘못 지웠으면 다시 올릴 수 있다는 것도 함께 알린다.
+   *
+   * @param {'status'|'delete'} action 할 일
+   */
+  const runBulk = async (action) => {
+    if (currentUser?.role === 'viewer') {
+      showToast?.('권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
+    const rows = shown.filter((x) => picked.has(rowIdOf(x)) && !x.issued);
+    if (!rows.length) {
+      showToast?.('고른 고지서가 없습니다.', 'error');
+      return;
+    }
+
+    const sum = rows.reduce((s, x) => s + (x.amount || 0), 0);
+    const ask = action === 'delete'
+      ? `고른 ${rows.length}건을 목록에서 뺍니다. (합계 ${won(sum)})\n\n청구액에서도 빠지고 되돌릴 수 없습니다.\n저장된 고지서 파일은 그대로 남습니다.\n\n뺄까요?`
+      : `고른 ${rows.length}건을 처리 완료로 표시합니다. (합계 ${won(sum)})\n\n방식에 따라 대납완료 · 납부완료 · 변경완료로 각각 표시됩니다.\n\n계속할까요?`;
+    if (!window.confirm(ask)) return;
+
+    try {
+      setBusy('bulk');
+      const res = await fetch(`${API_HOST}/api/billing-schedules/notices/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-User-Role': currentUser?.role || 'viewer' },
+        body: JSON.stringify({
+          action,
+          items: rows.map((x) => ({
+            scheduleId: x.scheduleId,
+            roundNo: x.roundNo,
+            index: x.index,
+            // 단계는 건마다 다르다. 방식이 달라 '완료'가 가리키는 곳이 다르다.
+            noticeStatus: action === 'delete' ? undefined : (DONE_BY_HANDLING[x.handling] || '대납완료')
+          }))
+        })
+      });
+      const data = await res.json();
+      showToast?.(data.message || (data.success ? '처리했습니다.' : '처리하지 못했습니다.'), data.success ? 'success' : 'error');
+      await fetchNotices();
+    } catch {
+      showToast?.('서버 통신 오류가 발생했습니다.', 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const kw = keyword.trim().toLowerCase();
   const shown = items.filter((x) => {
     if (filter !== 'all' && !matchesFilter(filter, x)) return false;
+    // 끝난 건 감추기. 다만 '처리 완료'를 일부러 골라 봤을 때는 감추면 빈 화면이 된다.
+    if (hideSettled && filter !== 'paid' && SETTLED_STATUSES.includes(x.noticeStatus)) return false;
     if (!kw) return true;
     return [x.partyName, x.plateNo, x.contractNo, x.noticeNo, x.kind]
       .some((v) => (v || '').toLowerCase().includes(kw));
@@ -272,6 +348,24 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
     && !x.issued
   ));
 
+  // 발행한 회차는 금액이 이미 나가서 손댈 수 없다. 고를 수 있는 줄만 센다.
+  const pickable = shown.filter((x) => !x.issued);
+  const pickedRows = pickable.filter((x) => picked.has(rowIdOf(x)));
+  const allPicked = pickable.length > 0 && pickedRows.length === pickable.length;
+  const pickedTotal = pickedRows.reduce((s, x) => s + (x.amount || 0), 0);
+
+  /** 한 줄을 골랐다 풀었다 한다. */
+  const togglePick = (id) => setPicked((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  /** 머리의 네모. 지금 보이는 줄 전부를 골랐다 풀었다 한다. */
+  const toggleAll = () => setPicked(allPicked ? new Set() : new Set(pickable.map(rowIdOf)));
+
+  const settledCount = items.filter((x) => SETTLED_STATUSES.includes(x.noticeStatus)).length;
+
   const countOf = (key) => items.filter((x) => matchesFilter(key, x)).length;
   const sumOf = (key) => items.filter((x) => matchesFilter(key, x)).reduce((s, x) => s + x.amount, 0);
 
@@ -284,14 +378,21 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
         <FileWarning size={18} style={{ color: 'var(--primary)' }} />
         <span style={{ fontSize: '1.05rem', fontWeight: '800', color: 'var(--text-bright)' }}>고지서 관리</span>
         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-          범칙금 · 과태료 · 미납통행료 · 장기렌트 계약분
+          범칙금 · 과태료 · 미납통행료
         </span>
         <button
           type="button"
-          onClick={() => setShowUpload((v) => !v)}
-          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.3rem', border: '1px solid var(--primary)', background: showUpload ? 'var(--primary)' : '#fff', color: showUpload ? '#fff' : 'var(--primary)', padding: '0.45rem 0.9rem', borderRadius: '6px', fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer' }}
+          onClick={() => { setShowBulk((v) => !v); setShowUpload(false); }}
+          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.3rem', border: 'none', background: 'var(--primary)', color: '#fff', padding: '0.45rem 0.9rem', borderRadius: '6px', fontSize: '0.82rem', fontWeight: '800', cursor: 'pointer' }}
         >
-          <Upload size={14} /> 고지서 등록
+          <Upload size={14} /> 여러 장 올리기
+        </button>
+        <button
+          type="button"
+          onClick={() => { setShowUpload((v) => !v); setShowBulk(false); }}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', border: '1px solid var(--primary)', background: showUpload ? 'var(--primary)' : '#fff', color: showUpload ? '#fff' : 'var(--primary)', padding: '0.45rem 0.9rem', borderRadius: '6px', fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer' }}
+        >
+          <Upload size={14} /> 한 장 등록 (장기렌트)
         </button>
         <button
           type="button"
@@ -302,6 +403,15 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
         </button>
       </div>
 
+      {showBulk && (
+        <BulkNoticeUpload
+          onClose={() => setShowBulk(false)}
+          onDone={() => { fetchNotices(); setRentalReload((n) => n + 1); }}
+          showToast={showToast}
+          currentUser={currentUser}
+        />
+      )}
+
       {showUpload && (
         <UpcomingDocUpload
           onClose={() => setShowUpload(false)}
@@ -310,6 +420,29 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
           currentUser={currentUser}
         />
       )}
+
+      <div style={{ display: 'flex', gap: '0.3rem', borderBottom: '1px solid var(--border-color)' }}>
+        {[['longterm', '장기렌트 고지서'], ['rental', '대차 고지서 (단기렌트·사고대차)']].map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setScope(key)}
+            style={{
+              border: 'none', background: 'none', padding: '0.5rem 0.9rem', fontSize: '0.86rem', cursor: 'pointer',
+              fontWeight: scope === key ? 800 : 600,
+              color: scope === key ? 'var(--primary)' : 'var(--text-muted)',
+              borderBottom: `2px solid ${scope === key ? 'var(--primary)' : 'transparent'}`,
+              marginBottom: '-1px'
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {scope === 'rental' ? (
+        <RentalNoticeList showToast={showToast} currentUser={currentUser} reloadKey={rentalReload} />
+      ) : (<>
 
       {/* 고객이 내기로 한 건 중 기한이 코앞이거나 지난 것. 자동으로 넘기지 않고 사람에게 묻는다. */}
       {needsDecision.length > 0 && (
@@ -443,18 +576,82 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
       </div>
 
       <div style={{ background: '#fff', border: '1px solid var(--border-color)', borderRadius: '10px', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 0.9rem', background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', fontSize: '0.82rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 0.9rem', background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', fontSize: '0.82rem', flexWrap: 'wrap' }}>
           <strong style={{ color: 'var(--text-bright)' }}>{shown.length}건</strong>
           <span style={{ color: 'var(--text-muted)' }}>· 합계 {won(shownTotal)}</span>
+
+          {/* 끝난 건은 지우지 않고 감춘다. 나중에 "그 과태료 어떻게 됐냐"고 물어도 답할 수 있어야 한다. */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginLeft: '0.6rem', cursor: 'pointer', color: 'var(--text-muted)', fontWeight: '700' }}>
+            <input type="checkbox" checked={hideSettled} onChange={(e) => setHideSettled(e.target.checked)} style={{ cursor: 'pointer' }} />
+            끝난 건 감추기
+            {settledCount > 0 && <span style={{ fontWeight: '600' }}>({settledCount})</span>}
+          </label>
+
           <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
             계약마다 정해 둔 [처리 방식]대로 [다음 할 일]만 눌러 나가면 됩니다. 이 건만 다르면 방식을 그 자리에서 바꾸세요.
           </span>
         </div>
 
+        {/* 고른 것이 있을 때만 나오는 줄. 늘 떠 있으면 목록이 그만큼 짧아진다. */}
+        {pickedRows.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.55rem 0.9rem', background: '#eff6ff', borderBottom: '1px solid #bfdbfe', fontSize: '0.83rem', flexWrap: 'wrap' }}>
+            <strong style={{ color: '#1d4ed8' }}>{pickedRows.length}건 선택</strong>
+            <span style={{ color: 'var(--text-muted)' }}>· 합계 {won(pickedTotal)}</span>
+            <button
+              type="button"
+              onClick={() => setPicked(new Set())}
+              style={{ border: 'none', background: 'none', color: 'var(--text-muted)', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer' }}
+            >
+              선택 해제
+            </button>
+
+            <button
+              type="button"
+              onClick={() => runBulk('status')}
+              disabled={busy === 'bulk'}
+              title="방식에 따라 대납완료 · 납부완료 · 변경완료로 표시합니다"
+              style={{
+                marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                border: '1px solid #16a34a', background: '#16a34a', color: '#fff',
+                padding: '0.32rem 0.8rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: '800',
+                cursor: busy === 'bulk' ? 'not-allowed' : 'pointer', opacity: busy === 'bulk' ? 0.5 : 1
+              }}
+            >
+              <CheckCircle2 size={13} /> 처리 완료로
+            </button>
+            <button
+              type="button"
+              onClick={() => runBulk('delete')}
+              disabled={busy === 'bulk'}
+              title="잘못 올린 고지서를 목록에서 뺍니다. 저장된 파일은 그대로 남습니다."
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                border: '1px solid var(--error)', background: '#fff', color: 'var(--error)',
+                padding: '0.32rem 0.8rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: '800',
+                cursor: busy === 'bulk' ? 'not-allowed' : 'pointer', opacity: busy === 'bulk' ? 0.5 : 1
+              }}
+            >
+              <Trash2 size={13} /> 목록에서 빼기
+            </button>
+          </div>
+        )}
+
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
             <thead>
               <tr style={{ background: '#fff', borderBottom: '1px solid var(--border-color)', color: 'var(--text-bright)' }}>
+                {/* 전체 고르기. 지금 보이는 줄만 고른다 — 감춘 것까지 잡히면 모르고 지운다. */}
+                <th style={{ ...thStyle, width: '34px', textAlign: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={allPicked}
+                    ref={(el) => { if (el) el.indeterminate = pickedRows.length > 0 && !allPicked; }}
+                    onChange={toggleAll}
+                    disabled={!pickable.length}
+                    title={allPicked ? '전체 선택 해제' : '보이는 건 전체 선택'}
+                    style={{ cursor: pickable.length ? 'pointer' : 'not-allowed' }}
+                  />
+                </th>
                 <th style={thStyle}>계약사</th>
                 <th style={{ ...thStyle, textAlign: 'center' }}>처리 방식</th>
                 <th style={thStyle}>차량번호</th>
@@ -470,9 +667,9 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={11} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>불러오는 중...</td></tr>
+                <tr><td colSpan={12} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>불러오는 중...</td></tr>
               ) : shown.length === 0 ? (
-                <tr><td colSpan={11} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                <tr><td colSpan={12} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
                   {items.length ? '이 조건에 맞는 고지서가 없습니다.' : '등록된 고지서가 없습니다. [고지서 등록]으로 올려 주세요.'}
                 </td></tr>
               ) : shown.map((x) => {
@@ -490,6 +687,16 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                       opacity: paid ? 0.75 : 1
                     }}
                   >
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={picked.has(id)}
+                        onChange={() => togglePick(id)}
+                        disabled={x.issued}
+                        title={x.issued ? '이미 발행한 회차라 손댈 수 없습니다' : ''}
+                        style={{ cursor: x.issued ? 'not-allowed' : 'pointer' }}
+                      />
+                    </td>
                     <td style={{ ...tdStyle, fontWeight: '700' }}>
                       {x.partyName || '-'}
                       <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', fontWeight: '600' }}>{x.contractNo}</div>
@@ -674,6 +881,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
         <strong>[납부확인]</strong>을 눌러 주세요. 청구액에서 빠지고 캘린더 일정도 닫힙니다.
         서류와 기록은 지워지지 않습니다.
       </div>
+      </>)}
     </div>
   );
 }

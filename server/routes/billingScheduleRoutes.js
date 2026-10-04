@@ -18,7 +18,9 @@ import {
   updateAttachmentNoticeStatus,
   getOverdueNotices,
   getFineNotices,
-  sendNoticeMail
+  sendNoticeMail,
+  bulkUpdateNotices,
+  getRoundFile
 } from '../controllers/billingScheduleController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
 
@@ -39,7 +41,10 @@ router.get('/contract/:contractId', getScheduleByContract);
 // 회차를 고르지 않고 '다음에 나갈 청구서'에 서류를 붙인다
 router.post('/contract/:contractId/upcoming/attachments', checkWritePermission, upload.single('file'), addUpcomingAttachment);
 router.patch('/rounds/bulk-status', checkWritePermission, bulkUpdateRoundStatus);
+// 고른 고지서를 한꺼번에 처리하거나 목록에서 뺀다 (:id 보다 먼저 선언해야 한다)
+router.post('/notices/bulk', checkWritePermission, bulkUpdateNotices);
 router.post('/generate/:contractId', checkWritePermission, generateSchedule);
+router.get('/:id/rounds/:no/file', getRoundFile);
 router.put('/:id/rounds/:no', checkWritePermission, updateRound);
 router.patch('/:id/rounds/:no/payment', checkWritePermission, updateRoundPayment);
 router.post('/:id/rounds/:no/issue', checkWritePermission, upload.single('file'), issueRound);

@@ -15,10 +15,21 @@ const FORMAT_BY_MIME = {
 
 // 차량번호. 2006년 이후 '12가3456', 그 이전 '서울12가3456' 두 가지를 본다.
 // OCR이 글자 사이를 띄워 읽는 일이 잦아 공백을 허용하고 뒤에서 지운다.
+// 앞뒤에 숫자가 붙어 있으면 번호판이 아니다(고지번호 끝자리가 번호판 앞에 붙어 읽히는 일을 막는다).
 const PLATE_PATTERNS = [
-  /(\d{2,3})\s*([가-힣])\s*(\d{4})/g,
-  /([가-힣]{2})\s*(\d{2})\s*([가-힣])\s*(\d{4})/g
+  /(?<!\d)(\d{2,3})\s*([가-힣])\s*(\d{4})(?!\d)/g,
+  /([가-힣]{2})\s*(\d{2})\s*([가-힣])\s*(\d{4})(?!\d)/g
 ];
+
+// 구형 번호판 앞의 지역명. 이 목록이 없으면 '차량번호12가3456'에서 '번호12가3456'을 번호판으로 잡는다.
+const PLATE_REGIONS = [
+  '서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종', '경기', '강원',
+  '충북', '충남', '전북', '전남', '경북', '경남', '제주'
+];
+
+// 미납통행료는 원금만 청구한다(2026-09-29 결정). 부가통행료는 원금의 10배라, 고지서의
+// '납부금액'을 그대로 집으면 열 배 넘게 청구된다. 통행료 고지서는 이 라벨을 먼저 본다.
+const TOLL_LABELS = ['미납통행료합계', '통행료합계', '미납통행료', '미납금액', '통행요금', '통행료'];
 
 // 금액 앞에 붙는 말. 앞에 있을수록 그 금액일 가능성이 높다.
 const AMOUNT_LABELS = [
@@ -58,16 +69,45 @@ const squeeze = (text) => String(text || '').replace(/\s+/g, '');
  */
 export const findPlateNumbers = (text) => {
   const found = [];
-  for (const pattern of PLATE_PATTERNS) {
-    pattern.lastIndex = 0;
-    let m = pattern.exec(text);
-    while (m) {
-      found.push(squeeze(m[0]));
-      m = pattern.exec(text);
+  for (const source of [String(text || ''), joinSplitChars(text)]) {
+    for (const pattern of PLATE_PATTERNS) {
+      pattern.lastIndex = 0;
+      let m = pattern.exec(source);
+      while (m) {
+        const plate = squeeze(m[0]);
+        const region = plate.match(/^[가-힣]{2}/)?.[0];
+        if (!region || PLATE_REGIONS.includes(region)) found.push(plate);
+        m = pattern.exec(source);
+      }
     }
   }
   return [...new Set(found)];
 };
+
+/**
+ * 한 글자씩 띄워 읽힌 부분을 붙인다. '1 0 1 호 2 1 8 2' -> '101호2182'
+ *
+ * 공백을 전부 지우면 옆 칸의 숫자까지 붙어 번호판이 달라지므로,
+ * 한 글자짜리 조각이 세 개 이상 이어진 곳만 붙인다.
+ */
+function joinSplitChars(text) {
+  return String(text || '').replace(/(?<!\S)(?:\S\s+){2,}\S(?!\S)/g, (run) => run.replace(/\s+/g, ''));
+}
+
+/**
+ * OCR이 읽은 숫자 조각을 금액으로 바꾼다. 금액이 아니면 NaN.
+ *
+ * 쉼표를 점으로 읽는 일이 잦다('64.000'). 세 자리씩 끊긴 점은 천 단위로 보고,
+ * 그 밖의 점(날짜 '2026.12.30', 소수)이 섞이면 금액이 아니다.
+ */
+const toAmount = (raw) => {
+  const s = squeeze(raw).replace(/[.,]+$/, '');
+  if (/^\d{1,3}([.,]\d{3})+$/.test(s)) return Number(s.replace(/[.,]/g, ''));
+  if (/^[\d,]+$/.test(s)) return Number(s.replace(/,/g, ''));
+  return NaN;
+};
+
+const isAmountRange = (n) => Number.isFinite(n) && n >= 1000 && n <= 100000000;
 
 /**
  * 고지서 글자에서 금액을 찾는다.
@@ -75,45 +115,76 @@ export const findPlateNumbers = (text) => {
  * 숫자만 보면 고지번호·전화번호까지 잡히므로, '납부할 금액' 같은 말 뒤에 오는 숫자를 먼저 본다.
  * 라벨을 못 찾으면 '원'이 붙은 숫자 중 가장 큰 값을 후보로 준다.
  *
+ * 통행료 고지서는 부가통행료를 뺀 원금을 고른다. 부가통행료는 청구하지 않지만,
+ * 고지서에 얼마가 적혀 있었는지 화면에서 보여 주려고 surcharge로 따로 돌려준다.
+ *
  * @param {string} text OCR이 읽은 전체 글자
- * @returns {{amount: number, candidates: Array<{label: string, amount: number}>}} 가장 그럴듯한 금액과 후보들
+ * @param {string} [kind] 고지서 종류 ('과태료' | '범칙금' | '통행료')
+ * @returns {{amount: number, candidates: Array<{label: string, amount: number}>, surcharge: number}} 가장 그럴듯한 금액과 후보들
  */
-export const findAmounts = (text) => {
+export const findAmounts = (text, kind = '') => {
   const flat = String(text || '').replace(/\s+/g, ' ');
   const candidates = [];
 
+  /** 붙어 읽힌 뒤 숫자('64,000 2026.12.10')까지 삼켰으면 첫 조각만 본다. */
+  const amountOf = (raw) => {
+    const whole = toAmount(raw);
+    return Number.isNaN(whole) ? toAmount(String(raw).trim().split(/\s+/)[0]) : whole;
+  };
+
   // ① 라벨 뒤에 오는 숫자
-  for (const label of AMOUNT_LABELS) {
-    const re = new RegExp(`${label.split('').join('\\s*')}\\s*[:\\-]?\\s*([0-9][0-9,\\s]{2,})`, 'g');
+  const labels = [...new Set([...TOLL_LABELS, ...AMOUNT_LABELS])];
+  for (const label of labels) {
+    const re = new RegExp(`${label.split('').join('\\s*')}\\s*[:\\-]?\\s*([0-9][0-9,.\\s]{2,})`, 'g');
     let m = re.exec(flat);
     while (m) {
-      const n = Number(squeeze(m[1]).replace(/,/g, ''));
-      if (Number.isFinite(n) && n >= 1000 && n <= 100000000) candidates.push({ label, amount: n });
+      // '부가통행료 73,000'은 '통행료' 라벨에도 걸린다. 앞말이 '부가'면 부가통행료로 따로 센다.
+      const before = squeeze(flat.slice(Math.max(0, m.index - 4), m.index));
+      const surcharge = label === '부가통행료' || (label.endsWith('통행료') && before.endsWith('부가'));
+      const n = amountOf(m[1]);
+      if (isAmountRange(n)) candidates.push({ label: surcharge ? '부가통행료' : label, amount: n });
       m = re.exec(flat);
     }
   }
 
   // ② '원'이 붙은 숫자
-  const wonRe = /([0-9][0-9,\s]{2,})\s*원/g;
+  const wonRe = /([0-9][0-9,.\s]{2,})\s*원/g;
   let w = wonRe.exec(flat);
   while (w) {
-    const n = Number(squeeze(w[1]).replace(/,/g, ''));
-    if (Number.isFinite(n) && n >= 1000 && n <= 100000000 && !NOT_AMOUNT.test(String(n))) {
+    const n = amountOf(w[1]);
+    if (isAmountRange(n) && !NOT_AMOUNT.test(String(n))) {
       candidates.push({ label: '원', amount: n });
     }
     w = wonRe.exec(flat);
   }
 
   // 라벨이 앞쪽에 있는 것을 먼저 고른다. 같은 라벨이면 큰 금액(가산금 포함 총액)을 고른다.
+  // 부가통행료는 청구하지 않으므로 맨 뒤로 보낸다.
+  const order = kind === '통행료' ? [...TOLL_LABELS, ...AMOUNT_LABELS] : AMOUNT_LABELS;
   const rank = (c) => {
-    const i = AMOUNT_LABELS.indexOf(c.label);
-    return i === -1 ? AMOUNT_LABELS.length : i;
+    if (c.label === '부가통행료') return Infinity;
+    const i = order.indexOf(c.label);
+    return i === -1 ? order.length : i;
   };
   const sorted = [...candidates].sort((a, b) => (rank(a) - rank(b)) || (b.amount - a.amount));
 
+  // 화면에 늘어놓을 후보. 같은 금액은 한 번만 보여 주고, 부가통행료로 읽힌 금액은 그 이름을 달아 맨 뒤에 둔다.
+  const isSurchargeAmount = (n) => sorted.some((x) => x.amount === n && x.label === '부가통행료');
+  const shown = sorted
+    .filter((c, i) => sorted.findIndex((x) => x.amount === c.amount) === i)
+    .map((c) => (isSurchargeAmount(c.amount) ? { ...c, label: '부가통행료' } : c))
+    .sort((a, b) => rank(a) - rank(b));
+  // 부가통행료로 읽힌 금액은 '원' 규칙으로 다시 걸려도 고르지 않는다.
+  // 통행료 고지서에 부가통행료가 적혀 있으면 라벨 없는 '원' 금액(대개 합계나 부가통행료)으로 넘어가지 않는다.
+  const surchargeAmounts = new Set(sorted.filter((c) => c.label === '부가통행료').map((c) => c.amount));
+  const best = sorted.find((c) => c.label !== '부가통행료'
+    && !surchargeAmounts.has(c.amount)
+    && !(kind === '통행료' && surchargeAmounts.size && c.label === '원'));
+
   return {
-    amount: sorted[0]?.amount || 0,
-    candidates: sorted.slice(0, 8)
+    amount: best?.amount || 0,
+    candidates: shown.slice(0, 8),
+    surcharge: kind === '통행료' ? (sorted.find((c) => c.label === '부가통행료')?.amount || 0) : 0
   };
 };
 
@@ -217,7 +288,7 @@ export const findNoticeNo = (text) => {
  * @param {Buffer} fileBuffer 파일 내용
  * @param {string} mimeType 파일 종류
  * @param {string} [originalName] 원래 파일명
- * @returns {Promise<{plateNos: string[], amount: number, candidates: object[], text: string}>}
+ * @returns {Promise<{plateNos: string[], amount: number, candidates: object[], surcharge: number, text: string}>}
  */
 export const readFineNotice = async (fileBuffer, mimeType, originalName) => {
   const invokeUrl = process.env.CLOVA_OCR_INVOKE_URL;
@@ -257,8 +328,8 @@ export const readFineNotice = async (fileBuffer, mimeType, originalName) => {
 
   const text = (image.fields || []).map((f) => f.inferText || '').join(' ');
   const plateNos = findPlateNumbers(text);
-  const { amount, candidates } = findAmounts(text);
   const kind = findNoticeKind(text);
+  const { amount, candidates, surcharge } = findAmounts(text, kind);
   const violation = findViolationDate(text);
   const due = findDueDate(text);
   const noticeNo = findNoticeNo(text);
@@ -268,6 +339,7 @@ export const readFineNotice = async (fileBuffer, mimeType, originalName) => {
     plateNos,
     amount,
     candidates,
+    surcharge, // 부가통행료. 청구하지 않고 참고로만 보여 준다
     kind,
     violationDate: violation?.date || '',
     violationTime: violation?.time || '',

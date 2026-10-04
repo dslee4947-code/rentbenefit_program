@@ -1,17 +1,20 @@
 import fs from 'fs';
 import crypto from 'crypto';
 import BillingSchedule from '../models/BillingSchedule.js';
+import RentalNotice from '../models/RentalNotice.js';
 import Contract from '../models/Contract.js';
 import Vehicle from '../models/Vehicle.js';
 import Company from '../models/Company.js';
 import Schedule from '../models/Schedule.js';
-import { buildDueDates, calcDailyRent, calcLateInterest, daysBetween, calcSendDate } from '../utils/billingDate.js';
-import { saveToCustomerFolder, findContractDocument, readSavedFile } from '../utils/documentStorageService.js';
+import { buildDueDates, resolveFirstDueDate, calcDailyRent, calcLateInterest, daysBetween, calcSendDate } from '../utils/billingDate.js';
+import { saveDocument, findContractDocument, readSavedFile, getDocumentSettings, fillPattern } from '../utils/documentStorageService.js';
+import { mimeTypeOf } from '../utils/oneDriveStorage.js';
 import { parseHistoryWorkbook, applyHistoryRows } from '../utils/billingHistoryImport.js';
 import XLSX from 'xlsx';
 import { sendInvoiceMail, sendFineNoticeMail } from '../utils/mailService.js';
 import { isMaintenanceKind } from '../utils/maintenance.js';
 import { noticeKeyOf, findOverdueNotices, upsertNoticeSchedule, collectNotices } from '../utils/fineNoticeScheduleJob.js';
+import { logActivity, ACTIONS } from '../utils/activityLog.js';
 
 /**
  * 날짜를 YYYY-MM-DD로. Date 객체를 그냥 자르면 'Sun Oct 25 2026...'이 나온다.
@@ -225,6 +228,19 @@ export const resolveScheduleInputs = async (contractId) => {
   // 청구 대상 목록에 계속 뜨면서 실제로 보낼 건과 섞인다.
   if (!monthlyRent) throw scheduleError('NO_RENT', '월 렌트료가 0원이라 회차표를 만들지 않았습니다. (완납 등 청구가 필요 없는 계약)');
 
+  // 1회차 출금일은 계약일보다 앞설 수 없다. 앞선다면 계약일이나 렌트료 개시일을 잘못 넣은 것이다.
+  // 그대로 만들면 계약도 하기 전의 렌트료를 청구하게 되므로, 회차표를 만들지 않고 고치라고 알린다.
+  // (2026-09-27 운영 DB 85건 중 이런 계약은 0건이었다)
+  const firstDue = resolveFirstDueDate({ rentStartDate, deliveryDate, paymentDay });
+  const dayOf = (d) => { const x = new Date(d); return new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); };
+  if (firstDue && contract.contractDate && dayOf(firstDue) < dayOf(contract.contractDate)) {
+    throw scheduleError(
+      'FIRST_DUE_BEFORE_CONTRACT',
+      `1회차 출금일(${formatYmd(firstDue)})이 계약일(${formatYmd(contract.contractDate)})보다 앞섭니다. `
+      + '계약일을 1회차 출금일 이전으로 고치거나, 렌트료 개시일·결제일을 확인해 주세요.'
+    );
+  }
+
   return { contract, monthlyRent, paymentDay, rentStartDate, deliveryDate, totalRounds };
 };
 
@@ -429,16 +445,23 @@ export const issueRound = async (req, res) => {
     // 폴더 이름은 계약을 만들 때 정해 둔 "계약번호_차종"을 그대로 쓴다.
     // 여기서 다시 만들면 차종을 고쳤을 때 폴더가 갈려 이미 보낸 청구서를 못 찾는다.
     const contractNo = schedule.contract?.docFolderName || schedule.contract?.contractNo || '계약번호미상';
-    const fileName = `${partyName}_청구서_${round.no}회차.pdf`;
+    // 파일명 규칙은 설정 화면에서 바꿀 수 있다.
+    const settings = await getDocumentSettings();
+    const fileName = `${fillPattern(settings.fileNames.invoice, {
+      법인명: partyName,
+      계약자: partyName, // 예전 설정이 {계약자}를 쓰고 있어도 그대로 채워지게 둔다
+      회차: round.no,
+      날짜: new Date().toISOString().slice(0, 10)
+    })}.pdf`;
 
     // 1) 계약자 폴더 > 02.청구서 > 계약번호 에 저장.
     //    한 법인에 계약이 여러 건이라, 계약번호로 한 단계 더 나누지 않으면
     //    5회차 청구서가 어느 계약 것인지 파일명만으로 구분되지 않는다.
     let saved;
     try {
-      saved = await saveToCustomerFolder({
+      saved = await saveDocument({
         partyName,
-        docFolder: '02.청구서',
+        kind: 'invoice',
         subFolder: contractNo,
         fileName,
         fileBuffer: req.file.buffer,
@@ -496,6 +519,19 @@ export const issueRound = async (req, res) => {
     round.invoiceSavedPath = saved.localPath;
     if (mailResult) round.sentAt = new Date();
     await schedule.save();
+
+    const logTarget = { model: 'BillingSchedule', id: schedule._id };
+    const logMeta = { round: round.no, amount: round.total || 0, contractNo: schedule.contract?.contractNo };
+    logActivity({
+      req, dept: '청구부', action: ACTIONS.INVOICE_ISSUE, target: logTarget, meta: logMeta,
+      summary: `${partyName} ${round.no}회차 청구서 발행`
+    });
+    if (mailResult) {
+      logActivity({
+        req, dept: '청구부', action: ACTIONS.INVOICE_SEND, target: logTarget, meta: { ...logMeta, to: mailResult.to },
+        summary: `${partyName} ${round.no}회차 청구서 메일 발송`
+      });
+    }
 
     // 캘린더에 잡아 둔 발송 일정을 끝난 것으로 바꾼다. 보낸 건이 알림에 계속 남으면 안 된다.
     await Schedule.updateMany(
@@ -561,6 +597,12 @@ export const updateRoundPayment = async (req, res) => {
     await schedule.save();
 
     const unpaid = Math.max(0, total - paid);
+    logActivity({
+      req, dept: '재무부', action: ACTIONS.PAYMENT_UPDATE,
+      target: { model: 'BillingSchedule', id: schedule._id },
+      summary: `${round.no}회차 ${round.status}${round.status === '예정' ? '(으)로 되돌림' : ` (입금 ${paid.toLocaleString()}원)`}`,
+      meta: { round: round.no, status: round.status, paidAmount: round.paidAmount, unpaid }
+    });
     res.json({
       success: true,
       round,
@@ -618,6 +660,14 @@ export const bulkUpdateRoundStatus = async (req, res) => {
       applyCarryForward(schedule, rateMap.get(String(schedule.contract)) || 25, round.no);
       await schedule.save();
       changed += 1;
+      // 입금완료·미납으로 찍는 것은 입금 입력이다(대부분 이 화면에서 전액 입금을 한꺼번에 처리한다).
+      logActivity({
+        req, dept: '재무부',
+        action: status === '입금완료' || status === '미납' ? ACTIONS.PAYMENT_UPDATE : ACTIONS.ROUND_STATUS_CHANGE,
+        target: { model: 'BillingSchedule', id: schedule._id },
+        summary: `${round.no}회차 ${status} 처리 (일괄)`,
+        meta: { round: round.no, status, paidAmount: round.paidAmount }
+      });
     }
 
     res.json({
@@ -679,6 +729,33 @@ const findSameNotice = (schedule, noticeNo) => {
   return null;
 };
 
+/**
+ * 같은 고지서가 대차 고지서로 이미 올라가 있는지 본다.
+ * 한 장이 두 곳에 들어가면 장기렌트 고객과 대차 고객에게 모두 청구된다.
+ *
+ * @returns {Promise<string>} 이미 있으면 안내 문장, 없으면 빈 값
+ */
+const findInRentalNotices = async (noticeNo, fileHash) => {
+  const or = [{ fileHash }];
+  if (noticeNo) or.push({ noticeNo });
+  const hit = await RentalNotice.findOne({ $or: or }).select('plateNo kind customerName').lean();
+  return hit
+    ? `이 고지서는 이미 대차 고지서로 올라가 있습니다. (${hit.plateNo} · ${hit.kind}${hit.customerName ? ` · ${hit.customerName}` : ''}) 고지서 관리에서 확인해 주세요.`
+    : '';
+};
+
+/**
+ * 붙인 서류를 어느 폴더에 넣을지 정한다.
+ *
+ * 범칙금·과태료·통행료는 관공서가 보낸 고지서다. 청구서와 성격이 달라 따로 모아 둬야
+ * "이 법인의 고지서" 만 훑어볼 수 있다. 정비내역·기타는 청구 근거 서류라 청구서와 함께 둔다.
+ *
+ * @param {string} kind 화면에서 고른 서류 종류
+ * @returns {string} DOC_KINDS의 code
+ */
+const NOTICE_KINDS = ['범칙금', '과태료', '통행료'];
+const folderKindForAttachment = (kind) => (NOTICE_KINDS.includes(kind) ? 'notice' : 'invoice');
+
 const attachFileToRound = async (schedule, round, req) => {
   const kind = (req.body.kind || '기타').trim();
   const amount = Number(req.body.amount) || 0;
@@ -696,20 +773,31 @@ const attachFileToRound = async (schedule, round, req) => {
   // 같은 종류가 여러 건 올 수 있다(범칙금 3장 등). 어느 차 건인지가 제일 먼저 필요한 정보라
   // 차량번호를 이름에 넣고, 차량번호가 없으면 같은 종류의 몇 번째인지를 붙인다.
   const sameKind = (round.attachments || []).filter((a) => a.kind === kind).length;
-  const suffix = plateNo ? `_${plateNo}` : (sameKind ? `_${sameKind + 1}` : '');
-  const fileName = `${partyName}_청구서_${round.no}회차_${kind}${suffix}${ext}`;
-
-  const saved = await saveToCustomerFolder({
-    partyName,
-    docFolder: '02.청구서',
-    subFolder: contractNo,
-    fileName,
-    fileBuffer: req.file.buffer
+  const settings = await getDocumentSettings();
+  const baseName = fillPattern(settings.fileNames.invoiceAttachment, {
+    법인명: partyName,
+    계약자: partyName, // 예전 설정이 {계약자}를 쓰고 있어도 그대로 채워지게 둔다
+    회차: round.no,
+    종류: kind,
+    차량번호: plateNo
   });
+  // 차량번호가 없으면 같은 종류의 몇 번째인지를 붙여 이름이 겹치지 않게 한다
+  const fileName = `${baseName}${!plateNo && sameKind ? `_${sameKind + 1}` : ''}${ext}`;
 
   // 같은 회차에 같은 파일이 이미 있으면 새로 붙이지 않고 그 자리의 값을 고친다.
   // 금액을 빠뜨리고 올린 뒤 다시 올리는 일이 잦은데, 새로 붙이면 금액이 두 번 잡힌다.
   const existing = round.attachments.find((a) => a.fileHash === fileHash);
+
+  // 같은 차의 과태료가 한 회차에 두 장 오면 파일명이 같아진다. 새 고지서면 덮어쓰지 않고 이름을 바꿔 남긴다.
+  const saved = await saveDocument({
+    partyName,
+    kind: folderKindForAttachment(kind),
+    subFolder: contractNo,
+    fileName,
+    fileBuffer: req.file.buffer,
+    keepPrevious: !existing
+  });
+
   if (existing) {
     existing.kind = kind;
     existing.amount = amount;
@@ -743,6 +831,14 @@ const attachFileToRound = async (schedule, round, req) => {
   await schedule.save();
 
   const added = round.attachments[round.attachments.length - 1];
+  if (NOTICE_KINDS.includes(kind)) {
+    logActivity({
+      req, dept: '차량관리부', action: ACTIONS.NOTICE_REGISTER,
+      target: { model: 'BillingSchedule', id: schedule._id },
+      summary: `${partyName} ${kind} 고지서 등록${plateNo ? ` (${plateNo})` : ''}`,
+      meta: { kind, amount, round: round.no, noticeDueDate }
+    });
+  }
   // 납부기한을 캘린더에 바로 올린다. 실패해도 청구는 이미 끝났으므로 막지 않는다.
   await upsertNoticeSchedule({ schedule, round, attachment: added, partyName })
     .catch((err) => console.error('[고지서 납부기한] 캘린더 등록 실패:', err.message));
@@ -762,9 +858,25 @@ export const addRoundAttachment = async (req, res) => {
     if (!round) return res.status(404).json({ success: false, message: '해당 회차가 없습니다.' });
     if (!req.file) return res.status(400).json({ success: false, message: '올릴 파일이 없습니다.' });
 
+    const noticeNo = (req.body.noticeNo || '').trim();
+    const fileHash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+    const inRental = await findInRentalNotices(noticeNo, fileHash);
+    if (inRental) return res.status(409).json({ success: false, duplicate: true, message: inRental });
+
+    // 고지서 번호가 같으면 파일이 달라도 같은 건이다. 재스캔한 고지서가 두 번 청구되는 것을 막는다.
+    // 같은 회차라도 다른 파일(재스캔본)이면 막는다. 파일이 같으면 아래에서 그 자리의 값을 고친다.
+    const sameNotice = findSameNotice(schedule, noticeNo);
+    if (sameNotice && (sameNotice.round !== round.no || sameNotice.attachment.fileHash !== fileHash)) {
+      return res.status(409).json({
+        success: false,
+        duplicate: true,
+        message: `고지번호 ${noticeNo} 건이 이미 ${sameNotice.round}회차에 올라가 있습니다. (${sameNotice.attachment.fileName})`
+      });
+    }
+
     // 다른 회차에 같은 파일이 있으면 막는다. 회차를 착각해 두 번 청구되는 것을 막기 위해서다.
     // 같은 회차면 그 자리의 값을 고친다(아래 attachFileToRound가 처리한다).
-    const dup = findSameFile(schedule, crypto.createHash('sha256').update(req.file.buffer).digest('hex'));
+    const dup = findSameFile(schedule, fileHash);
     if (dup && dup.round !== round.no) {
       return res.status(409).json({
         success: false,
@@ -824,9 +936,14 @@ export const addUpcomingAttachment = async (req, res) => {
       return res.status(400).json({ success: false, message: '아직 발행하지 않은 회차가 없습니다. 계약이 끝났는지 확인해 주세요.' });
     }
 
+    const fileHash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+    const inRental = await findInRentalNotices((req.body.noticeNo || '').trim(), fileHash);
+    if (inRental) return res.status(409).json({ success: false, duplicate: true, message: inRental });
+
     // 고지서 번호가 같으면 파일이 달라도 같은 건이다. 재스캔한 고지서가 두 번 청구되는 것을 막는다.
+    // 같은 회차라도 다른 파일(재스캔본)이면 막는다. 파일이 같으면 아래에서 그 자리의 값을 고친다.
     const sameNotice = findSameNotice(schedule, (req.body.noticeNo || '').trim());
-    if (sameNotice && sameNotice.round !== round.no) {
+    if (sameNotice && (sameNotice.round !== round.no || sameNotice.attachment.fileHash !== fileHash)) {
       return res.status(409).json({
         success: false,
         duplicate: true,
@@ -835,7 +952,7 @@ export const addUpcomingAttachment = async (req, res) => {
     }
 
     // 다른 회차에 같은 파일이 있으면 막는다. 같은 회차면 그 자리의 값을 고친다.
-    const dup = findSameFile(schedule, crypto.createHash('sha256').update(req.file.buffer).digest('hex'));
+    const dup = findSameFile(schedule, fileHash);
     if (dup && dup.round !== round.no) {
       return res.status(409).json({
         success: false,
@@ -1016,19 +1133,23 @@ export const getSchedulesSummary = async (req, res) => {
     for (const c of contracts) {
       if (withSchedule.has(String(c._id))) continue;
       let reason = '';
+      let code = '';
       let ready = false;
       try {
         await resolveScheduleInputs(c._id);
         ready = true;
       } catch (err) {
         reason = err.message;
+        code = err.code || '';
       }
       missing.push({
         contractId: c._id,
         contractNo: c.contractNo,
         partyName: c.companyId?.name || c.customer?.name || '',
         ready,
-        reason
+        reason,
+        // NO_RENT는 완납 등으로 청구할 것이 없는 정상 계약이다. 화면이 경고에서 빼고 따로 보여 준다.
+        code
       });
     }
 
@@ -1122,14 +1243,17 @@ export const removeRoundAttachment = async (req, res) => {
     if (!round.attachments[index]) {
       return res.status(404).json({ success: false, message: '해당 서류가 없습니다.' });
     }
+    // 이미 나간 청구서의 금액은 건드리지 않는다. 고객이 받은 금액과 장부가 어긋난다.
+    if (round.issuedAt) {
+      return res.status(400).json({ success: false, message: '이미 발행한 회차라 서류를 뺄 수 없습니다.' });
+    }
     const removed = round.attachments[index];
     round.attachments.splice(index, 1);
     // 남은 서류만으로 금액을 다시 더한다. 서류를 뺐는데 금액이 남아 있으면 청구액이 맞지 않는다.
-    const left = round.attachments || [];
-    if (!left.some((a) => !isMaintenanceKind(a.kind) && Number(a.amount) > 0)) round.fine = 0;
-    if (!left.some((a) => isMaintenanceKind(a.kind) && Number(a.amount) > 0)) round.maintenance = 0;
-    recalcRound(round);
+    recalcAfterRemoval(round);
     await schedule.save();
+    // 캘린더에 걸린 납부기한도 지운다. 없는 고지서의 기한이 캘린더에 남으면 헛일을 한다.
+    await Schedule.deleteOne({ 'source.key': noticeKeyOf(removed, schedule._id, round.no) });
     res.json({
       success: true,
       round,
@@ -1138,6 +1262,58 @@ export const removeRoundAttachment = async (req, res) => {
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
+};
+
+/**
+ * 고지서 한 건의 단계를 바꾼다.
+ *
+ * 한 건씩 누를 때와 여러 건을 한꺼번에 처리할 때가 같은 규칙을 써야 한다.
+ * 규칙이 두 벌이면 한쪽만 고쳐 놓고 왜 결과가 다른지 한참 찾게 된다.
+ *
+ * @param {object} att 고지서 첨부 (mongoose 서브도큐먼트)
+ * @param {object} body 바꿀 내용 (noticeStatus, handling, driverName, driverPhone, transferAgency)
+ * @returns {string} 바뀐 단계
+ */
+const applyNoticeStatus = (att, body = {}) => {
+  // 처리 방식은 이 건만 다르게 갈 때 바꾼다
+  if (NOTICE_HANDLINGS.includes(body.handling)) att.handling = body.handling;
+
+  const status = NOTICE_STATUSES.includes(body.noticeStatus) ? body.noticeStatus : '접수';
+  att.noticeStatus = status;
+
+  // 단계마다 남겨야 할 것이 다르다. 되돌릴 수도 있어 해당하지 않는 날짜는 지운다.
+  att.paidByCustomerAt = status === '납부완료' ? (att.paidByCustomerAt || new Date()) : undefined;
+  att.paidByUsAt = status === '대납완료' ? (att.paidByUsAt || new Date()) : undefined;
+  att.transferDoneAt = status === '변경완료' ? (att.transferDoneAt || new Date()) : undefined;
+
+  if (body.driverName !== undefined) att.driverName = String(body.driverName).trim();
+  if (body.driverPhone !== undefined) att.driverPhone = String(body.driverPhone).trim();
+  if (body.transferAgency !== undefined) {
+    att.transferAgency = String(body.transferAgency).trim();
+    if (att.transferAgency && !att.transferSentAt) att.transferSentAt = new Date();
+  }
+  return status;
+};
+
+/** 캘린더에 걸린 납부기한 일정을 단계에 맞춘다. 우리 손을 떠난 건은 더 챙길 일이 없다. */
+const syncNoticeSchedule = (att, scheduleId, roundNo, status) => Schedule.updateOne(
+  { 'source.key': noticeKeyOf(att, scheduleId, roundNo) },
+  { $set: { status: ['납부완료', '변경완료', '대납완료'].includes(status) ? '완료' : '예정' } }
+);
+
+/**
+ * 서류를 뺀 뒤 회차 금액을 다시 맞춘다.
+ *
+ * 손으로 넣은 금액이 남아 있으면 서류를 지웠는데도 청구액이 그대로다.
+ * 그 종류의 서류가 하나도 안 남았을 때만 0으로 되돌린다.
+ *
+ * @param {object} round 회차
+ */
+const recalcAfterRemoval = (round) => {
+  const left = round.attachments || [];
+  if (!left.some((a) => !isMaintenanceKind(a.kind) && Number(a.amount) > 0)) round.fine = 0;
+  if (!left.some((a) => isMaintenanceKind(a.kind) && Number(a.amount) > 0)) round.maintenance = 0;
+  recalcRound(round);
 };
 
 /**
@@ -1164,33 +1340,10 @@ export const updateAttachmentNoticeStatus = async (req, res) => {
       return res.status(400).json({ success: false, message: '이미 발행한 회차라 금액을 바꿀 수 없습니다.' });
     }
 
-    // 처리 방식은 이 건만 다르게 갈 때 바꾼다
-    if (NOTICE_HANDLINGS.includes(req.body.handling)) att.handling = req.body.handling;
-
-    const status = NOTICE_STATUSES.includes(req.body.noticeStatus) ? req.body.noticeStatus : '접수';
-    att.noticeStatus = status;
-
-    // 단계마다 남겨야 할 것이 다르다. 되돌릴 수도 있어 해당하지 않는 날짜는 지운다.
-    att.paidByCustomerAt = status === '납부완료' ? (att.paidByCustomerAt || new Date()) : undefined;
-    att.paidByUsAt = status === '대납완료' ? (att.paidByUsAt || new Date()) : undefined;
-    att.transferDoneAt = status === '변경완료' ? (att.transferDoneAt || new Date()) : undefined;
-
-    if (req.body.driverName !== undefined) att.driverName = String(req.body.driverName).trim();
-    if (req.body.driverPhone !== undefined) att.driverPhone = String(req.body.driverPhone).trim();
-    if (req.body.transferAgency !== undefined) {
-      att.transferAgency = String(req.body.transferAgency).trim();
-      if (att.transferAgency && !att.transferSentAt) att.transferSentAt = new Date();
-    }
-
+    const status = applyNoticeStatus(att, req.body);
     recalcRound(round);
     await schedule.save();
-
-    // 캘린더 일정도 맞춘다. 우리 손을 떠난 건은 더 챙길 일이 없다.
-    const done = ['납부완료', '변경완료', '대납완료'].includes(status);
-    await Schedule.updateOne(
-      { 'source.key': noticeKeyOf(att, schedule._id, round.no) },
-      { $set: { status: done ? '완료' : '예정' } }
-    );
+    await syncNoticeSchedule(att, schedule._id, round.no, status);
 
     const billed = !['납부완료', '변경완료'].includes(status);
     res.json({
@@ -1199,6 +1352,123 @@ export const updateAttachmentNoticeStatus = async (req, res) => {
       attachment: att,
       message: `${NOTICE_STATUS_MESSAGE[status] || status}로 표시했습니다.`
         + (billed ? ` ${round.no}회차 청구액에 들어갑니다.` : ` ${round.no}회차 청구액에서 뺐습니다.`)
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 고른 고지서를 한꺼번에 처리한다. 단계를 옮기거나, 목록에서 뺀다.
+ *
+ * 고지서는 하루에 여러 장이 한 번에 오고, 같은 법인 것이 몰려 온다. 한 건씩 누르면
+ * 스무 번을 눌러야 해서 중간에 빠뜨린다. 그래서 골라서 한 번에 처리한다.
+ *
+ * 지울 때 조심할 것이 두 가지다.
+ * 1) 순번(index)으로 지우면 앞의 것을 먼저 지운 순간 뒤의 순번이 하나씩 당겨진다.
+ *    그래서 같은 회차 안에서는 큰 순번부터 지운다.
+ * 2) 이미 발행한 회차는 건드리지 않는다. 고객이 받은 청구서 금액과 장부가 어긋난다.
+ *    막힌 건은 세어서 알려 준다. 조용히 넘기면 지운 줄 알고 넘어간다.
+ *
+ * 저장된 파일은 지우지 않는다. 목록에서만 뺀다. 잘못 뺐을 때 되찾을 길이 있어야 한다.
+ *
+ * @route POST /api/billing-schedules/notices/bulk
+ */
+export const bulkUpdateNotices = async (req, res) => {
+  try {
+    const action = req.body.action === 'delete' ? 'delete' : 'status';
+    const items = Array.isArray(req.body.items) ? req.body.items : [];
+    if (!items.length) {
+      return res.status(400).json({ success: false, message: '고른 고지서가 없습니다.' });
+    }
+    // 한 번에 너무 많이 보내면 실수로 전체를 지우는 일이 생긴다. 화면에서 보이는 만큼이면 넉넉하다.
+    if (items.length > 300) {
+      return res.status(400).json({ success: false, message: '한 번에 300건까지만 처리할 수 있습니다.' });
+    }
+
+    // 회차표 하나를 여러 번 읽고 저장하면 나중 저장이 앞의 것을 덮는다. 회차표별로 모은다.
+    const bySchedule = new Map();
+    for (const it of items) {
+      const key = String(it.scheduleId || '');
+      const no = Number(it.roundNo);
+      const index = Number(it.index);
+      if (!key || Number.isNaN(no) || Number.isNaN(index)) continue;
+      if (!bySchedule.has(key)) bySchedule.set(key, []);
+      bySchedule.get(key).push({ no, index, noticeStatus: it.noticeStatus, handling: it.handling });
+    }
+
+    let done = 0;
+    let issuedBlocked = 0;
+    let missing = 0;
+    const calendarUpdates = [];
+
+    for (const [scheduleId, rows] of bySchedule) {
+      const schedule = await BillingSchedule.findById(scheduleId);
+      if (!schedule) { missing += rows.length; continue; }
+
+      // 회차별로 나눈다. 지울 때 순번이 당겨지는 문제는 회차 안에서만 생긴다.
+      const byRound = new Map();
+      for (const r of rows) {
+        if (!byRound.has(r.no)) byRound.set(r.no, []);
+        byRound.get(r.no).push(r);
+      }
+
+      let touched = false;
+      for (const [no, list] of byRound) {
+        const round = schedule.rounds.find((r) => r.no === no);
+        if (!round) { missing += list.length; continue; }
+        if (round.issuedAt) { issuedBlocked += list.length; continue; }
+
+        if (action === 'delete') {
+          // 큰 순번부터 지운다. 작은 것부터 지우면 뒤의 순번이 당겨져 엉뚱한 것이 지워진다.
+          const sorted = [...list].sort((a, b) => b.index - a.index);
+          for (const r of sorted) {
+            const att = round.attachments[r.index];
+            if (!att) { missing += 1; continue; }
+            calendarUpdates.push({ del: noticeKeyOf(att, schedule._id, no) });
+            round.attachments.splice(r.index, 1);
+            done += 1;
+            touched = true;
+          }
+          if (touched) recalcAfterRemoval(round);
+        } else {
+          for (const r of list) {
+            const att = round.attachments[r.index];
+            if (!att) { missing += 1; continue; }
+            // 단계는 건마다 다르다. 방식이 달라 '완료'가 뜻하는 단계가 다르기 때문이다.
+            const status = applyNoticeStatus(att, {
+              noticeStatus: r.noticeStatus || req.body.noticeStatus,
+              handling: r.handling || req.body.handling
+            });
+            calendarUpdates.push({ att, scheduleId: schedule._id, no, status });
+            done += 1;
+            touched = true;
+          }
+          if (touched) recalcRound(round);
+        }
+      }
+
+      if (touched) await schedule.save();
+    }
+
+    // 캘린더는 회차표를 다 저장한 뒤에 맞춘다. 저장이 실패하면 캘린더만 바뀌어 어긋난다.
+    for (const u of calendarUpdates) {
+      if (u.del) await Schedule.deleteOne({ 'source.key': u.del });
+      else await syncNoticeSchedule(u.att, u.scheduleId, u.no, u.status);
+    }
+
+    const parts = [];
+    if (done) parts.push(action === 'delete' ? `${done}건을 목록에서 뺐습니다.` : `${done}건을 처리했습니다.`);
+    if (issuedBlocked) parts.push(`${issuedBlocked}건은 이미 발행한 회차라 그대로 두었습니다.`);
+    if (missing) parts.push(`${missing}건은 찾지 못했습니다. 새로고침 후 다시 골라 주세요.`);
+    if (action === 'delete' && done) parts.push('저장된 파일은 그대로 있습니다.');
+
+    res.json({
+      success: done > 0,
+      done,
+      issuedBlocked,
+      missing,
+      message: parts.join(' ') || '처리한 건이 없습니다.'
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -1391,6 +1661,44 @@ export const getOverdueNotices = async (req, res) => {
 
 // @desc    회차 하나의 청구 내역을 고친다 (범칙금·정비비 등)
 // @route   PUT /api/billing-schedules/:id/rounds/:no
+/**
+ * 회차에 저장해 둔 청구서 PDF나 첨부 서류를 내려 준다. 청구서 보관함에서 "보낸 그대로" 보여 주는 데 쓴다.
+ *
+ * 파일은 OneDrive에 있어 브라우저가 바로 열 수 없다. 서버가 받아서 그대로 넘긴다.
+ * inline으로 보내 새 창에서 바로 보이게 한다(내려받기 창을 띄우지 않는다).
+ *
+ * @route GET /api/billing-schedules/:id/rounds/:no/file           청구서
+ * @route GET /api/billing-schedules/:id/rounds/:no/file?attachment=2 첨부 서류(순번)
+ */
+export const getRoundFile = async (req, res) => {
+  try {
+    const schedule = await BillingSchedule.findById(req.params.id).lean();
+    if (!schedule) return res.status(404).json({ success: false, message: '회차표를 찾을 수 없습니다.' });
+    const round = schedule.rounds.find((r) => r.no === Number(req.params.no));
+    if (!round) return res.status(404).json({ success: false, message: '해당 회차가 없습니다.' });
+
+    const index = req.query.attachment;
+    const target = index !== undefined
+      ? (round.attachments || [])[Number(index)]
+      : { savedPath: round.invoiceSavedPath, fileName: round.invoiceFileName };
+    if (!target?.savedPath) {
+      return res.status(404).json({ success: false, message: '이 회차에 저장된 파일이 없습니다.' });
+    }
+
+    const buffer = await readSavedFile(target.savedPath);
+    if (!buffer) {
+      return res.status(410).json({ success: false, message: '파일이 OneDrive에서 옮겨졌거나 지워져 열 수 없습니다.' });
+    }
+
+    const fileName = target.fileName || 'file';
+    res.setHeader('Content-Type', mimeTypeOf(fileName));
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+    res.send(buffer);
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export const updateRound = async (req, res) => {
   try {
     const schedule = await BillingSchedule.findById(req.params.id);

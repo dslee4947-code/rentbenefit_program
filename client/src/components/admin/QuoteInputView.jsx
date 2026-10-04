@@ -1,18 +1,17 @@
 import React, { useState, useEffect } from 'react';
+import html2pdf from 'html2pdf.js';
 import { Sparkles, Save, ArrowRight, UserPlus, Users, Car, Coins, Settings, HelpCircle, CheckCircle, Plus, Trash2, FolderOpen, X, Search, List, Edit, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatCustomerName, cleanSpecValue, extractQuoteVehicleDetail } from '../../utils/format.js';
 import { useDraggableDialog, DIALOG_TOP } from './useDraggableDialog.js';
 import { useSaveShortcut } from './useSaveShortcut.js';
 import { createPortal } from 'react-dom';
+import {
+  FUNDING_REPAYMENT_MODES, DEFAULT_FUNDING_REPAYMENT_MODE,
+  DEFAULT_HIGH_RESIDUAL_FEE_RATE_PER_POINT, defaultMaintenanceItems, getCalculatedMaintenanceFee, calculateQuoteOption
+} from '../../utils/quoteCalc.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
-// Financial PMT Function (matching Excel PMT)
-function PMT(rate, nper, pv) {
-  if (rate === 0) return -pv / nper;
-  const pvif = Math.pow(1 + rate, nper);
-  return (rate * pv * pvif) / (1 - pvif);
-}
 
 // Number formatting with commas
 const toCommaString = (num) => {
@@ -47,26 +46,6 @@ const getVehicleColor = (index) => {
   return VEHICLE_COLORS[index % VEHICLE_COLORS.length];
 };
 
-const defaultMaintenanceItems = [
-  { name: '엔진오일', cycle: '7,000~8,000km', desc: '오일필터+에어 클리너', price: 200000, checked: true },
-  { name: '에어컨 향균필터', cycle: '15,000~20,000km 또는 1년 도래시', desc: '향균필터', price: 40000, checked: true },
-  { name: '와이퍼', cycle: '1년 도래시', desc: '-', price: 25000, checked: true },
-  { name: '에어컨 가스', cycle: '1년 도래시', desc: '부족할 시', price: 250000, checked: true },
-  { name: '타이어 위치 교환', cycle: '20,000km', desc: '타이어 로테이션 + 휠 밸런스', price: 100000, checked: true },
-  { name: '타이어 공기압 보충', cycle: '매 점검시', desc: '-', price: 0, checked: true },
-  { name: '타이어 교체', cycle: '50,000~70,000km', desc: '타이어*마모 한계선 도래 시 교체', price: 600000, checked: true },
-  { name: '연료 필터', cycle: '40,000km', desc: '-', price: 60000, checked: true },
-  { name: '앞 브레이크 패드 / 라이닝', cycle: '40,000km 또는 마모 시', desc: '앞 디스크 브레이크 패드', price: 150000, checked: true },
-  { name: '뒤 브레이크 패드 / 라이닝', cycle: '70,000km 또는 마모 시', desc: '뒤 브레이크 라이닝', price: 150000, checked: true },
-  { name: '오일류', cycle: '50,000~60,000km', desc: '변속기/브레이크/파워오일', price: 150000, checked: true },
-  { name: '밸브류', cycle: '50,000km', desc: '에어컨/파워/팬 벨트', price: 200000, checked: true },
-  { name: '전구류', cycle: '필요시', desc: '라이트/안개', price: 50000, checked: true },
-  { name: '베터리', cycle: '80,000~100,000km', desc: '베터리', price: 200000, checked: true },
-  { name: '점화플러그', cycle: '일반 40,000km / 백금 100,000km', desc: '점화 플러그, 배선', price: 50000, checked: true },
-  { name: '타이밍벨트/워터펌프', cycle: '80,000~90,000km', desc: '타이밍 벨트 세트', price: 267450, checked: true },
-  { name: '부동액', cycle: '100,000km 또는 필요시', desc: '부동액', price: 50000, checked: true },
-  { name: '기타 보충', cycle: '수시', desc: '-', price: 0, checked: true }
-];
 
 const getRecommendedTirePrices = (carModel) => {
   const model = (carModel || '').toLowerCase();
@@ -119,28 +98,15 @@ const getRecommendedTirePrices = (carModel) => {
   };
 };
 
-const getCalculatedMaintenanceFee = (opt, vehicle) => {
-  if (!opt || !vehicle) return 50000;
-  
-  const rawItems = opt.maintenanceItems || vehicle.maintenanceItems || defaultMaintenanceItems;
-  const totalMileage = (opt.termYears || 4) * (opt.mileage || 20000);
-  const computedTireCount = Math.floor(totalMileage / 60000) * 4;
-  const computedTireCost = computedTireCount * (opt.tireUnitCost || 150000);
-  
-  const totalSum = rawItems
-    .filter(item => item.checked)
-    .reduce((sum, item) => {
-      if (item.name === '타이어 교체') {
-        return sum + computedTireCost;
-      }
-      return sum + (item.price || 0);
-    }, 0);
-    
-  const termMonths = (opt.termYears || 4) * 12;
-  if (termMonths <= 0) return 0;
-  
-  return Math.floor((totalSum / termMonths) / 1000) * 1000;
-};
+
+// 장기렌터카 견적서 한 장의 크기. A4(210 × 297mm)와 같은 비율로 화면에 그린다.
+// A4 폭은 96dpi 기준 793.7px이므로 인쇄 때 900px을 793.7px로 줄인다.
+// 세로 1270px × 0.8819 = 1120px로 A4 높이(1122.5px)보다 살짝 작게 잡아 두 번째 빈 장이 생기지 않게 한다.
+const RENTAL_SHEET_WIDTH_PX = 900;
+const RENTAL_SHEET_HEIGHT_PX = 1270;
+const RENTAL_PRINT_ZOOM = (210 / 25.4 * 96) / RENTAL_SHEET_WIDTH_PX;
+// 종이 가장자리 여백. 이 종이에서 1mm는 약 4.3px이라 40px이면 인쇄했을 때 사방 약 9mm가 된다.
+const RENTAL_SHEET_MARGIN_PX = 40;
 
 // 렌트/리스 구분 표시색. 두 문서(비교표, 장기렌터카 견적서)가 같은 색을 쓰도록 한 곳에서 관리한다.
 // 인쇄와 PDF에서도 구분돼야 하므로 회색 농도 차이가 아닌 색상 자체를 다르게 둔다.
@@ -261,6 +227,10 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
     
     // Vehicle-specific financial settings
     baseInterestRate: 0.06,
+    fundingRepaymentMode: DEFAULT_FUNDING_REPAYMENT_MODE,
+    // 일반잔가로 쓸 수 있는 최대 인수가율(캐피탈 잔가군표 기준). 비워 두면 고잔가 수수료를 붙이지 않는다.
+    generalResidualCap: null,
+    highResidualFeeRatePerPoint: DEFAULT_HIGH_RESIDUAL_FEE_RATE_PER_POINT,
     commissionRateP: 0.03,
     dealerCommissionRateP: 0.00, // 타딜러수수료는 붙는 건이 예외적이라 0%에서 시작한다
 
@@ -920,211 +890,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
   });
 
   // 4. 수식 계산 로직 (Formulas implementation)
-  const calculateOptionValues = (opt, vehicle = activeVehicle) => {
-    if (!opt || !vehicle) return {
-      totalCarPrice: 0,
-      discountAmount: 0,
-      netVehiclePrice: 0,
-      acquisitionTax: 0,
-      publicBond: 0,
-      ownCarInsuranceFee: 0,
-      carTaxAnnual: 0,
-      deposit: 0,
-      advancePayment: 0,
-      fundingPrincipal: 0,
-      interestRate: 0,
-      fundingInterest: 0,
-      advancePaymentInterest: 0,
-      monthlyInstallmentSum: 0,
-      monthlyInstallment: 0,
-      totalBuyPriceWithFinancing: 0,
-      dealerCommission: 0,
-      companyCommission: 0,
-      pandanbi: 0,
-      tireCostTotal: 0,
-      maintenanceFeeTotal: 0,
-      totalCost: 0,
-      takeoverPrice: 0,
-      monthlyLeaseFee: 0,
-      profitMargin: 0,
-      profitRate: 0
-    };
-
-    const {
-      carPrice,
-      carOptionPrice,
-      discountPrice,
-      consignmentFee,
-      isBondExempt,
-      globalInsuranceFee,
-      cc,
-      baseInterestRate,
-      dealerCommissionRateP,
-      commissionRateP,
-      isPandanbiEnabled,
-      tireCount,
-      monthlyMaintenanceFee,
-      isMaintenanceEnabled,
-      globalRegistrationAgencyFee
-    } = vehicle;
-
-    // 총 차량가격 = 차량가격 + 옵션가격
-    const totalCarPrice = carPrice + carOptionPrice;
-    
-    // 할인/면세액
-    const discountAmount = discountPrice;
-    
-    // 차량가격 (11행: E11) -> 8번 결론식: 기본차량가 + 옵션가 - 할인가 + 탁송료
-    const netVehiclePrice = carPrice + carOptionPrice - discountPrice + consignmentFee;
-    
-    // 취득세 (E21) -> ROUNDDOWN(E11/1.1*0.04, -1)
-    const acquisitionTax = Math.floor(((netVehiclePrice / 1.1) * 0.04) / 10) * 10;
-    
-    // 공채 (E22) -> ROUNDDOWN(E11/1.1*3%*16%,-1) (면제 시 0)
-    const publicBond = isBondExempt ? 0 : Math.floor(((netVehiclePrice / 1.1) * 0.03 * 0.16) / 10) * 10;
-    
-    // 자차보험비 (E24) -> E7(netVehiclePrice) 기준으로 계산
-    let ownCarRate;
-    if (netVehiclePrice <= 10000000) {
-      ownCarRate = 0.022;
-    } else if (netVehiclePrice >= 500000000) {
-      ownCarRate = 0.012;
-    } else {
-      ownCarRate = 0.017 - (netVehiclePrice - 10000000) * (0.01 / (500000000 - 10000000));
-    }
-    // 기존의 ceilingCarPrice(천만 원 단위 올림) 곱하기 방식 대신, 실제 차량 공급가액(netVehiclePrice)을 기준으로 계산하여 역전 현상을 해결합니다.
-    const ownCarInsuranceFee = netVehiclePrice * ownCarRate;
-    
-    // 자동차세 (E25) -> 배기량(cc) 기준 IF 조건 적용
-    let carTaxAnnual = 20000;
-    if (cc <= 0 || !cc) {
-      carTaxAnnual = 20000;
-    } else if (cc <= 1600) {
-      carTaxAnnual = cc * 18;
-    } else if (cc <= 2500) {
-      carTaxAnnual = cc * 19;
-    } else if (cc > 2500) {
-      carTaxAnnual = cc * 24;
-    } else {
-      carTaxAnnual = 20000;
-    }
-    
-    // 보증금 (E38) 및 선수금 (E40) -> 천단위 미만 버림
-    const deposit = Math.floor((totalCarPrice * opt.depositRate) / 1000) * 1000;
-    const advancePayment = Math.floor((totalCarPrice * opt.advancePaymentRate) / 1000) * 1000;
-    
-    // 조달원금 (E13)
-    const fundingPrincipal = netVehiclePrice - deposit - advancePayment + acquisitionTax + publicBond + globalInsuranceFee + ownCarInsuranceFee;
-    
-    // 이자부담율 (E14)
-    const termMonths = Math.round(Number(opt.termYears) * 12);
-    let addedRate = 0.014;
-    if (termMonths <= 12) addedRate = 0.0031;
-    else if (termMonths <= 24) addedRate = 0.0025;
-    else if (termMonths <= 36) addedRate = 0.0019;
-    else if (termMonths <= 48) addedRate = 0.0014;
-    else addedRate = 0.0010;
-    const interestRate = baseInterestRate + addedRate;
-    
-    const rentPeriodMonths = opt.termYears * 12; // E32
-    
-    // 조달이자 (E15)
-    const fundingInterest = PMT(interestRate / 12, rentPeriodMonths, -fundingPrincipal) * rentPeriodMonths - fundingPrincipal;
-    
-    // 선수금분이자 (E16)
-    const advancePaymentInterest = advancePayment * 0.03 * opt.termYears;
-    
-    // 월할부금계 (E18)
-    const monthlyInstallmentSum = fundingPrincipal + fundingInterest - advancePaymentInterest;
-    
-    // 월할부금 (E17)
-    const monthlyInstallment = monthlyInstallmentSum / rentPeriodMonths;
-    
-    // 할부 시 총구입가 (E19)
-    const totalBuyPriceWithFinancing = netVehiclePrice + fundingInterest + advancePaymentInterest;
-    
-    // 딜러 수수료 (AD6)
-    const dealerCommission = totalCarPrice * dealerCommissionRateP;
-    
-    // 수수료 (AD2)
-    const companyCommission = totalCarPrice * commissionRateP;
-    
-    // 판관비/노무비 (E28) - 글로벌 설정 기준
-    const pandanbi = isPandanbiEnabled ? totalCarPrice * 0.03 : 0;
-    
-    // 동적 타이어 본수 계산 (6만km당 4본)
-    const totalMileage = opt.termYears * opt.mileage;
-    const computedTireCount = Math.floor(totalMileage / 60000) * 4;
-
-    // 타이어 교체 비용 (AD13)
-    const tireCostTotal = computedTireCount * opt.tireUnitCost;
-    
-    // 정기점검 비용 (AD16) - 옵션별 실시간 계산 적용 (1000원 단위 버림)
-    const calculatedMaintenanceFee = getCalculatedMaintenanceFee(opt, vehicle);
-    const maintenanceFeeTotal = calculatedMaintenanceFee * rentPeriodMonths;
-    
-    // 총구입원가 (E30) - 옵션별 정비 가입 여부 적용
-    const optMaintenanceEnabled = opt.isMaintenanceEnabled !== undefined ? opt.isMaintenanceEnabled : isMaintenanceEnabled;
-    let totalCost;
-    const basicFees = ((globalInsuranceFee + ownCarInsuranceFee) * opt.termYears) + (carTaxAnnual * opt.termYears) + totalBuyPriceWithFinancing + globalRegistrationAgencyFee + publicBond + acquisitionTax + companyCommission + pandanbi + dealerCommission;
-    
-    if (optMaintenanceEnabled) {
-      totalCost = basicFees + maintenanceFeeTotal + tireCostTotal;
-    } else {
-      totalCost = basicFees;
-    }
-    
-    // 인수가 (E36) -> 천단위 미만 버림
-    const takeoverPrice = Math.floor((totalCarPrice * opt.residualRate) / 1000) * 1000;
-    
-    // 최종 결과 계산 (월 렌트료 & 영업이익)
-    let monthlyLeaseFee = 0;
-    let profitMargin = 0;
-    
-    if (opt.calcMode === 'manual') {
-      // 월 렌트료 직접 입력 모드
-      monthlyLeaseFee = opt.monthlyFeeInput;
-      const totalRevenue = (monthlyLeaseFee * rentPeriodMonths) + takeoverPrice + advancePayment;
-      profitMargin = totalRevenue - totalCost;
-    } else {
-      // 영업이익 직접 입력 모드 (기본 계산식 등)
-      profitMargin = opt.targetProfitInput;
-      const targetRevenue = totalCost + profitMargin;
-      const totalLeasePayments = targetRevenue - takeoverPrice - advancePayment;
-      monthlyLeaseFee = Math.floor((totalLeasePayments / rentPeriodMonths) / 1000) * 1000; // 1000원 단위 절사
-    }
-    
-    const profitRate = (profitMargin + companyCommission) / totalCarPrice; // AD31
-    
-    return {
-      totalCarPrice,
-      discountAmount,
-      netVehiclePrice,
-      acquisitionTax,
-      publicBond,
-      ownCarInsuranceFee,
-      carTaxAnnual,
-      deposit,
-      advancePayment,
-      fundingPrincipal,
-      interestRate,
-      fundingInterest,
-      advancePaymentInterest,
-      monthlyInstallmentSum,
-      monthlyInstallment,
-      totalBuyPriceWithFinancing,
-      dealerCommission,
-      companyCommission,
-      pandanbi,
-      tireCostTotal,
-      maintenanceFeeTotal,
-      totalCost,
-      takeoverPrice,
-      monthlyLeaseFee,
-      profitMargin,
-      profitRate
-    };
-  };
+  const calculateOptionValues = (opt, vehicle = activeVehicle) => calculateQuoteOption(opt, vehicle);
 
   const handleOptionChange = (id, field, value) => {
     updateActiveVehicleOption(id, { [field]: value });
@@ -1368,6 +1134,54 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
       console.error(err);
       if (!silent) showToast('서버 통신 오류', 'error');
       return null;
+    }
+  };
+
+  /**
+   * 인쇄한 견적서를 PDF로 떠서 계약자 폴더에 남긴다.
+   *
+   * 견적 내용은 DB에 있지만, 고객에게 실제로 건넨 종이와 같은 모양의 문서가 따로 있어야
+   * 나중에 "그때 뭘로 견적을 냈는지"를 댈 수 있다.
+   *
+   * 인쇄를 막지 않도록 뒤에서 조용히 돌고, 실패해도 알림만 띄운다.
+   */
+  const archiveQuotePdf = async (quoteId) => {
+    const element = document.querySelector(
+      printFormType === 'comparison' ? '.comparison-print-area' : '.rental-print-area'
+    );
+    if (!element || !quoteId) return;
+
+    try {
+      // 화면 캡처는 jpeg로 뜬다. png로 뜨면 한 장에 8MB가 넘어 저장도 메일도 느려진다.
+      const blob = await html2pdf()
+        .set({
+          // 장기렌터카 견적서는 이미 A4 한 장 비율로 그려져 있어 여백 없이 꽉 채운다
+          margin: printFormType === 'rental' ? 0 : 5,
+          image: { type: 'jpeg', quality: 0.95 },
+          // html2pdf는 A4 폭만 한 틀에 문서를 넣고 찍는다. 장기렌터카 견적서는 그보다 넓게(900px) 그려져 있어
+          // 폭을 알려 주지 않으면 오른쪽이 잘리고 두 장으로 나뉜다.
+          html2canvas: printFormType === 'rental'
+            ? { scale: 2, useCORS: true, width: RENTAL_SHEET_WIDTH_PX, windowWidth: RENTAL_SHEET_WIDTH_PX }
+            : { scale: 2, useCORS: true },
+          jsPDF: {
+            unit: 'mm',
+            format: 'a4',
+            orientation: printFormType === 'comparison' && isComparisonLandscape ? 'landscape' : 'portrait'
+          }
+        })
+        .from(element)
+        .outputPdf('blob');
+
+      const fd = new FormData();
+      fd.append('file', blob, 'quote.pdf');
+      fd.append('docType', printFormType === 'comparison' ? '비교견적서' : '견적서');
+
+      const res = await fetch(`${API_HOST}/api/quotes/${quoteId}/document`, { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!data.success) showToast(data.message || '견적서 파일을 남기지 못했습니다.', 'warning');
+    } catch (err) {
+      console.error('[견적서 보관]', err);
+      showToast('견적서 파일을 남기지 못했습니다. 인쇄는 그대로 진행됩니다.', 'warning');
     }
   };
 
@@ -2621,7 +2435,41 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                 }}
                 onBlur={handleBlur}
                 onKeyDown={handleKeyDown}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }} 
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }} title="만기 인수가 상환: 만기에 (인수가 − 보증금)만큼 원금을 남겨 인수가로 갚는 방식. 인수가가 높을수록 조달이자가 늘어납니다.">조달 상환방식</label>
+              <select
+                value={activeVehicle.fundingRepaymentMode || DEFAULT_FUNDING_REPAYMENT_MODE}
+                onChange={(e) => updateActiveVehicle({ fundingRepaymentMode: e.target.value })}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }}
+              >
+                {Object.entries(FUNDING_REPAYMENT_MODES).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }} title="캐피탈 잔가군표에서 이 차종·기간·약정거리로 일반잔가를 쓸 수 있는 최대 인수가율. 인수가율이 이 값을 넘으면 넘은 1%p마다 차량가의 0.107%를 고잔가 수수료로 원가에 더합니다. 비워 두면 수수료를 붙이지 않습니다.">일반잔가 상한 (%)</label>
+              <input
+                type="text"
+                placeholder="비우면 미적용"
+                value={activeInputKey === `${selectedVehicleId}-global-generalResidualCap`
+                  ? activeInputValue
+                  : (activeVehicle.generalResidualCap ? (activeVehicle.generalResidualCap * 100).toFixed(1) + '%' : '')}
+                onChange={(e) => {
+                  setActiveInputValue(e.target.value);
+                  const raw = e.target.value.trim();
+                  updateActiveVehicle({ generalResidualCap: raw === '' ? null : parseNumber(raw) / 100 });
+                }}
+                onFocus={() => {
+                  setActiveInputKey(`${selectedVehicleId}-global-generalResidualCap`);
+                  setActiveInputValue(activeVehicle.generalResidualCap ? String(+(activeVehicle.generalResidualCap * 100).toFixed(2)) : '');
+                }}
+                onBlur={handleBlur}
+                onKeyDown={handleKeyDown}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }}
               />
             </div>
             <div>
@@ -3347,9 +3195,15 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                       <span style={{ fontWeight: '600', color: '#fa8c16' }}>{(calc.interestRate * 100).toFixed(2)}%</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: '#666' }}>조달이자 (PMT)</span>
+                      <span style={{ color: '#666' }}>조달이자 ({FUNDING_REPAYMENT_MODES[calc.fundingRepaymentMode] || 'PMT'})</span>
                       <span style={{ fontWeight: '600' }}>{toCommaString(calc.fundingInterest)}원</span>
                     </div>
+                    {calc.highResidualFee > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#666' }}>고잔가 수수료 (상한 {(calc.generalResidualCap * 100).toFixed(1)}% 초과)</span>
+                        <span style={{ fontWeight: '600', color: '#fa8c16' }}>{toCommaString(calc.highResidualFee)}원</span>
+                      </div>
+                    )}
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: '#666' }}>총구입원가(비용포함)</span>
                       <span style={{ fontWeight: '600' }}>{toCommaString(calc.totalCost)}원</span>
@@ -3368,6 +3222,13 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: '#666' }}>영업마진율 (AD31)</span>
                       <span style={{ fontWeight: '600' }}>{(calc.profitRate * 100).toFixed(2)}%</span>
+                    </div>
+                    {/* 자금이 들어가고 돌아오는 시점까지 따진 수익률. 조달금리보다 낮으면 빌린 돈 이자도 못 버는 견적이라 빨간색으로 보인다. */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }} title="사업 IRR(연, 세전): 조달이자를 뺀 실제 투입액 대비, 월 렌트료와 만기 인수가로 돌아오는 수익률. 적용 이자율보다 낮으면 빨간색입니다.">
+                      <span style={{ color: '#666' }}>사업 IRR (연, 세전)</span>
+                      <span style={{ fontWeight: '600', color: calc.businessIrr === null ? '#999' : (calc.businessIrr < calc.interestRate ? '#ff4d4f' : '#10b981') }}>
+                        {calc.businessIrr === null ? '-' : (calc.businessIrr * 100).toFixed(2) + '%'}
+                      </span>
                     </div>
                   </div>
                   <button
@@ -3747,7 +3608,11 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
           <button
             type="button"
             onClick={() => {
-              saveQuoteRecord({ silent: true }); // 나중에 "불러오기" 할 수 있도록 백그라운드로 저장
+              // 견적 내용은 DB에, 인쇄한 모양 그대로의 PDF는 계약자 폴더에 남긴다.
+              // 인쇄를 기다리게 하지 않도록 저장은 뒤에서 따로 돌린다.
+              saveQuoteRecord({ silent: true }).then((result) => {
+                if (result?.savedQuote?._id) archiveQuotePdf(result.savedQuote._id);
+              });
               const originalTitle = document.title;
               const printTitle = printFormType === 'comparison'
                 ? `비교견적서_${displayCustomerName}_${todayDateStr}`
@@ -3856,6 +3721,15 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
           .print-only {
             display: none;
           }
+          /* 장기렌터카 견적서는 A4 한 장 크기로 고정해 그린다.
+             화면이 좁으면 줄이지 않고 옆으로 넘겨 보게 해서, 화면과 종이 모양이 달라지지 않게 한다. */
+          .rental-sheet-scroll {
+            overflow-x: auto;
+            padding: 4px 2px 8px;
+          }
+          .rental-print-area {
+            box-shadow: 0 0 0 1px #e2e8f0, 0 4px 16px rgba(15, 23, 42, 0.08);
+          }
 
           /* Mobile responsiveness optimization */
           @media screen and (max-width: 768px) {
@@ -3899,6 +3773,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
               padding: 0 !important;
               margin: 0 !important;
               overflow: visible !important;
+              /* 화면 배경색(회색)이 종이 가장자리와 문서 아래에 비치지 않게 한다 */
+              background: #fff !important;
             }
             .comparison-sheet-section {
               position: absolute !important;
@@ -3906,8 +3782,10 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
               top: 0 !important;
               width: 100% !important;
               border: none !important;
+              border-radius: 0 !important;
               box-shadow: none !important;
-              padding: 8mm !important; /* 마진 0 대응 본문 여백 추가 */
+              /* 장기렌터카 견적서는 종이 한 장 크기로 그려 두었으니 바깥 여백을 더하지 않는다 */
+              padding: ${printFormType === 'rental' ? '0' : '8mm'} !important;
               margin: 0 !important;
               background: #fff !important;
               box-sizing: border-box !important;
@@ -4011,84 +3889,18 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
               display: inline !important;
             }
 
-            /* 장기렌터카 견적서 1페이지 강제 최적화 - 웹 뷰 느낌 그대로 꽉 차게 */
+            /* 장기렌터카 견적서: 화면에 그린 A4 한 장을 모양 그대로 A4 폭에 맞게 줄인다.
+               글자·여백을 인쇄 때만 따로 바꾸지 않는다. 바꾸면 화면과 종이가 달라진다. */
+            .rental-sheet-scroll {
+              overflow: visible !important;
+              padding: 0 !important;
+            }
             .rental-print-area {
-              max-width: 100% !important;
-              padding: 8mm 8mm 6mm 8mm !important; /* 실제 상하 여백 축소 */
+              zoom: ${RENTAL_PRINT_ZOOM};
               margin: 0 !important;
-              font-size: 8.0pt !important; /* 8.2pt -> 8.0pt */
-              line-height: 1.20 !important; /* 줄간격 축소 */
-              display: flex !important;
-              flex-direction: column !important;
-              justify-content: space-between !important;
-              height: 280mm !important; /* 297mm -> 280mm 로 강제 지정하여 한 장 고정 */
-              box-sizing: border-box !important;
-              page-break-inside: avoid !important;
-              break-inside: avoid !important;
-            }
-            .rental-print-area h2 {
-              font-size: 1.4rem !important; /* 타이틀 축소 */
-              margin-top: 0 !important;
-              margin-bottom: 0 !important;
-            }
-            .rental-print-area table {
-              font-size: 7.5pt !important; /* 테이블 글자 축소 */
-              border-collapse: collapse !important;
-              border: 1.5px solid #000000 !important; /* 화면과 동일하게 외곽 테두리는 두껍게 */
-            }
-            .rental-print-area th,
-            .rental-print-area td {
-              padding: 2.2px 3.5px !important; /* 셀 패딩 축소 */
-              border: 1px solid #000000 !important; /* 화면과 동일하게 내부 격자선 적용 */
-            }
-            .rental-print-area .row-header {
-              font-size: 7.5pt !important;
-            }
-            /* 신용 정보 고지 박스 */
-            .rental-print-area div[style*="background: #fafafa"],
-            .rental-print-area div[style*="background: rgb(250, 250, 250)"] {
-              padding: 3px 8px !important;
-              font-size: 6.5pt !important;
-              line-height: 1.25 !important;
-            }
-            /* 주의사항 박스 */
-            .rental-print-area div[style*="background: #fdfbfa"],
-            .rental-print-area div[style*="background: rgb(253, 251, 250)"] {
-              padding: 3px 8px !important;
-              font-size: 6.5pt !important;
-              line-height: 1.25 !important;
-            }
-            /* 대당 / 차량소비자가격 문구 */
-            .rental-print-area div[style*="font-size: 0.62rem"] {
-              font-size: 6.2pt !important;
-            }
-            /* 보험/대여조건/차량관리/특약사항 그리드 */
-            .rental-print-area div[style*="display: flex; gap: 1.2rem"],
-            .rental-print-area div[style*="display: flex; gap: 1.2rem; margin-bottom: 0.5rem"] {
-              gap: 0.6rem !important; /* 간격 축소 */
-            }
-            /* 메모 비고란/특약사항 높이 조절 */
-            .rental-print-area td[style*="height: 80px"] {
-              height: 40px !important; /* 비고란 높이 대폭 축소 */
-            }
-            /* 계약시 필요서류 박스 */
-            .rental-print-area div[style*="border: 1px solid rgb(0, 0, 0)"], 
-            .rental-print-area div[style*="border: 1px solid #000"] {
-              padding: 3px 8px !important;
-              font-size: 6.5pt !important;
-            }
-            /* 푸터(서명란) 마진 */
-            .rental-print-area div[style*="text-align: center; margin-top: 0.5rem"] span[style*="font-size: 1.1rem"] {
-              font-size: 1.05rem !important;
-            }
-            .rental-print-area div[style*="text-align: center; margin-top: 0.5rem"] span[style*="font-size: 1.0rem"] {
-              font-size: 0.95rem !important;
-            }
-            /* flex space 배치를 위해 불필요하게 겹치는 직계 마진 및 여백 상쇄 */
-            .rental-print-area > table,
-            .rental-print-area > div {
-              margin-top: 0 !important;
-              margin-bottom: 0 !important;
+              box-shadow: none !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
             }
           }
         `}} />
@@ -4096,7 +3908,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
         {/* PDF Layout Content */}
         {/* PDF Layout Content */}
         {printFormType === 'comparison' ? (
-          <div style={{ maxWidth: isComparisonLandscape ? '100%' : '900px', margin: '0 auto', background: '#fff', padding: '10px' }}>
+          <div className="comparison-print-area" style={{ maxWidth: isComparisonLandscape ? '100%' : '900px', margin: '0 auto', background: '#fff', padding: '10px' }}>
             {/* Document Title Header */}
             <div className="comparison-doc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isComparisonLandscape ? '0.8rem' : '1.5rem', marginTop: '0.3rem', borderBottom: '2px solid #ad885c', paddingBottom: '0.6rem' }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '150px' }}>
@@ -4453,7 +4265,11 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             </div>
           </div>
         ) : (
-          <div className="rental-print-area" style={{ maxWidth: '900px', margin: '0 auto', background: '#fff', padding: '10px 15px', color: '#000', fontFamily: "'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif", fontSize: '0.76rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxSizing: 'border-box' }}>
+          <div className="rental-sheet-scroll">
+          {/* 화면에서 A4 한 장과 같은 비율(가로 900px × 세로 1270px)로 그린다.
+              인쇄와 PDF는 이 모양을 그대로 A4 폭에 맞게 줄이기만 한다(RENTAL_PRINT_ZOOM).
+              예전에는 인쇄할 때만 글자·여백을 따로 줄이고 세로를 억지로 늘려서, 화면과 종이 모양이 달랐다. */}
+          <div className="rental-print-area" style={{ width: `${RENTAL_SHEET_WIDTH_PX}px`, height: `${RENTAL_SHEET_HEIGHT_PX}px`, margin: '0 auto', background: '#fff', padding: `${RENTAL_SHEET_MARGIN_PX}px`, color: '#000', fontFamily: "'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif", fontSize: '0.76rem', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden' }}>
             {/* 1. Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', borderBottom: '2.5px double #000', paddingBottom: '0.6rem' }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '150px' }}>
@@ -4504,7 +4320,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                     <td style={{ width: '75%', padding: '4px 6px', border: '1px solid #000', textAlign: 'center' }}>{todayDateStr}</td>
                   </tr>
                   <tr>
-                    <td style={{ background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>견적서 보관 기간</td>
+                    <td style={{ background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center', whiteSpace: 'nowrap' }}>견적서 보관 기간</td>
                     <td style={{ padding: '4px 6px', border: '1px solid #000', textAlign: 'center' }}>작성일로부터 10일 간 보관</td>
                   </tr>
                   <tr>
@@ -4691,7 +4507,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                       </td>
                     </tr>
                     <tr>
-                      <td style={{ background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>자기부담금(CMD)</td>
+                      <td style={{ background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700', whiteSpace: 'nowrap' }}>자기부담금(CMD)</td>
                       <td colSpan={3} style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>
                         {firstOption?.opt.insuranceType === 'premium' ? '50만원' : '30만원'}
                       </td>
@@ -4744,7 +4560,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                   </thead>
                   <tbody>
                     <tr>
-                      <td rowSpan={3} style={{ width: '22%', background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>기본제공 사항</td>
+                      <td rowSpan={3} style={{ width: '22%', background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700', whiteSpace: 'nowrap' }}>기본제공 사항</td>
                       <td style={{ width: '53%', padding: '2px 4px', border: '1px solid #000' }}>• 차량 법정 검사 대행</td>
                       <td style={{ width: '25%', padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>가입</td>
                     </tr>
@@ -4761,7 +4577,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                       <th colSpan={3} style={{ padding: '3px', fontWeight: '700', textAlign: 'center', borderTop: '1.5px solid #000', borderBottom: '1px solid #000' }}>정비 서비스</th>
                     </tr>
                     <tr>
-                      <td rowSpan={4} style={{ width: '22%', background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>서비스별 적용사항</td>
+                      <td rowSpan={4} style={{ width: '22%', background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700', whiteSpace: 'nowrap' }}>서비스별 적용사항</td>
                       <td style={{ padding: '2px 4px', border: '1px solid #000' }}>• 순회정비 차량을 이용한 정기 순회점검</td>
                       <td style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>
                         {firstOption?.opt.isMaintenanceEnabled !== false ? '가입' : '미가입'}
@@ -4792,40 +4608,26 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
               </div>
             </div>
 
-            {/* 7. Notes and Special Terms */}
-            <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.3rem' }}>
-              <table style={{ width: '50%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.68rem' }}>
-                <thead>
-                  <tr style={{ background: '#dcdcdc', borderBottom: '1px solid #000' }}>
-                    <th style={{ padding: '3px', fontWeight: '700', textAlign: 'center' }}>비고</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    {/* 위쪽 입력 영역에서 받은 비고를 표시만 한다 */}
-                    <td style={{ padding: '5px 8px', border: '1px solid #000', height: '80px', verticalAlign: 'top', color: '#333', whiteSpace: 'pre-wrap', lineHeight: '1.4' }}>
-                      {rentalRemark}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+            {/* 7. Notes and Special Terms
+                A4 한 장에서 위 내용을 다 그리고 남은 세로 공간을 이 줄이 전부 가져간다(flex: 1).
+                표(table)는 남은 높이만큼 늘어나지 않아서 상자(div)로 그린다. */}
+            <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.3rem', flex: 1, minHeight: '80px' }}>
+              <div style={{ width: '50%', display: 'flex', flexDirection: 'column', border: '1.5px solid #000', fontSize: '0.68rem' }}>
+                <div style={{ background: '#dcdcdc', borderBottom: '1px solid #000', padding: '3px', fontWeight: '700', textAlign: 'center' }}>비고</div>
+                {/* 위쪽 입력 영역에서 받은 비고를 표시만 한다 */}
+                <div style={{ flex: 1, padding: '5px 8px', color: '#333', whiteSpace: 'pre-wrap', lineHeight: '1.4', overflow: 'hidden' }}>
+                  {rentalRemark}
+                </div>
+              </div>
 
-              <table style={{ width: '50%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.66rem' }}>
-                <thead>
-                  <tr style={{ background: '#dcdcdc', borderBottom: '1px solid #000' }}>
-                    <th style={{ padding: '3px', fontWeight: '700', textAlign: 'center' }}>특약사항</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td style={{ padding: '5px 8px', border: '1px solid #000', height: '80px', verticalAlign: 'top', lineHeight: '1.4', color: '#333' }}>
-                      <div>• 개별소비세 관련 정부 정책 변경 이후 출고되는 차량의 렌탈료는 [개별소비세 변동 금액/계약 개월 수]만큼 변동됩니다.</div>
-                      <div style={{ marginTop: '2px' }}>• 전기차의 대차는 내연기관 차량으로 제공됩니다.</div>
-                      <div style={{ marginTop: '2px' }}>• 전기차 일반형/임반형 정비상품은 순회정비시, 소모품은 에어컨 필터, 와이퍼, 워셔액 교제만 가능하며, 그외 서비스(소독, 차량 생활물질, 스캐너 진단)는 희망시 제공됩니다.</div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+              <div style={{ width: '50%', display: 'flex', flexDirection: 'column', border: '1.5px solid #000', fontSize: '0.66rem' }}>
+                <div style={{ background: '#dcdcdc', borderBottom: '1px solid #000', padding: '3px', fontWeight: '700', textAlign: 'center', fontSize: '0.68rem' }}>특약사항</div>
+                <div style={{ flex: 1, padding: '5px 8px', lineHeight: '1.4', color: '#333', overflow: 'hidden' }}>
+                  <div>• 개별소비세 관련 정부 정책 변경 이후 출고되는 차량의 렌탈료는 [개별소비세 변동 금액/계약 개월 수]만큼 변동됩니다.</div>
+                  <div style={{ marginTop: '2px' }}>• 전기차의 대차는 내연기관 차량으로 제공됩니다.</div>
+                  <div style={{ marginTop: '2px' }}>• 전기차 일반형/임반형 정비상품은 순회정비시, 소모품은 에어컨 필터, 와이퍼, 워셔액 교제만 가능하며, 그외 서비스(소독, 차량 생활물질, 스캐너 진단)는 희망시 제공됩니다.</div>
+                </div>
+              </div>
             </div>
 
             {/* 8. Required Documents */}
@@ -4846,6 +4648,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                 TOTAL CAR PREMIUM SOLUTION
               </div>
             </div>
+          </div>
           </div>
         )}
       </div>

@@ -8,6 +8,7 @@
  *   매출 = 월 렌트료 x 개월수 + 인수가 + 선수금
  *   원가 = 보험료(기본+자차) + 자동차세 + 할부 시 총구입가 + 등록비용 + 판관비 + 딜러수수료
  *          (정비 가입이면 정비비·타이어비 추가)
+ *   고잔가 수수료는 넣지 않는다. 차종별 일반잔가 상한을 차량 DB에 두지 않아 알 수 없다.
  *   이익금 = 매출 - 원가          <- 모든 비용을 뺀 뒤 회사에 남는 금액
  *   이익률 = 이익금 / 차량가       <- 화면의 '회사수수료' 칸에 %로 들어간다
  *
@@ -15,12 +16,12 @@
  * 어떤 값을 가정했는지는 결과의 assumptions에 남긴다. 가정을 모르면 숫자를 믿을 수 없다.
  */
 
-/** 원리금 균등상환 월 납입액. 엑셀 PMT와 같다. */
-const PMT = (rate, nper, pv) => {
+/** 월 납입액. 엑셀 PMT와 같다. fv는 만기에 남기는 잔액. */
+const PMT = (rate, nper, pv, fv = 0) => {
   if (!nper) return 0;
-  if (rate === 0) return -pv / nper;
+  if (rate === 0) return -(pv + fv) / nper;
   const pvif = Math.pow(1 + rate, nper);
-  return (rate * pv * pvif) / (1 - pvif);
+  return (rate * (pv * pvif + fv)) / (1 - pvif);
 };
 
 /** 견적서 기본값. 차량에 값이 없을 때만 쓴다. */
@@ -134,7 +135,11 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
   }
   const interestRate = baseInterestRate + addedRateFor(months);
 
+  // 조달이자는 견적서 기본값인 원리금 균등상환으로 낸다. 실제 대출이 만기 잔액 없이 다 갚는 구조다.
+  // 차량 DB에는 상환방식을 두지 않아, 만기 인수가 상환으로 들여온 차도 여기서는 균등상환으로 본다.
   const fundingInterest = PMT(interestRate / 12, months, -fundingPrincipal) * months - fundingPrincipal;
+  assumptions.push('조달이자: 원리금 균등상환');
+  // 선수금분이자율 연 3% - 견적서(ADVANCE_PAYMENT_INTEREST_RATE)와 같은 값. 선수금으로 아끼는 조달이자와 거의 같은 중립값이다.
   const advancePaymentInterest = advancePayment * 0.03 * years;
   const totalBuyPriceWithFinancing = netVehiclePrice + fundingInterest + advancePaymentInterest;
 
@@ -186,6 +191,23 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
     totalCost,
     profitAmount,
     profitRatePercent,
-    assumptions
+    assumptions,
+    // 원장 수익성 검토에서 항목별로 보여 줄 값. 견적서가 없는 차는 이 값으로 대신 비교한다.
+    breakdown: {
+      baseInsurance: insuranceFeeAnnual * years,
+      ownCarInsurance: ownCarInsuranceFee * years,
+      // 판관비는 차량 DB에 실제 금액이 있으면 그 값을 보여 준다(계약 등록 때 넘어온 값)
+      pandanbi: num(vehicle.sellingAdminExpense) || pandanbi,
+      // 차량 DB의 companyCommission은 이익률(%)이라 금액이 아니다. 견적서 기본 수수료율로 낸다.
+      benefitFee: totalCarPrice * defaults.commissionRate,
+      maintenanceOn: maintenanceJoined,
+      maintenanceFee: maintenanceFeeTotal,
+      tireFee: tireCostTotal,
+      // 예상 이익 계산용. 원가에는 회사수수료가 빠져 있다(위 설명 참고).
+      costExCommission: totalCost,
+      quoteMonthlyRent: num(vehicle.monthlyFee),
+      takeoverPrice,
+      advancePayment
+    }
   };
 };

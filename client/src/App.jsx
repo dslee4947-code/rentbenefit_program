@@ -8,6 +8,15 @@ import AdminDashboard from './components/admin/AdminDashboard.jsx';
 import Signup from './components/Signup.jsx';
 import SignupSuccess from './components/SignupSuccess.jsx';
 
+
+// 알림 색. warning은 저장은 됐지만 사람이 무언가 고쳐야 할 때 쓴다(예: 계약일 확인 필요).
+const TOAST_COLORS = {
+  success: { bg: '#dcfce7', text: '#16a34a', border: '#bbf7d0' },
+  error: { bg: '#fee2e2', text: '#ef4444', border: '#fecaca' },
+  warning: { bg: '#fff7ed', text: '#c2410c', border: '#fed7aa' },
+  info: { bg: '#e0f2fe', text: '#0284c7', border: '#bae6fd' }
+};
+
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -120,10 +129,10 @@ function App() {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
     
-    // Auto-remove toast after 3 seconds
+    // 보통은 3초 뒤 사라진다. 주의(warning)는 사람이 무언가 고쳐야 하는 안내라 읽을 시간을 더 준다.
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
-    }, 3000);
+    }, type === 'warning' ? 8000 : 3000);
   };
 
   const handleLoginSuccess = (user) => {
@@ -166,9 +175,10 @@ function App() {
             key={toast.id} 
             className={`toast ${toast.type}`}
             style={{
-              background: toast.type === 'success' ? '#dcfce7' : toast.type === 'error' ? '#fee2e2' : '#e0f2fe',
-              color: toast.type === 'success' ? '#16a34a' : toast.type === 'error' ? '#ef4444' : '#0284c7',
-              border: `1px solid ${toast.type === 'success' ? '#bbf7d0' : toast.type === 'error' ? '#fecaca' : '#bae6fd'}`,
+              background: TOAST_COLORS[toast.type]?.bg || TOAST_COLORS.info.bg,
+              color: TOAST_COLORS[toast.type]?.text || TOAST_COLORS.info.text,
+              border: `1px solid ${TOAST_COLORS[toast.type]?.border || TOAST_COLORS.info.border}`,
+              maxWidth: '480px',
               padding: '0.8rem 1.2rem',
               borderRadius: '8px',
               boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)',
@@ -181,7 +191,7 @@ function App() {
             }}
           >
             {toast.type === 'success' && <CheckCircle size={16} />}
-            {toast.type === 'error' && <AlertTriangle size={16} />}
+            {(toast.type === 'error' || toast.type === 'warning') && <AlertTriangle size={16} style={{ flexShrink: 0 }} />}
             {toast.type === 'info' && <Info size={16} />}
             <span>{toast.message}</span>
           </div>

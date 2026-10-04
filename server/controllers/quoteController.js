@@ -1,5 +1,7 @@
 import Quote from '../models/Quote.js';
 import Customer from '../models/Customer.js';
+import { logActivity, ACTIONS } from '../utils/activityLog.js';
+import { saveDocument, getDocumentSettings, fillPattern } from '../utils/documentStorageService.js';
 
 // @desc    Get all quotes
 // @route   GET /api/quotes
@@ -143,6 +145,11 @@ export const createQuote = async (req, res) => {
     const populatedQuote = await Quote.findById(quote._id)
       .populate('customer')
       .populate('companyId');
+    logActivity({
+      req, dept: '영업부', action: ACTIONS.QUOTE_CREATE,
+      target: { model: 'Quote', id: quote._id },
+      summary: `${(partyType === '법인' ? companyName : customerName) || '고객'} ${vehicleModel || ''} 견적 작성`.trim()
+    });
     res.status(201).json(populatedQuote);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -251,5 +258,62 @@ export const deleteQuote = async (req, res) => {
     }
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * 인쇄할 때 만든 견적서 PDF를 계약자 폴더에 남긴다.
+ *
+ * 예전에는 견적서를 인쇄해도 파일이 남지 않아 "그때 그 견적서가 뭐였지"를 찾을 수 없었다.
+ * 견적 내용은 DB에 있지만, 고객에게 실제로 건넨 종이와 같은 모양의 문서는 따로 필요하다.
+ *
+ * 저장에 실패해도 인쇄 자체를 막지 않는다. 화면에서는 알림만 띄운다.
+ *
+ * @route POST /api/quotes/:id/document
+ */
+export const saveQuoteDocument = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: '저장할 파일이 없습니다.' });
+    }
+
+    const quote = await Quote.findById(req.params.id).populate('customer', 'name');
+    if (!quote) return res.status(404).json({ success: false, message: '견적서를 찾을 수 없습니다.' });
+
+    // 견적 단계의 폴더는 상담한 사람 이름으로 모은다.
+    //
+    // 이 시점에는 어느 법인으로 계약할지 아직 정해지지 않는다. 한 사람이 여러 법인 건을
+    // 상담하기도 해서, 법인명으로 묶으면 방금 낸 견적서를 어디서 찾아야 할지 알 수 없다.
+    // 계약으로 넘어간 뒤부터는 서류가 법인 앞으로 나가므로 '장기렌트/{법인명}'으로 모인다.
+    const partyName = quote.customerName || quote.customer?.name;
+    if (!partyName) {
+      return res.status(400).json({ success: false, message: '견적서에 고객명이 없어 저장할 자리를 정하지 못했습니다.' });
+    }
+
+    const docType = req.body.docType === '비교견적서' ? '비교견적서' : '견적서';
+    const settings = await getDocumentSettings();
+    const fileName = `${fillPattern(settings.fileNames.quote, {
+      문서종류: docType,
+      고객명: partyName,
+      계약자: partyName, // 예전 설정이 {계약자}를 쓰고 있어도 그대로 채워지게 둔다
+      날짜: new Date().toISOString().slice(0, 10)
+    })}.pdf`;
+
+    // 같은 날 조건을 고쳐 다시 뽑는 일이 잦다. 이전 것을 남겨야 무엇을 건넸는지 댈 수 있다.
+    const saved = await saveDocument({
+      partyName,
+      kind: 'quote',
+      fileName,
+      fileBuffer: req.file.buffer,
+      keepPrevious: true
+    });
+
+    quote.savedDocuments.push({ docType, fileName: saved.fileName, savedPath: saved.localPath });
+    await quote.save();
+
+    res.json({ success: true, fileName: saved.fileName, savedPath: saved.localPath });
+  } catch (error) {
+    console.error('[견적서 저장]', error.message);
+    res.status(500).json({ success: false, message: error.message });
   }
 };

@@ -6,7 +6,7 @@ import CompanyDocument from '../models/CompanyDocument.js';
 import Contract from '../models/Contract.js';
 import Vehicle from '../models/Vehicle.js';
 import { parseBusinessRegistration } from '../utils/ocrService.js';
-import { saveFileLocally, readSavedFile, sanitizePathSegment } from '../utils/documentStorageService.js';
+import { saveDocument, readSavedFile, sanitizePathSegment, getDocumentSettings, fillPattern } from '../utils/documentStorageService.js';
 
 // multer/busboy는 multipart 파일명(Content-Disposition)을 기본적으로 latin1로 디코딩한다.
 // 한글 등 비ASCII 파일명이 깨져서 들어오므로(예: "사업자등록증.pdf" -> mojibake), UTF-8로 재해석한다.
@@ -388,15 +388,26 @@ export const uploadCompanyDocument = async (req, res) => {
     // 원본 파일명은 한글이 포함되면 인코딩이 깨지기 쉽고(OneDrive 동기화 오류의 원인),
     // 이렇게 하면 그 문제를 원천적으로 피하면서 파일명만 보고도 무슨 문서인지 바로 알 수 있다.
     const ext = path.extname(req.file.originalname) || '';
-    const companyLabel = sanitizePathSegment(company.folderName || company.name);
-    const generatedFileName = `${sanitizePathSegment(docType)}_${companyLabel}${ext}`;
+    const partyName = company.folderName || company.name;
+    const settings = await getDocumentSettings();
+    const generatedFileName = `${fillPattern(settings.fileNames.companyDoc, {
+      문서종류: docType,
+      법인명: partyName,
+      계약자: partyName, // 예전 설정이 {계약자}를 쓰고 있어도 그대로 채워지게 둔다
+      날짜: new Date().toISOString().slice(0, 10)
+    })}${ext}`;
 
-    const { fileName, localPath } = await saveFileLocally({
-      businessLine: 'rental',
-      companySubfolderName: company.folderName || company.name,
-      docType,
+    // 법인 서류도 법인 폴더 안에 넣는다('장기렌트/{법인명}/00.법인서류').
+    // 예전에는 'RENT/00.사업자등록증/{법인명}'에 따로 쌓여, 한 회사 자료를 보려면
+    // 두 군데를 열어야 했다.
+    // 같은 이름으로 다시 올리는 일이 잦고(재발급 사업자등록증 등) 이전 것도 남겨야 해서
+    // 덮어쓰지 않고 새 이름으로 저장한다.
+    const { fileName, localPath } = await saveDocument({
+      partyName,
+      kind: 'company',
       fileName: generatedFileName,
-      fileBuffer: req.file.buffer
+      fileBuffer: req.file.buffer,
+      keepPrevious: true
     });
 
     const doc = await CompanyDocument.create({

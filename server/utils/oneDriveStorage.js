@@ -43,10 +43,19 @@ export const mimeTypeOf = (fileName) => {
   return EXTENSION_MIME[String(fileName).slice(dot).toLowerCase()] || 'application/octet-stream';
 };
 
+/**
+ * 파일을 넣을 OneDrive 계정.
+ *
+ * 회사에 계정이 둘 있다. rent@는 렌트팀, as@는 AS팀 것이고 각각 다른 OneDrive를 쓴다.
+ * 메일·주소록 동기화는 as@를 보고 있어서, 그 값(OUTLOOK_TARGET_EMAIL)을 파일 저장에도
+ * 같이 쓰면 서류가 렌트팀이 열어 보지 않는 드라이브에 쌓인다. 실제로 그렇게 쌓였다.
+ *
+ * 그래서 파일 저장 계정을 따로 둔다. 설정하지 않으면 예전처럼 메일 계정을 쓴다.
+ */
 const targetAccount = () => {
-  const email = process.env.OUTLOOK_TARGET_EMAIL;
+  const email = process.env.ONEDRIVE_TARGET_EMAIL || process.env.OUTLOOK_TARGET_EMAIL;
   if (!email) {
-    throw new Error('OUTLOOK_TARGET_EMAIL 환경변수가 없습니다. OneDrive 계정을 설정해 주세요.');
+    throw new Error('ONEDRIVE_TARGET_EMAIL 환경변수가 없습니다. 파일을 저장할 OneDrive 계정을 설정해 주세요.');
   }
   return email;
 };
@@ -229,7 +238,7 @@ export const downloadById = async (itemId) => {
 };
 
 /** OneDrive를 쓸 수 있는 상태인지(계정 설정 여부). 설정이 없으면 저장 기능을 건너뛴다. */
-export const isOneDriveConfigured = () => Boolean(process.env.OUTLOOK_TARGET_EMAIL);
+export const isOneDriveConfigured = () => Boolean(process.env.ONEDRIVE_TARGET_EMAIL || process.env.OUTLOOK_TARGET_EMAIL);
 
 /**
  * 경로로 파일 내용을 받아 온다.
@@ -243,4 +252,71 @@ export const downloadByPath = async (filePath) => {
   const res = await request(`${GRAPH}/users/${targetAccount()}/drive/root:/${encodePath(segments)}:/content`);
   if (!res.ok) throw new Error(`OneDrive 파일 읽기 실패: ${(await res.text()).slice(0, 200)}`);
   return Buffer.from(await res.arrayBuffer());
+};
+
+/**
+ * 폴더나 파일을 지운다. 없으면 지운 셈 친다.
+ *
+ * 테스트로 쌓인 자료를 정리할 때 쓴다. 폴더를 지우면 그 안의 것도 함께 사라지므로
+ * 부르는 쪽에서 무엇이 지워지는지 먼저 보여 주고 확인을 받아야 한다.
+ *
+ * @param {string[]} segments 지울 대상 경로
+ * @returns {Promise<boolean>} 실제로 지웠으면 true, 원래 없었으면 false
+ */
+export const deletePath = async (segments) => {
+  const res = await request(`${GRAPH}/users/${targetAccount()}/drive/root:/${encodePath(segments)}`, {
+    method: 'DELETE'
+  });
+  if (res.status === 404) return false;
+  if (!res.ok) throw new Error(`OneDrive 삭제 실패(${segments.join('/')}): ${(await res.text()).slice(0, 200)}`);
+  return true;
+};
+
+/**
+ * 폴더나 파일을 다른 자리로 옮긴다.
+ *
+ * 복사한 뒤 지우는 것이 아니라 자리만 바꾼다. 30GB짜리 폴더도 순식간에 끝나고,
+ * 옮기는 도중에 실패해도 파일이 두 벌 생기거나 사라지지 않는다.
+ *
+ * @param {string[]} from 옮길 대상의 지금 경로
+ * @param {string[]} toParent 옮겨 갈 상위 폴더 경로 (미리 만들어져 있어야 한다)
+ * @param {string} [newName] 옮기면서 이름도 바꾸려면 준다
+ * @returns {Promise<{moved: boolean, reason?: string}>} 이미 같은 이름이 있으면 moved:false
+ */
+export const moveItem = async (from, toParent, newName) => {
+  // 옮겨 갈 자리는 경로가 아니라 폴더 id로 알려 줘야 한다.
+  // 경로로 주면 Graph가 invalidRequest로 되돌려 보낸다.
+  const parentId = await getItemId(toParent);
+  if (!parentId) return { moved: false, reason: `옮겨 갈 폴더를 찾지 못했습니다: ${toParent.join('/')}` };
+
+  const body = { parentReference: { id: parentId } };
+  if (newName) body.name = newName;
+
+  const res = await request(`${GRAPH}/users/${targetAccount()}/drive/root:/${encodePath(from)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  if (res.ok) return { moved: true };
+
+  // 옮겨 갈 자리에 같은 이름이 이미 있는 경우. 덮어쓰면 남의 자료가 사라지므로 건드리지 않는다.
+  if (res.status === 409) return { moved: false, reason: '옮겨 갈 자리에 같은 이름이 이미 있습니다' };
+
+  const text = (await res.text()).slice(0, 200);
+  return { moved: false, reason: text };
+};
+
+/**
+ * 경로로 항목의 id를 찾는다. 없으면 null.
+ *
+ * 자리를 옮길 때 Graph가 목적지를 id로 요구해서 필요하다.
+ *
+ * @param {string[]} segments 폴더나 파일 경로
+ * @returns {Promise<string|null>}
+ */
+export const getItemId = async (segments) => {
+  const res = await request(`${GRAPH}/users/${targetAccount()}/drive/root:/${encodePath(segments)}?$select=id`);
+  if (!res.ok) return null;
+  return (await res.json()).id || null;
 };

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Search, RefreshCw, Paperclip, Mail, FolderOpen } from 'lucide-react';
 import { useTableSort } from './useTableSort.js';
+import { loadStorageSettings, contractFolderPath } from './storagePaths.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -35,6 +36,10 @@ function IssuedInvoicesView({ showToast }) {
   const [data, setData] = useState({ items: [], count: 0, sentCount: 0, totalAmount: 0 });
   const [statusFilter, setStatusFilter] = useState('all');
   const [loading, setLoading] = useState(false);
+
+  // 아래 안내에 적는 폴더 경로. 설정에서 폴더 이름을 바꾸면 이 안내도 따라 바뀐다.
+  const [storageSettings, setStorageSettings] = useState(null);
+  useEffect(() => { loadStorageSettings().then(setStorageSettings); }, []);
 
   // 발행 이력에서 정렬할 수 있는 항목
   const ISSUED_COLUMNS = [
@@ -193,7 +198,9 @@ function IssuedInvoicesView({ showToast }) {
       </div>
 
       <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-        청구서 파일은 <strong>RENT\{'{'}계약자{'}'}\02.청구서\{'{'}계약번호{'}'}</strong> 폴더에 있습니다. 파일 이름에 마우스를 올리면 전체 경로가 보입니다.
+        청구서 파일은 <strong>
+          {contractFolderPath(storageSettings, { partyName: '법인명', kind: 'invoice', subFolder: '계약번호' }) || '설정한 청구서 폴더'}
+        </strong> 아래에 있습니다. 파일 이름에 마우스를 올리면 전체 경로가 보입니다.
       </div>
     </div>
   );

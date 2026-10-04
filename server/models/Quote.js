@@ -13,6 +13,14 @@ const QuoteSchema = new Schema({
   partyType: { type: String, enum: ['개인', '법인'], default: '개인' },
   companyId: { type: Schema.Types.ObjectId, ref: 'Company' }, // partyType이 '법인'일 때만 사용
 
+  // 인쇄할 때 함께 저장해 둔 견적서 PDF 기록. 나중에 "그때 보낸 견적서"를 찾을 때 쓴다.
+  savedDocuments: [{
+    docType: String,        // '견적서' 또는 '비교견적서'
+    fileName: String,
+    savedPath: String,      // OneDrive 경로
+    savedAt: { type: Date, default: Date.now }
+  }],
+
   // 스냅샷: 견적 작성 시점 값을 그대로 고정 저장. customer/companyId가 참조하는
   // 원본 데이터가 나중에 바뀌어도(고객명 수정, 법인 정보 수정 등) 이 견적서의
   // 표기 내용은 영향받지 않는다.

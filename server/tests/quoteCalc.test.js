@@ -13,6 +13,25 @@ import {
   fundingInterestFor, acquisitionTaxFor, publicBondFor, defaultMaintenanceItems
 } from '../../shared/quoteCalc.js';
 import { calculateVehicleProfit } from '../utils/vehicleProfit.js';
+import { pickLedgerCategory, parseLoanRound } from '../models/VehicleLedger.js';
+
+test('원장 대출·상환 줄 분류', () => {
+  assert.equal(pickLedgerCategory('차량가-렌공대출', '입금'), '대출금');
+  assert.equal(pickLedgerCategory('차량가-렌공대출', '지출'), '차량가');
+  assert.equal(pickLedgerCategory('메리츠12차 상환', '지출'), '할부금');
+  assert.equal(pickLedgerCategory('원리금 상환1차', '지출'), '할부금');
+  assert.equal(pickLedgerCategory('1차 상환+이자', '지출'), '할부금');
+  assert.equal(pickLedgerCategory('중도 상환 수수료', '지출'), '수수료');
+  assert.equal(pickLedgerCategory('렌공대출 이자', '지출'), '할부이자');
+  // 대출과 상관없는 줄은 예전 규칙 그대로
+  assert.equal(pickLedgerCategory('렌터카보험 보증금', '지출'), '공제조합');
+  assert.equal(pickLedgerCategory('삼성보험료 환급', '입금'), '환급');
+  assert.equal(pickLedgerCategory('렌트료 3회차', '입금'), '렌트료');
+  assert.equal(parseLoanRound('메리츠12차 상환'), 12);
+  assert.equal(parseLoanRound('원리금 상환2차'), 2);
+  assert.equal(parseLoanRound('할부 1회'), 1);
+  assert.equal(parseLoanRound('대출 상환'), undefined);
+});
 
 // 견적 화면에서 새 차량을 만들 때의 기본값(QuoteInputView createNewVehicle)
 const baseVehicle = (overrides = {}) => ({

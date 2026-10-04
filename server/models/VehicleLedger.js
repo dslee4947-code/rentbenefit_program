@@ -32,7 +32,7 @@ export const LEDGER_CATEGORIES = [
   '보험', '자동차세', '검사비', '정기점검', '과태료·통행료',
   '공제조합', '차량작업', '수리·사고', '유류·세차', '탁송',
   '제세공과', '보증금', '선납금', '인수가', '렌트료',
-  '수수료', '캐시백', '환급', '기타'
+  '수수료', '캐시백', '환급', '대출금', '기타'
 ];
 
 /**
@@ -70,10 +70,37 @@ const CATEGORY_RULES = [
   [/렌트료|렌트\s*\d+\s*회차/, '렌트료']
 ];
 
-export const pickLedgerCategory = (label) => {
+/**
+ * @param {string} label 항목명
+ * @param {'입금'|'지출'} [side] 대출 줄은 들어온 돈인지 나간 돈인지에 따라 분류가 갈려서 함께 받는다.
+ */
+export const pickLedgerCategory = (label, side) => {
   const text = String(label || '');
+
+  // 대출·상환 줄은 공제조합(렌공) 규칙보다 먼저 본다.
+  // "차량가-렌공대출"이 출자금(공제조합)으로, "메리츠12차 상환"이 기타로 잡혀
+  // 수익성 검토가 대출 상환을 운영비로 계산했다(Benz-003은 1억 1천만 원).
+  // 엑셀에는 렌공 대출이 입금 "차량가-렌공대출"과 출금 "차량가-렌공대출" 같은 금액으로 들어가 서로 상쇄된다.
+  // "중도 상환 수수료"는 수수료 그대로 둔다.
+  if (!/수수료/.test(text)) {
+    if (/상환/.test(text)) return '할부금';
+    if (/대출/.test(text)) {
+      if (/이자/.test(text)) return '할부이자';
+      return side === '입금' ? '대출금' : '차량가';
+    }
+  }
+
   const hit = CATEGORY_RULES.find(([rx]) => rx.test(text));
   return hit ? hit[1] : '기타';
+};
+
+/**
+ * 할부금 줄 이름에서 회차를 읽는다. "메리츠12차 상환", "원리금 상환2차", "할부 1회", "할부금 3회차".
+ * 못 읽으면 undefined.
+ */
+export const parseLoanRound = (label) => {
+  const m = /(\d+)\s*(?:회차|차|회)/.exec(String(label || ''));
+  return m ? Number(m[1]) : undefined;
 };
 
 /**

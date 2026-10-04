@@ -28,7 +28,7 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import XLSX from 'xlsx';
 import connectDB from '../config/db.js';
-import VehicleLedger, { summarizeLedger, pickLedgerCategory } from '../models/VehicleLedger.js';
+import VehicleLedger, { summarizeLedger, pickLedgerCategory, parseLoanRound } from '../models/VehicleLedger.js';
 import Vehicle from '../models/Vehicle.js';
 import Contract from '../models/Contract.js';
 
@@ -73,9 +73,10 @@ const OVERRIDES = {
 };
 
 // 2026-09-03 이관 스크립트와 같은 규칙. 줄 열쇠(source + category + round)가 자동 연동과 맞아야 중복이 안 생긴다.
-const pickSource = (category, round) => {
+const pickSource = (category, round, label = '') => {
   if (category === '렌트료' && round) return 'billing';
-  if (category === '할부금' && round) return 'loan';
+  // 앱이 만든 "할부금 n회차"만 자동 연동 줄이다. 엑셀의 "메리츠12차 상환" 같은 줄은 사람이 적은 줄로 둔다.
+  if (category === '할부금' && round && /^할부금\s*\d+\s*회차$/.test(label)) return 'loan';
   if (category === '보험' && round === 1) return 'vehicle';
   if (['차량가', '보증금', '선납금', '인수가'].includes(category)) return 'contract';
   return 'manual';
@@ -132,7 +133,7 @@ const parseCommonSheet = (rows, fileName) => {
       entries.push({
         side: '지출',
         group: '회사출금',
-        category: pickLedgerCategory(label),
+        category: pickLedgerCategory(label, '지출'),
         label,
         amount,
         bank: text(cell(rows, r, startCol + 2)),
@@ -180,9 +181,12 @@ const parseSheet = (rows, sheetName, fileName) => {
       const amount = toNumber(cell(rows, r, block.startCol + 1));
       if (!amount) return;
 
-      const category = pickLedgerCategory(label);
+      // 대출 줄은 입금·출금에 따라 분류가 갈린다(대출금 / 차량가)
+      const category = pickLedgerCategory(label, block.side);
       const roundMatch = /(\d+)\s*회차/.exec(label);
-      const round = roundMatch ? Number(roundMatch[1]) : undefined;
+      // 할부금 상환 줄은 "12차", "상환2차"처럼 적혀 있어 따로 읽는다.
+      // 자동 연동 줄(loan)로 바꾸지 않는다. 바꾸면 대출 칸을 채울 때 가져오기가 금액을 덮어쓴다.
+      const round = roundMatch ? Number(roundMatch[1]) : (category === '할부금' ? parseLoanRound(label) : undefined);
 
       entries.push({
         side: block.side,
@@ -194,7 +198,7 @@ const parseSheet = (rows, sheetName, fileName) => {
         date: toDate(cell(rows, r, block.startCol + 3)),
         round,
         periodSeq: 1,
-        source: pickSource(category, round),
+        source: pickSource(category, round, label),
         locked: true,
         memo: `엑셀 갑지 ${sheetName} 시트에서 이관 (${fileName})`
       });

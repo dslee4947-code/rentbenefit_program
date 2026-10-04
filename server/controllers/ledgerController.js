@@ -1,4 +1,4 @@
-import VehicleLedger, { summarizeLedger, pickLedgerCategory } from '../models/VehicleLedger.js';
+import VehicleLedger, { summarizeLedger, pickLedgerCategory, parseLoanRound } from '../models/VehicleLedger.js';
 import Vehicle from '../models/Vehicle.js';
 import Contract from '../models/Contract.js';
 import BillingSchedule from '../models/BillingSchedule.js';
@@ -277,7 +277,10 @@ export const syncLedgerEntries = async (ledger) => {
   // 4. 회사 할부금 - 이미 지나간 회차만 만든다.
   //    남은 회차까지 미리 지출로 깔면 아직 나가지도 않은 돈이 정산금액에 섞인다.
   const loan = ledger.loan;
-  if (loan?.executed && loan.monthlyPayment > 0 && loan.executedDate) {
+  // 정산 엑셀에서 들어온 상환 줄("메리츠12차 상환" 등)이 이미 있으면 자동으로 만들지 않는다.
+  // 대출 칸에 월 할부금을 채운 순간 "할부금 n회차"가 새로 생겨 같은 돈이 두 번 나간 것처럼 보였다.
+  const hasImportedRepayments = ledger.entries.some((e) => e.category === '할부금' && e.source !== 'loan');
+  if (loan?.executed && loan.monthlyPayment > 0 && loan.executedDate && !hasImportedRepayments) {
     const start = new Date(loan.executedDate);
     const now = new Date();
     const elapsed = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
@@ -543,18 +546,22 @@ export const saveLedgerEntries = async (req, res) => {
       const prev = row._id ? before.get(String(row._id)) : null;
       const amount = Number(row.amount) || 0;
 
+      const side = row.side === '입금' ? '입금' : '지출';
+
       if (!prev) {
         // 화면에서 새로 추가한 줄은 언제나 사람이 적은 줄이다.
         // 분류는 화면에서 고르지 않고 적어 넣은 이름에서 판정한다.
+        const category = pickLedgerCategory(row.label, side);
         return {
-          side: row.side === '입금' ? '입금' : '지출',
-          group: row.group || (row.side === '입금' ? '고객입금' : '회사출금'),
-          category: pickLedgerCategory(row.label),
+          side,
+          group: row.group || (side === '입금' ? '고객입금' : '회사출금'),
+          category,
           label: row.label || '',
           amount,
           bank: row.bank || '',
           date: row.date || undefined,
-          round: row.round || undefined,
+          // 할부금 줄은 이름의 "12차", "상환2차"에서 회차를 읽어 둔다
+          round: row.round || (category === '할부금' ? parseLoanRound(row.label) : undefined),
           periodSeq: Number(row.periodSeq) || 1,
           memo: row.memo || undefined,
           source: 'manual',
@@ -571,20 +578,21 @@ export const saveLedgerEntries = async (req, res) => {
       );
 
       // 사람이 적은 줄은 이름이 곧 분류의 근거다. 이름을 고치면 분류도 따라 바뀐다.
+      // side를 같이 넘기지 않으면 대출 줄이 저장할 때마다 원래 분류로 돌아간다.
       const category = prev.source === 'manual'
-        ? pickLedgerCategory(row.label ?? prev.label)
+        ? pickLedgerCategory(row.label ?? prev.label, side)
         : (row.category || prev.category);
 
       return {
         _id: prev._id,
-        side: row.side === '입금' ? '입금' : '지출',
+        side,
         group: row.group || prev.group,
         category,
         label: row.label ?? prev.label,
         amount,
         bank: row.bank ?? prev.bank,
         date: row.date || undefined,
-        round: row.round ?? prev.round,
+        round: row.round ?? prev.round ?? (category === '할부금' ? parseLoanRound(row.label ?? prev.label) : undefined),
         // 빠뜨리면 연장 구간 줄이 저장할 때마다 최초 계약(1)으로 되돌아간다
         periodSeq: Number(row.periodSeq) || prev.periodSeq || 1,
         memo: row.memo ?? prev.memo,

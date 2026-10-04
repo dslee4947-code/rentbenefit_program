@@ -109,8 +109,8 @@ export const fundingInterestFor = ({ annualRate, months, principal, balloon = 0 
   return PMT(annualRate / 12, months, -principal, balloon) * months + balloon - principal;
 };
 
-// 타이어는 계약 기간에 달리는 거리(연 약정거리 × 연수) 6만km마다 4본을 준다.
-export const TIRE_REPLACE_INTERVAL_KM = 60000;
+// 타이어는 계약 기간에 달리는 거리(연 약정거리 × 연수)가 5만km를 넘을 때마다 4본을 준다(2026-10-04 대표님 결정, 이전 6만km).
+export const TIRE_REPLACE_INTERVAL_KM = 50000;
 export const TIRES_PER_REPLACEMENT = 4;
 export const getTireCount = (opt) =>
   Math.floor(((opt?.termYears || 4) * (opt?.mileage || 20000)) / TIRE_REPLACE_INTERVAL_KM) * TIRES_PER_REPLACEMENT;
@@ -121,7 +121,7 @@ export const describeTireProvision = (termMonths, annualMileage) => {
   const mileage = Number(annualMileage) || 0;
   if (!months || !mileage) return '계약 기간 주행거리에 따라 제공';
   const count = getTireCount({ termYears: months / 12, mileage });
-  return count > 0 ? `계약 기간 동안 ${count}본 제공` : '제공 없음 (총 주행거리 6만km 미만)';
+  return count > 0 ? `계약 기간 동안 ${count}본 제공` : `제공 없음 (총 주행거리 ${TIRE_REPLACE_INTERVAL_KM / 10000}만km 미만)`;
 };
 
 /**

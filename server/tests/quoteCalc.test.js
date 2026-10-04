@@ -62,12 +62,14 @@ test('PMT는 엑셀과 같다', () => {
   near(PMT(0.0527 / 12, 60, -337235061, 101440000), 4924460.849951597, 0.001, 'PMT');
 });
 
-test('타이어는 계약 기간 주행거리 6만km마다 4본', () => {
-  assert.equal(getTireCount({ termYears: 4, mileage: 20000 }), 4);  // 8만km
-  assert.equal(getTireCount({ termYears: 5, mileage: 30000 }), 8);  // 15만km
-  assert.equal(getTireCount({ termYears: 3, mileage: 10000 }), 0);  // 3만km
-  assert.equal(describeTireProvision(60, 30000), '계약 기간 동안 8본 제공');
-  assert.equal(describeTireProvision(36, 10000), '제공 없음 (총 주행거리 6만km 미만)');
+test('타이어는 계약 기간 주행거리 5만km마다 4본', () => {
+  assert.equal(getTireCount({ termYears: 4, mileage: 20000 }), 4);   // 8만km
+  assert.equal(getTireCount({ termYears: 5, mileage: 20000 }), 8);   // 10만km
+  assert.equal(getTireCount({ termYears: 5, mileage: 30000 }), 12);  // 15만km
+  assert.equal(getTireCount({ termYears: 2, mileage: 20000 }), 0);   // 4만km
+  assert.equal(getTireCount({ termYears: 5, mileage: 10000 }), 4);   // 5만km 딱 맞으면 제공
+  assert.equal(describeTireProvision(60, 30000), '계약 기간 동안 12본 제공');
+  assert.equal(describeTireProvision(36, 10000), '제공 없음 (총 주행거리 5만km 미만)');
   assert.equal(describeTireProvision(48, ''), '계약 기간 주행거리에 따라 제공');
 });
 

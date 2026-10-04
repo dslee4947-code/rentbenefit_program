@@ -2497,7 +2497,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                   {renderInput('순회정비', 'text', maintenance.regularCheck, () => {}, '', false, true)}
                   {renderInput('일반정비', 'text', maintenance.generalMaintenance, () => {}, '', false, true)}
                   {renderInput('소모품 교환', 'text', maintenance.consumables, () => {}, '', false, true)}
-                  {/* 타이어는 렌트 기간 × 연간 주행거리 6만km마다 4본. 예전에는 '4본 제공'이 고정 문구였다. */}
+                  {/* 타이어는 렌트 기간 × 연간 주행거리 5만km마다 4본. 예전에는 '4본 제공'이 고정 문구였다. */}
                   {renderInput('타이어 교체', 'text', maintenancePreset === '포함' ? describeTireProvision(termMonths, maintenance.mileage) : maintenance.tireCount, () => {}, '', false, true)}
                   {renderInput('타이어 등급', 'text', maintenance.tireType, () => {}, '견적서에서 선택', false, true)}
                   {renderInput('연간 주행거리 (km)', 'text', maintenance.mileage ? Number(maintenance.mileage).toLocaleString() : '', () => {}, '견적서에서 선택', false, true)}

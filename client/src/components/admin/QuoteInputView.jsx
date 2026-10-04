@@ -4599,7 +4599,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                       <td style={{ padding: '2px 4px', border: '1px solid #000' }}>• 타이어 교체</td>
                       <td style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>
                         {(() => {
-                          // 정비 내역에서 타이어 교체를 뺐거나 주행거리가 6만km에 못 미치면 '미제공'이다
+                          // 정비 내역에서 타이어 교체를 뺐거나 주행거리가 5만km에 못 미치면 '미제공'이다
                           if (firstOption?.opt.isMaintenanceEnabled === false) return '미제공';
                           const tireCount = getMaintenanceBreakdown(firstOption?.opt, firstOption?.veh).tireCount;
                           return tireCount > 0 ? `${tireCount}본 제공` : '미제공';

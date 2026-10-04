@@ -125,7 +125,7 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
   let maintenanceFeeTotal = 0;
   let tireCostTotal = 0;
   if (maintenanceJoined) {
-    // 견적서 기본 정비 내역과 같은 식. 타이어는 계약 기간 주행거리 6만km마다 4본, 한 번만 잡는다.
+    // 견적서 기본 정비 내역과 같은 식. 타이어는 계약 기간 주행거리 5만km마다 4본, 한 번만 잡는다.
     // 차량 DB에는 정비 항목별 금액이 없어 견적서 기본 정비 내역을 쓴다.
     const annualMileage = num(vehicle.maintenance?.mileage) || defaults.annualMileage;
     const plan = getMaintenanceBreakdown(

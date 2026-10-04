@@ -112,7 +112,9 @@ const VehicleSchema = new Schema({
   status: {
     type: String,
     // '예약'은 뜻이 겹쳐 '계약중'으로 합쳤다(2026-09). 남은 자료는 서버가 켜질 때 dbMigration이 바꾼다.
-    enum: ['계약중', '장기렌트', '사고대차', '거래완료'],
+    // 사고대차도 '단기렌트'로 통일했다(2026-09). 사고대차인지는 대여 건마다 RentalRecord.rentalType에 둔다.
+    // 남아 있는 '사고대차' 값은 서버가 켜질 때 dbMigration이 바꾼다.
+    enum: ['계약중', '장기렌트', '단기렌트', '거래완료'],
     default: '장기렌트'
   },
   currentMileage: { type: Number, default: 0 }, // 실제 누적 주행거리

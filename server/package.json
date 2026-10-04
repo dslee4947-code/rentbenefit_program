@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "flow-check": "node scripts/flow-check.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

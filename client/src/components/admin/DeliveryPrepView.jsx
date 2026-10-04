@@ -420,6 +420,10 @@ function DeliveryPrepView({ showToast, currentUser }) {
           setVehicles(prev => prev.map(v => v._id === editingVehicle._id ? data.vehicle : v));
         } else {
           showToast?.('차량 DB에 저장되었습니다. 이후 수정은 렌트차량 DB 화면에서 할 수 있습니다.', 'success');
+          // 출고를 마쳤는데 청구 회차표를 못 만들었으면 청구가 빠진다. 이유(예: 계약일 확인)를 따로 띄운다.
+          if (data.billingWarning) {
+            showToast?.(`청구 회차표를 만들지 못했습니다. ${data.billingWarning.message}`, 'warning');
+          }
           setShowModal(false);
           // 출고가 끝난 차량만 목록에서 빠지고, 아직이면 갱신된 값으로 남는다
           if (finished) {

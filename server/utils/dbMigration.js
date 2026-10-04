@@ -2,6 +2,7 @@ import Customer from '../models/Customer.js';
 import Contract from '../models/Contract.js';
 import User from '../models/User.js';
 import Vehicle from '../models/Vehicle.js';
+import VehicleLedger from '../models/VehicleLedger.js';
 
 export const runDatabaseMigration = async () => {
   try {
@@ -147,6 +148,25 @@ export const runDatabaseMigration = async () => {
       console.log(`Migrated ${reservedResult.modifiedCount} vehicle(s): status '예약' -> '계약중'.`);
     } else {
       console.log("No vehicles left with status '예약'.");
+    }
+
+    // 5. 차량 상태·갑지 성격 '사고대차' -> '단기렌트'.
+    //
+    // 사고대차는 보험사에 청구하는 단기렌트일 뿐 돈을 받는 구조가 같고, 같은 대차 차량을
+    // 번갈아 쓴다. 차에는 '단기렌트' 하나만 두고, 사고대차인지는 대여 건마다(RentalRecord) 가른다.
+    // 이미 옮겼으면 대상이 0건이라 그냥 지나간다.
+    const accidentVehicleResult = await Vehicle.updateMany(
+      { status: '사고대차' },
+      { $set: { status: '단기렌트' } }
+    );
+    const accidentLedgerResult = await VehicleLedger.updateMany(
+      { ledgerType: '사고대차' },
+      { $set: { ledgerType: '단기렌트' } }
+    );
+    if (accidentVehicleResult.modifiedCount > 0 || accidentLedgerResult.modifiedCount > 0) {
+      console.log(`'사고대차' -> '단기렌트': 차량 ${accidentVehicleResult.modifiedCount}대, 갑지 ${accidentLedgerResult.modifiedCount}건.`);
+    } else {
+      console.log("No vehicles or ledgers left with '사고대차'.");
     }
 
     console.log('--- Database Migration Completed Successfully ---');

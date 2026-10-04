@@ -9,7 +9,8 @@ import fs from 'fs';
 import Customer from '../models/Customer.js';
 import { looksLikeResidentRegistrationNumber } from '../utils/validators.js';
 import { inferPartyType, normalizePartyType, bizTypeFor } from '../utils/partyType.js';
-import { applyAccidentRentalParty, ACCIDENT_RENTAL_STATUS } from '../utils/accidentRentalCompany.js';
+import { applyAccidentRentalParty, RENTAL_FLEET_STATUSES } from '../utils/accidentRentalCompany.js';
+import { logActivity, ACTIONS } from '../utils/activityLog.js';
 import { applyColorSplit } from '../utils/vehicleColor.js';
 import { mergeCarModel } from '../utils/carModel.js';
 import { stripHonorific } from '../utils/personName.js';
@@ -238,7 +239,7 @@ export const getVehicles = async (req, res) => {
       ])
     ]);
 
-    const stats = { total: 0, '계약중': 0, '장기렌트': 0, '사고대차': 0, '거래완료': 0 };
+    const stats = { total: 0, '계약중': 0, '장기렌트': 0, '단기렌트': 0, '거래완료': 0 };
     statsResult.forEach(item => {
       if (item._id && Object.prototype.hasOwnProperty.call(stats, item._id)) {
         stats[item._id] = item.count;
@@ -425,7 +426,7 @@ export const createVehicle = async (req, res) => {
     }
 
     await applyCompanyLinkToBody(req.body);
-    // 사고대차는 계약사·대표자가 우리 회사로 고정이다
+    // 단기렌트(대차 차량)는 계약사·대표자가 우리 회사로 고정이다
     await applyAccidentRentalParty(req.body);
     if (req.body.maintenance) req.body.maintenance = normalizeMaintenance(req.body.maintenance);
     normalizeSellingAdminExpense(req.body);
@@ -434,6 +435,11 @@ export const createVehicle = async (req, res) => {
     const newVehicle = await Vehicle.create(req.body);
     // 이익금·이익률(회사수수료)은 저장된 값으로 다시 계산한다
     const withProfit = await refreshVehicleProfit(newVehicle._id);
+    logActivity({
+      req, dept: '계약·출고부', action: ACTIONS.VEHICLE_CREATE,
+      target: { model: 'Vehicle', id: newVehicle._id },
+      summary: `${newVehicle.carModel} ${newVehicle.plateNo || ''} 차량 등록 (${newVehicle.status})`.replace(/\s+/g, ' ')
+    });
     res.status(201).json({ success: true, vehicle: withProfit || newVehicle, message: '차량이 성공적으로 등록되었습니다.' });
   } catch (error) {
     console.error('Error creating vehicle:', error);
@@ -477,7 +483,7 @@ export const updateVehicle = async (req, res) => {
     }
 
     await applyCompanyLinkToBody(req.body);
-    // 사고대차는 계약사·대표자가 우리 회사로 고정이다
+    // 단기렌트(대차 차량)는 계약사·대표자가 우리 회사로 고정이다
     await applyAccidentRentalParty(req.body);
     if (req.body.maintenance) req.body.maintenance = normalizeMaintenance(req.body.maintenance);
     normalizeSellingAdminExpense(req.body);
@@ -489,6 +495,16 @@ export const updateVehicle = async (req, res) => {
     const updatedVehicle = await Vehicle.findById(req.params.id)
       .populate('company', 'name bizNo bizType ceoName corporateRegistrationNo address billingEmail');
 
+    // 상태가 바뀐 때만 남긴다. 출고, 대차 전환, 거래완료처럼 보고에 올릴 만한 일이 여기서 일어난다.
+    if (updatedVehicle && updatedVehicle.status !== vehicle.status) {
+      logActivity({
+        req, dept: '차량관리부', action: ACTIONS.VEHICLE_STATUS_CHANGE,
+        target: { model: 'Vehicle', id: updatedVehicle._id },
+        summary: `${updatedVehicle.carModel} ${updatedVehicle.plateNo || ''} ${vehicle.status} → ${updatedVehicle.status}`.replace(/\s+/g, ' '),
+        meta: { from: vehicle.status, to: updatedVehicle.status }
+      });
+    }
+
     // 청구 회차표를 다시 만든다.
     //
     // 회차표를 만들려면 월 대여료 결제일과 렌트료 게시일이 있어야 하는데 둘 다 출고 준비에서 정한다.
@@ -496,6 +512,7 @@ export const updateVehicle = async (req, res) => {
     // 이걸 안 하면 회차표가 없어 청구 대상 목록에 영영 뜨지 않는다.
     // 이미 청구가 나간 회차는 buildScheduleForContract가 그대로 두므로 다시 만들어도 안전하다.
     let billingMessage = '';
+    let billingWarning = null;
     if (updatedVehicle?.contract) {
       try {
         const schedule = await buildScheduleForContract(updatedVehicle.contract);
@@ -503,12 +520,20 @@ export const updateVehicle = async (req, res) => {
       } catch (err) {
         // 아직 값이 덜 찬 것뿐이라 차량 저장까지 되돌리지 않는다. 무엇이 빠졌는지만 알려 준다.
         billingMessage = ` (청구 회차표는 아직 만들지 못했습니다: ${err.message})`;
+        // 화면이 성공 문구와 따로 주의 알림으로 띄울 수 있게 이유만 떼어 준다.
+        // 출고를 마친 차인데 회차표가 없으면 청구가 통째로 빠지므로 눈에 띄어야 한다.
+        // 다만 완납(NO_RENT)은 청구할 게 없는 정상이고, 출고 전 차는 결제일·개시일이 아직 없는 게 정상이라 거른다.
+        const notYetReady = ['NO_PAYMENT_DAY', 'NO_DATE'].includes(err.code) && updatedVehicle.status !== '장기렌트';
+        if (err.code !== 'NO_RENT' && !notYetReady) {
+          billingWarning = { code: err.code || 'UNKNOWN', message: err.message };
+        }
       }
     }
 
     res.json({
       success: true,
       vehicle: updatedVehicle,
+      billingWarning,
       message: `차량 정보가 업데이트되었습니다.${billingMessage}`
     });
   } catch (error) {
@@ -606,7 +631,7 @@ const VEHICLE_EXCEL_COLUMNS = [
   // 국산차를 렌터카로 살 때 받은 면세 혜택 금액. 장기렌트로 가면 환입 대상이 된다.
   { key: 'taxExemptionAmount', type: 'number', labels: ['면세금액', '면세'], hint: '장기렌트면 환입 대상' },
 
-  { key: 'status', type: 'text', labels: ['상태', '운영'], hint: '장기렌트/사고대차/계약중/거래완료 (비우면 장기렌트)' },
+  { key: 'status', type: 'text', labels: ['상태', '운영'], hint: '장기렌트/단기렌트/계약중/거래완료 (비우면 장기렌트, 사고대차는 단기렌트로 등록)' },
 
   { key: 'insurance.company', type: 'text', labels: ['보험사', '보험 회사'] },
   { key: 'insurance.type', type: 'text', labels: ['보험등급'], hint: '일반형/고급형' },
@@ -738,9 +763,11 @@ const generateContractNoForImport = async (customer, date) => {
 };
 
 const STATUS_BY_LABEL = {
-  '장기렌트': '장기렌트', '사고대차': '사고대차', '계약중': '계약중', '거래완료': '거래완료',
+  '장기렌트': '장기렌트', '단기렌트': '단기렌트', '계약중': '계약중', '거래완료': '거래완료',
+  // 사고대차는 단기렌트로 통일했다. 예전 엑셀에 '사고대차'로 적혀 와도 단기렌트로 받는다.
+  '사고대차': '단기렌트',
   // 이전 상태값으로 올라온 엑셀도 새 분류로 매핑해 받아준다
-  '가용': '장기렌트', '대여중': '장기렌트', '정비': '사고대차',
+  '가용': '장기렌트', '대여중': '장기렌트', '정비': '단기렌트',
   // 운영 엑셀의 '운영' 열에 쓰던 값들. '예약'은 뜻이 같은 '계약중'으로 합쳤다.
   '예약': '계약중', '계약전': '계약중', '계약변경': '거래완료'
 };
@@ -1018,9 +1045,9 @@ export const importVehicles = async (req, res) => {
         payload.status = mapped || '장기렌트';
       }
 
-      // 사고대차는 계약자가 따로 없고 우리가 내주는 차다. 계약사·대표자를 고정으로 덮어쓴다.
-      // (엑셀에는 대차를 받은 고객 이름이 계약자 자리에 적혀 오는 일이 많다)
-      if (payload.status === ACCIDENT_RENTAL_STATUS) await applyAccidentRentalParty(payload);
+      // 단기렌트(대차 차량)는 계약자가 따로 없고 우리가 내주는 차다. 계약사·대표자를 고정으로 덮어쓴다.
+      // (엑셀에는 차를 빌려 간 고객 이름이 계약자 자리에 적혀 오는 일이 많다)
+      if (RENTAL_FLEET_STATUSES.includes(payload.status)) await applyAccidentRentalParty(payload);
       if (payload.insurance?.type) {
         payload.insurance.type = payload.insurance.type === '고급형' || payload.insurance.type === 'premium'
           ? 'premium'
@@ -1165,7 +1192,7 @@ export const importVehicles = async (req, res) => {
 
         // 이 계약의 서류가 들어갈 폴더를 만들어 둔다. 이름은 "계약번호_차종"이라
         // 폴더 목록만 봐도 어느 계약의 무슨 차인지 알 수 있다.
-        const docFolderName = buildContractFolderName(contractNo, vehicles);
+        const docFolderName = await buildContractFolderName(contractNo, vehicles);
         await Contract.findByIdAndUpdate(contract._id, { docFolderName });
         try {
           await ensureCustomerFolders(info.partyName);

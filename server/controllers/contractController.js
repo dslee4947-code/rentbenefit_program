@@ -7,11 +7,12 @@ import Company from '../models/Company.js';
 import BillingSchedule from '../models/BillingSchedule.js';
 import { buildScheduleForContract } from './billingScheduleController.js';
 import { createLedgersForVehicles } from './ledgerController.js';
-import { ensureCustomerFolders } from '../utils/documentStorageService.js';
+import { ensureCustomerFolders, ensureContractFolder, buildContractFolderName } from '../utils/documentStorageService.js';
 import XLSX from 'xlsx';
 import { mergeCarModel } from '../utils/carModel.js';
 import { normalizeMaintenance } from '../utils/maintenance.js';
 import { computeSupplyPrice } from '../utils/vehiclePricing.js';
+import { logActivity, ACTIONS } from '../utils/activityLog.js';
 
 // 차종명으로 차량 코드를 자동 채번한다 (예: "그랜저 하이브리드" -> "그랜저-003").
 // createContract(신규 등록)와 updateContract의 임시저장 확정(finalize) 양쪽에서 공유한다.
@@ -365,6 +366,65 @@ const createContractVehicles = async (body, pricing) => {
 // @desc    Create new contract & automate vehicle creation, sequences, schedules
 // @route   POST /api/contracts
 // @access  Public
+/**
+ * 계약이 정식 등록된 직후에 할 일. 새로 등록할 때와 임시저장을 확정할 때 모두 여기를 지난다.
+ *
+ * 두 길에 같은 일을 따로 적어 두었더니 임시저장 확정(견적에서 넘어온 계약, 화면에서 가장 많이 쓰는 길)에서
+ * 계약자 폴더, 청구 회차표, 활동 기록이 빠져 있었다. 한 곳에 모아 다시 갈라지지 않게 한다.
+ * 여기 있는 일은 하나가 실패해도 계약 등록 자체는 막지 않는다.
+ *
+ * @param {object} params
+ * @param {object} params.req 요청 (활동 기록에 누가 했는지 남긴다)
+ * @param {object} params.contract 저장된 계약
+ * @param {object[]} params.vehicles 이 계약으로 만든 차량들
+ */
+const afterContractRegistered = async ({ req, contract, vehicles }) => {
+  const partyName = contract.companyId
+    ? (await Company.findById(contract.companyId).select('name').lean())?.name
+    : (await Customer.findById(contract.customer).select('name').lean())?.name;
+
+  // 계약자 폴더를 미리 만들어 둔다.
+  // 계약서·청구서·정비 자료가 들어갈 자리를 계약 시작 시점에 잡아 둔다.
+  try {
+    if (partyName) {
+      const { root } = await ensureCustomerFolders(partyName);
+
+      // 계약 폴더도 여기서 만든다. 엑셀로 올린 차량만 이 폴더를 만들고 있어서,
+      // 화면에서 등록한 계약은 청구서가 '계약번호'만 붙은 다른 모양의 폴더로 갔다.
+      // 같은 법인 안에 폴더 모양이 두 가지가 되면 서류를 찾을 때 두 곳을 봐야 한다.
+      const docFolderName = await buildContractFolderName(contract.contractNo, vehicles);
+      await ensureContractFolder(partyName, docFolderName);
+      await Contract.findByIdAndUpdate(contract._id, { customerFolder: partyName, docFolderName });
+      console.log(`[계약자 폴더] ${contract.contractNo}: ${root} / ${docFolderName}`);
+    }
+  } catch (err) {
+    console.log(`[계약자 폴더] ${contract.contractNo}: 만들지 못했습니다 - ${err.message}`);
+  }
+
+  // 차량 손익 원장(갑지)을 차량마다 한 장씩 만들어 둔다.
+  // 계약이 성립하면 그 순간부터 계약금·차량가 같은 돈이 나가기 시작하므로 장부가 먼저 있어야 한다.
+  try {
+    await createLedgersForVehicles(vehicles, contract._id);
+  } catch (err) {
+    console.log(`[차량 손익 원장] ${contract.contractNo}: ${err.message}`);
+  }
+
+  // 청구 회차표를 만들어 둔다.
+  // 결제일이나 렌트료 게시일이 아직 없으면 만들 수 없는데, 그건 출고 준비에서 정하는 값이라 넘어간다.
+  try {
+    await buildScheduleForContract(contract._id);
+  } catch (err) {
+    console.log(`[청구 회차표] ${contract.contractNo}: ${err.message} (출고 준비 입력 후 다시 만들 수 있습니다)`);
+  }
+
+  logActivity({
+    req, dept: '계약·출고부', action: ACTIONS.CONTRACT_CREATE,
+    target: { model: 'Contract', id: contract._id },
+    summary: `계약번호 ${contract.contractNo} ${partyName || ''} 계약 등록`.trim(),
+    meta: { vehicles: vehicles.length, termMonths: contract.termMonths, monthlyFee: contract.pricing?.monthlyFee }
+  });
+};
+
 export const createContract = async (req, res) => {
   try {
     const {
@@ -458,39 +518,8 @@ export const createContract = async (req, res) => {
       { contract: savedContract._id }
     );
 
-    // 3.55. 계약자 폴더를 미리 만들어 둔다.
-    //       계약서·청구서·정비 자료가 들어갈 자리를 계약 시작 시점에 잡아 둔다.
-    //       폴더를 못 만들어도(권한·경로 문제) 계약 등록 자체를 막지는 않는다.
-    try {
-      const partyName = savedContract.companyId
-        ? (await Company.findById(savedContract.companyId).select('name').lean())?.name
-        : customer.name;
-      if (partyName) {
-        const { root } = await ensureCustomerFolders(partyName);
-        await Contract.findByIdAndUpdate(savedContract._id, { customerFolder: partyName });
-        console.log(`[계약자 폴더] ${savedContract.contractNo}: ${root}`);
-      }
-    } catch (err) {
-      console.log(`[계약자 폴더] ${savedContract.contractNo}: 만들지 못했습니다 - ${err.message}`);
-    }
-
-    // 3.57. 차량 손익 원장(갑지)을 차량마다 한 장씩 만들어 둔다.
-    //       계약이 성립하면 그 순간부터 계약금·차량가 같은 돈이 나가기 시작하므로 장부가 먼저 있어야 한다.
-    //       못 만들어도 계약 등록은 막지 않는다(손익 원장 화면에서 나중에 만들 수 있다).
-    try {
-      await createLedgersForVehicles(vehicles, savedContract._id);
-    } catch (err) {
-      console.log(`[차량 손익 원장] ${savedContract.contractNo}: ${err.message}`);
-    }
-
-    // 3.6. 청구 회차표를 만들어 둔다.
-    //      결제일이나 렌트료 게시일이 아직 없으면 만들 수 없는데, 그건 출고 준비에서 정하는 값이라
-    //      계약 등록을 막지 않고 넘어간다. 나중에 청구서 화면에서 다시 만들 수 있다.
-    try {
-      await buildScheduleForContract(savedContract._id);
-    } catch (err) {
-      console.log(`[청구 회차표] ${savedContract.contractNo}: ${err.message} (출고 준비 입력 후 다시 만들 수 있습니다)`);
-    }
+    // 3.55. 폴더, 손익 원장, 청구 회차표, 활동 기록
+    await afterContractRegistered({ req, contract: savedContract, vehicles });
 
     // 4. Auto-generate Schedules (SCHEDULE 자동 생성)
     const schedulesToCreate = buildSchedules(vehicle._id, savedContract, termMonths, pricing, managerOps, managerMain);
@@ -559,6 +588,9 @@ export const createDraftContract = async (req, res) => {
       corporateRegistrationNo: req.body.corporateRegistrationNo,
       status: '임시저장',
       pricing: req.body.pricing || {},
+      // 연체 이율·중도해지 수수료율. 견적에서 정한 값을 임시저장 때부터 담아 둔다.
+      // 빠뜨리면 기본값(25%/35%)이 들어가 차량에 넘어간 값과 어긋난다.
+      terms: req.body.terms || undefined,
       gifts: req.body.gifts || [],
       vehicleInfo: req.body.vehicleInfo || {}
     });
@@ -587,6 +619,9 @@ export const updateContract = async (req, res) => {
     if (!contract) {
       return res.status(404).json({ message: 'Contract not found' });
     }
+
+    // 청구 회차표는 계약일·계약 기간에 따라 달라진다. 바뀌었는지 보려고 고치기 전 값을 남겨 둔다.
+    const before = { contractDate: contract.contractDate?.getTime(), termMonths: contract.termMonths };
 
     contract.leaseCompany = req.body.leaseCompany !== undefined ? req.body.leaseCompany : contract.leaseCompany;
     contract.partyType = req.body.partyType !== undefined ? req.body.partyType : contract.partyType;
@@ -617,6 +652,10 @@ export const updateContract = async (req, res) => {
     contract.status = req.body.status !== undefined ? req.body.status : contract.status;
     if (req.body.pricing) {
       contract.pricing = { ...contract.pricing, ...req.body.pricing };
+    }
+    // 계약 조건은 계약이 정본이다. 화면에서 고친 값을 여기 담지 않으면 차량 쪽 값과 어긋난다.
+    if (req.body.terms) {
+      contract.terms = { ...(contract.terms?.toObject?.() || contract.terms || {}), ...req.body.terms };
     }
     if (req.body.gifts) {
       contract.gifts = req.body.gifts;
@@ -655,12 +694,8 @@ export const updateContract = async (req, res) => {
         { contract: updatedContract._id }
       );
 
-      // 임시저장을 확정할 때도 차량마다 손익 원장(갑지)을 한 장씩 만든다
-      try {
-        await createLedgersForVehicles(vehicles, updatedContract._id);
-      } catch (err) {
-        console.log(`[차량 손익 원장] ${updatedContract.contractNo}: ${err.message}`);
-      }
+      // 새로 등록할 때와 같은 뒷일: 폴더, 손익 원장, 청구 회차표, 활동 기록
+      await afterContractRegistered({ req, contract: updatedContract, vehicles });
 
       // 대표 차량은 방금 만든 묶음의 첫 대다.
       // 여기서 정의되지 않은 vehicle을 쓰고 있어 임시저장 확정이 항상 500으로 끝났다.
@@ -746,6 +781,20 @@ export const updateContract = async (req, res) => {
     }
 
     const updatedContract = await contract.save();
+
+    // 계약일이나 기간을 고쳤으면 회차표를 다시 맞춘다. 1회차 출금일이 계약일보다 앞서서
+    // 회차표를 못 만든 계약은 계약일을 고치는 순간 여기서 만들어진다.
+    // 이미 청구·입금된 회차는 buildScheduleForContract가 그대로 두므로 다시 만들어도 안전하다.
+    const scheduleInputsChanged = updatedContract.contractDate?.getTime() !== before.contractDate
+      || updatedContract.termMonths !== before.termMonths;
+    if (updatedContract.vehicle && scheduleInputsChanged) {
+      try {
+        await buildScheduleForContract(updatedContract._id);
+      } catch (err) {
+        console.log(`[청구 회차표] ${updatedContract.contractNo}: ${err.message}`);
+      }
+    }
+
     const populated = await Contract.findById(updatedContract._id)
       .populate('customer')
       .populate('vehicle')

@@ -12,6 +12,11 @@ COPY server ./server
 
 ENV NODE_ENV=production
 ENV PORT=8080
+
+# 서버 시간을 한국 시간으로 둔다.
+# 코드 곳곳이 new Date()의 '오늘'을 한국 날짜로 여기고 계산한다(청구 일정, 고지서 기한 등).
+# 이 줄이 없으면 컨테이너가 UTC라 한국 새벽 0~9시에는 '오늘'이 전날로 잡힌다.
+ENV TZ=Asia/Seoul
 EXPOSE 8080
 
 CMD ["node", "server/index.js"]

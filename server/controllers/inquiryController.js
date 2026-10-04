@@ -1,4 +1,5 @@
 import Inquiry from '../models/Inquiry.js';
+import { logActivity, ACTIONS } from '../utils/activityLog.js';
 
 // @desc    Get inquiries (default: 대기중인 것만, ?status=all 이면 전체)
 // @route   GET /api/inquiries
@@ -49,6 +50,11 @@ export const createInquiry = async (req, res) => {
     });
 
     const populated = await Inquiry.findById(inquiry._id).populate('customer');
+    logActivity({
+      req, dept: '영업부', action: ACTIONS.INQUIRY_CREATE,
+      target: { model: 'Inquiry', id: inquiry._id },
+      summary: `${populated?.customer?.name || '고객'} 문의 접수`
+    });
     res.status(201).json(populated);
   } catch (error) {
     res.status(500).json({ message: error.message });

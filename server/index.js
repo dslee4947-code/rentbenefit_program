@@ -14,13 +14,14 @@ import contractRoutes from './routes/contractRoutes.js';
 import scheduleRoutes from './routes/scheduleRoutes.js';
 import mailTemplateRoutes from './routes/mailTemplateRoutes.js';
 import ocrRoutes from './routes/ocrRoutes.js';
+import rentalNoticeRoutes from './routes/rentalNoticeRoutes.js';
 import invoiceRoutes from './routes/invoiceRoutes.js';
 import billingScheduleRoutes from './routes/billingScheduleRoutes.js';
 import ledgerRoutes from './routes/ledgerRoutes.js';
-import documentRoutes from './routes/documentRoutes.js';
 import companyFolderRoutes from './routes/companyFolderRoutes.js';
 import companyRoutes from './routes/companyRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
+import settingRoutes from './routes/settingRoutes.js';
 import inquiryRoutes from './routes/inquiryRoutes.js';
 
 // Load environment variables
@@ -46,11 +47,15 @@ connectDB().then(async () => {
     syncOutlookContacts();
   }, 2 * 60 * 1000);
 
+  // 정기 작업 시각은 모두 한국 시간이다.
+  // 운영 서버(Fly.io)는 UTC로 돌아서, 시간대를 적지 않으면 '10 3 * * *'가 한국 시간 12:10에 돈다.
+  const CRON_OPTIONS = { timezone: 'Asia/Seoul' };
+
   // Schedule Outlook contact sync every 6 hours (0 */6 * * *)
   cron.schedule('0 */6 * * *', () => {
     console.log('[Cron Scheduler] Triggering 6-hour Outlook contact sync...');
     syncOutlookContacts();
-  });
+  }, CRON_OPTIONS);
   console.log('[Cron Scheduler] 6-hour Outlook sync job scheduled successfully.');
 
   // 청구서 발송 일정(출금일 10일 전)을 캘린더에 맞춰 둔다.
@@ -58,7 +63,7 @@ connectDB().then(async () => {
   syncInvoiceSendSchedules().catch((err) => console.error('[청구서 발송 일정] 실패:', err.message));
   cron.schedule('10 3 * * *', () => {
     syncInvoiceSendSchedules().catch((err) => console.error('[청구서 발송 일정] 실패:', err.message));
-  });
+  }, CRON_OPTIONS);
   console.log('[Cron Scheduler] 청구서 발송 일정 동기화 예약 완료 (매일 03:10).');
 
   // 고지서 납부기한을 캘린더에 맞춰 둔다. 기한은 고지서마다 다르고 지나면 렌트료에 얹어 청구하므로
@@ -66,7 +71,7 @@ connectDB().then(async () => {
   syncFineNoticeSchedules().catch((err) => console.error('[고지서 납부기한] 실패:', err.message));
   cron.schedule('20 3 * * *', () => {
     syncFineNoticeSchedules().catch((err) => console.error('[고지서 납부기한] 실패:', err.message));
-  });
+  }, CRON_OPTIONS);
   console.log('[Cron Scheduler] 고지서 납부기한 동기화 예약 완료 (매일 03:20).');
 });
 
@@ -139,12 +144,13 @@ app.use('/api/invoices', protect, invoiceRoutes);
 app.use('/api/billing-schedules', protect, billingScheduleRoutes);
 app.use('/api/mail-templates', protect, mailTemplateRoutes);
 app.use('/api/ocr', protect, ocrRoutes);
+app.use('/api/rental-notices', protect, rentalNoticeRoutes);
 app.use('/api/ledgers', protect, ledgerRoutes);
-app.use('/api/documents', protect, documentRoutes);
 app.use('/api/company-folders', protect, companyFolderRoutes);
 app.use('/api/companies', protect, companyRoutes);
 app.use('/api/dashboard', protect, dashboardRoutes);
 app.use('/api/inquiries', protect, inquiryRoutes);
+app.use('/api/settings', protect, settingRoutes);
 
 // Client-side routing: any non-/api request falls through to the SPA entry point
 if (serveClient) {

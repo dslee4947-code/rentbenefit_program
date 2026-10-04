@@ -310,6 +310,31 @@ const steps = [
     const ledger = await mongoose.connection.collection('vehicleledgers').findOne({ vehicle: new mongoose.Types.ObjectId(contract.vehicles[0]._id) });
     check('손익 원장이 만들어졌다', ledger, ledger?.ledgerNo);
     check('활동 기록 "계약 등록"이 남았다', await findActivity('계약 등록', contract._id));
+  }],
+
+  ['10. 대표 대시보드 — 경영 요약', async () => {
+    // 매출 규모가 담겨 있어 관리자만 본다
+    const denied = await fetch(`${BASE}/api/dashboard/executive`, { headers: { Authorization: `Bearer ${token}` } });
+    check('직원(editor) 계정은 경영 요약을 볼 수 없다', denied.status === 403, `HTTP ${denied.status}`);
+
+    await mongoose.connection.collection('users').updateOne({ email: 'flowcheck@rentbenefit.test' }, { $set: { role: 'admin' } });
+    const ex = await api('GET', '/api/dashboard/executive');
+    // 시험 자료: 그랜저(장기렌트, 월 890,000) 1대 운용 + 쏘렌토(계약중, 월 650,000) 1대 출고 대기
+    check('운용 차량이 1대(그랜저)로 잡힌다', ex?.fleet?.operatingCount === 1, `${ex?.fleet?.operatingCount}대`);
+    check('월 렌트 매출이 890,000원이다', ex?.fleet?.operatingMonthlyRent === 890000, `${ex?.fleet?.operatingMonthlyRent}`);
+    check('출고 대기 1대(쏘렌토, 월 650,000원)가 따로 잡힌다', ex?.fleet?.waiting?.count === 1 && ex?.fleet?.waiting?.monthlyRent === 650000,
+      `${ex?.fleet?.waiting?.count}대 / ${ex?.fleet?.waiting?.monthlyRent}`);
+    check('이번 달 견적 1건이 영업 흐름에 잡힌다', ex?.funnel?.thisMonth?.quotes >= 1 || ex?.funnel?.lastMonthFull?.quotes >= 1, JSON.stringify(ex?.funnel?.thisMonth));
+    check('만기 목록이 응답에 있다', Array.isArray(ex?.expiring?.items), `${ex?.expiring?.count}건`);
+    // 1회차는 7단계에서 입금완료로 처리했다. 미납·기록 끊김이 없어야 하고, 입금 기록 기준일이 잡혀야 한다.
+    const col = ex?.collections;
+    check('입금 기록 기준일이 잡힌다(1회차 입금)', col?.lastPaidAt, String(col?.lastPaidAt || '없음').slice(0, 10));
+    check('미납이 0건이다', col?.unpaid?.count === 0, `${col?.unpaid?.count}건`);
+    check('입금 기록이 끊긴 계약이 없다', col?.streakCount === 0, `${col?.streakCount}건`);
+    const billingDept = (ex?.activityToday || []).find((d) => d.dept === '청구부');
+    check('부서별 오늘 한 일에 "청구부 청구서 발행"이 잡힌다', billingDept?.actions?.some((a) => a.action === '청구서 발행'),
+      (ex?.activityToday || []).map((d) => `${d.dept}: ${d.actions.map((a) => `${a.action} ${a.count}`).join(', ')}`).join(' / '));
+    await mongoose.connection.collection('users').updateOne({ email: 'flowcheck@rentbenefit.test' }, { $set: { role: 'editor' } });
   }]
 ];
 

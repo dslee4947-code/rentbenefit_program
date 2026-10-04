@@ -537,7 +537,8 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
           {activeTab === 'dashboard' && (
             <DashboardView 
               setActiveTab={navigateToTab} 
-              showToast={showToast} 
+              showToast={showToast}
+              currentUser={currentUser} 
             />
           )}
 

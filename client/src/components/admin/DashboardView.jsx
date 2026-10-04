@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   Truck
 } from 'lucide-react';
+import ExecutiveSummary from './ExecutiveSummary.jsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -46,7 +47,7 @@ const fetchBillingGaps = async () => {
 
 const won = (n) => `${Number(n || 0).toLocaleString()}원`;
 
-function DashboardView({ setActiveTab, showToast }) {
+function DashboardView({ setActiveTab, showToast, currentUser }) {
   const queryClient = useQueryClient();
 
   // staleTime keeps cached data visible instantly on re-entry, while a
@@ -76,6 +77,8 @@ function DashboardView({ setActiveTab, showToast }) {
   const stats = data?.stats || DEFAULT_STATS;
   const notifications = data?.notifications || [];
   const loading = isLoading && !data;
+  // 대표(관리자)는 경영 요약을 먼저 본다. 고객 수·일정 수 같은 업무용 숫자 카드는 판단에 쓰이지 않아 감춘다.
+  const isExecutive = currentUser?.role === 'admin';
 
   const handleCompleteSchedule = async (scheduleId) => {
     try {
@@ -107,7 +110,10 @@ function DashboardView({ setActiveTab, showToast }) {
   return (
     <div className="dashboard-view-container fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       
+      {isExecutive && <ExecutiveSummary gapData={gapData} setActiveTab={setActiveTab} />}
+
       {/* 4 Core Summary Cards */}
+      {!isExecutive && (
       <div className="stats-cards-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.5rem', width: '100%' }}>
         {/* Card 1: Vehicles */}
         <div className="stat-main-card" style={{ background: 'var(--bg-surface)', padding: '1.5rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-premium)', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
@@ -173,6 +179,7 @@ function DashboardView({ setActiveTab, showToast }) {
           </div>
         </div>
       </div>
+      )}
 
       {/* 청구가 시작되지 않은 계약 - 있을 때만 보여 준다 */}
       {gaps.length > 0 && (
@@ -256,6 +263,7 @@ function DashboardView({ setActiveTab, showToast }) {
       )}
 
       {/* Quick Action Link Row */}
+      {!isExecutive && (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem' }}>
         {/* Quote Link */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(135deg, #fff 0%, #fff7f2 100%)', border: '1px solid #ffe5d4', padding: '1.5rem', borderRadius: '12px', cursor: 'pointer', transition: 'transform 0.2s', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }} onClick={() => setActiveTab('quote-input')} className="quick-action-card">
@@ -279,6 +287,7 @@ function DashboardView({ setActiveTab, showToast }) {
           </div>
         </div>
       </div>
+      )}
 
       {/* Urgent Schedules (D-7, D-1) Alert Panel */}
       <div style={{ background: 'var(--bg-surface)', padding: '2rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-premium)' }}>

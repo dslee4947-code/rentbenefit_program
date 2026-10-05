@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Search, Plus, Save, Trash2, RefreshCw, ArrowLeft, Link2, Printer, FileSpreadsheet, ArrowUp, ArrowDown, CalendarPlus, Pencil, Check, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { toCommaString } from '../../utils/format.js';
 import MoneyInput from './MoneyInput.jsx';
-import ShortTermTargetPanel from './ShortTermTargetPanel.jsx';
 import { useSaveShortcut } from './useSaveShortcut.js';
 import { calculateQuoteOption } from '../../../../shared/quoteCalc.js';
 import { GRADE_LABEL } from '../../../../shared/maintenanceRates.js';
@@ -2353,17 +2352,6 @@ function LedgerView({ showToast, currentUser }) {
           );
         })}
       </div>
-
-      {/* 단기렌트 차는 견적서 3년·선수금 30%·잔가 0% 월 렌트료를 매달 벌어 오는지 본다 */}
-      {ledger.ledgerType === '단기렌트' && (
-        <ShortTermTargetPanel
-          ledgerId={ledger._id}
-          reloadKey={ledger.updatedAt}
-          canEdit={canEdit}
-          authHeaders={authHeaders}
-          showToast={showToast}
-        />
-      )}
 
       {/* 수익성 검토 - 견적서에서 잡아 둔 비용과 원장에 실제로 나간 돈을 비교한다 */}
       <ProfitReview

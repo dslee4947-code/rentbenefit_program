@@ -635,7 +635,20 @@ function PurchaseCheck({ plan, actual }) {
   };
   return (
     <Section no={4} title="차 구입 · 등록 · 금융 · 세금">
-      {diffRow('차량 구입가', plan.netVehiclePrice, actual.vehiclePurchase, '견적: 차량가 + 옵션 − 할인 + 탁송료. 실제: 원장 차량가 출금(대출로 낸 금액 포함).')}
+      {diffRow('차량 구입가', plan.netVehiclePrice, actual.vehiclePurchase,
+        `견적: 차량가 + 옵션 − 할인 + 탁송료. 실제: 원장 차량가 ${won(actual.vehiclePrice)} + 계약금 ${won(actual.vehicleDeposit)} (대출로 낸 금액 포함).`)}
+      {/*
+        계약금까지 더했는데도 견적보다 적게 나갔으면 할인을 받았거나 면세로 산 것이다.
+        면세로 산 차는 조건이 깨지면 개별소비세를 나중에 다시 내야 할 수 있어 따로 알린다(2026-10-05 대표님 안내).
+        1만 원 미만 차이는 단수 차이로 본다.
+      */}
+      {actual.vehiclePurchase > 0 && plan.netVehiclePrice - actual.vehiclePurchase >= 10000 && (
+        <div style={{ margin: '0.1rem 0 0.35rem', padding: '0.45rem 0.55rem', border: '1px solid #f0c36d', background: '#fff8e6', borderRadius: '6px', fontSize: '0.72rem', lineHeight: 1.55 }}>
+          <b>⚠ 계약금까지 더해도 견적보다 {won(plan.netVehiclePrice - actual.vehiclePurchase)} 적게 나갔습니다.</b><br />
+          할인을 받았거나 면세로 산 차입니다. 면세로 샀다면 조건이 깨질 때 <b>개별소비세를 나중에 다시 내야</b> 할 수 있으니 면세 조건을 확인하세요.
+          {actual.vehicleDeposit === 0 && <><br />원장에 계약금 출금이 없습니다. 계약금을 빠뜨리고 입력하지 않았는지도 확인하세요.</>}
+        </div>
+      )}
       <Divider />
       {diffRow('취득세·공채·등록', plan.registrationCost, actual.registration, '실제: 원장 등록비용·제세공과.')}
       <Divider />
@@ -676,7 +689,7 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
     const out = {
       insurance: 0, repair: 0, maintenance: 0, tire: 0, operating: 0, operatingByCat: {}, rentReceived: 0, salesCommission: 0, vehicleWork: 0, fines: 0, rentExtra: 0,
       // 정비 항목별 실제 지출(건수·금액)과 차 구입·등록·금융·세금 실제 출금
-      maintByKey: {}, vehiclePurchase: 0, registration: 0, loanInterest: 0, loanRepayment: 0, carTax: 0
+      maintByKey: {}, vehiclePurchase: 0, vehiclePrice: 0, vehicleDeposit: 0, registration: 0, loanInterest: 0, loanRepayment: 0, carTax: 0
     };
     entries.forEach((e) => {
       const amount = Number(e.amount) || 0;
@@ -691,7 +704,9 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
         return;
       }
       const cat = e.category || '기타';
-      if (cat === '차량가') out.vehiclePurchase += amount;
+      // 차를 산 돈 = 차량가 출금 + 계약금 출금. 계약금을 먼저 내고 나머지를 차량가로 내기 때문이다.
+      if (cat === '차량가') { out.vehiclePurchase += amount; out.vehiclePrice += amount; }
+      if (cat === '계약금') { out.vehiclePurchase += amount; out.vehicleDeposit += amount; }
       if (cat === '등록비용' || cat === '제세공과') out.registration += amount;
       if (cat === '할부이자') out.loanInterest += amount;
       if (cat === '할부금') out.loanRepayment += amount;

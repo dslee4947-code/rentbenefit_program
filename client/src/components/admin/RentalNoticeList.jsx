@@ -71,7 +71,7 @@ function RentalNoticeList({ showToast, currentUser, reloadKey }) {
   };
 
   const remove = async (x) => {
-    if (!window.confirm(`${x.plateNo} ${x.kind} ${won(x.amount)} 고지서를 목록에서 뺄까요?\n저장된 파일은 폴더에 그대로 남습니다.`)) return;
+    if (!window.confirm(`${x.plateNo} ${x.kind} ${won(x.amount)} 고지서를 삭제할까요?\n저장된 파일은 폴더에 그대로 남습니다.`)) return;
     const res = await fetch(`${API_HOST}/api/rental-notices/${x._id}`, { method: 'DELETE' });
     const data = await res.json().catch(() => ({}));
     showToast?.(data.message || '처리했습니다.', data.success ? 'success' : 'error');
@@ -206,7 +206,7 @@ function RentalNoticeList({ showToast, currentUser, reloadKey }) {
                       <ExternalLink size={14} />
                     </button>
                     {canWrite && (
-                      <button type="button" onClick={() => remove(x)} title="목록에서 빼기 (파일은 남습니다)" style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}>
+                      <button type="button" onClick={() => remove(x)} title="잘못 올린 고지서 삭제 (저장된 파일은 남습니다)" style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}>
                         <Trash2 size={14} />
                       </button>
                     )}

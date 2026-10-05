@@ -293,7 +293,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
 
     const sum = rows.reduce((s, x) => s + (x.amount || 0), 0);
     const ask = action === 'delete'
-      ? `고른 ${rows.length}건을 목록에서 뺍니다. (합계 ${won(sum)})\n\n청구액에서도 빠지고 되돌릴 수 없습니다.\n저장된 고지서 파일은 그대로 남습니다.\n\n뺄까요?`
+      ? `고른 ${rows.length}건을 삭제합니다. (합계 ${won(sum)})\n\n청구액에서도 빠지고 되돌릴 수 없습니다.\n저장된 고지서 파일은 그대로 남습니다.\n\n삭제할까요?`
       : `고른 ${rows.length}건을 처리 완료로 표시합니다. (합계 ${won(sum)})\n\n방식에 따라 대납완료 · 납부완료 · 변경완료로 각각 표시됩니다.\n\n계속할까요?`;
     if (!window.confirm(ask)) return;
 
@@ -315,6 +315,35 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
       });
       const data = await res.json();
       showToast?.(data.message || (data.success ? '처리했습니다.' : '처리하지 못했습니다.'), data.success ? 'success' : 'error');
+      await fetchNotices();
+    } catch {
+      showToast?.('서버 통신 오류가 발생했습니다.', 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /**
+   * 고지서 한 건을 지운다(잘못 올린 고지서).
+   * 청구액에서도 빠지고 캘린더 납부기한도 지워진다. 저장된 고지서 파일은 남아서 잘못 지웠으면 다시 올리면 된다.
+   * 이미 청구서를 발행한 회차의 고지서는 서버가 막는다(고객이 받은 금액과 장부가 어긋난다).
+   */
+  const removeOne = async (x) => {
+    if (currentUser?.role === 'viewer') {
+      showToast?.('권한이 없습니다. 관리자에게 문의하세요.', 'error');
+      return;
+    }
+    const what = [x.partyName, x.plateNo, x.kind, won(x.amount || 0)].filter(Boolean).join(' · ');
+    if (!window.confirm(`이 고지서를 삭제할까요?\n\n${what}\n\n청구액에서도 빠지고 되돌릴 수 없습니다.\n저장된 고지서 파일은 그대로 남습니다.`)) return;
+    const rid = `${x.scheduleId}-${x.roundNo}-${x.index}`;
+    try {
+      setBusy(rid);
+      const res = await fetch(`${API_HOST}/api/billing-schedules/${x.scheduleId}/rounds/${x.roundNo}/attachments/${x.index}`, {
+        method: 'DELETE',
+        headers: { 'X-User-Role': currentUser?.role || 'viewer' }
+      });
+      const data = await res.json();
+      showToast?.(data.success ? '고지서를 삭제했습니다.' : (data.message || '삭제하지 못했습니다.'), data.success ? 'success' : 'error');
       await fetchNotices();
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
@@ -623,7 +652,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
               type="button"
               onClick={() => runBulk('delete')}
               disabled={busy === 'bulk'}
-              title="잘못 올린 고지서를 목록에서 뺍니다. 저장된 파일은 그대로 남습니다."
+              title="잘못 올린 고지서를 삭제합니다. 저장된 파일은 그대로 남습니다."
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
                 border: '1px solid var(--error)', background: '#fff', color: 'var(--error)',
@@ -631,7 +660,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                 cursor: busy === 'bulk' ? 'not-allowed' : 'pointer', opacity: busy === 'bulk' ? 0.5 : 1
               }}
             >
-              <Trash2 size={13} /> 목록에서 빼기
+              <Trash2 size={13} /> 선택 삭제
             </button>
           </div>
         )}
@@ -663,13 +692,14 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                 <th style={{ ...thStyle, textAlign: 'center' }}>고객 안내</th>
                 <th style={{ ...thStyle, textAlign: 'center' }}>지금 단계</th>
                 <th style={{ ...thStyle, textAlign: 'center' }}>다음 할 일</th>
+                <th style={{ ...thStyle, textAlign: 'center', width: '44px' }}>삭제</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={12} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>불러오는 중...</td></tr>
+                <tr><td colSpan={13} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>불러오는 중...</td></tr>
               ) : shown.length === 0 ? (
-                <tr><td colSpan={12} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                <tr><td colSpan={13} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
                   {items.length ? '이 조건에 맞는 고지서가 없습니다.' : '등록된 고지서가 없습니다. [고지서 등록]으로 올려 주세요.'}
                 </td></tr>
               ) : shown.map((x) => {
@@ -866,6 +896,22 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                           </button>
                         );
                       })()}
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                      <button
+                        type="button"
+                        onClick={() => removeOne(x)}
+                        disabled={x.issued || busy === id}
+                        title={x.issued ? '이미 청구서를 발행한 회차라 삭제할 수 없습니다' : '잘못 올린 고지서 삭제 (저장된 파일은 남습니다)'}
+                        style={{
+                          border: 'none', background: 'none', padding: '0.2rem',
+                          color: x.issued ? 'var(--text-muted)' : 'var(--error)',
+                          cursor: (x.issued || busy === id) ? 'not-allowed' : 'pointer',
+                          opacity: (x.issued || busy === id) ? 0.4 : 1
+                        }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     </td>
                   </tr>
                 );

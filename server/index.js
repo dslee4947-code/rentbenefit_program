@@ -22,6 +22,7 @@ import companyFolderRoutes from './routes/companyFolderRoutes.js';
 import companyRoutes from './routes/companyRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import settingRoutes from './routes/settingRoutes.js';
+import companyBookRoutes from './routes/companyBookRoutes.js';
 import inquiryRoutes from './routes/inquiryRoutes.js';
 
 // Load environment variables
@@ -151,6 +152,7 @@ app.use('/api/companies', protect, companyRoutes);
 app.use('/api/dashboard', protect, dashboardRoutes);
 app.use('/api/inquiries', protect, inquiryRoutes);
 app.use('/api/settings', protect, settingRoutes);
+app.use('/api/company-book', protect, companyBookRoutes);
 
 // Client-side routing: any non-/api request falls through to the SPA entry point
 if (serveClient) {

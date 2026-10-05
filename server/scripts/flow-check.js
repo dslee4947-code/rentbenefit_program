@@ -18,6 +18,7 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
+import XLSX from 'xlsx';
 
 const SERVER_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 5055;
@@ -334,6 +335,69 @@ const steps = [
     const billingDept = (ex?.activityToday || []).find((d) => d.dept === '청구부');
     check('부서별 오늘 한 일에 "청구부 청구서 발행"이 잡힌다', billingDept?.actions?.some((a) => a.action === '청구서 발행'),
       (ex?.activityToday || []).map((d) => `${d.dept}: ${d.actions.map((a) => `${a.action} ${a.count}`).join(', ')}`).join(' / '));
+    await mongoose.connection.collection('users').updateOne({ email: 'flowcheck@rentbenefit.test' }, { $set: { role: 'editor' } });
+  }],
+
+  ['회사 장부: 자금팀 엑셀 올리기 → 계정 바꾸기 → 고친 엑셀 다시 올리기', async () => {
+    const oid = (id) => new mongoose.Types.ObjectId(String(id));
+    const db = () => mongoose.connection;
+    // 급여가 보이는 장부라 편집 권한으로는 열리지 않는다
+    await api('GET', '/api/company-book/summary', null, { expect: [403] });
+    check('편집 권한으로는 회사 장부를 볼 수 없다', true);
+    await mongoose.connection.collection('users').updateOne({ email: 'flowcheck@rentbenefit.test' }, { $set: { role: 'admin' } });
+
+    // 자금팀 엑셀과 같은 모양: 1행 칸 제목, 7행부터 내역·금액·날짜
+    const book = (rows) => {
+      const wb = XLSX.utils.book_new();
+      const head = [['월급,탁송보험가입포함', '', '', '기타 비용/은행수수료', '', ''], [], [], [], [], ['내역', '금액', '날짜', '내역', '금액', '날짜']];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([...head, ...rows]), '고정비용');
+      return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    };
+    const upload = (buffer, apply) => {
+      const fd = new FormData();
+      fd.append('file', new Blob([buffer]), '렌트베네핏 입출금 리스트.xlsx');
+      if (apply) fd.append('apply', '1');
+      return api('POST', '/api/company-book/import', fd, { form: true });
+    };
+    const first = book([
+      ['2025-1월 급여', 3000000, '2025-01-25', '미군부대 입찰 수수료', 55000000, '2024-11-06'],
+      ['2025-2월 급여', 3100000, '2025-02-25', '미군부대 입찰 1차 환급', -20000000, '2025-07-07']
+    ]);
+
+    const preview = await upload(first, false);
+    check('미리보기는 장부를 바꾸지 않는다', preview.preview && preview.added === 4 && (await db().collection('companytransactions').countDocuments()) === 0, `새 줄 ${preview.added}`);
+    const applied = await upload(first, true);
+    check('반영하면 4줄이 들어간다', applied.added === 4, applied.message);
+    const again = await upload(first, true);
+    check('같은 엑셀을 다시 올려도 줄이 늘지 않는다', again.added === 0 && again.kept === 4 && (await db().collection('companytransactions').countDocuments()) === 4);
+
+    const sum = await api('GET', '/api/company-book/summary');
+    const amountOf = (account, year) => sum.rows.filter((r) => r.account === account && (!year || r.year === year)).reduce((s, r) => s + (r.direction === '출금' ? r.amount : -r.amount), 0);
+    check('입찰 보증금은 비용이 아니라 보증금으로 잡힌다(맡김 5,500만 − 환급 2,000만)', amountOf('deposit') === 35000000, String(amountOf('deposit')));
+    check('2025년 급여 합계 610만 원', amountOf('salary', 2025) === 6100000, String(amountOf('salary', 2025)));
+
+    // 화면에서 2월 급여를 4대보험 계정으로 옮긴다(시험용)
+    const list = await api('GET', '/api/company-book/transactions?year=2025&account=salary');
+    const feb = list.items.find((t) => t.description === '2025-2월 급여');
+    await api('PUT', `/api/company-book/transactions/${feb._id}`, { account: 'payroll' });
+    await api('DELETE', `/api/company-book/transactions/${feb._id}`, null, { expect: [400] });
+    check('엑셀에서 온 줄은 지울 수 없다(다시 올리면 되살아나므로)', true);
+
+    // 자금팀이 1월 급여 금액을 고치고 3월 줄을 더한 엑셀
+    const fixed = book([
+      ['2025-1월 급여', 3050000, '2025-01-25', '미군부대 입찰 수수료', 55000000, '2024-11-06'],
+      ['2025-2월 급여', 3100000, '2025-02-25', '미군부대 입찰 1차 환급', -20000000, '2025-07-07'],
+      ['2025-3월 급여', 3100000, '2025-03-25', '', '', '']
+    ]);
+    const re = await upload(fixed, true);
+    check('고친 엑셀: 새 줄 2(고친 1월 + 3월), 지운 줄 1(옛 1월)', re.added === 2 && re.removed === 1, re.message);
+    const after = await db().collection('companytransactions').findOne({ description: '2025-2월 급여' });
+    check('화면에서 바꾼 계정은 다시 올려도 그대로다', after?.account === 'payroll' && after?.accountEdited === true, after?.account);
+
+    const manual = await api('POST', '/api/company-book/transactions', { date: '2025-04-30', direction: '출금', amount: 4620000, account: 'rent', description: '4월 임대료' }, { expect: [201] });
+    await upload(fixed, true);
+    check('직접 적은 줄은 엑셀을 다시 올려도 남는다', Boolean(await db().collection('companytransactions').findOne({ _id: oid(manual.item._id) })));
+    check('활동 기록 "회사 장부 수정"이 남았다', Boolean(await findActivity('회사 장부 수정')));
     await mongoose.connection.collection('users').updateOne({ email: 'flowcheck@rentbenefit.test' }, { $set: { role: 'editor' } });
   }]
 ];

@@ -8,7 +8,7 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "flow-check": "node scripts/flow-check.js",
-    "test": "node --test tests/quoteCalc.test.js"
+    "test": "node --test tests/quoteCalc.test.js tests/companyBook.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

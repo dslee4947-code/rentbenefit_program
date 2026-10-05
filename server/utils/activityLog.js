@@ -18,6 +18,7 @@ export const ACTIONS = Object.freeze({
   ROUND_STATUS_CHANGE: '회차 상태 변경',
   NOTICE_REGISTER: '고지서 등록',
   LEDGER_EDIT: '원장 수정',
+  COMPANY_BOOK_EDIT: '회사 장부 수정',
   SYNC: '동기화'
 });
 

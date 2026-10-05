@@ -558,7 +558,7 @@ const Divider = () => <div style={{ borderTop: '1px dashed var(--border-color)',
  * 금융은 자기 대출이 있는 차면 실제 할부이자, 회사 돈으로 산 차면 내부 금리로 매긴 이자(묶인 돈 × 내부 금리)다.
  */
 const BUDGET_BUCKETS = [
-  { key: 'purchase', name: '차량 구입', desc: '차량가 + 계약금' },
+  { key: 'purchase', name: '차량 구입', desc: '차량가 + 계약금 + 나중에 낸 개별소비세' },
   { key: 'registration', name: '등록·세금·검사', desc: '취득세·공채·등록비용·자동차세·검사비' },
   { key: 'insurance', name: '보험·수리', desc: '보험료·공제조합 + 수리·사고 (자차보험료로 수리비를 막는다)' },
   { key: 'maintenance', name: '정비', desc: '정비 단가표 항목 + 타이어·얼라이먼트' },
@@ -569,8 +569,16 @@ const BUDGET_BUCKETS = [
   { key: 'deposit', name: '보증금', desc: '돌려줄 돈이라 예산 비교에서 뺌' }
 ];
 
+/**
+ * 개별소비세 출금인지. 면세로 산 차의 조건이 깨져 나중에 낸 개별소비세는 차를 살 때 냈어야 할 돈이라 차량 구입가로 본다
+ * (2026-10-05 대표님 결정). 원장에서는 '개별소비세 환급'(분류 환급)·'개별소비세 납부'·'개소세'(분류 제세공과) 등으로 적혀 있어
+ * 분류가 아니라 이름으로 판정한다. 예전에는 '환급'으로 분류된 줄이 운영비(판관비)로 계산됐다.
+ */
+const isExciseTax = (e) => e.side === '지출' && /개별\s*소비세|개소세/.test(e.label || '');
+
 const bucketOf = (e) => {
   const cat = e.category || '기타';
+  if (isExciseTax(e)) return 'purchase';
   if (cat === '보증금') return 'deposit';
   if (cat === '할부금' || cat === '대출금') return 'loan';
   if (cat === '차량가' || cat === '계약금') return 'purchase';
@@ -868,7 +876,7 @@ function PurchaseCheck({ plan, actual }) {
   return (
     <Section no={4} title="차 구입 · 등록 · 금융 · 세금">
       {diffRow('차량 구입가', plan.netVehiclePrice, actual.vehiclePurchase,
-        `견적: 차량가 + 옵션 − 할인 + 탁송료. 실제: 원장 차량가 ${won(actual.vehiclePrice)} + 계약금 ${won(actual.vehicleDeposit)} (대출로 낸 금액 포함).`)}
+        `견적: 차량가 + 옵션 − 할인 + 탁송료. 실제: 원장 차량가 ${won(actual.vehiclePrice)} + 계약금 ${won(actual.vehicleDeposit)}${actual.vehicleExcise ? ` + 개별소비세 ${won(actual.vehicleExcise)}` : ''} (대출로 낸 금액 포함).`)}
       {/*
         계약금까지 더했는데도 견적보다 적게 나갔으면 할인을 받았거나 면세로 산 것이다.
         면세로 산 차는 조건이 깨지면 개별소비세를 나중에 다시 내야 할 수 있어 따로 알린다(2026-10-05 대표님 안내).
@@ -929,7 +937,7 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
     const out = {
       insurance: 0, repair: 0, maintenance: 0, tire: 0, operating: 0, operatingByCat: {}, rentReceived: 0, salesCommission: 0, vehicleWork: 0, fines: 0, rentExtra: 0,
       // 정비 항목별 실제 지출(건수·금액)과 차 구입·등록·금융·세금 실제 출금
-      maintByKey: {}, vehiclePurchase: 0, vehiclePrice: 0, vehicleDeposit: 0, registration: 0, loanInterest: 0, loanRepayment: 0, carTax: 0
+      maintByKey: {}, vehiclePurchase: 0, vehiclePrice: 0, vehicleDeposit: 0, vehicleExcise: 0, registration: 0, loanInterest: 0, loanRepayment: 0, carTax: 0
     };
     entries.forEach((e) => {
       const amount = Number(e.amount) || 0;
@@ -944,6 +952,8 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
         return;
       }
       const cat = e.category || '기타';
+      // 나중에 낸 개별소비세는 차량가에 들어갔어야 할 돈이다. 운영비·등록세금으로 세지 않고 차량 구입에 넣는다.
+      if (isExciseTax(e)) { out.vehiclePurchase += amount; out.vehicleExcise += amount; return; }
       // 차를 산 돈 = 차량가 출금 + 계약금 출금. 계약금을 먼저 내고 나머지를 차량가로 내기 때문이다.
       if (cat === '차량가') { out.vehiclePurchase += amount; out.vehiclePrice += amount; }
       if (cat === '계약금') { out.vehiclePurchase += amount; out.vehicleDeposit += amount; }

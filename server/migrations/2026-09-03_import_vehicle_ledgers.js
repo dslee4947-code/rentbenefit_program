@@ -244,12 +244,12 @@ const run = async () => {
       // 검산: 옮긴 줄로 다시 계산한 집계가 시트의 집계와 같아야 한다.
       const got = summarizeLedger({ entries });
       const off = (a, b) => Math.abs((a || 0) - (b || 0)) > 1; // 엑셀 수식의 소수점 오차만 허용
-      if (off(got.paidOut, expected.paidOut) || off(got.paidIn, expected.paidIn) || off(got.balance, expected.balance)) {
+      if (off(got.paidOut, expected.paidOut) || off(got.paidIn, expected.paidIn) || off(got.cashBalance, expected.balance)) {
         stats.mismatched.push({
           name,
           지출: [Math.round(expected.paidOut), Math.round(got.paidOut)],
           입금: [Math.round(expected.paidIn), Math.round(got.paidIn)],
-          정산: [Math.round(expected.balance), Math.round(got.balance)]
+          정산: [Math.round(expected.balance), Math.round(got.cashBalance)]
         });
       }
 

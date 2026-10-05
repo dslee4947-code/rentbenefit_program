@@ -196,3 +196,27 @@ test('타이어 교체 때마다 얼라이먼트 1회 (예전 견적은 얼라�
   // 단가표 7등급 모두 얼라이먼트 7~10만 원
   for (const g of Object.values(DEFAULT_MAINTENANCE_RATES.grades)) assert.ok(g.tire.alignment >= 70000 && g.tire.alignment <= 100000);
 });
+
+test('보증금 이자 이득 = 보증금 × 금리 × 기간', () => {
+  // 보증금 1,500만·48개월·금리 6.14% → 3,684,000원 (예전 식은 1,955,474원)
+  const calc = calculateQuoteOption(baseOption({ depositRate: 0.30 }), baseVehicle());
+  assert.equal(calc.deposit, 15000000);
+  near(calc.interestRate, 0.0614, 1e-9, '금리');
+  near(calc.depositInterestBenefit, 3684000, 0.5, '보증금 이자 이득');
+  near(calc.fundingInterest, calc.grossFundingInterest - 3684000, 0.5, '실제 조달 부담');
+  // 보증금이 없으면 이득도 0
+  assert.equal(calculateQuoteOption(baseOption({ depositRate: 0 }), baseVehicle()).depositInterestBenefit, 0);
+});
+
+test('정산금액은 보증금을 뺀다 (보증금 포함 값은 cashBalance)', async () => {
+  const { summarizeLedger } = await import('../models/VehicleLedger.js');
+  const s = summarizeLedger({ entries: [
+    { side: '입금', category: '보증금', amount: 15000000, bank: 'B' },
+    { side: '입금', category: '렌트료', amount: 700000, bank: 'B' },
+    { side: '지출', category: '보험', amount: 1000000, bank: 'B' },
+    { side: '지출', category: '보증금', amount: 100000, bank: 'B' } // 회사가 낸 이행보증금
+  ] });
+  assert.equal(s.cashBalance, 14600000); // 15,000,000 + 700,000 − 1,000,000 − 100,000
+  assert.equal(s.depositHeld, 14900000);
+  assert.equal(s.balance, 700000 - 1000000);
+});

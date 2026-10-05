@@ -289,10 +289,22 @@ VehicleLedgerSchema.index({ 'header.plateNo': 1 });
  *
  * 사람이 더하지 않도록 항상 여기서 다시 계산한다.
  */
+/**
+ * 정산 집계.
+ *
+ * balance(정산금액)는 보증금을 뺀 값이다(2026-10-05 대표님 결정). 보증금은 만기에 돌려줄 돈이라 수익이 아닌데,
+ * 예전에는 받은 보증금이 정산금액에 그대로 들어가 원장 72장에서 16억 원이 이익처럼 보였다.
+ * 받은 보증금은 depositHeld(보관 중인 보증금)로 따로 준다. 회사가 낸 보증금(이행보증금 등)도 돌려받을 돈이라 같이 뺀다.
+ * cashBalance는 보증금까지 넣은 통장 기준 값이다. 엑셀 갑지(보증금 포함)와 맞춰 볼 때만 쓴다.
+ */
+export const DEPOSIT_CATEGORY = '보증금';
+
 export const summarizeLedger = (ledger, periodSeq = null) => {
   const byBank = {};
   let paidOut = 0;
   let paidIn = 0;
+  let depositIn = 0;
+  let depositOut = 0;
 
   (ledger.entries || []).forEach((e) => {
     // 구간을 지정하면 그 구간 줄만 집계한다 ("1차 연장에서 얼마 남았나")
@@ -302,22 +314,34 @@ export const summarizeLedger = (ledger, periodSeq = null) => {
     const bank = (e.bank || '미지정').trim() || '미지정';
     if (!byBank[bank]) byBank[bank] = { bank, paidOut: 0, paidIn: 0, balance: 0 };
 
+    const isDeposit = e.category === DEPOSIT_CATEGORY;
     if (e.side === '입금') {
       byBank[bank].paidIn += amount;
       paidIn += amount;
+      if (isDeposit) { depositIn += amount; byBank[bank].depositIn = (byBank[bank].depositIn || 0) + amount; }
     } else {
       byBank[bank].paidOut += amount;
       paidOut += amount;
+      if (isDeposit) { depositOut += amount; byBank[bank].depositOut = (byBank[bank].depositOut || 0) + amount; }
     }
   });
 
-  Object.values(byBank).forEach((b) => { b.balance = b.paidIn - b.paidOut; });
+  Object.values(byBank).forEach((b) => {
+    b.cashBalance = b.paidIn - b.paidOut;
+    b.balance = b.cashBalance - (b.depositIn || 0) + (b.depositOut || 0);
+  });
 
+  const cashBalance = paidIn - paidOut;
   return {
     byBank: Object.values(byBank).sort((a, b) => a.bank.localeCompare(b.bank)),
     paidOut,
     paidIn,
-    balance: paidIn - paidOut
+    depositIn,
+    depositOut,
+    // 보관 중인 보증금 = 받은 보증금 − 돌려준(또는 회사가 낸) 보증금
+    depositHeld: depositIn - depositOut,
+    cashBalance,
+    balance: cashBalance - depositIn + depositOut
   };
 };
 

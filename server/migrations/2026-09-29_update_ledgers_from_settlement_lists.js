@@ -328,8 +328,8 @@ const run = async () => {
     // 검산: 옮긴 줄로 다시 계산한 집계가 시트 집계와 같아야 한다
     const got = summarizeLedger({ entries: s.entries });
     const off = (a, b) => Math.abs((a || 0) - (b || 0)) > 1;
-    if (off(got.paidOut, s.expected.paidOut) || off(got.paidIn, s.expected.paidIn) || off(got.balance, s.expected.balance)) {
-      stats.mismatched.push(`${s.ledgerNo} [${s.kind}]: 정산 엑셀 ${Math.round(s.expected.balance).toLocaleString()} / 이관 ${Math.round(got.balance).toLocaleString()}`);
+    if (off(got.paidOut, s.expected.paidOut) || off(got.paidIn, s.expected.paidIn) || off(got.cashBalance, s.expected.balance)) {
+      stats.mismatched.push(`${s.ledgerNo} [${s.kind}]: 정산 엑셀 ${Math.round(s.expected.balance).toLocaleString()} / 이관 ${Math.round(got.cashBalance).toLocaleString()}`);
     }
 
     const ledgerType = s.kind === '단기' ? '단기렌트' : '장기렌트';

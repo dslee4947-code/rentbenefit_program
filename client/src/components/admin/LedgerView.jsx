@@ -87,7 +87,7 @@ const SORTABLE = [
   { key: null, label: '상태' },
   { key: 'paidOut', label: '누적지출', numeric: true },
   { key: 'paidIn', label: '누적입금', numeric: true },
-  { key: 'balance', label: '정산금액', numeric: true }
+  { key: 'balance', label: '정산금액(보증금 제외)', numeric: true }
 ];
 
 const toDateInput = (v) => (v ? new Date(v).toISOString().slice(0, 10) : '');
@@ -1408,14 +1408,18 @@ function LedgerView({ showToast, currentUser }) {
     const byBank = {};
     let paidOut = 0;
     let paidIn = 0;
+    let depositIn = 0;
+    let depositOut = 0;
     entries.forEach((e) => {
       if (periodView !== null && (e.periodSeq || 1) !== periodView) return;
       const amount = Number(e.amount) || 0;
       if (!amount) return;
       const bank = (e.bank || '미지정').trim() || '미지정';
-      if (!byBank[bank]) byBank[bank] = { bank, paidOut: 0, paidIn: 0 };
-      if (e.side === '입금') { byBank[bank].paidIn += amount; paidIn += amount; }
-      else { byBank[bank].paidOut += amount; paidOut += amount; }
+      if (!byBank[bank]) byBank[bank] = { bank, paidOut: 0, paidIn: 0, deposit: 0 };
+      // 보증금은 돌려줄 돈이라 정산계에서 뺀다(서버 summarizeLedger와 같은 규칙)
+      const isDeposit = e.category === '보증금';
+      if (e.side === '입금') { byBank[bank].paidIn += amount; paidIn += amount; if (isDeposit) { depositIn += amount; byBank[bank].deposit += amount; } }
+      else { byBank[bank].paidOut += amount; paidOut += amount; if (isDeposit) { depositOut += amount; byBank[bank].deposit -= amount; } }
     });
     // 엑셀 상단 박스가 B / SC 두 줄이라 그 순서를 지키고, 나머지 은행은 뒤에 붙인다
     const order = ['B', 'SC'];
@@ -1424,7 +1428,7 @@ function LedgerView({ showToast, currentUser }) {
       if (ai !== -1 || bi !== -1) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
       return a.bank.localeCompare(b.bank);
     });
-    return { rows, paidOut, paidIn, balance: paidIn - paidOut };
+    return { rows, paidOut, paidIn, depositHeld: depositIn - depositOut, balance: paidIn - paidOut - depositIn + depositOut };
   }, [entries, periodView]);
 
   const handleSave = async () => {
@@ -1832,7 +1836,7 @@ function LedgerView({ showToast, currentUser }) {
           {[
             { title: '지출계 (회사출금액)', pick: (r) => r.paidOut, total: summary.paidOut, color: '#d9534f' },
             { title: '수입계 (고객입금액)', pick: (r) => r.paidIn, total: summary.paidIn, color: '#2f6f4e' },
-            { title: '정산계', pick: (r) => r.paidIn - r.paidOut, total: summary.balance, color: summary.balance < 0 ? '#d9534f' : '#2f6f4e' }
+            { title: '정산계 (보증금 제외)', pick: (r) => r.paidIn - r.paidOut - r.deposit, total: summary.balance, color: summary.balance < 0 ? '#d9534f' : '#2f6f4e' }
           ].map((box) => (
             <div key={box.title} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
               <div style={{ padding: '0.5rem 0.7rem', background: 'var(--bg-main)', fontSize: '0.78rem', fontWeight: '800' }}>{box.title}</div>
@@ -1846,6 +1850,11 @@ function LedgerView({ showToast, currentUser }) {
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', fontWeight: '800', padding: '0.4rem 0 0.2rem', borderTop: '1px solid var(--border-color)', marginTop: '0.3rem', color: box.color }}>
                   <span>계</span><span>{signed(box.total)}</span>
                 </div>
+                {box.title.startsWith('정산계') && summary.depositHeld !== 0 && (
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', paddingTop: '0.2rem' }}>
+                    보관 중인 보증금 {signed(summary.depositHeld)} (돌려줄 돈이라 정산계에서 뺌)
+                  </div>
+                )}
               </div>
             </div>
           ))}

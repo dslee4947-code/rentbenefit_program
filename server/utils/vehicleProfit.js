@@ -19,7 +19,7 @@
 // 계산식은 견적 화면과 같은 파일(shared/quoteCalc.js)을 쓴다. 여기서 따로 고치면 견적서와 숫자가 어긋난다.
 import {
   addedRateForTerm, acquisitionTaxFor, publicBondFor, ownCarInsuranceRate, annualCarTax,
-  fundingInterestFor, getMaintenanceBreakdown, ADVANCE_PAYMENT_INTEREST_RATE
+  fundingInterestFor, depositInterestFor, getMaintenanceBreakdown, ADVANCE_PAYMENT_INTEREST_RATE
 } from '../../shared/quoteCalc.js';
 import {
   detectVehicleGrade, buildMaintenanceItemsFromRates, mergeMaintenanceRates, GRADE_LABEL
@@ -99,8 +99,8 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
   const advancePayment = num(vehicle.advancePayment);
   const takeoverPrice = num(vehicle.takeoverPrice);
 
-  // 조달 원가
-  const fundingPrincipal = netVehiclePrice - deposit - advancePayment
+  // 조달 원가. 보증금은 빼지 않고 아래에서 '보증금 이자 이득'(보증금 × 금리 × 기간)으로 뺀다(견적서와 같은 식).
+  const fundingPrincipal = netVehiclePrice - advancePayment
     + acquisitionTax + publicBond + insuranceFeeAnnual + ownCarInsuranceFee;
 
   let baseInterestRate = num(vehicle.interestRate) ? num(vehicle.interestRate) / 100 : 0;
@@ -112,7 +112,8 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
 
   // 조달이자는 견적서 기본값인 원리금 균등상환으로 낸다. 실제 대출이 만기 잔액 없이 다 갚는 구조다.
   // 차량 DB에는 상환방식을 두지 않아, 만기 인수가 상환으로 들여온 차도 여기서는 균등상환으로 본다.
-  const fundingInterest = fundingInterestFor({ annualRate: interestRate, months, principal: fundingPrincipal });
+  const depositInterestBenefit = depositInterestFor({ deposit, annualRate: interestRate, months });
+  const fundingInterest = fundingInterestFor({ annualRate: interestRate, months, principal: fundingPrincipal }) - depositInterestBenefit;
   assumptions.push('조달이자: 원리금 균등상환');
   const advancePaymentInterest = advancePayment * ADVANCE_PAYMENT_INTEREST_RATE * years;
   const totalBuyPriceWithFinancing = netVehiclePrice + fundingInterest + advancePaymentInterest;
@@ -203,6 +204,7 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
       netVehiclePrice,
       registrationCost: acquisitionTax + publicBond + registrationAgencyFee,
       fundingInterest,
+      depositInterestBenefit,
       carTaxTotal,
       // 예상 이익 계산용. 원가에는 회사수수료가 빠져 있다(위 설명 참고).
       costExCommission: totalCost,

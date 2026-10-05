@@ -3325,8 +3325,21 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: '#666' }}>조달이자 ({FUNDING_REPAYMENT_MODES[calc.fundingRepaymentMode] || 'PMT'})</span>
-                      <span style={{ fontWeight: '600' }}>{toCommaString(calc.fundingInterest)}원</span>
+                      <span style={{ fontWeight: '600' }}>{toCommaString(calc.grossFundingInterest)}원</span>
                     </div>
+                    {calc.depositInterestBenefit > 0 && (
+                      <>
+                        {/* 보증금은 계약 내내 통째로 들고 있어 보증금 × 금리 × 기간만큼 이자를 아낀다 */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }} title="보증금 × 적용 이자율 × 계약 기간">
+                          <span style={{ color: '#666' }}>보증금 이자 이득</span>
+                          <span style={{ fontWeight: '600', color: '#10b981' }}>- {toCommaString(calc.depositInterestBenefit)}원</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: '#666' }}>실제 조달 부담</span>
+                          <span style={{ fontWeight: '600' }}>{toCommaString(calc.fundingInterest)}원</span>
+                        </div>
+                      </>
+                    )}
                     {calc.highResidualFee > 0 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: '#666' }}>고잔가 수수료 (상한 {(calc.generalResidualCap * 100).toFixed(1)}% 초과)</span>

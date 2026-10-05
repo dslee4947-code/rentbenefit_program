@@ -109,6 +109,16 @@ export const fundingInterestFor = ({ annualRate, months, principal, balloon = 0 
   return PMT(annualRate / 12, months, -principal, balloon) * months + balloon - principal;
 };
 
+/**
+ * 보증금 이자 이득 = 보증금 × 금리 × 기간 (2026-10-05 대표님 결정).
+ *
+ * 보증금은 계약 내내 통째로 들고 있다가 만기에 돌려준다. 고객에게 이자 없이 통째로 빌린 것과 같아서,
+ * 그만큼 빌리지 않아도 되는 돈의 이자 전체가 이득이다.
+ * 예전 식은 보증금을 매달 나눠 갚는 조달원금에서 빼서 이득을 절반 정도만 잡았다
+ * (1,500만 원·48개월·6.14%: 예전 1,955,474원 → 3,684,000원).
+ */
+export const depositInterestFor = ({ deposit, annualRate, months }) => (Number(deposit) || 0) * annualRate * (months / 12);
+
 // 타이어는 계약 기간에 달리는 거리(연 약정거리 × 연수)가 5만km를 넘을 때마다 4본을 준다(2026-10-04 대표님 결정, 이전 6만km).
 export const TIRE_REPLACE_INTERVAL_KM = 50000;
 export const TIRES_PER_REPLACEMENT = 4;
@@ -198,6 +208,8 @@ export const calculateQuoteOption = (opt, vehicle) => {
     deposit: 0,
     advancePayment: 0,
     fundingPrincipal: 0,
+    grossFundingInterest: 0,
+    depositInterestBenefit: 0,
     interestRate: 0,
     fundingInterest: 0,
     advancePaymentInterest: 0,
@@ -266,8 +278,8 @@ export const calculateQuoteOption = (opt, vehicle) => {
   const deposit = Math.floor((totalCarPrice * opt.depositRate) / 1000) * 1000;
   const advancePayment = Math.floor((totalCarPrice * opt.advancePaymentRate) / 1000) * 1000;
   
-  // 조달원금 (E13)
-  const fundingPrincipal = netVehiclePrice - deposit - advancePayment + acquisitionTax + publicBond + globalInsuranceFee + ownCarInsuranceFee;
+  // 조달원금 (E13). 보증금은 여기서 빼지 않고 아래에서 '보증금 이자 이득'으로 따로 뺀다.
+  const fundingPrincipal = netVehiclePrice - advancePayment + acquisitionTax + publicBond + globalInsuranceFee + ownCarInsuranceFee;
   
   // 이자부담율 (E14)
   const termMonths = Math.round(Number(opt.termYears) * 12);
@@ -283,8 +295,12 @@ export const calculateQuoteOption = (opt, vehicle) => {
   // 엑셀은 보증금이 인수가보다 크면 이 값이 음수가 되어 오히려 균등상환보다 이자가 적게 나오는데,
   // 원금을 기간보다 빨리 갚는 대출은 없으므로 0 아래로 내려가지 않게 막는다.
   const fundingRepaymentMode = vehicle.fundingRepaymentMode || DEFAULT_FUNDING_REPAYMENT_MODE;
-  const fundingBalloon = fundingRepaymentMode === 'balloon' ? Math.max(0, takeoverPrice - deposit) : 0;
-  const fundingInterest = fundingInterestFor({ annualRate: interestRate, months: rentPeriodMonths, principal: fundingPrincipal, balloon: fundingBalloon });
+  // 만기 인수가 상환이면 만기에 인수가만큼 원금을 남겨 인수가로 갚는다. 보증금은 원금에서 빼지 않으므로 인수가 그대로다.
+  const fundingBalloon = fundingRepaymentMode === 'balloon' ? Math.min(Math.max(0, takeoverPrice), Math.max(0, fundingPrincipal)) : 0;
+  const grossFundingInterest = fundingInterestFor({ annualRate: interestRate, months: rentPeriodMonths, principal: fundingPrincipal, balloon: fundingBalloon });
+  // 보증금 이자 이득을 뺀 것이 실제 조달 부담이다
+  const depositInterestBenefit = depositInterestFor({ deposit, annualRate: interestRate, months: rentPeriodMonths });
+  const fundingInterest = grossFundingInterest - depositInterestBenefit;
   
   // 선수금분이자 (E16)
   const advancePaymentInterest = advancePayment * ADVANCE_PAYMENT_INTEREST_RATE * opt.termYears;
@@ -374,6 +390,8 @@ export const calculateQuoteOption = (opt, vehicle) => {
     deposit,
     advancePayment,
     fundingPrincipal,
+    grossFundingInterest,
+    depositInterestBenefit,
     interestRate,
     fundingInterest,
     advancePaymentInterest,

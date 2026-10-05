@@ -373,7 +373,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
       options: activeVehicle.options.map((opt) => ({
         ...opt,
         maintenanceItems: buildMaintenanceItemsFromRates(maintenanceRates, gradeKey),
-        tireUnitCost: opt.tireType === 'premium' ? grade.tire.premium : grade.tire.standard
+        tireUnitCost: opt.tireType === 'premium' ? grade.tire.premium : grade.tire.standard,
+        tireAlignmentCost: Number(grade.tire.alignment) || 0
       }))
     });
   };
@@ -1424,7 +1425,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
   const renderMaintenancePage = () => {
     // Determine dynamic tire count and cost for selected option
     const computedTireCount = getTireCount(selectedOpt);
-    const computedTireCost = computedTireCount * (selectedOpt?.tireUnitCost || 150000);
+    // 타이어를 바꿀 때마다(4본씩) 얼라이먼트 1회를 같이 한다
+    const computedAlignment = (computedTireCount / 4) * (Number(selectedOpt?.tireAlignmentCost) || 0);
+    const computedTireCost = computedTireCount * (selectedOpt?.tireUnitCost || 150000) + computedAlignment;
 
     const rawItems = tempMaintenanceItems.length > 0 ? tempMaintenanceItems : defaultMaintenanceItems;
     
@@ -1434,7 +1437,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
       if (item.name === '타이어 교체') {
         return {
           ...item,
-          desc: `타이어*마모 한계선 도래 시 교체 (${computedTireCount}본)`,
+          desc: `타이어*마모 한계선 도래 시 교체 (${computedTireCount}본)${computedAlignment > 0 ? ` + 얼라이먼트 ${computedTireCount / 4}회 ${toCommaString(computedAlignment)}원` : ''}`,
           price: computedTireCost
         };
       }
@@ -1642,7 +1645,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                       onChange={(e) => {
                         const newPrice = parseNumber(e.target.value);
                         if (row.name === '타이어 교체') {
-                          const unitCost = computedTireCount > 0 ? Math.round(newPrice / computedTireCount) : 0;
+                          // 금액을 고치면 얼라이먼트를 뺀 나머지로 1본 가격을 다시 낸다
+                          const unitCost = computedTireCount > 0 ? Math.round(Math.max(0, newPrice - computedAlignment) / computedTireCount) : 0;
                           if (selectedOpt) {
                             updateActiveVehicleOption(selectedOpt.id, { tireUnitCost: unitCost });
                           }

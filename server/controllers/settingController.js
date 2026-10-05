@@ -171,7 +171,7 @@ export const updateMaintenanceRatesSetting = async (req, res) => {
     // 숫자가 아니거나 음수인 단가는 받지 않는다. 0원은 '해당 없음'(전기차 점화플러그 등)이라 허용한다.
     for (const { key, label } of VEHICLE_GRADES) {
       const grade = merged.grades[key];
-      const prices = [...Object.entries(grade.items), ['tire.standard', grade.tire.standard], ['tire.premium', grade.tire.premium]];
+      const prices = [...Object.entries(grade.items), ['tire.standard', grade.tire.standard], ['tire.premium', grade.tire.premium], ['tire.alignment', grade.tire.alignment ?? 0]];
       for (const [itemKey, value] of prices) {
         const n = Number(value);
         if (!Number.isFinite(n) || n < 0) {

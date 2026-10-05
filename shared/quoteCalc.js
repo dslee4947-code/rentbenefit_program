@@ -148,7 +148,7 @@ export const maintenanceTimes = (item, opt) => {
 export const getMaintenanceBreakdown = (opt, vehicle) => {
   const termMonths = (opt?.termYears || 4) * 12;
   if (!opt || !vehicle || termMonths <= 0) {
-    return { monthlyFee: !opt || !vehicle ? 50000 : 0, tireCount: 0, tireCost: 0, otherSum: 0, lines: [] };
+    return { monthlyFee: !opt || !vehicle ? 50000 : 0, tireCount: 0, tireCost: 0, otherSum: 0, lines: [], tireReplacements: 0, alignmentCost: 0 };
   }
 
   const rawItems = opt.maintenanceItems || vehicle.maintenanceItems || defaultMaintenanceItems;
@@ -156,7 +156,11 @@ export const getMaintenanceBreakdown = (opt, vehicle) => {
   const tireIncluded = checked.some(item => item.name === '타이어 교체');
   const tireCount = tireIncluded ? getTireCount(opt) : 0;
   const tireUnit = opt.tireUnitCost || 150000;
-  const tireCost = tireCount * tireUnit;
+  // 타이어를 바꿀 때마다(4본씩) 얼라이먼트 1회. 예전 견적에는 이 값이 없어 0원으로 둔다(지난 견적 숫자 유지).
+  const tireReplacements = tireCount / TIRES_PER_REPLACEMENT;
+  const alignmentUnit = Number(opt.tireAlignmentCost) || 0;
+  const alignmentCost = tireReplacements * alignmentUnit;
+  const tireCost = tireCount * tireUnit + alignmentCost;
 
   // 항목별 계획: 손익 원장에서 실제 지출과 항목별로 맞대 보는 데 쓴다
   const lines = checked
@@ -167,12 +171,12 @@ export const getMaintenanceBreakdown = (opt, vehicle) => {
       const cost = hasUnit ? (Number(item.unitPrice) || 0) * times : (Number(item.price) || 0);
       return { key: item.key || item.name, name: item.name, times: hasUnit ? times : null, unitPrice: hasUnit ? Number(item.unitPrice) || 0 : null, cost };
     });
-  if (tireIncluded) lines.push({ key: 'tire', name: '타이어 교체', times: tireCount, unitPrice: tireUnit, cost: tireCost, unit: '본' });
+  if (tireIncluded) lines.push({ key: 'tire', name: '타이어 교체', times: tireCount, unitPrice: tireUnit, cost: tireCost, unit: '본', alignmentTimes: tireReplacements, alignmentUnit });
   const otherSum = lines.filter((l) => l.key !== 'tire').reduce((sum, l) => sum + l.cost, 0);
 
   // 월 정비비는 타이어까지 포함해 1000원 단위로 버린다(화면의 '월 정비비')
   const monthlyFee = Math.floor(((otherSum + tireCost) / termMonths) / 1000) * 1000;
-  return { monthlyFee, tireCount, tireCost, otherSum, lines };
+  return { monthlyFee, tireCount, tireCost, otherSum, lines, tireReplacements, alignmentCost };
 };
 
 // 화면에 보여 주는 월 정비비 (타이어 포함)

@@ -179,6 +179,20 @@ test('렌트차량 DB 이익은 차종 등급의 단가표를 쓴다', () => {
   }, 48, { maintenanceRates: mergeMaintenanceRates(null) });
   assert.equal(profit.breakdown.grade, 'large');
   assert.equal(profit.breakdown.tireCount, 4);
-  assert.equal(profit.breakdown.tireFee, 4 * 270000);
+  assert.equal(profit.breakdown.tireFee, 4 * 270000 + 90000); // 4본 + 얼라이먼트 1회
   assert.ok(profit.assumptions.some((a) => a.includes('대형 세단')));
+});
+
+test('타이어 교체 때마다 얼라이먼트 1회 (예전 견적은 얼라이먼트 0원)', () => {
+  // 60개월·연 2만km = 10만km → 8본, 교체 2회
+  const opt = baseOption({ termYears: 5, tireUnitCost: 270000, tireAlignmentCost: 90000 });
+  const plan = getMaintenanceBreakdown(opt, baseVehicle());
+  assert.equal(plan.tireCount, 8);
+  assert.equal(plan.tireReplacements, 2);
+  assert.equal(plan.tireCost, 8 * 270000 + 2 * 90000);
+  // 얼라이먼트 값이 없는 예전 견적은 숫자가 그대로
+  const old = getMaintenanceBreakdown(baseOption({ termYears: 5, tireUnitCost: 270000 }), baseVehicle());
+  assert.equal(old.tireCost, 8 * 270000);
+  // 단가표 7등급 모두 얼라이먼트 7~10만 원
+  for (const g of Object.values(DEFAULT_MAINTENANCE_RATES.grades)) assert.ok(g.tire.alignment >= 70000 && g.tire.alignment <= 100000);
 });

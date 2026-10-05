@@ -81,7 +81,7 @@ function MaintenanceRatesView({ showToast, currentUser }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '0.9rem 1.1rem', fontSize: '0.82rem', lineHeight: 1.7 }}>
-        <div>견적의 정비 원가 = <b>항목별 1회 단가 × 계약 기간 동안 하는 횟수</b> (주행거리·개월 수로 셈) + <b>타이어 1본 가격 × 본수</b>(5만km마다 4본).</div>
+        <div>견적의 정비 원가 = <b>항목별 1회 단가 × 계약 기간 동안 하는 횟수</b> (주행거리·개월 수로 셈) + <b>타이어 1본 가격 × 본수</b>(5만km마다 4본) + <b>얼라이먼트 × 교체 횟수</b>.</div>
         <div>새로 내는 견적부터 이 값을 씁니다. 이미 낸 견적은 그때 단가가 견적서에 함께 저장돼 있어 숫자가 바뀌지 않습니다.</div>
         <div style={{ color: 'var(--text-muted)' }}>
           지금 단가표: {rates.version || '-'}{data.updatedAt ? ` · 마지막 저장 ${new Date(data.updatedAt).toLocaleString('ko-KR')} ${data.updatedBy || ''}` : ' · 아직 저장한 적 없음(기본값)'}
@@ -134,10 +134,10 @@ function MaintenanceRatesView({ showToast, currentUser }) {
                 ))}
               </tr>
             ))}
-            {[['standard', '타이어 1본 (표준)'], ['premium', '타이어 1본 (프리미엄)']].map(([kind, label]) => (
+            {[['standard', '타이어 1본 (표준)', '5만km마다 4본'], ['premium', '타이어 1본 (프리미엄)', '5만km마다 4본'], ['alignment', '얼라이먼트 (1회)', '타이어 교체 때마다']].map(([kind, label, cycle]) => (
               <tr key={kind} style={{ background: '#fbfcfe' }}>
                 <td style={{ ...td, fontWeight: '700' }}>{label}</td>
-                <td style={{ ...td, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>5만km마다 4본</td>
+                <td style={{ ...td, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{cycle}</td>
                 {grades.map((g) => (
                   <td key={g.key} style={{ ...td, textAlign: 'right' }}>
                     <input

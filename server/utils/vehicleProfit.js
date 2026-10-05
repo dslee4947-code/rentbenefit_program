@@ -140,7 +140,7 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
       ? (vehicle.maintenance?.tireType === 'premium' ? rates.grades[grade].tire.premium : rates.grades[grade].tire.standard)
       : defaults.tireUnitCost;
     const plan = getMaintenanceBreakdown(
-      { termYears: years, mileage: annualMileage, tireUnitCost, maintenanceItems: items },
+      { termYears: years, mileage: annualMileage, tireUnitCost, tireAlignmentCost: grade ? rates.grades[grade].tire.alignment : 0, maintenanceItems: items },
       {}
     );
     tireCostTotal = plan.tireCost;
@@ -148,7 +148,7 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
     maintenanceLines = plan.lines;
     tireCount = plan.tireCount;
     assumptions.push(grade
-      ? `정비비: 정비 단가표 ${GRADE_LABEL[grade]} 기준 월 ${plan.monthlyFee.toLocaleString()}원(타이어 ${plan.tireCount}본 포함)`
+      ? `정비비: 정비 단가표 ${GRADE_LABEL[grade]} 기준 월 ${plan.monthlyFee.toLocaleString()}원(타이어 ${plan.tireCount}본·얼라이먼트 ${plan.tireReplacements}회 포함)`
       : `정비비: 차종 등급을 몰라 견적서 기본 정비 내역 월 ${plan.monthlyFee.toLocaleString()}원(타이어 ${plan.tireCount}본 포함)`);
   }
 

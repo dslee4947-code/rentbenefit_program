@@ -46,6 +46,9 @@ export const MAINTENANCE_ITEMS = [
 ];
 export const TIRE_ITEM_NAME = '타이어 교체';
 
+// 타이어를 교체할 때마다 얼라이먼트(휠 정렬)를 같이 한다. 1회 7~10만 원(2026-10-05 대표님 안내).
+// 등급별 값은 DEFAULT_MAINTENANCE_RATES의 tire.alignment에 둔다.
+
 /**
  * 등급별 1회 단가(원)와 타이어 1본 가격.
  * 원장 = 렌트베네핏 차량 손익 원장 실적(2026-10-04 운영 DB 조회). 시세 = 아래 SOURCES의 공개 자료.
@@ -55,43 +58,44 @@ export const DEFAULT_MAINTENANCE_RATES = {
   grades: {
     compact: {
       items: { regularCheck: 56000, acFilter: 30000, wiper: 25000, tireRotation: 20000, brakeFront: 70000, brakeRear: 60000, transmissionOil: 100000, battery: 150000, sparkPlug: 60000, coolant: 70000 },
-      tire: { standard: 75000, premium: 100000 },
+      tire: { standard: 75000, premium: 100000, alignment: 70000 },
       basis: '정기점검: 원장 레이 카랑 56,000원(6건). 타이어: 원장 레이 4본 285,000~300,000원(1본 약 7.5만). 엔진오일 시세 경차 6~7만(오토큐).'
     },
     small: {
       items: { regularCheck: 65000, acFilter: 35000, wiper: 25000, tireRotation: 20000, brakeFront: 100000, brakeRear: 80000, transmissionOil: 120000, battery: 170000, sparkPlug: 80000, coolant: 80000 },
-      tire: { standard: 100000, premium: 150000 },
+      tire: { standard: 100000, premium: 150000, alignment: 75000 },
       basis: '정기점검: 원장 K3 59,500~67,000원. 브레이크: 시세 K3 앞뒤 9~16만. 배터리: 원장 K3 222,200원.'
     },
     mid: {
       items: { regularCheck: 75000, acFilter: 40000, wiper: 30000, tireRotation: 25000, brakeFront: 120000, brakeRear: 100000, transmissionOil: 150000, battery: 200000, sparkPlug: 100000, coolant: 90000 },
-      tire: { standard: 130000, premium: 190000 },
+      tire: { standard: 130000, premium: 190000, alignment: 80000 },
       basis: '정기점검: 원장 K5(H) 카랑, 시세 K5 엔진오일 10~12만(오토큐). 브레이크: 시세 국산 승용 앞 7~16만. 타이어: 원장 K8 4본 506,000원(1본 약 12.7만).'
     },
     large: {
       items: { regularCheck: 85000, acFilter: 50000, wiper: 35000, tireRotation: 30000, brakeFront: 180000, brakeRear: 150000, transmissionOil: 180000, battery: 230000, sparkPlug: 150000, coolant: 100000 },
-      tire: { standard: 270000, premium: 350000 },
+      tire: { standard: 270000, premium: 350000, alignment: 90000 },
       basis: '정기점검: 원장 G80 86,000원·K9 80,619원·K8 68,000~78,320원. 타이어: 원장 G80 4본 970,000원, G90 1,130,000~1,490,000원, K9 1,200,000원(1본 24~37만). 배터리: 원장 국산 약 22만.'
     },
     suv: {
       items: { regularCheck: 90000, acFilter: 45000, wiper: 35000, tireRotation: 30000, brakeFront: 180000, brakeRear: 150000, transmissionOil: 180000, battery: 230000, sparkPlug: 150000, coolant: 100000 },
-      tire: { standard: 180000, premium: 260000 },
+      tire: { standard: 180000, premium: 260000, alignment: 90000 },
       basis: '정기점검: 원장 모하비 91,300원, 시세 쏘렌토·카니발 엔진오일 13~15만. 브레이크: 시세 국산 SUV 앞 10~22만. 타이어: 원장 모하비 4본+점검 1,308,530원. GV80·팰리세이드 같은 대형 SUV는 더 비쌀 수 있어 견적에서 확인.'
     },
     import: {
       items: { regularCheck: 300000, acFilter: 120000, wiper: 60000, tireRotation: 50000, brakeFront: 400000, brakeRear: 350000, transmissionOil: 400000, battery: 360000, sparkPlug: 300000, coolant: 200000 },
-      tire: { standard: 280000, premium: 450000 },
+      tire: { standard: 280000, premium: 450000, alignment: 100000 },
       basis: '엔진오일·필터: 원장 E350 325,970원, S400d 657,800원, 시세 수입차 20~30만. 브레이크: 시세 수입차 앞 20~60만. 배터리: 원장 S400d 360,000원·S500 350,000원. 타이어: 원장 S클래스 4본 1,000,000~1,060,000원(1본 25~27만, 1본만 52~72만인 건도 있음).'
     },
     ev: {
       items: { regularCheck: 65000, acFilter: 40000, wiper: 30000, tireRotation: 25000, brakeFront: 120000, brakeRear: 100000, transmissionOil: 100000, battery: 150000, sparkPlug: 0, coolant: 120000 },
       overrides: { brakeFront: { cycleKm: 60000 }, brakeRear: { cycleKm: 80000 } },
-      tire: { standard: 150000, premium: 220000 },
+      tire: { standard: 150000, premium: 220000, alignment: 90000 },
       basis: '정기점검: 원장 아이오닉6 카랑 65,000원(엔진오일 없음). 회생제동으로 브레이크 교체 주기를 늘려 잡음. 점화플러그 없음. 전기차 전용 타이어는 같은 급 내연기관보다 비싸게 잡음.'
     }
   },
   sources: [
     '렌트베네핏 차량 손익 원장 179장 실제 지출 (2026-10-04 조회)',
+    '타이어 교체 때 얼라이먼트 1회 7~10만 원 (2026-10-05 대표님 안내)',
     '기아 오토큐 엔진오일 교환 가격: https://normen.co.kr/informative-information/기아-오토큐-엔진오일-교환-가격',
     '엔진오일 교체 비용 정리(2026): https://kfzautohaus.com/blog/자동차-엔진-오일-교체-비용',
     '브레이크 패드 교체 비용 2026: https://car.finance-information.net/brake-pad-replacement-cost-2026',
@@ -165,6 +169,6 @@ export const buildMaintenanceItemsFromRates = (rates, gradeKey) => {
       checked: unitPrice > 0
     };
   });
-  items.push({ key: 'tire', name: TIRE_ITEM_NAME, cycle: '5만km마다 4본', desc: '타이어 마모 한계 도래 시 교체', price: 0, checked: true });
+  items.push({ key: 'tire', name: TIRE_ITEM_NAME, cycle: '5만km마다 4본', desc: '타이어 마모 한계 도래 시 교체 + 얼라이먼트', price: 0, checked: true });
   return items;
 };

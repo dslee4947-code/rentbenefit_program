@@ -474,7 +474,8 @@ const TIRE_LABEL = /타이어/;
  * 정비 항목인데 분류가 '기타'라 운영비(판관비)로 잡히던 줄(배터리 교체 등)도 여기서 정비로 옮긴다.
  */
 const MAINTENANCE_MATCH = [
-  { key: 'tire', name: '타이어', rx: TIRE_LABEL },
+  // 얼라이먼트는 타이어를 바꿀 때 같이 하므로 견적의 타이어 교체비에 들어 있다
+  { key: 'tire', name: '타이어', rx: /타이어|얼라인먼트|얼라이먼트|얼라인|휠\s*정렬/ },
   { key: 'transmissionOil', name: '변속기·브레이크 오일', rx: /미션|변속기|감속기|브레이크\s*오일/ },
   { key: 'brake', name: '브레이크 패드·라이닝', rx: /브레이크|패드|라이닝/ },
   { key: 'regularCheck', name: '정기점검·엔진오일', rx: /정기\s*점검|엔진\s*오일|오일\s*교환|오일및/ },

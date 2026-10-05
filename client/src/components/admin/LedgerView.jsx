@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Search, Plus, Save, Trash2, RefreshCw, ArrowLeft, Link2, Printer, FileSpreadsheet, ArrowUp, ArrowDown, CalendarPlus, Pencil, Check, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { toCommaString } from '../../utils/format.js';
 import MoneyInput from './MoneyInput.jsx';
+import ShortTermTargetPanel from './ShortTermTargetPanel.jsx';
 import { useSaveShortcut } from './useSaveShortcut.js';
 import { calculateQuoteOption } from '../../../../shared/quoteCalc.js';
 import { GRADE_LABEL } from '../../../../shared/maintenanceRates.js';
@@ -467,7 +468,6 @@ const quotePlanOf = (quote) => {
 // 차량작업(썬팅·PPF·블랙박스 등)은 판관비가 아니라 판매 수수료에서 충당하므로 따로 본다.
 // 대출금(캐피탈·렌공에서 빌려 들어온 돈)과 할부금(그 상환)은 차를 사는 돈이라 운영비가 아니다.
 const NOT_OPERATING = new Set(['계약금', '차량가', '등록비용', '할부이자', '할부금', '대출금', '보험', '자동차세', '검사비', '제세공과', '수리·사고', '정기점검', '차량작업']);
-const TIRE_LABEL = /타이어/;
 
 /**
  * 원장 출금 줄을 견적의 정비 항목에 맞춘다. 이름(자유 입력)으로 판정하므로 위에서부터 먼저 맞는 것을 쓴다.
@@ -597,6 +597,10 @@ function BudgetBoard({ plan, entries, income, internalRate, salesCommission }) {
     return g;
   }, [entries]);
   const sum = (key) => groups[key].reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  // 보험료 환급(입금)은 보험·수리에서 쓴 돈을 줄인다. 보험사를 바꾸며 돌려받은 보험료 등.
+  const insuranceRefund = entries
+    .filter((e) => e.side === '입금' && e.category === '환급' && /보험|공제/.test(e.label || ''))
+    .reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
   const budget = {
     purchase: plan.netVehiclePrice || 0,
@@ -610,7 +614,7 @@ function BudgetBoard({ plan, entries, income, internalRate, salesCommission }) {
   const used = {
     purchase: sum('purchase'),
     registration: sum('registration'),
-    insurance: sum('insurance'),
+    insurance: sum('insurance') - insuranceRefund,
     maintenance: sum('maintenance'),
     // 회사 돈으로 산 차는 원장에 이자 줄이 없으므로 내부 금리로 매긴 이자를 쓴다
     finance: ownLoan ? sum('finance') : internal.interest,
@@ -626,6 +630,39 @@ function BudgetBoard({ plan, entries, income, internalRate, salesCommission }) {
   const num = { ...cell, textAlign: 'right', whiteSpace: 'nowrap' };
   const pct = (u, b) => (b > 0 ? Math.round((u / b) * 100) : null);
   const colorOf = (p) => (p === null ? 'inherit' : p > 100 ? '#d9534f' : p >= 80 ? '#e08a1e' : '#2f6f4e');
+
+  /**
+   * 월 렌트료를 다 받고 고객이 인수했을 때의 예상 수익금.
+   *
+   * 지금까지 실제로 쓴 돈에 남은 기간 동안 쓸 돈을 더해 분류마다 '만기까지 쓸 돈'을 낸다.
+   *   보험·수리: 보험료는 지금까지 낸 속도(낸 보험료 ÷ 지난 기간)로 남은 기간을 채우고, 수리비는 더 생기지 않는다고 본다.
+   *             예산(보험료 + 자차보험료)에서 남는 만큼이 그대로 수익이 된다(자차를 안 쓰면 그만큼 남는다).
+   *   정비(정비 포함 고객)·운영비·등록·세금·금융: 예산과 실제 중 큰 값(정비는 약속한 만큼은 해 줘야 한다)
+   *   차량 구입: 실제(없으면 예산)
+   * 받을 돈에는 판매 수수료를 더하고, 차량작업비와 CMS 수수료를 뺀다.
+   * 지난 기간은 '받은 렌트료 ÷ 계약 전체 렌트료'로 본다.
+   */
+  const elapsed = income.rentTotal > 0 ? Math.min(1, (income.rentReceived || 0) / income.rentTotal) : 0;
+  const premiumPaid = groups.insurance.filter((e) => e.category !== '수리·사고').reduce((t, e) => t + (Number(e.amount) || 0), 0) - insuranceRefund;
+  const repairPaid = groups.insurance.filter((e) => e.category === '수리·사고').reduce((t, e) => t + (Number(e.amount) || 0), 0);
+  // 보험료는 1년치를 먼저 내므로 초반에는 속도가 높게 나온다. 1년(지난 비율)이 지나기 전에는 예산의 보험료 몫을 쓴다.
+  const yearShare = income.months > 0 ? Math.min(1, 12 / income.months) : 1;
+  const premiumProjected = elapsed >= yearShare && elapsed > 0
+    ? premiumPaid / elapsed
+    : Math.max(premiumPaid, plan.baseInsurance || 0);
+  const projected = {
+    purchase: used.purchase || budget.purchase,
+    registration: Math.max(used.registration, budget.registration),
+    insurance: premiumProjected + repairPaid,
+    maintenance: plan.maintenanceOn ? Math.max(used.maintenance, budget.maintenance) : used.maintenance,
+    finance: Math.max(used.finance, budget.finance),
+    operating: Math.max(used.operating, budget.operating),
+    vehicleWork: used.vehicleWork
+  };
+  const projectedCost = Object.values(projected).reduce((t, v) => t + v, 0) + (income.cms || 0);
+  const projectedIncome = totalIncome + (salesCommission || 0);
+  const projectedProfit = projectedIncome - projectedCost;
+  const insuranceLeft = budget.insurance - projected.insurance;
 
   const cards = [
     ['받을 돈 (계약 전체)', totalIncome, `렌트료 ${toCommaString(income.rentTotal)} + 인수가 ${toCommaString(income.takeover)} + 선납금 ${toCommaString(income.advance)}`],
@@ -646,6 +683,34 @@ function BudgetBoard({ plan, entries, income, internalRate, salesCommission }) {
             <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)' }}>{note}</div>
           </div>
         ))}
+      </div>
+
+      <div style={{ border: '2px solid #2f6f4e', background: '#f3faf6', borderRadius: '8px', padding: '0.6rem 0.75rem', marginBottom: '0.7rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.8rem', fontWeight: '800' }}>월 렌트료를 다 받고 인수했을 때 예상 수익금</span>
+          <span style={{ fontSize: '1.15rem', fontWeight: '800', color: projectedProfit < 0 ? '#d9534f' : '#2f6f4e' }}>{won(projectedProfit)}</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.1rem 1.4rem', marginTop: '0.35rem' }}>
+          <div>
+            <Row label="받을 돈 + 판매 수수료" value={won(projectedIncome)} muted />
+            <Row label="만기까지 쓸 돈 (실적 반영)" value={`- ${won(projectedCost)}`} muted />
+            <Row label="견적대로 쓸 때와 비교" value={`${projectedProfit - (totalIncome - totalBudget) >= 0 ? '+' : '-'} ${won(Math.abs(projectedProfit - (totalIncome - totalBudget)))}`} muted />
+          </div>
+          <div>
+            <Row label="보험·수리 예산 (보험료 + 자차)" value={won(budget.insurance)} muted />
+            <Row label={`만기까지 보험료 (낸 속도 기준${insuranceRefund ? `, 환급 ${toCommaString(insuranceRefund)} 뺌` : ''})`} value={won(premiumProjected)} muted />
+            <Row label="지금까지 수리비" value={won(repairPaid)} muted />
+            <Row
+              label={insuranceLeft >= 0 ? '보험·수리에서 남는 돈 → 수익' : '보험·수리 예산 초과'}
+              value={won(Math.abs(insuranceLeft))}
+              color={insuranceLeft >= 0 ? '#2f6f4e' : '#d9534f'}
+              strong
+            />
+          </div>
+        </div>
+        <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: '0.3rem', lineHeight: 1.5 }}>
+          수리비는 앞으로 더 생기지 않는다고 보고 계산했습니다. 사고가 나면 그만큼 줄어듭니다. 정비·운영비·금융·세금은 예산과 실제 중 큰 값, 지난 기간은 받은 렌트료 비율({Math.round(elapsed * 100)}%)로 봅니다.
+        </div>
       </div>
 
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -1081,7 +1146,7 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
         <BudgetBoard
           plan={plan}
           entries={entries}
-          income={{ rentTotal, takeover: returned ? 0 : takeover, advance }}
+          income={{ rentTotal, takeover: returned ? 0 : takeover, advance, rentReceived: actual.rentReceived, months: totalMonths, cms: cmsTotal }}
           internalRate={internalRate}
           salesCommission={actual.salesCommission}
         />
@@ -2278,6 +2343,17 @@ function LedgerView({ showToast, currentUser }) {
           );
         })}
       </div>
+
+      {/* 단기렌트 차는 견적서 3년·선수금 30%·잔가 0% 월 렌트료를 매달 벌어 오는지 본다 */}
+      {ledger.ledgerType === '단기렌트' && (
+        <ShortTermTargetPanel
+          ledgerId={ledger._id}
+          reloadKey={ledger.updatedAt}
+          canEdit={canEdit}
+          authHeaders={authHeaders}
+          showToast={showToast}
+        />
+      )}
 
       {/* 수익성 검토 - 견적서에서 잡아 둔 비용과 원장에 실제로 나간 돈을 비교한다 */}
       <ProfitReview

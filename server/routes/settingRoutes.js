@@ -4,7 +4,9 @@ import {
   updateDocumentStorageSetting,
   previewDocumentStorageSetting,
   getMaintenanceRatesSetting,
-  updateMaintenanceRatesSetting
+  updateMaintenanceRatesSetting,
+  getCompanyFundingSetting,
+  updateCompanyFundingSetting
 } from '../controllers/settingController.js';
 import { checkAdminPermission } from '../middleware/roleMiddleware.js';
 
@@ -20,5 +22,9 @@ router.put('/document-storage', checkAdminPermission, updateDocumentStorageSetti
 // 정비 단가표: 읽기는 누구나(견적 화면이 쓴다), 바꾸는 것은 관리자만
 router.get('/maintenance-rates', getMaintenanceRatesSetting);
 router.put('/maintenance-rates', checkAdminPermission, updateMaintenanceRatesSetting);
+
+// 회사 자금(대출 목록·내부 금리): 내부 금리는 누구나(원장 계산), 대출 목록은 관리자만 보고 바꾼다
+router.get('/company-funding', getCompanyFundingSetting);
+router.put('/company-funding', checkAdminPermission, updateCompanyFundingSetting);
 
 export default router;

@@ -5,6 +5,7 @@ import MoneyInput from './MoneyInput.jsx';
 import { useSaveShortcut } from './useSaveShortcut.js';
 import { calculateQuoteOption } from '../../../../shared/quoteCalc.js';
 import { GRADE_LABEL } from '../../../../shared/maintenanceRates.js';
+import { hasOwnLoan, internalInterestFor, DEFAULT_INTERNAL_RATE } from '../../../../shared/companyFunding.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -547,6 +548,171 @@ function Section({ no, title, children }) {
 const Divider = () => <div style={{ borderTop: '1px dashed var(--border-color)', margin: '0.35rem 0' }} />;
 
 /**
+ * 예산 현황 (갑지 1장 = 차 1대).
+ *
+ * 계약으로 받을 돈과, 견적에서 잡아 둔 나갈 돈을 분류별 예산으로 놓고 지금까지 쓴 돈과 남은 돈(쓸 수 있는 돈)을 보여 준다.
+ * 입력은 원장 한 곳에서 하고, 여기서는 입력한 줄을 분류별로 모아 날짜순으로 보여 준다(분류 이름을 누르면 펼쳐짐).
+ *
+ * 보험·수리는 한 묶음이다. 자차보험료는 수리비를 막으려고 잡아 둔 돈이라, 보험료와 수리비를 같은 예산에서 본다.
+ * 정비는 정비 단가표(항목 1회 단가 × 계약 기간 횟수 + 타이어·얼라이먼트)로 잡은 예산과 실제 정비 출금을 맞댄다.
+ * 금융은 자기 대출이 있는 차면 실제 할부이자, 회사 돈으로 산 차면 내부 금리로 매긴 이자(묶인 돈 × 내부 금리)다.
+ */
+const BUDGET_BUCKETS = [
+  { key: 'purchase', name: '차량 구입', desc: '차량가 + 계약금' },
+  { key: 'registration', name: '등록·세금·검사', desc: '취득세·공채·등록비용·자동차세·검사비' },
+  { key: 'insurance', name: '보험·수리', desc: '보험료·공제조합 + 수리·사고 (자차보험료로 수리비를 막는다)' },
+  { key: 'maintenance', name: '정비', desc: '정비 단가표 항목 + 타이어·얼라이먼트' },
+  { key: 'finance', name: '금융 이자', desc: '자기 대출이면 할부이자, 회사 돈이면 내부 이자' },
+  { key: 'operating', name: '운영비 (판관비)', desc: '탁송·과태료(미회수)·기타' },
+  { key: 'vehicleWork', name: '차량작업', desc: '썬팅·블랙박스 등. 판매 수수료로 충당' },
+  { key: 'loan', name: '대출 원금 상환', desc: '빌린 돈을 갚는 것이라 예산 비교에서 뺌' },
+  { key: 'deposit', name: '보증금', desc: '돌려줄 돈이라 예산 비교에서 뺌' }
+];
+
+const bucketOf = (e) => {
+  const cat = e.category || '기타';
+  if (cat === '보증금') return 'deposit';
+  if (cat === '할부금' || cat === '대출금') return 'loan';
+  if (cat === '차량가' || cat === '계약금') return 'purchase';
+  if (['등록비용', '제세공과', '자동차세', '검사비'].includes(cat)) return 'registration';
+  if (matchMaintenance(e)) return 'maintenance';
+  if (['보험', '공제조합', '수리·사고'].includes(cat)) return 'insurance';
+  if (cat === '할부이자') return 'finance';
+  if (cat === '차량작업') return 'vehicleWork';
+  return 'operating';
+};
+
+function BudgetBoard({ plan, entries, income, internalRate, salesCommission }) {
+  const [open, setOpen] = useState(null);
+  const ownLoan = hasOwnLoan(entries);
+  const internal = useMemo(() => internalInterestFor(entries, internalRate), [entries, internalRate]);
+
+  const groups = useMemo(() => {
+    const g = Object.fromEntries(BUDGET_BUCKETS.map((b) => [b.key, []]));
+    entries.forEach((e) => {
+      if (e.side !== '지출' || !(Number(e.amount) > 0)) return;
+      g[bucketOf(e)].push(e);
+    });
+    Object.values(g).forEach((list) => list.sort((a, b) => String(a.date || '9999').localeCompare(String(b.date || '9999'))));
+    return g;
+  }, [entries]);
+  const sum = (key) => groups[key].reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+  const budget = {
+    purchase: plan.netVehiclePrice || 0,
+    registration: (plan.registrationCost || 0) + (plan.carTaxTotal || 0),
+    insurance: (plan.baseInsurance || 0) + (plan.ownCarInsurance || 0),
+    maintenance: plan.maintenanceOn ? (plan.maintenanceFee || 0) + (plan.tireFee || 0) : 0,
+    finance: Math.max(0, plan.fundingInterest || 0),
+    operating: plan.pandanbi || 0,
+    vehicleWork: salesCommission || 0
+  };
+  const used = {
+    purchase: sum('purchase'),
+    registration: sum('registration'),
+    insurance: sum('insurance'),
+    maintenance: sum('maintenance'),
+    // 회사 돈으로 산 차는 원장에 이자 줄이 없으므로 내부 금리로 매긴 이자를 쓴다
+    finance: ownLoan ? sum('finance') : internal.interest,
+    operating: sum('operating'),
+    vehicleWork: sum('vehicleWork')
+  };
+  const budgeted = BUDGET_BUCKETS.filter((b) => b.key in budget && b.key !== 'vehicleWork');
+  const totalBudget = budgeted.reduce((s, b) => s + budget[b.key], 0);
+  const totalUsed = budgeted.reduce((s, b) => s + used[b.key], 0);
+  const totalIncome = income.rentTotal + income.takeover + income.advance;
+
+  const cell = { padding: '0.35rem 0.45rem', borderBottom: '1px solid var(--border-color)', fontSize: '0.76rem', verticalAlign: 'top' };
+  const num = { ...cell, textAlign: 'right', whiteSpace: 'nowrap' };
+  const pct = (u, b) => (b > 0 ? Math.round((u / b) * 100) : null);
+  const colorOf = (p) => (p === null ? 'inherit' : p > 100 ? '#d9534f' : p >= 80 ? '#e08a1e' : '#2f6f4e');
+
+  const cards = [
+    ['받을 돈 (계약 전체)', totalIncome, `렌트료 ${toCommaString(income.rentTotal)} + 인수가 ${toCommaString(income.takeover)} + 선납금 ${toCommaString(income.advance)}`],
+    ['나갈 돈 예산 (견적)', totalBudget, '아래 분류 예산의 합 (차량작업 제외)'],
+    ['예상 남는 돈', totalIncome - totalBudget, '받을 돈 − 나갈 돈 예산'],
+    ['예산 중 아직 쓸 수 있는 돈', totalBudget - totalUsed, `지금까지 ${toCommaString(totalUsed)} 사용`]
+  ];
+
+  return (
+    <div style={{ gridColumn: '1 / -1', border: '1px solid #c9d6ea', borderRadius: '8px', padding: '0.8rem 0.9rem', background: '#fff' }}>
+      <div style={{ fontSize: '0.82rem', fontWeight: '800', marginBottom: '0.5rem' }}>예산 현황 · 받을 돈과 쓸 수 있는 돈</div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem', marginBottom: '0.7rem' }}>
+        {cards.map(([label, value, note]) => (
+          <div key={label} style={{ border: '1px solid var(--border-color)', borderRadius: '6px', padding: '0.45rem 0.55rem' }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: '700' }}>{label}</div>
+            <div style={{ fontSize: '1rem', fontWeight: '800', color: value < 0 ? '#d9534f' : 'inherit' }}>{won(value)}</div>
+            <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)' }}>{note}</div>
+          </div>
+        ))}
+      </div>
+
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ color: 'var(--text-muted)', background: 'var(--bg-main)' }}>
+            <th style={{ ...cell, textAlign: 'left' }}>분류</th>
+            <th style={num}>예산</th>
+            <th style={num}>사용</th>
+            <th style={num}>쓸 수 있는 돈</th>
+            <th style={num}>사용률</th>
+          </tr>
+        </thead>
+        <tbody>
+          {BUDGET_BUCKETS.map((b) => {
+            const list = groups[b.key];
+            const isBudgeted = b.key in budget;
+            if (!isBudgeted && !list.length) return null;
+            const bud = isBudgeted ? budget[b.key] : null;
+            const use = isBudgeted ? used[b.key] : list.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+            const p = isBudgeted ? pct(use, bud) : null;
+            const expanded = open === b.key;
+            let note = b.desc;
+            if (b.key === 'finance') {
+              note += ownLoan
+                ? ' · 자기 대출이 있는 차: 원장 할부이자 기준'
+                : ` · 회사 돈으로 산 차: 내부 금리 연 ${(internalRate * 100).toFixed(2)}%로 오늘까지 ${internal.months}개월 (지금 묶인 돈 ${toCommaString(internal.current)})`;
+              // 엑셀 갑지에서 '대출로 샀다고 보고' 넣은 이자 줄은 내부 이자로 대신 계산하므로 참고로만 보여 준다
+              if (!ownLoan && groups.finance.length) note += ` · 원장에 수기로 넣은 이자 ${toCommaString(sum('finance'))}원은 참고값`;
+            }
+            if (b.key === 'vehicleWork') note += ' · 예산 = 받은 판매 수수료';
+            return (
+              <React.Fragment key={b.key}>
+                <tr
+                  style={{ cursor: list.length ? 'pointer' : 'default', color: isBudgeted ? 'inherit' : 'var(--text-muted)' }}
+                  onClick={() => list.length && setOpen(expanded ? null : b.key)}
+                >
+                  <td style={cell}>
+                    <b>{list.length ? (expanded ? '▾ ' : '▸ ') : '· '}{b.name}</b> <span style={{ color: 'var(--text-muted)' }}>({list.length}건)</span>
+                    <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)' }}>{note}</div>
+                  </td>
+                  <td style={num}>{bud === null ? '-' : toCommaString(bud)}</td>
+                  <td style={num}>{toCommaString(use)}</td>
+                  <td style={{ ...num, fontWeight: '800', color: bud !== null && bud - use < 0 ? '#d9534f' : '#2f6f4e' }}>{bud === null ? '-' : toCommaString(bud - use)}</td>
+                  <td style={{ ...num, fontWeight: '800', color: colorOf(p) }}>{p === null ? '-' : `${p}%`}</td>
+                </tr>
+                {expanded && list.map((e, i) => (
+                  <tr key={e._id || `${b.key}-${i}`} style={{ background: '#fafbfd' }}>
+                    <td style={{ ...cell, paddingLeft: '1.4rem', color: 'var(--text-muted)' }} colSpan={2}>
+                      {e.date ? String(e.date).slice(0, 10) : '날짜 없음'} · {e.label || e.category} <span style={{ fontSize: '0.66rem' }}>({e.category})</span>
+                    </td>
+                    <td style={num}>{toCommaString(e.amount)}</td>
+                    <td style={cell} colSpan={2} />
+                  </tr>
+                ))}
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+      <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: '0.35rem', lineHeight: 1.5 }}>
+        예산은 계약 기간 전체 금액이라 계약 중간이면 쓸 수 있는 돈이 남는 것이 정상입니다. 분류는 원장 줄 이름과 분류로 자동으로 나눕니다(입력은 원장 위쪽에서 그대로 하면 됩니다).
+      </div>
+    </div>
+  );
+}
+
+/**
  * 정비 항목별 견적 대 실제.
  * 견적은 "1회 단가 × 계약 기간 횟수"(단가표로 낸 견적) 또는 항목 금액(예전 견적)이다.
  * 실제는 원장 출금 줄 이름으로 항목을 맞춘 합계다. 계약 중간이면 실제가 적은 게 정상이라 '쓴 비율'로 본다.
@@ -672,6 +838,14 @@ function PurchaseCheck({ plan, actual }) {
  */
 function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, maturityPlan, canEdit, onMemoChange, onMaturityChange }) {
   const [state, setState] = useState({ loading: true, quote: null, estimate: null, reason: '' });
+  // 회사 내부 금리. 회사 돈으로 산 차의 이자를 매길 때 쓴다(관리 > 회사 자금·내부 금리)
+  const [internalRate, setInternalRate] = useState(DEFAULT_INTERNAL_RATE);
+  useEffect(() => {
+    fetch(`${API_HOST}/api/settings/company-funding`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d) => { if (d?.internalRate > 0) setInternalRate(d.internalRate); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -903,6 +1077,14 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
             </div>
           )}
         </div>
+
+        <BudgetBoard
+          plan={plan}
+          entries={entries}
+          income={{ rentTotal, takeover: returned ? 0 : takeover, advance }}
+          internalRate={internalRate}
+          salesCommission={actual.salesCommission}
+        />
 
         <Section no={1} title="보험료 · 자차보험료">
           <Row label="견적 보험료 (대인·대물 등)" value={won(plan.baseInsurance)} muted />

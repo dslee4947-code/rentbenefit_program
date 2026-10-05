@@ -220,3 +220,22 @@ test('정산금액은 보증금을 뺀다 (보증금 포함 값은 cashBalance)'
   assert.equal(s.depositHeld, 14900000);
   assert.equal(s.balance, 700000 - 1000000);
 });
+
+test('회사 내부 금리와 차별 내부 이자', async () => {
+  const { computeInternalRate, internalInterestFor, hasOwnLoan } = await import('../../shared/companyFunding.js');
+  // 잔액 가중 평균: (1억×5% + 3억×6%) ÷ 4억 = 5.75%
+  const r = computeInternalRate({ loans: [{ balance: 100000000, annualRate: 0.05 }, { balance: 300000000, annualRate: 0.06 }] });
+  near(r.rate, 0.0575, 1e-12, '내부 금리');
+  assert.equal(computeInternalRate({ loans: [] }).source, 'default');
+  assert.equal(computeInternalRate({ loans: [], manualRate: 0.058 }).rate, 0.058);
+  // 1월에 1,200만 원으로 차를 사고 보증금 200만 원 받음 → 묶인 돈 1,000만 원, 3개월(1~3월) × 연 6% ÷ 12
+  const entries = [
+    { side: '지출', category: '차량가', amount: 12000000, date: '2026-01-10' },
+    { side: '입금', category: '보증금', amount: 2000000, date: '2026-01-10' },
+    { side: '지출', category: '할부금', amount: 999999, date: '2026-02-10' } // 대출 줄은 묶인 돈에서 뺀다
+  ];
+  const x = internalInterestFor(entries, 0.06, new Date('2026-03-20'));
+  assert.equal(x.months, 3);
+  near(x.interest, 10000000 * 0.06 / 12 * 3, 0.01, '내부 이자');
+  assert.equal(hasOwnLoan(entries), true);
+});

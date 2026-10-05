@@ -10,6 +10,9 @@ import {
   invalidateSettingsCache
 } from '../utils/documentPath.js';
 import { MAINTENANCE_RATES_KEY, invalidateMaintenanceRatesCache } from '../utils/maintenanceRates.js';
+import { computeInternalRate } from '../../shared/companyFunding.js';
+
+const COMPANY_FUNDING_KEY = 'companyFunding';
 import {
   DEFAULT_MAINTENANCE_RATES, VEHICLE_GRADES, MAINTENANCE_ITEMS, mergeMaintenanceRates
 } from '../../shared/maintenanceRates.js';
@@ -198,6 +201,62 @@ export const updateMaintenanceRatesSetting = async (req, res) => {
       updatedBy: doc.updatedBy,
       message: '정비 단가표를 저장했습니다. 새로 내는 견적부터 새 단가를 씁니다.'
     });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ───────────────────────── 회사 자금 (내부 금리)
+
+/**
+ * 회사 대출 목록과 내부 금리.
+ * 대출 목록(금액·금리)은 관리자만 본다. 다른 사람에게는 손익 원장 계산에 필요한 내부 금리만 준다.
+ *
+ * @route GET /api/settings/company-funding
+ */
+export const getCompanyFundingSetting = async (req, res) => {
+  try {
+    const doc = await Setting.findOne({ key: COMPANY_FUNDING_KEY }).lean();
+    const funding = doc?.value || { loans: [], manualRate: null };
+    const internal = computeInternalRate(funding);
+    const isAdmin = req.user?.role === 'admin';
+    res.json({
+      success: true,
+      internalRate: internal.rate,
+      source: internal.source,
+      ...(isAdmin ? { funding, updatedAt: doc?.updatedAt || null, updatedBy: doc?.updatedBy || '' } : {})
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** @route PUT /api/settings/company-funding (관리자만) */
+export const updateCompanyFundingSetting = async (req, res) => {
+  try {
+    const body = req.body?.funding || {};
+    const loans = (Array.isArray(body.loans) ? body.loans : []).map((l) => ({
+      lender: String(l.lender || '').trim(),
+      principal: Math.round(Number(l.principal) || 0),
+      balance: Math.round(Number(l.balance) || 0),
+      annualRate: Number(l.annualRate) || 0,
+      startDate: l.startDate || null,
+      termMonths: Math.round(Number(l.termMonths) || 0),
+      repayment: String(l.repayment || '').trim(),
+      memo: String(l.memo || '').trim()
+    })).filter((l) => l.lender || l.principal);
+    for (const l of loans) {
+      if (l.annualRate < 0 || l.annualRate > 0.5) return res.status(400).json({ success: false, message: `${l.lender || '대출'} 금리가 올바르지 않습니다(연 ${l.annualRate * 100}%). 퍼센트가 아니라 소수로 저장됩니다.` });
+    }
+    const manualRate = body.manualRate === null || body.manualRate === '' || body.manualRate === undefined ? null : Number(body.manualRate);
+    const funding = { loans, manualRate: manualRate > 0 ? manualRate : null };
+    const doc = await Setting.findOneAndUpdate(
+      { key: COMPANY_FUNDING_KEY },
+      { value: funding, updatedBy: req.user?.name || req.user?.email || '' },
+      { upsert: true, new: true }
+    ).lean();
+    const internal = computeInternalRate(funding);
+    res.json({ success: true, funding, internalRate: internal.rate, source: internal.source, updatedAt: doc.updatedAt, updatedBy: doc.updatedBy, message: '회사 자금 목록을 저장했습니다.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

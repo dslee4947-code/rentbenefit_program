@@ -79,8 +79,12 @@ connectDB().then(async () => {
 const app = express();
 
 // Middleware
+// 화면(Vercel) 주소. CLIENT_URL은 쉼표로 여러 개를 적을 수 있고, 끝의 '/'는 떼고 비교한다
+// (브라우저가 보내는 Origin에는 '/'가 없어서, 'https://….vercel.app/'로 적으면 로그인이 "서버에 연결할 수 없습니다"로 막힌다).
+// Vercel 운영 주소와 미리보기 주소(rentbenefit-program-….vercel.app)는 설정과 상관없이 허용한다.
+const VERCEL_ORIGIN = /^https:\/\/rentbenefit-program(-[a-z0-9-]+)?\.vercel\.app$/;
 const allowedOrigins = [
-  process.env.CLIENT_URL,
+  ...String(process.env.CLIENT_URL || '').split(',').map((u) => u.trim().replace(/\/+$/, '')).filter(Boolean),
   'http://localhost:5173',
   'http://localhost:3000',
   'http://127.0.0.1:5173',
@@ -92,6 +96,7 @@ app.use(cors({
     if (
       !origin || 
       allowedOrigins.includes(origin) || 
+      VERCEL_ORIGIN.test(origin) ||
       origin.startsWith('http://localhost:') || 
       origin.startsWith('http://127.0.0.1:') ||
       /^http:\/\/(192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin)

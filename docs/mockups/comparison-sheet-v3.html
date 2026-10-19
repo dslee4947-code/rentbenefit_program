@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>차량 조건비교표 시안 v3</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css" />
+<style>
+  /* 기준: 법인 담당자가 미팅 자리에서 1분 안에 훑어본다. 월 납입금과 계약 기간이 먼저 보여야 한다. */
+  :root { --navy: #111e38; --gold: #ad885c; --gold-soft: #f8f3eb; --line: #e6e8ec; --muted: #8a94a6; --text: #1f2937; --bg: #f6f7f9; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif; color: var(--text); font-variant-numeric: tabular-nums; }
+  .doc { width: 900px; margin: 0 auto; padding: 30px 32px 24px; }
+
+  .head { display: flex; align-items: flex-end; justify-content: space-between; padding-bottom: 14px; border-bottom: 2px solid var(--navy); }
+  .head .left .co { font-size: 13px; font-weight: 700; color: var(--gold); letter-spacing: 1px; }
+  .head .left h1 { margin: 4px 0 0; font-size: 28px; font-weight: 800; color: var(--navy); letter-spacing: 1px; }
+  .head .right { text-align: right; }
+  .head .logo { font-weight: 800; color: #3b5a8c; font-size: 20px; font-family: Georgia, serif; }
+  .head .num { margin-top: 4px; font-size: 12px; color: #667; }
+
+  .meta { display: flex; justify-content: space-between; align-items: center; margin: 14px 0 16px; font-size: 14px; }
+  .meta .to { font-size: 17px; font-weight: 800; color: var(--navy); }
+  .meta .car { font-size: 14px; color: #445; }
+  .meta .car b { color: var(--navy); font-size: 15px; }
+
+  /* ① 한눈에 보는 카드: 계약 기간과 월 납입금이 가장 크다 */
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px 12px; background: #fff; position: relative; }
+  .card .top { display: flex; justify-content: space-between; align-items: center; }
+  .card .no { font-size: 13px; font-weight: 800; color: var(--gold); }
+  .card .type { font-size: 11.5px; font-weight: 700; color: #2f6fed; background: #eaf1fe; padding: 1px 7px; border-radius: 10px; }
+  .card .term { margin-top: 8px; font-size: 15px; font-weight: 800; color: var(--navy); }
+  .card .label { margin-top: 6px; font-size: 11.5px; color: var(--muted); }
+  .card .monthly { font-size: 27px; font-weight: 800; color: var(--navy); letter-spacing: -0.5px; line-height: 1.15; }
+  .card .monthly small { font-size: 14px; font-weight: 700; margin-left: 2px; }
+  .card .cond { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); font-size: 11.5px; color: #556; line-height: 1.6; }
+  .card .cond span { color: var(--muted); }
+
+  /* ② 세부 비교표 */
+  .sec { display: flex; justify-content: space-between; align-items: baseline; margin: 22px 0 6px; }
+  .sec h2 { margin: 0; font-size: 14px; font-weight: 800; color: var(--navy); }
+  .sec .unit { font-size: 11.5px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+  col.lab { width: 148px; }
+  thead th { background: var(--navy); color: #fff; font-weight: 700; font-size: 12.5px; padding: 8px 6px; }
+  thead th + th { border-left: 1px solid rgba(255,255,255,0.15); }
+  tbody th { text-align: left; font-weight: 600; color: #334; padding: 7px 12px; background: var(--bg); white-space: nowrap; }
+  tbody td { text-align: right; padding: 7px 14px; border-left: 1px solid var(--line); }
+  tbody tr { border-bottom: 1px solid var(--line); }
+  td.empty { color: #c3c8d1; text-align: center; }
+  td.center { text-align: center; }
+  tr.key th, tr.key td { background: var(--gold-soft); color: var(--navy); font-weight: 800; }
+  tr.key td { font-size: 14.5px; }
+  tr.total { border-top: 1.5px solid var(--navy); border-bottom: 1.5px solid var(--navy); }
+  tr.total th, tr.total td { font-weight: 800; color: var(--navy); }
+  .sub { color: var(--muted); font-weight: 500; font-size: 11.5px; }
+
+  .note { margin-top: 10px; font-size: 11.5px; color: #667; line-height: 1.6; }
+  .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 11.5px; color: #778; }
+  .foot b { color: var(--gold); letter-spacing: 2px; }
+</style>
+</head>
+<body>
+<div class="doc">
+  <div class="head">
+    <div class="left"><div class="co">(주)렌트베네핏</div><h1>차량 조건비교표</h1></div>
+    <div class="right"><div class="logo">BENefit</div><div class="num">견적번호 RB-261007-062 · 작성일 2026-10-07</div></div>
+  </div>
+
+  <div class="meta">
+    <div class="to">이주동 대표님 귀하</div>
+    <div class="car">비교 차량 <b>레이 1.0 가솔린 트렌디</b> · 차량가격 17,900,000원</div>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="top"><span class="no">1안</span><span class="type">렌트</span></div>
+      <div class="term">36개월</div>
+      <div class="label">월 납입금</div>
+      <div class="monthly">398,000<small>원</small></div>
+      <div class="cond"><span>보증금</span> 30% · <span>선수금</span> 0%<br /><span>인수가</span> 60% · <span>총 구입가</span> 2,507만</div>
+    </div>
+    <div class="card">
+      <div class="top"><span class="no">2안</span><span class="type">렌트</span></div>
+      <div class="term">36개월</div>
+      <div class="label">월 납입금</div>
+      <div class="monthly">413,000<small>원</small></div>
+      <div class="cond"><span>보증금</span> 0% · <span>선수금</span> 0%<br /><span>인수가</span> 60% · <span>총 구입가</span> 2,561만</div>
+    </div>
+    <div class="card">
+      <div class="top"><span class="no">3안</span><span class="type">렌트</span></div>
+      <div class="term">48개월</div>
+      <div class="label">월 납입금</div>
+      <div class="monthly">370,000<small>원</small></div>
+      <div class="cond"><span>보증금</span> 30% · <span>선수금</span> 0%<br /><span>인수가</span> 50% · <span>총 구입가</span> 2,671만</div>
+    </div>
+    <div class="card">
+      <div class="top"><span class="no">4안</span><span class="type">렌트</span></div>
+      <div class="term">48개월</div>
+      <div class="label">월 납입금</div>
+      <div class="monthly">384,000<small>원</small></div>
+      <div class="cond"><span>보증금</span> 0% · <span>선수금</span> 0%<br /><span>인수가</span> 50% · <span>총 구입가</span> 2,738만</div>
+    </div>
+  </div>
+
+  <div class="sec"><h2>세부 비교</h2><span class="unit">단위: 원</span></div>
+  <table>
+    <colgroup><col class="lab" /><col /><col /><col /><col /></colgroup>
+    <thead><tr><th>구분</th><th>1안 · 36개월</th><th>2안 · 36개월</th><th>3안 · 48개월</th><th>4안 · 48개월</th></tr></thead>
+    <tbody>
+      <tr><th>보증금</th><td>5,370,000</td><td class="empty">–</td><td>5,370,000</td><td class="empty">–</td></tr>
+      <tr><th>선수금</th><td class="empty">–</td><td class="empty">–</td><td class="empty">–</td><td class="empty">–</td></tr>
+      <tr><th>출고 전 납입액</th><td>5,370,000</td><td class="empty">–</td><td>5,370,000</td><td class="empty">–</td></tr>
+      <tr class="key"><th>월 납입금</th><td>398,000</td><td>413,000</td><td>370,000</td><td>384,000</td></tr>
+      <tr><th>월 납입금 합계</th><td>14,328,000 <span class="sub">36회</span></td><td>14,868,000 <span class="sub">36회</span></td><td>17,760,000 <span class="sub">48회</span></td><td>18,432,000 <span class="sub">48회</span></td></tr>
+      <tr><th>인수가</th><td>10,740,000</td><td>10,740,000</td><td>8,950,000</td><td>8,950,000</td></tr>
+      <tr><th>종료 후 납입액</th><td>5,370,000</td><td>10,740,000</td><td>3,580,000</td><td>8,950,000</td></tr>
+      <tr class="total"><th>총 구입가</th><td>25,068,000</td><td>25,608,000</td><td>26,710,000</td><td>27,382,000</td></tr>
+      <tr><th>약정운행거리(연)</th><td class="center">20,000km</td><td class="center">20,000km</td><td class="center">20,000km</td><td class="center">20,000km</td></tr>
+      <tr><th>정비</th><td class="center">미가입</td><td class="center">미가입</td><td class="center">미가입</td><td class="center">미가입</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    · 총 구입가 = 선수금 + 월 납입금 합계 + 인수가 (보증금은 만기에 돌려받아 인수가에서 빠집니다)<br />
+    · 월 납입금은 VAT 포함 금액이며, 보험료·자동차세가 포함되어 있습니다.
+  </div>
+
+  <div class="foot"><div>본 비교표는 계약 조건에 따라 변동될 수 있습니다.</div><b>RENT BENEFIT</b></div>
+</div>
+</body>
+</html>

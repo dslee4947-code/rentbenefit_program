@@ -11,6 +11,7 @@ import { looksLikeResidentRegistrationNumber } from '../utils/validators.js';
 import { inferPartyType, normalizePartyType, bizTypeFor } from '../utils/partyType.js';
 import { applyAccidentRentalParty, RENTAL_FLEET_STATUSES } from '../utils/accidentRentalCompany.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
+import { refreshContractEndDate } from '../utils/contractEndDate.js';
 import { applyColorSplit } from '../utils/vehicleColor.js';
 import { mergeCarModel } from '../utils/carModel.js';
 import { stripHonorific } from '../utils/personName.js';
@@ -137,7 +138,7 @@ const generateVehicleCode = async (carModel, currentCode) => {
  *
  * @returns {Promise<object|null>} 다시 읽은 차량 문서
  */
-const refreshVehicleProfit = async (vehicleId) => {
+export const refreshVehicleProfit = async (vehicleId) => {
   const vehicle = await Vehicle.findById(vehicleId).lean();
   if (!vehicle) return null;
 
@@ -240,7 +241,7 @@ export const getVehicles = async (req, res) => {
       ])
     ]);
 
-    const stats = { total: 0, '계약중': 0, '장기렌트': 0, '단기렌트': 0, '거래완료': 0 };
+    const stats = { total: 0, '계약중': 0, '장기렌트': 0, '단기렌트': 0, '재고': 0, '거래완료': 0 };
     statsResult.forEach(item => {
       if (item._id && Object.prototype.hasOwnProperty.call(stats, item._id)) {
         stats[item._id] = item.count;
@@ -506,6 +507,16 @@ export const updateVehicle = async (req, res) => {
       });
     }
 
+    // 인도일이 바뀌면 계약 만기도 바뀐다. 만기는 계약일이 아니라 인도일 기준이다(utils/contractTerm.js).
+    // 만기를 못 맞춰도 차량 저장은 이미 끝났으므로 실패를 알리기만 한다.
+    if (updatedVehicle?.contract && req.body.deliveryDate !== undefined) {
+      try {
+        await refreshContractEndDate(updatedVehicle.contract);
+      } catch (err) {
+        console.error(`[계약 만기] ${updatedVehicle.plateNo || updatedVehicle._id}: ${err.message}`);
+      }
+    }
+
     // 청구 회차표를 다시 만든다.
     //
     // 회차표를 만들려면 월 대여료 결제일과 렌트료 게시일이 있어야 하는데 둘 다 출고 준비에서 정한다.
@@ -525,7 +536,8 @@ export const updateVehicle = async (req, res) => {
         // 출고를 마친 차인데 회차표가 없으면 청구가 통째로 빠지므로 눈에 띄어야 한다.
         // 다만 완납(NO_RENT)은 청구할 게 없는 정상이고, 출고 전 차는 결제일·개시일이 아직 없는 게 정상이라 거른다.
         const notYetReady = ['NO_PAYMENT_DAY', 'NO_DATE'].includes(err.code) && updatedVehicle.status !== '장기렌트';
-        if (err.code !== 'NO_RENT' && !notYetReady) {
+        // 끝난 계약(반납 후 재고 등)은 회차표가 필요 없는 정상 상태다
+        if (err.code !== 'NO_RENT' && err.code !== 'CONTRACT_ENDED' && !notYetReady) {
           billingWarning = { code: err.code || 'UNKNOWN', message: err.message };
         }
       }
@@ -567,7 +579,7 @@ export const deleteVehicle = async (req, res) => {
  * 고객/법인/계약 정보는 여기에 없다. 차량이 아니라 계약에 속한 정보라
  * 계약서 등록에서 연결된다(차량 DB는 contract 참조만 가진다).
  */
-const VEHICLE_EXCEL_COLUMNS = [
+export const VEHICLE_EXCEL_COLUMNS = [
   // 계약자 - 사업자번호가 있으면 법인을 찾아 연결하고, 없으면 그 정보로 법인을 새로 만든다
   { key: 'partyType', type: 'text', labels: ['계약구분'], hint: '법인 / 개인사업자 / 일반개인' },
   { key: '_contractorName', type: 'text', labels: ['계약자', '계약사', '계약자명', '계약사명', '법인명', '상호'], hint: '법인이면 법인명, 개인이면 이름' },
@@ -763,8 +775,8 @@ const generateContractNoForImport = async (customer, date) => {
   return `${prefix}${String(count + 1).padStart(2, '0')}`;
 };
 
-const STATUS_BY_LABEL = {
-  '장기렌트': '장기렌트', '단기렌트': '단기렌트', '계약중': '계약중', '거래완료': '거래완료',
+export const STATUS_BY_LABEL = {
+  '장기렌트': '장기렌트', '단기렌트': '단기렌트', '계약중': '계약중', '재고': '재고', '거래완료': '거래완료',
   // 사고대차는 단기렌트로 통일했다. 예전 엑셀에 '사고대차'로 적혀 와도 단기렌트로 받는다.
   '사고대차': '단기렌트',
   // 이전 상태값으로 올라온 엑셀도 새 분류로 매핑해 받아준다
@@ -773,7 +785,7 @@ const STATUS_BY_LABEL = {
   '예약': '계약중', '계약전': '계약중', '계약변경': '거래완료'
 };
 
-const normalizeHeader = (value) => String(value ?? '').replace(/[\s()·/_-]/g, '').toLowerCase();
+export const normalizeHeader = (value) => String(value ?? '').replace(/[\s()·/_-]/g, '').toLowerCase();
 
 const parseExcelDate = (value) => {
   if (!value) return undefined;
@@ -787,7 +799,7 @@ const parseExcelDate = (value) => {
   return isNaN(date.getTime()) ? undefined : date;
 };
 
-const parseCellValue = (raw, type) => {
+export const parseCellValue = (raw, type) => {
   if (raw === undefined || raw === null || String(raw).trim() === '') return undefined;
 
   if (type === 'number') {
@@ -807,7 +819,7 @@ const parseCellValue = (raw, type) => {
 };
 
 // 퍼센트로 쓰는 값들. 엑셀에서 25%로 보이는 칸은 실제로 0.25로 저장돼 있어 되돌려 준다.
-const PERCENT_KEYS = new Set(['lateInterestRate', 'earlyTerminationRate', 'interestRate']);
+export const PERCENT_KEYS = new Set(['lateInterestRate', 'earlyTerminationRate', 'interestRate']);
 
 /**
  * 퍼센트 칸을 사람이 읽는 값(25)으로 맞춘다.
@@ -818,7 +830,7 @@ const PERCENT_KEYS = new Set(['lateInterestRate', 'earlyTerminationRate', 'inter
  * @param {number} value 셀 값
  * @returns {number} 퍼센트 값
  */
-const normalizePercent = (value) => {
+export const normalizePercent = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return n;
   return n <= 1 ? Number((n * 100).toFixed(3)) : n;
@@ -831,7 +843,7 @@ const normalizePercent = (value) => {
  * @param {string|number} value 셀 값
  * @returns {string} 결제일
  */
-const normalizePaymentDay = (value) => {
+export const normalizePaymentDay = (value) => {
   const text = String(value ?? '').trim();
   if (!text) return text;
   if (/말/.test(text)) return '말일';
@@ -839,7 +851,7 @@ const normalizePaymentDay = (value) => {
   return digits || text;
 };
 
-const setNestedValue = (target, path, value) => {
+export const setNestedValue = (target, path, value) => {
   const parts = path.split('.');
   let node = target;
   for (let i = 0; i < parts.length - 1; i += 1) {

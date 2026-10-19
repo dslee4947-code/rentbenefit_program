@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Search, Plus, Save, Trash2, RefreshCw, ArrowLeft, Link2, Printer, FileSpreadsheet, ArrowUp, ArrowDown, CalendarPlus, Pencil, Check, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { toCommaString } from '../../utils/format.js';
 import MoneyInput from './MoneyInput.jsx';
+import ShortTermTargetPanel from './ShortTermTargetPanel.jsx';
 import { useSaveShortcut } from './useSaveShortcut.js';
 import { calculateQuoteOption } from '../../../../shared/quoteCalc.js';
 import { GRADE_LABEL } from '../../../../shared/maintenanceRates.js';
@@ -83,7 +84,7 @@ const SORTABLE = [
   { key: null, label: '차량 사양' },
   { key: 'plateNo', label: '차량번호' },
   { key: null, label: '차대번호' },
-  { key: 'purchasedAt', label: '구매일' },
+  { key: 'deliveredAt', label: '출고일' },
   { key: 'contractEndAt', label: '계약종료일' },
   { key: null, label: '상태' },
   { key: 'paidOut', label: '누적지출', numeric: true },
@@ -1288,8 +1289,8 @@ function LedgerView({ showToast, currentUser }) {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
-  // 기본은 차량 구매일 최신순. 새로 들인 차가 맨 위에 와야 자금팀이 방금 산 차를 바로 찾는다.
-  const [sortKey, setSortKey] = useState('purchasedAt');
+  // 기본 순서: 계약차량 → 단기렌트 → 장기렌트 → 그 밖(거래완료 등), 각 묶음 안에서 최근 출고순 (서버가 정렬)
+  const [sortKey, setSortKey] = useState('default');
   const [sortOrder, setSortOrder] = useState('desc');
   const [loading, setLoading] = useState(false);
 
@@ -1370,6 +1371,52 @@ function LedgerView({ showToast, currentUser }) {
     const timer = setTimeout(fetchLedgers, 250);
     return () => clearTimeout(timer);
   }, [viewMode, fetchLedgers]);
+
+  // 자금팀 엑셀(OneDrive) 자동 갱신. 원장 입출금은 엑셀이 원본이다(서버 utils/excelAutoSync.js, 2026-10-18).
+  const [excelSync, setExcelSync] = useState(null);
+  const [excelSyncing, setExcelSyncing] = useState(false);
+  const fetchExcelSync = useCallback(() => {
+    fetch(`${API_HOST}/api/excel-sync/status`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then(setExcelSync)
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (viewMode === 'list') fetchExcelSync();
+  }, [viewMode, fetchExcelSync]);
+
+  const runExcelSyncNow = async () => {
+    if (!window.confirm('OneDrive의 자금팀 엑셀을 지금 차량 손익 원장과 회사 장부에 반영합니다.\n(반영 전 지금 원장을 OneDrive에 백업합니다) 진행할까요?')) return;
+    setExcelSyncing(true);
+    try {
+      const res = await fetch(`${API_HOST}/api/excel-sync/run`, { method: 'POST', headers: authHeaders, body: JSON.stringify({}) });
+      const data = await res.json();
+      showToast(data.message || (res.ok ? '반영했습니다.' : '반영하지 못했습니다.'), res.ok && data.success !== false ? 'success' : 'warning');
+      fetchExcelSync();
+      fetchLedgers();
+    } catch (err) {
+      showToast(err.message || '반영하지 못했습니다.', 'error');
+    } finally {
+      setExcelSyncing(false);
+    }
+  };
+
+  // 직원이 익숙해지면 엑셀 대신 프로그램에서 바로 관리한다. 그때 끈다(끄지 않으면 엑셀이 프로그램 수정분을 덮는다).
+  const toggleExcelSync = async () => {
+    const turnOn = Boolean(excelSync?.switchedOff);
+    const ask = turnOn
+      ? '엑셀 연동을 다시 켭니다.\n다음 갱신부터 OneDrive 엑셀 내용으로 원장 입출금 줄이 바뀝니다. 그동안 프로그램에서 고친 입출금 줄은 엑셀에 없으면 사라집니다. 진행할까요?'
+      : '엑셀 연동을 끕니다.\n이제 원장 입출금은 프로그램에서 직접 고치고, OneDrive 엑셀을 고쳐도 프로그램에 들어오지 않습니다.\n끄기 전에 [지금 갱신]으로 엑셀 최종본을 한 번 반영해 두세요. 끌까요?';
+    if (!window.confirm(ask)) return;
+    try {
+      const res = await fetch(`${API_HOST}/api/excel-sync/switch`, { method: 'POST', headers: authHeaders, body: JSON.stringify({ on: turnOn }) });
+      const data = await res.json();
+      showToast(data.message || (res.ok ? '바꿨습니다.' : '바꾸지 못했습니다.'), res.ok ? 'success' : 'warning');
+      fetchExcelSync();
+    } catch (err) {
+      showToast(err.message || '바꾸지 못했습니다.', 'error');
+    }
+  };
 
   // 항목명 자동완성 목록은 한 번만 받아 둔다
   useEffect(() => {
@@ -1455,7 +1502,7 @@ function LedgerView({ showToast, currentUser }) {
 
   const resetFilters = () => {
     setQuery(''); setStatusFilter(''); setTypeFilter('');
-    setSortKey('purchasedAt'); setSortOrder('desc');
+    setSortKey('default'); setSortOrder('desc');
   };
 
   // ── 갑지 상세 ────────────────────────────────────────────────
@@ -1835,13 +1882,14 @@ function LedgerView({ showToast, currentUser }) {
             title="표 머리글을 눌러도 같은 기준으로 정렬됩니다"
             style={{ padding: '0.6rem', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.85rem', background: '#fff' }}
           >
+            <option value="default:desc">기본 순서 (계약차량 · 단기 · 장기 · 완료, 최근 출고순)</option>
             <option value="createdAt:desc">최근 만든 순</option>
             {SORTABLE.filter((c) => c.key).flatMap((c) => ([
               <option key={`${c.key}:asc`} value={`${c.key}:asc`}>{c.label} 오름차순</option>,
               <option key={`${c.key}:desc`} value={`${c.key}:desc`}>{c.label} 내림차순</option>
             ]))}
           </select>
-          {(query || statusFilter || typeFilter || sortKey !== 'purchasedAt' || sortOrder !== 'desc') && (
+          {(query || statusFilter || typeFilter || sortKey !== 'default' || sortOrder !== 'desc') && (
             <button
               type="button"
               onClick={resetFilters}
@@ -1860,6 +1908,55 @@ function LedgerView({ showToast, currentUser }) {
             </button>
           )}
         </div>
+
+        {excelSync && (() => {
+          const when = (x) => (x ? new Date(x).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-');
+          const last = excelSync.lastRun;
+          return (
+            <div style={{ ...card, padding: '0.7rem 1rem', display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              <RefreshCw size={14} style={{ flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: '260px', lineHeight: 1.6 }}>
+                <div>
+                  <b style={{ color: 'var(--text-bright)' }}>자금팀 엑셀 자동 갱신</b>{' '}
+                  {excelSync.switchedOff
+                    ? `꺼짐 · 원장은 프로그램에서 직접 관리합니다 (${when(excelSync.switchedAt)}${excelSync.switchedBy ? ` ${excelSync.switchedBy}` : ''})`
+                    : excelSync.enabled
+                      ? '켜짐 · 근무 시간(09:00~20:00) 10분마다 확인해 저장 후 10분 지나면 반영 · 21:00 하루 마감'
+                      : '이 서버에서는 정기 실행이 꺼져 있습니다 (운영 서버에서만 동작)'}
+                </div>
+                <div>
+                  마지막 반영 {when(last?.at)}{last?.message ? ` · ${last.message}` : ''}
+                  {!excelSync.switchedOff && excelSync.lastCheck?.waiting?.length ? ` · ${excelSync.lastCheck.waiting.join(' ')}` : ''}
+                </div>
+                {!excelSync.switchedOff && (
+                  <div style={{ color: '#b45309' }}>
+                    입출금 줄은 OneDrive 엑셀이 원본입니다. 여기서 고친 입출금 줄은 다음 갱신 때 엑셀 내용으로 바뀌니 엑셀에서 고쳐 주세요.
+                  </div>
+                )}
+              </div>
+              {currentUser?.role === 'admin' && (
+                <button
+                  type="button"
+                  onClick={toggleExcelSync}
+                  title={excelSync.switchedOff ? 'OneDrive 엑셀을 다시 원장의 원본으로 씁니다' : '엑셀 대신 프로그램에서 바로 관리하게 되면 끕니다'}
+                  style={{ border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-muted)', padding: '0.45rem 0.8rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: '600', cursor: 'pointer' }}
+                >
+                  {excelSync.switchedOff ? '엑셀 연동 다시 켜기' : '엑셀 연동 끄기'}
+                </button>
+              )}
+              {currentUser?.role === 'admin' && !excelSync.switchedOff && (
+                <button
+                  type="button"
+                  onClick={runExcelSyncNow}
+                  disabled={excelSyncing}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', border: '1px solid var(--primary)', background: '#fff', color: 'var(--primary)', padding: '0.45rem 0.8rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: '700', cursor: excelSyncing ? 'wait' : 'pointer' }}
+                >
+                  <RefreshCw size={14} /> {excelSyncing ? '반영 중…' : '지금 갱신'}
+                </button>
+              )}
+            </div>
+          );
+        })()}
 
         <div style={{ ...card, overflow: 'hidden' }}>
           <div style={{ padding: '0.9rem 1.2rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-main)' }}>
@@ -1918,7 +2015,7 @@ function LedgerView({ showToast, currentUser }) {
                     <td style={{ padding: '0.55rem 0.4rem' }}>{l.header?.carSpec || '-'}</td>
                     <td style={{ padding: '0.55rem 0.4rem', whiteSpace: 'nowrap' }}>{l.header?.plateNo || '-'}</td>
                     <td style={{ padding: '0.55rem 0.4rem', whiteSpace: 'nowrap' }}>{l.header?.vin || '-'}</td>
-                    <td style={{ padding: '0.55rem 0.4rem', whiteSpace: 'nowrap' }}>{toDateInput(l.purchasedAt) || '-'}</td>
+                    <td style={{ padding: '0.55rem 0.4rem', whiteSpace: 'nowrap' }}>{toDateInput(l.deliveredAt) || '-'}</td>
                     <td style={{ padding: '0.55rem 0.4rem', whiteSpace: 'nowrap' }}>{toDateInput(l.header?.contractEndAt) || '-'}</td>
                     <td style={{ padding: '0.55rem 0.4rem', whiteSpace: 'nowrap' }}>
                       <span style={{ fontSize: '0.72rem', fontWeight: '700', padding: '0.15rem 0.45rem', borderRadius: '10px', background: l.status === '차량미배정' ? '#fff3cd' : 'var(--bg-main)', color: l.status === '차량미배정' ? '#8a6d1f' : 'var(--text-muted)' }}>
@@ -2352,6 +2449,17 @@ function LedgerView({ showToast, currentUser }) {
           );
         })}
       </div>
+
+      {/* 단기렌트 차는 견적서 3년·선수금 30%·잔가 0% 월 렌트료를 매달 벌어 오는지 본다 */}
+      {ledger.ledgerType === '단기렌트' && (
+        <ShortTermTargetPanel
+          ledgerId={ledger._id}
+          reloadKey={ledger.updatedAt}
+          canEdit={canEdit}
+          authHeaders={authHeaders}
+          showToast={showToast}
+        />
+      )}
 
       {/* 수익성 검토 - 견적서에서 잡아 둔 비용과 원장에 실제로 나간 돈을 비교한다 */}
       <ProfitReview

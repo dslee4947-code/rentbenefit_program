@@ -8,6 +8,7 @@ import Quote from '../models/Quote.js';
 import { calculateVehicleProfit, QUOTE_DEFAULTS } from '../utils/vehicleProfit.js';
 import { getMaintenanceRates } from '../utils/maintenanceRates.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
+import { buildShortTermReport, shortTermRowFor, getInternalRate } from '../utils/shortTermReport.js';
 
 /**
  * 갑지 번호를 채번한다. 차량 코드와 같은 체계(Ray-001, Grander-012)라
@@ -185,6 +186,8 @@ export const syncLedgerEntries = async (ledger) => {
 
   const periods = resolvePeriods(ledger);
   const lastSeq = periods[periods.length - 1]?.seq;
+  // 마지막 구간에서 실제로 받을 인수가. 0이면(반납·단기 운용 중) 인수가 줄을 남기지 않는다.
+  let lastTakeoverAmount = 0;
 
   for (const period of periods) {
     const contract = period.contract ? await Contract.findById(period.contract).lean() : null;
@@ -208,6 +211,7 @@ export const syncLedgerEntries = async (ledger) => {
       if (!row.amount) return;
       if (upsertAutoEntry(ledger, { ...row, round: 0, periodSeq: seq, source: 'contract', sourceRef: contract?._id })) changed += 1;
     });
+    if (seq === lastSeq) lastTakeoverAmount = Number(period.takeoverPrice ?? pricing.takeoverPrice) || 0;
 
     // 2. 렌트료 입금 - 그 구간의 청구 회차표에서 입금완료로 찍힌 회차만 가져온다.
     //
@@ -298,6 +302,14 @@ export const syncLedgerEntries = async (ledger) => {
     }
   }
 
+  // 인수가는 차를 마지막에 넘길 때 한 번만 들어온다.
+  // 연장하면 이전 구간의 인수가 줄이 그대로 남아, 연장할 때마다 인수가가 한 줄씩 쌓여 손익이 부풀었다.
+  // 반납해서 차가 돌아왔으면 인수가는 들어오지 않았다. 자동으로 만든 줄 중 이런 것을 지운다(사람이 고친 줄은 둔다).
+  const before = ledger.entries.length;
+  ledger.entries = ledger.entries.filter((e) => !(e.source === 'contract' && e.category === '인수가' && !e.locked
+    && ((e.periodSeq || 1) !== lastSeq || !lastTakeoverAmount)));
+  changed += before - ledger.entries.length;
+
   return changed;
 };
 
@@ -311,7 +323,7 @@ const withSummary = (doc) => {
 // @route   GET /api/ledgers
 export const getLedgers = async (req, res) => {
   try {
-    const { q, status, ledgerType, form, companyId, sort = 'purchasedAt', order = 'desc' } = req.query;
+    const { q, status, ledgerType, form, companyId, sort = 'default', order = 'desc' } = req.query;
     const filter = {};
     if (status) filter.status = status;
     if (ledgerType) filter.ledgerType = ledgerType;
@@ -347,9 +359,29 @@ export const getLedgers = async (req, res) => {
       return l.ledgerType === '단기렌트' ? '단기' : '장기';
     };
 
+    /**
+     * 기본 순서의 묶음 (대표님 지정 2026-10-07): 1 계약차량 → 2 단기렌트 → 3 장기렌트 → 4 그 밖(거래완료 등).
+     * 렌트차량 DB의 차량 상태로 가른다. 갑지가 거래완료면 차 상태와 상관없이 4번이다.
+     * 차량이 연결되지 않은 갑지도 상태를 알 수 없어 4번으로 간다.
+     */
+    const groupOf = (l) => {
+      if (l.status === '거래완료') return 4;
+      return { 계약중: 1, 단기렌트: 2, 장기렌트: 3 }[l.vehicle?.status] || 4;
+    };
+
+    // 출고일. 렌트차량 DB의 인도일이 정본이고, 없으면 갑지의 출고일, 그것도 없으면 구매일로 대신한다.
+    const deliveredAtOf = (l) => l.vehicle?.deliveryDate || l.header?.deliveredAt || purchasedAtOf(l);
+
     let ledgers = (await VehicleLedger.find(filter)
       .populate('company', 'name bizNo')
-      .lean()).map((l) => ({ ...withSummary(l), purchasedAt: purchasedAtOf(l), form: formOf(l) }));
+      .populate('vehicle', 'status deliveryDate')
+      .lean()).map((l) => ({
+      ...withSummary(l),
+      purchasedAt: purchasedAtOf(l),
+      deliveredAt: deliveredAtOf(l),
+      sortGroup: groupOf(l),
+      form: formOf(l)
+    }));
     if (form) ledgers = ledgers.filter((l) => l.form === form);
 
     /**
@@ -366,7 +398,7 @@ export const getLedgers = async (req, res) => {
       carModel: (l) => l.header?.carModel || '',
       plateNo: (l) => l.header?.plateNo || '',
       purchasedAt: (l) => (l.purchasedAt ? new Date(l.purchasedAt).getTime() : null),
-      deliveredAt: (l) => (l.header?.deliveredAt ? new Date(l.header.deliveredAt).getTime() : null),
+      deliveredAt: (l) => (l.deliveredAt ? new Date(l.deliveredAt).getTime() : null),
       contractEndAt: (l) => (l.header?.contractEndAt ? new Date(l.header.contractEndAt).getTime() : null),
       paidOut: (l) => l.summary.paidOut,
       paidIn: (l) => l.summary.paidIn,
@@ -378,6 +410,18 @@ export const getLedgers = async (req, res) => {
     // 값이 비어 있는 줄(계약자명 미입력, 출고일 미정)은 방향과 상관없이 항상 뒤로 보낸다.
     // 오름차순을 눌렀을 때 빈칸이 맨 위를 차지하면 정렬한 의미가 없다.
     const isBlank = (v) => v === '' || v === null || v === undefined;
+
+    // 기본 순서: 묶음(계약차량 → 단기 → 장기 → 그 밖) 안에서 최근 출고순. 출고일이 없는 갑지는 묶음 맨 뒤.
+    if (sort === 'default') {
+      const t = (l) => (l.deliveredAt ? new Date(l.deliveredAt).getTime() : null);
+      ledgers.sort((a, b) => {
+        if (a.sortGroup !== b.sortGroup) return a.sortGroup - b.sortGroup;
+        const at = t(a); const bt = t(b);
+        if ((at === null) !== (bt === null)) return at === null ? 1 : -1;
+        return (bt || 0) - (at || 0);
+      });
+      return res.json(ledgers);
+    }
 
     ledgers.sort((a, b) => {
       const av = pick(a);
@@ -520,6 +564,12 @@ export const updateLedger = async (req, res) => {
     if (req.body.note !== undefined) ledger.note = req.body.note;
     if (req.body.profitReport !== undefined) ledger.profitReport = String(req.body.profitReport || '');
     if (['미정', '인수', '반납'].includes(req.body.maturityPlan)) ledger.maturityPlan = req.body.maturityPlan;
+    // 단기렌트 월 목표·시작일. 빈 값이면 지워서 견적서 식으로 낸 값을 다시 쓴다.
+    if (req.body.shortTerm && typeof req.body.shortTerm === 'object') {
+      const { monthlyTarget, startDate } = req.body.shortTerm;
+      if (monthlyTarget !== undefined) ledger.set('shortTerm.monthlyTarget', Number(monthlyTarget) > 0 ? Math.round(Number(monthlyTarget)) : undefined);
+      if (startDate !== undefined) ledger.set('shortTerm.startDate', startDate ? new Date(startDate) : undefined);
+    }
 
     await ledger.save();
     res.json(withSummary(ledger));
@@ -689,6 +739,69 @@ export const linkVehicle = async (req, res) => {
  * 그래서 새로 생긴 갑지를 흡수해 한 장으로 합친다.
  */
 // @route   POST /api/ledgers/:id/extend
+/**
+ * 갑지에 계약 구간을 하나 더 붙인다. 연장·재렌트 모두 이 함수를 지난다.
+ *
+ * 연장해도 갑지는 새로 만들지 않는다. 차량가·등록비용은 최초 1회만 나가므로 갑지를 쪼개면
+ * 원 갑지는 지출만 남아 적자로, 새 갑지는 렌트료만 쌓여 폭리로 보인다. 차 1대의 손익은 구간을 합쳐야 맞다.
+ *
+ * @param {import('mongoose').Document} ledger 갑지
+ * @param {object} contract 붙일 계약 (lean)
+ * @param {object} [options]
+ * @param {string} [options.note] 구간 메모 (예: '연장 · 보증금 승계')
+ * @param {number} [options.deposit] 이 구간에 실제로 들어온 보증금. 승계면 0 — 돈이 오가지 않았는데
+ *   계약서 보증금을 그대로 넣으면 같은 보증금이 두 번 입금된 것으로 잡힌다.
+ * @param {number} [options.monthlyRent] 이 차량의 월 렌트료 (한 계약에 차가 여러 대면 차마다 다르다)
+ * @returns {number} 붙인 구간 번호
+ */
+export const appendContractPeriod = (ledger, contract, { note, deposit, monthlyRent } = {}) => {
+  const periods = ledger.contractPeriods || [];
+  const seq = periods.length ? Math.max(...periods.map((p) => p.seq)) + 1 : 2;
+  const pricing = contract.pricing || {};
+
+  // 최초 계약 구간이 비어 있으면(연장 기능이 생기기 전에 만들어진 갑지) 먼저 채워 넣는다.
+  // 그래야 1차 연장이 2구간으로 제자리를 잡는다.
+  if (!periods.length) {
+    ledger.contractPeriods.push({
+      seq: 1,
+      contract: ledger.contract,
+      startDate: ledger.header?.contractedAt,
+      endDate: ledger.header?.contractEndAt,
+      termMonths: ledger.terms?.termMonths,
+      monthlyRent: ledger.terms?.monthlyRent,
+      deposit: ledger.terms?.deposit,
+      advancePayment: ledger.terms?.advancePayment,
+      takeoverPrice: ledger.terms?.takeoverPrice
+    });
+  }
+
+  const rent = monthlyRent ?? pricing.monthlyFee ?? pricing.monthlyFeeTotal;
+  ledger.contractPeriods.push({
+    seq,
+    contract: contract._id,
+    contractNo: contract.contractNo,
+    startDate: contract.contractDate,
+    endDate: contract.endDate,
+    termMonths: contract.termMonths ?? pricing.paymentTerm,
+    monthlyRent: rent,
+    deposit: deposit ?? pricing.deposit,
+    advancePayment: pricing.advancePayment,
+    takeoverPrice: pricing.takeoverPrice,
+    note
+  });
+
+  // 지금 유효한 계약 조건은 새 구간의 것이다
+  ledger.contract = contract._id;
+  ledger.terms.monthlyRent = rent ?? ledger.terms.monthlyRent;
+  ledger.terms.termMonths = contract.termMonths ?? ledger.terms.termMonths;
+  if (pricing.deposit !== undefined) ledger.terms.deposit = pricing.deposit;
+  if (pricing.advancePayment !== undefined) ledger.terms.advancePayment = pricing.advancePayment;
+  if (pricing.takeoverPrice !== undefined) ledger.terms.takeoverPrice = pricing.takeoverPrice;
+  ledger.header.contractEndAt = contract.endDate;
+  if (ledger.status === '거래완료') ledger.status = '운용중';
+  return seq;
+};
+
 export const extendLedger = async (req, res) => {
   try {
     const ledger = await VehicleLedger.findById(req.params.id);
@@ -702,38 +815,7 @@ export const extendLedger = async (req, res) => {
       return res.status(400).json({ message: '이미 이 갑지에 등록된 계약입니다.' });
     }
 
-    const seq = periods.length ? Math.max(...periods.map((p) => p.seq)) + 1 : 2;
-    const pricing = contract.pricing || {};
-
-    // 최초 계약 구간이 비어 있으면(연장 기능이 생기기 전에 만들어진 갑지) 먼저 채워 넣는다.
-    // 그래야 1차 연장이 2구간으로 제자리를 잡는다.
-    if (!periods.length) {
-      ledger.contractPeriods.push({
-        seq: 1,
-        contract: ledger.contract,
-        startDate: ledger.header?.contractedAt,
-        endDate: ledger.header?.contractEndAt,
-        termMonths: ledger.terms?.termMonths,
-        monthlyRent: ledger.terms?.monthlyRent,
-        deposit: ledger.terms?.deposit,
-        advancePayment: ledger.terms?.advancePayment,
-        takeoverPrice: ledger.terms?.takeoverPrice
-      });
-    }
-
-    ledger.contractPeriods.push({
-      seq,
-      contract: contract._id,
-      contractNo: contract.contractNo,
-      startDate: contract.contractDate,
-      endDate: contract.endDate,
-      termMonths: contract.termMonths ?? pricing.paymentTerm,
-      monthlyRent: pricing.monthlyFee ?? pricing.monthlyFeeTotal,
-      deposit: pricing.deposit,
-      advancePayment: pricing.advancePayment,
-      takeoverPrice: pricing.takeoverPrice,
-      note: req.body.note
-    });
+    const seq = appendContractPeriod(ledger, contract, { note: req.body.note });
 
     /**
      * 연장 계약서를 등록할 때 자동으로 만들어진 갑지가 있으면 흡수한다.
@@ -765,16 +847,6 @@ export const extendLedger = async (req, res) => {
       });
       await duplicate.deleteOne();
     }
-
-    // 지금 유효한 계약 조건은 연장 계약의 것이다
-    ledger.contract = contract._id;
-    ledger.terms.monthlyRent = pricing.monthlyFee ?? pricing.monthlyFeeTotal ?? ledger.terms.monthlyRent;
-    ledger.terms.termMonths = contract.termMonths ?? ledger.terms.termMonths;
-    if (pricing.deposit !== undefined) ledger.terms.deposit = pricing.deposit;
-    if (pricing.advancePayment !== undefined) ledger.terms.advancePayment = pricing.advancePayment;
-    if (pricing.takeoverPrice !== undefined) ledger.terms.takeoverPrice = pricing.takeoverPrice;
-    ledger.header.contractEndAt = contract.endDate;
-    if (ledger.status === '거래완료') ledger.status = '운용중';
 
     await syncLedgerEntries(ledger);
     await ledger.save();
@@ -941,5 +1013,29 @@ export const getLedgerQuote = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    단기렌트 차량별 월 목표 달성 보고 (견적서 3년·인수가 30%·정비 포함 기준 월 목표 vs 원장 고객입금)
+// @route   GET /api/ledgers/short-term-report
+export const getShortTermReport = async (req, res) => {
+  try {
+    res.json({ success: true, ...(await buildShortTermReport()) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    원장 한 장의 단기렌트 월 목표와 달마다 번 돈
+// @route   GET /api/ledgers/:id/short-term
+export const getLedgerShortTerm = async (req, res) => {
+  try {
+    const ledger = await VehicleLedger.findById(req.params.id).lean();
+    if (!ledger) return res.status(404).json({ success: false, message: '갑지를 찾을 수 없습니다.' });
+    const vehicle = ledger.vehicle ? await Vehicle.findById(ledger.vehicle).lean() : null;
+    const [annualRate, maintenanceRates] = await Promise.all([getInternalRate(), getMaintenanceRates()]);
+    res.json({ success: true, ...shortTermRowFor(ledger, vehicle, { annualRate, maintenanceRates }) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 };

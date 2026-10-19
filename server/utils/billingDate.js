@@ -47,6 +47,27 @@ export const resolvePaymentDate = (year, monthIndex, paymentDay) => {
  * @param {number} monthlyRent 월 렌트료
  * @returns {number} 1일 렌트료 (10원 단위)
  */
+/**
+ * 그 날짜 이후(그날 포함) 처음 오는 결제일.
+ *
+ * 연장 계약의 1회차를 잡을 때 쓴다. 연장 시작일이 18일이고 결제일이 10일이면 그달 10일은 이미 지났으므로
+ * 다음 달 10일이 1회차다. 1회차 출금일은 계약일보다 앞설 수 없다(대표님 확인 2026-09-27).
+ *
+ * @param {Date|string} fromDate 기준일
+ * @param {string|number} paymentDay 결제일 설정 ('10', '말일' …)
+ * @returns {Date|null}
+ */
+export const nextPaymentDate = (fromDate, paymentDay) => {
+  const from = new Date(fromDate);
+  if (Number.isNaN(from.getTime())) return null;
+  const fromDay = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
+  for (let i = 0; i < 2; i += 1) {
+    const due = resolvePaymentDate(from.getFullYear(), from.getMonth() + i, paymentDay);
+    if (due && new Date(due.getFullYear(), due.getMonth(), due.getDate()).getTime() >= fromDay) return due;
+  }
+  return null;
+};
+
 export const calcDailyRent = (monthlyRent) => {
   const rent = Number(monthlyRent) || 0;
   if (!rent) return 0;

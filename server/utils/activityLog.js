@@ -10,6 +10,10 @@ export const ACTIONS = Object.freeze({
   INQUIRY_CREATE: '문의 접수',
   QUOTE_CREATE: '견적 작성',
   CONTRACT_CREATE: '계약 등록',
+  CONTRACT_EXTEND: '계약 연장',
+  CONTRACT_RETURN: '차량 반납',
+  CONTRACT_TAKEOVER: '차량 인수',
+  CONTRACT_RERENT: '재렌트 계약',
   VEHICLE_CREATE: '차량 등록',
   VEHICLE_STATUS_CHANGE: '차량 상태 변경',
   INVOICE_ISSUE: '청구서 발행',
@@ -17,6 +21,7 @@ export const ACTIONS = Object.freeze({
   PAYMENT_UPDATE: '입금 입력',
   ROUND_STATUS_CHANGE: '회차 상태 변경',
   NOTICE_REGISTER: '고지서 등록',
+  VEHICLE_SERVICE_RECORD: '정비·검사 기록',
   LEDGER_EDIT: '원장 수정',
   COMPANY_BOOK_EDIT: '회사 장부 수정',
   SYNC: '동기화'

@@ -23,7 +23,11 @@ import companyRoutes from './routes/companyRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import settingRoutes from './routes/settingRoutes.js';
 import companyBookRoutes from './routes/companyBookRoutes.js';
+import shortTermRateRoutes from './routes/shortTermRateRoutes.js';
 import inquiryRoutes from './routes/inquiryRoutes.js';
+import vehicleServiceRoutes from './routes/vehicleServiceRoutes.js';
+import excelSyncRoutes from './routes/excelSyncRoutes.js';
+import { runExcelAutoSync, isExcelAutoSyncEnabled } from './utils/excelAutoSync.js';
 
 // Load environment variables
 dotenv.config();
@@ -34,6 +38,8 @@ import { runDatabaseMigration } from './utils/dbMigration.js';
 import { syncOutlookContacts } from './utils/outlookSyncService.js';
 import { syncInvoiceSendSchedules } from './utils/invoiceScheduleJob.js';
 import { syncFineNoticeSchedules } from './utils/fineNoticeScheduleJob.js';
+import { syncVehicleServiceSchedules } from './utils/vehicleServiceScheduleJob.js';
+import { runAutoSend, sendAutoSendReport, sendApprovalReminder } from './controllers/billingScheduleController.js';
 
 // Connect to MongoDB database
 connectDB().then(async () => {
@@ -74,6 +80,54 @@ connectDB().then(async () => {
     syncFineNoticeSchedules().catch((err) => console.error('[고지서 납부기한] 실패:', err.message));
   }, CRON_OPTIONS);
   console.log('[Cron Scheduler] 고지서 납부기한 동기화 예약 완료 (매일 03:20).');
+
+  // 차마다 다음 자동차검사·정기점검을 캘린더에 하나씩 맞춰 둔다(직원용 알림, 고객 메일 없음).
+  // 날짜가 지나면 상태가 바뀌고 기록이 들어오면 다음 회차로 넘어가므로 매일 한 번 훑는다.
+  syncVehicleServiceSchedules().catch((err) => console.error('[정비·검사 일정] 실패:', err.message));
+  cron.schedule('30 3 * * *', () => {
+    syncVehicleServiceSchedules().catch((err) => console.error('[정비·검사 일정] 실패:', err.message));
+  }, CRON_OPTIONS);
+  console.log('[Cron Scheduler] 정비·검사 일정 동기화 예약 완료 (매일 03:30).');
+
+  // 청구서 자동 발송. 전날 담당자가 승인한 청구서를 발송일 아침에 보낸다.
+  // 새벽에 보내지 않는 이유: 법인 담당자가 출근해 바로 보는 시간에 받는 편이 결재가 빠르고,
+  // 문제가 생기면 우리 직원이 출근해 있는 시간이라 바로 손볼 수 있다.
+  cron.schedule('0 9 * * *', () => {
+    runAutoSend()
+      .then((summary) => sendAutoSendReport(summary))
+      .catch((err) => console.error('[청구서 자동 발송] 실패:', err.message));
+  }, CRON_OPTIONS);
+
+  // 오후 4시: 내일 아침 나갈 청구서 중 승인 안 한 건을 담당자 메일로 알린다(없으면 보내지 않는다).
+  // 퇴근 전에 처리할 시간이 남도록 4시에 둔다.
+  cron.schedule('0 16 * * 1-5', () => {
+    sendApprovalReminder().catch((err) => console.error('[청구서 승인 알림] 실패:', err.message));
+  }, CRON_OPTIONS);
+  console.log('[Cron Scheduler] 청구서 자동 발송 예약 완료 (매일 09:00).');
+  // 9시에 서버가 꺼져 있었으면 그날 승인 건이 하루 밀린다. 근무 시간에 켜지면 한 번 따라잡는다.
+  // 새벽 배포 때 돌면 고객이 새벽에 받게 되므로 근무 시간(9~18시)에만 돈다.
+  const hour = Number(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul', hour: 'numeric', hourCycle: 'h23' }));
+  if (hour >= 9 && hour < 18) {
+    runAutoSend()
+      .then((summary) => sendAutoSendReport(summary))
+      .catch((err) => console.error('[청구서 자동 발송] 실패:', err.message));
+  }
+
+  // 자금팀 엑셀(OneDrive) → 차량 손익 원장·회사 장부. 직원은 엑셀만 고치고 프로그램이 받아 온다.
+  // 직원 근무 시간(09:00~20:00)에 10분마다 보고, 마지막 저장 후 10분 동안 손대지 않은 파일만 반영한다
+  // (고치는 중인 숫자가 들어오지 않게). 퇴근 뒤 21:00에 그날 고친 것을 한 번 더 전체 맞춘다.
+  // 밤에는 엑셀이 바뀌지 않으므로 보지 않는다(2026-10-19 대표님). 운영 서버에서만 돈다(utils/excelAutoSync.js).
+  // 관리자가 원장 화면에서 엑셀 연동을 끄면(프로그램에서 직접 관리하기로 바꾸면) 정기 실행은 아무것도 하지 않는다.
+  if (isExcelAutoSyncEnabled()) {
+    const syncExcel = (trigger) => runExcelAutoSync({ trigger })
+      .then((r) => { if (r.ledger || r.companyBook || r.errors?.length) console.log(`[엑셀 자동 갱신] ${r.message}`); })
+      .catch((err) => console.error('[엑셀 자동 갱신] 실패:', err.message));
+    cron.schedule('*/10 9-20 * * *', () => syncExcel('interval'), CRON_OPTIONS);
+    cron.schedule('0 21 * * *', () => syncExcel('daily'), CRON_OPTIONS);
+    console.log('[Cron Scheduler] 엑셀 자동 갱신 예약 완료 (09:00~20:59 10분마다 확인 · 21:00 하루 마감 전체).');
+  } else {
+    console.log('[Cron Scheduler] 엑셀 자동 갱신은 이 서버에서 끕니다 (운영 서버에서만 돈다. 켜려면 EXCEL_AUTO_SYNC=on).');
+  }
 });
 
 const app = express();
@@ -95,7 +149,7 @@ app.use(cors({
   origin: (origin, callback) => {
     if (
       !origin || 
-      allowedOrigins.includes(origin) || 
+      allowedOrigins.includes(origin) ||
       VERCEL_ORIGIN.test(origin) ||
       origin.startsWith('http://localhost:') || 
       origin.startsWith('http://127.0.0.1:') ||
@@ -158,6 +212,9 @@ app.use('/api/dashboard', protect, dashboardRoutes);
 app.use('/api/inquiries', protect, inquiryRoutes);
 app.use('/api/settings', protect, settingRoutes);
 app.use('/api/company-book', protect, companyBookRoutes);
+app.use('/api/short-term-rates', protect, shortTermRateRoutes);
+app.use('/api/vehicle-services', protect, vehicleServiceRoutes);
+app.use('/api/excel-sync', protect, excelSyncRoutes);
 
 // Client-side routing: any non-/api request falls through to the SPA entry point
 if (serveClient) {

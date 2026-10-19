@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>견적비교 입력 카드 시안 v1</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css" />
+<style>
+  /* 기준: 직원이 조건을 바꿔 가며 안끼리 비교한다. 입력은 빠르게, 결과(월 렌트료·영업이익·마진·IRR)는 한눈에.
+     네 카드의 같은 항목이 같은 높이에 오도록 모든 카드가 같은 줄 구조를 쓴다. */
+  :root { --primary: #2f6fed; --primary-soft: #eef3fe; --navy: #111e38; --line: #e5e8ee; --muted: #8a94a6; --text: #1f2937; --bg: #f5f7fa; --good: #0f9d6b; --warn: #d97706; --bad: #dc2626; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif; color: var(--text); font-variant-numeric: tabular-nums; font-size: 13px; }
+  .wrap { width: 1080px; padding: 18px 10px; }
+  .title { font-size: 15px; font-weight: 800; color: var(--navy); margin: 0 0 12px 4px; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+
+  .card { border: 1px solid var(--line); border-radius: 12px; background: #fff; overflow: hidden; box-shadow: 0 1px 2px rgba(16,24,40,0.04); }
+  .card.selected { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+  .card-head { display: flex; align-items: center; gap: 8px; padding: 11px 14px; border-bottom: 1px solid var(--line); border-top: 4px solid var(--primary); }
+  .card-head input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--primary); }
+  .card-head .name { font-size: 16px; font-weight: 800; color: var(--navy); }
+  .card-head select { margin-left: auto; }
+
+  .sec { padding: 10px 14px 4px; }
+  .sec + .sec { border-top: 1px solid var(--line); }
+  .sec-title { font-size: 11px; font-weight: 800; color: var(--muted); letter-spacing: 0.5px; margin-bottom: 7px; }
+  .row { display: grid; grid-template-columns: 40px 1fr; align-items: center; gap: 8px; margin-bottom: 7px; }
+  .row label { font-size: 12px; color: #4b5563; font-weight: 600; white-space: nowrap; }
+  .pair { display: grid; grid-template-columns: 50px 1fr; gap: 5px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+  select, .in { width: 100%; height: 30px; border: 1px solid #d5dae2; border-radius: 6px; padding: 0 8px; font: inherit; font-size: 12.5px; background: #fff; color: var(--text); }
+  .in.num { text-align: right; }
+  .unit { position: relative; }
+  .unit .in { padding-right: 19px; padding-left: 5px; }
+  .unit::after { content: attr(data-u); position: absolute; right: 7px; top: 7px; font-size: 11px; color: var(--muted); }
+  .hint { font-size: 11.5px; color: var(--muted); }
+  .chk { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #4b5563; }
+
+  /* 월 렌트료 */
+  .seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--bg); border-radius: 8px; padding: 3px; margin-bottom: 8px; }
+  .seg span { text-align: center; font-size: 12px; font-weight: 700; padding: 5px 0; border-radius: 6px; color: var(--muted); }
+  .seg span.on { background: #fff; color: var(--primary); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .rent-in { height: 40px; font-size: 18px; font-weight: 800; text-align: right; border: 1.5px solid var(--primary); border-radius: 8px; padding: 0 12px; color: var(--navy); }
+
+  /* 결과 */
+  .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 10px 14px 6px; background: var(--bg); border-top: 1px solid var(--line); }
+  .kpi { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
+  .kpi .k { font-size: 11px; color: var(--muted); font-weight: 600; }
+  .kpi .v { font-size: 17px; font-weight: 800; color: var(--navy); margin-top: 1px; white-space: nowrap; }
+  .kpi .v small { font-size: 11px; margin-left: 1px; }
+  .kpi.profit .v { color: var(--good); }
+  .kpi .s { font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+  .v.good { color: var(--good) !important; } .v.warn { color: var(--warn) !important; } .v.bad { color: var(--bad) !important; }
+
+  details { background: var(--bg); padding: 0 14px 10px; }
+  summary { font-size: 11.5px; font-weight: 700; color: #4b5563; cursor: pointer; padding: 4px 0 6px; }
+  .dl { display: grid; grid-template-columns: 1fr auto; row-gap: 4px; font-size: 11.5px; }
+  .dl dt { color: var(--muted); } .dl dd { margin: 0; text-align: right; font-weight: 600; }
+  .dl .plus { color: var(--good); } .dl .zero { color: #c3c8d1; }
+
+  .foot { padding: 10px 14px 12px; }
+  .pick { width: 100%; height: 34px; border-radius: 8px; border: 1.5px solid var(--primary); background: #fff; color: var(--primary); font: inherit; font-weight: 800; font-size: 13px; }
+  .card.selected .pick { background: var(--primary); color: #fff; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="title">📊 견적비교</div>
+  <div class="grid" id="grid"></div>
+</div>
+<script>
+  const opts = [
+    { no: '1안', term: 36, dep: [30, '5,370,000'], adv: [0, '0'], res: [60, '10,740,000'], rent: '398,000', profit: '622,389', margin: 6.48, irr: 4.41, rate: 6.19, principal: '20,031,332', interest: '1,968,912', depGain: '997,209', burden: '971,703', cost: '24,445,611' },
+    { no: '2안', term: 36, dep: [0, '0'], adv: [0, '0'], res: [60, '10,740,000'], rent: '413,000', profit: '165,180', margin: 3.92, irr: 4.09, rate: 6.19, principal: '20,031,332', interest: '1,968,912', depGain: null, burden: '1,968,912', cost: '25,442,820', selected: true },
+    { no: '3안', term: 48, dep: [30, '5,370,000'], adv: [0, '0'], res: [50, '8,950,000'], rent: '370,000', profit: '818,275', margin: 7.57, irr: 4.47, rate: 6.14, principal: '20,031,332', interest: '2,611,384', depGain: '1,318,872', burden: '1,292,512', cost: '25,891,725' },
+    { no: '4안', term: 48, dep: [0, '0'], adv: [0, '0'], res: [50, '8,950,000'], rent: '384,000', profit: '171,403', margin: 3.96, irr: 4.06, rate: 6.14, principal: '20,031,332', interest: '2,611,384', depGain: null, burden: '2,611,384', cost: '27,210,597' }
+  ];
+  // 마진율: 5% 이상 양호, 4% 이상 주의, 그 아래 낮음 (시안용 임시 기준). IRR: 조달금리보다 낮으면 낮음.
+  const marginCls = (m) => (m >= 5 ? 'good' : m >= 4 ? 'warn' : 'bad');
+  const irrCls = (irr, rate) => (irr >= rate ? 'good' : 'bad');
+  const money = (label, [pct, amt], u = '원') => `
+    <div class="row"><label>${label}</label><div class="pair"><div class="unit" data-u="%"><input class="in num" value="${pct}"></div><div class="unit" data-u="${u}"><input class="in num" value="${amt}"></div></div></div>`;
+  document.getElementById('grid').innerHTML = opts.map((o) => `
+    <div class="card${o.selected ? ' selected' : ''}">
+      <div class="card-head"><input type="checkbox" checked><span class="name">${o.no}</span><select style="width:74px"><option>렌트</option></select></div>
+
+      <div class="sec">
+        <div class="sec-title">계약 조건</div>
+        <div class="row"><label>기간</label><div class="two"><select><option>${o.term}개월</option></select><select><option>2만km/년</option></select></div></div>
+        ${money('보증금', o.dep)}
+        ${money('선수금', o.adv)}
+        ${money('인수가', o.res)}
+      </div>
+
+      <div class="sec">
+        <div class="sec-title">정비 · 보험</div>
+        <div class="row"><label>정비</label><div class="two"><label class="chk"><input type="checkbox"> 월 정비비 포함</label><span class="hint" style="text-align:right">미포함</span></div></div>
+        <div class="row"><label>타이어</label><div class="two"><select><option>일반형</option></select><div class="unit" data-u="원"><input class="in num" value="75,000"></div></div></div>
+        <div class="row"><label>보험</label><div class="two"><select><option>일반형</option></select><span class="hint" style="text-align:right">렌트료에 포함</span></div></div>
+      </div>
+
+      <div class="sec" style="padding-bottom:10px">
+        <div class="sec-title">월 렌트료</div>
+        <div class="seg"><span class="on">직접 입력</span><span>영업이익 지정</span></div>
+        <input class="in rent-in" value="${o.rent}">
+      </div>
+
+      <div class="kpis">
+        <div class="kpi profit"><div class="k">영업이익</div><div class="v">${o.profit}<small>원</small></div></div>
+        <div class="kpi"><div class="k">영업마진율</div><div class="v ${marginCls(o.margin)}">${o.margin.toFixed(2)}%</div></div>
+        <div class="kpi"><div class="k">사업 IRR (연, 세전)</div><div class="v ${irrCls(o.irr, o.rate)}">${o.irr.toFixed(2)}%</div><div class="s">조달 ${o.rate}% ${o.irr < o.rate ? '미만' : '이상'}</div></div>
+        <div class="kpi"><div class="k">총구입원가</div><div class="v" style="font-size:13.5px">${o.cost}<small>원</small></div><div class="s">비용 포함</div></div>
+      </div>
+      <details open>
+        <summary>조달 내역</summary>
+        <dl class="dl">
+          <dt>조달원금</dt><dd>${o.principal}</dd>
+          <dt>적용 이자율</dt><dd>${o.rate}%</dd>
+          <dt>조달이자 (원리금 균등)</dt><dd>${o.interest}</dd>
+          <dt>보증금 이자 이득</dt><dd class="${o.depGain ? 'plus' : 'zero'}">${o.depGain ? '− ' + o.depGain : '–'}</dd>
+          <dt>실제 조달 부담</dt><dd>${o.burden}</dd>
+        </dl>
+      </details>
+
+      <div class="foot"><button class="pick">${o.selected ? '✓ 최종선택됨' : '최종선택'}</button></div>
+    </div>`).join('');
+</script>
+</body>
+</html>

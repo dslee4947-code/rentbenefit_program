@@ -126,9 +126,16 @@ function App() {
   }, []);
 
   const showToast = (message, type = 'success') => {
-    const id = Date.now();
-    setToasts(prev => [...prev, { id, message, type }]);
-    
+    // 서버가 꺼져 있거나 인터넷이 끊기면 브라우저는 'Failed to fetch'라고만 알려 준다. 무엇을 할지 알 수 있는 말로 바꾼다.
+    const text = /failed to fetch|networkerror|load failed/i.test(String(message))
+      ? '서버에 연결할 수 없습니다. 서버가 켜져 있는지, 인터넷이 연결돼 있는지 확인해 주세요.'
+      : message;
+    // 같은 ms에 여러 장이 뜨면 Date.now()만으로는 id가 겹쳐 함께 지워지거나 남는다
+    const id = `${Date.now()}-${Math.random()}`;
+    // 같은 알림은 한 장만 남긴다. 서버가 꺼진 채 화면을 열면 요청 수십 개가 한꺼번에 실패해
+    // 같은 알림이 화면 오른쪽을 가득 채웠다(2026-10-18).
+    setToasts(prev => [...prev.filter(t => t.message !== text), { id, message: text, type }]);
+
     // 보통은 3초 뒤 사라진다. 주의(warning)는 사람이 무언가 고쳐야 하는 안내라 읽을 시간을 더 준다.
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));

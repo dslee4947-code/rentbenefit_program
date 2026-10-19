@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>차량 조건비교표 시안 v2</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css" />
+<style>
+  :root { --navy: #111e38; --gold: #ad885c; --gold-soft: #f7f1e8; --line: #e7e2d9; --muted: #8a94a6; --text: #1f2937; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif; color: var(--text); }
+  .doc { width: 900px; margin: 0 auto; padding: 28px 30px 24px; }
+
+  /* 머리 */
+  .head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 2px solid var(--navy); }
+  .head .co { width: 170px; font-weight: 800; font-size: 15px; color: var(--navy); }
+  .head h1 { flex: 1; margin: 0; text-align: center; font-size: 26px; font-weight: 800; letter-spacing: 2px; color: var(--navy); }
+  .head .logo { width: 170px; text-align: right; font-weight: 800; color: #3b5a8c; font-size: 18px; font-family: Georgia, serif; }
+  .meta { display: flex; justify-content: space-between; align-items: flex-end; margin: 14px 0 10px; }
+  .meta .to { font-size: 16px; font-weight: 700; color: var(--navy); }
+  .meta .to b { color: var(--gold); margin-right: 8px; }
+  .meta .info { text-align: right; font-size: 12.5px; color: #555; line-height: 1.6; }
+  .unit { text-align: right; font-size: 11.5px; color: var(--muted); margin-bottom: 4px; }
+
+  /* 표 */
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 14px; }
+  thead th { background: var(--navy); color: #fff; font-weight: 700; }
+  thead .car th { font-size: 15px; padding: 11px 8px; letter-spacing: 0.5px; border-bottom: 1px solid rgba(255,255,255,0.18); }
+  thead .opt th { padding: 10px 6px 11px; vertical-align: top; border-left: 1px solid rgba(255,255,255,0.14); }
+  thead .corner { width: 150px; font-size: 14px; vertical-align: middle !important; border-left: none !important; }
+  .opt-title { display: flex; justify-content: center; align-items: center; gap: 6px; font-size: 15px; font-weight: 800; white-space: nowrap; }
+  .pill { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 12.5px; font-weight: 800; }
+  .pill.no { background: var(--gold); color: #fff; }
+  .pill.rent { background: #2f6fed; color: #fff; }
+  .opt-cond { margin-top: 5px; font-size: 12px; font-weight: 500; color: #c9d2e3; white-space: nowrap; }
+
+  tbody th { text-align: left; font-weight: 700; color: var(--navy); padding: 9px 14px; white-space: nowrap; background: #fafaf8; border-right: 1px solid var(--line); }
+  tbody td { text-align: right; padding: 9px 16px; border-left: 1px solid var(--line); }
+  tbody tr { border-bottom: 1px solid var(--line); }
+  td.empty { text-align: center; color: #c0c6d0; }
+  td.center { text-align: center; }
+
+  /* 묶음 제목 줄 */
+  tr.group th { background: #fff; color: var(--gold); font-size: 12px; font-weight: 800; letter-spacing: 1px; padding: 12px 14px 4px; border-right: none; }
+  tr.group { border-bottom: 1.5px solid var(--gold); }
+
+  /* 핵심 줄 */
+  tr.key th, tr.key td { background: var(--gold-soft); }
+  tr.key td { font-size: 17px; font-weight: 800; color: var(--navy); padding-top: 11px; padding-bottom: 11px; }
+  tr.key th { font-size: 15px; }
+  tr.total { border-top: 2px solid var(--navy); border-bottom: 2px solid var(--navy); }
+  tr.total th, tr.total td { font-weight: 800; color: var(--navy); font-size: 15.5px; padding-top: 11px; padding-bottom: 11px; }
+  .best { display: inline-block; margin-right: 6px; padding: 1px 5px; border-radius: 3px; font-size: 10.5px; font-weight: 800; color: #0f766e; background: #ccfbf1; vertical-align: 2px; }
+  .sub { color: var(--muted); font-weight: 500; }
+
+  .foot { display: flex; justify-content: space-between; margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 11.5px; color: #777; }
+  .foot b { color: var(--gold); letter-spacing: 2px; }
+</style>
+</head>
+<body>
+<div class="doc">
+  <div class="head">
+    <div class="co">(주)렌트베네핏</div>
+    <h1>차량 조건비교표</h1>
+    <div class="logo">BENefit</div>
+  </div>
+  <div class="meta">
+    <div class="to"><b>수신</b>이주동 대표님 귀하</div>
+    <div class="info">작성일 2026-10-07<br />견적번호 RB-261007-062</div>
+  </div>
+  <div class="unit">단위: 원</div>
+
+  <table>
+    <thead>
+      <tr class="car"><th class="corner" rowspan="2">구분</th><th colspan="4">레이 1.0 가솔린 트렌디</th></tr>
+      <tr class="opt">
+        <th><div class="opt-title"><span class="pill no">1안</span><span class="pill rent">렌트</span>36개월</div><div class="opt-cond">보증 30% · 선수 0% · 인수 60%</div></th>
+        <th><div class="opt-title"><span class="pill no">2안</span><span class="pill rent">렌트</span>36개월</div><div class="opt-cond">보증 0% · 선수 0% · 인수 60%</div></th>
+        <th><div class="opt-title"><span class="pill no">3안</span><span class="pill rent">렌트</span>48개월</div><div class="opt-cond">보증 30% · 선수 0% · 인수 50%</div></th>
+        <th><div class="opt-title"><span class="pill no">4안</span><span class="pill rent">렌트</span>48개월</div><div class="opt-cond">보증 0% · 선수 0% · 인수 50%</div></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="group"><th colspan="5">계약 조건</th></tr>
+      <tr><th>차량가격</th><td>17,900,000</td><td>17,900,000</td><td>17,900,000</td><td>17,900,000</td></tr>
+      <tr><th>보증금</th><td>5,370,000</td><td class="empty">–</td><td>5,370,000</td><td class="empty">–</td></tr>
+      <tr><th>선수금</th><td class="empty">–</td><td class="empty">–</td><td class="empty">–</td><td class="empty">–</td></tr>
+      <tr><th>인수가</th><td>10,740,000</td><td>10,740,000</td><td>8,950,000</td><td>8,950,000</td></tr>
+      <tr><th>약정운행거리(연)</th><td>20,000km</td><td>20,000km</td><td>20,000km</td><td>20,000km</td></tr>
+      <tr><th>정비</th><td class="center">미가입</td><td class="center">미가입</td><td class="center">미가입</td><td class="center">미가입</td></tr>
+
+      <tr class="group"><th colspan="5">납부 금액</th></tr>
+      <tr><th>출고 전 납입액</th><td>5,370,000</td><td class="empty">–</td><td>5,370,000</td><td class="empty">–</td></tr>
+      <tr class="key"><th>월 납입액</th><td>398,000</td><td>413,000</td><td><span class="best">최저</span>370,000</td><td>384,000</td></tr>
+      <tr><th>월 납입액 합계</th><td>14,328,000 <span class="sub">(36회)</span></td><td>14,868,000 <span class="sub">(36회)</span></td><td>17,760,000 <span class="sub">(48회)</span></td><td>18,432,000 <span class="sub">(48회)</span></td></tr>
+      <tr><th>종료 후 납입액</th><td>5,370,000</td><td>10,740,000</td><td>3,580,000</td><td>8,950,000</td></tr>
+      <tr class="total"><th>총 구입가</th><td><span class="best">최저</span>25,068,000</td><td>25,608,000</td><td>26,710,000</td><td>27,382,000</td></tr>
+
+      <tr class="group"><th colspan="5">특이사항</th></tr>
+      <tr><td colspan="5" class="empty" style="text-align:left; padding-left:14px">–</td></tr>
+    </tbody>
+  </table>
+
+  <div class="foot"><div>본 비교표는 계약 조건에 따라 변동될 수 있습니다. 총 구입가 = 선수금 + 월 납입액 합계 + 인수가</div><b>RENT BENEFIT</b></div>
+</div>
+</body>
+</html>

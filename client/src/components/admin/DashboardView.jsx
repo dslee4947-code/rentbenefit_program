@@ -110,7 +110,7 @@ function DashboardView({ setActiveTab, showToast, currentUser }) {
   return (
     <div className="dashboard-view-container fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       
-      {isExecutive && <ExecutiveSummary gapData={gapData} setActiveTab={setActiveTab} />}
+      {isExecutive && <ExecutiveSummary gapData={gapData} setActiveTab={setActiveTab} showToast={showToast} />}
 
       {/* 4 Core Summary Cards */}
       {!isExecutive && (

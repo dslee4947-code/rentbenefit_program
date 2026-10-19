@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Plus, Trash2, FileSignature, ChevronDown, ChevronUp, ArrowLeft, UserPlus, Users, Upload, Download, List, Edit, Search, Clock, Truck, FolderCheck, RotateCcw } from 'lucide-react';
+import { Save, Plus, Trash2, FileSignature, ChevronDown, ChevronUp, ArrowLeft, UserPlus, Users, Upload, Download, List, Edit, Search, Clock, Truck, FolderCheck, RotateCcw, CalendarPlus } from 'lucide-react';
+import ContractExtendDialog from './ContractExtendDialog.jsx';
+import ContractCloseDialog from './ContractCloseDialog.jsx';
 import { formatCustomerName, toCommaString, parseNumber, extractQuoteVehicleDetail } from '../../utils/format.js';
 import { useTableSort } from './useTableSort.js';
 import { downloadFile } from '../../utils/authFetch.js';
@@ -37,6 +39,10 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
   // 보관된 계약은 목록에서 감춰진다. 되돌리려면 이 값을 켜서 함께 불러온다.
   const [showArchived, setShowArchived] = useState(false);
   // 보기 설정이 바뀌면 목록을 다시 불러온다
+  // 연장 창을 띄울 계약
+  const [extendTarget, setExtendTarget] = useState(null);
+  // 반납·인수 창을 띄울 계약
+  const [closeTarget, setCloseTarget] = useState(null);
   useEffect(() => { fetchContractsList(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [showArchived]);
 
   // 새 계약서 작성 화면 / 계약서 목록(하위 화면) 전환
@@ -1701,6 +1707,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                 <option value="진행중">진행중</option>
                 <option value="임시저장">임시저장</option>
                 <option value="보관됨">보관됨</option>
+                <option value="종료">종료</option>
               </select>
               <SortControls
                 sort={contractListSort}
@@ -1738,7 +1745,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                         background: c.status === '임시저장' ? '#fffbe6' : c.status === '진행중' ? '#e6f7ff' : '#f5f5f5',
                         color: c.status === '임시저장' ? '#faad14' : c.status === '진행중' ? '#1890ff' : '#8c8c8c'
                       }}>
-                        {c.status || '진행중'}
+                        {c.status || '진행중'}{c.status === '종료' && c.endReason ? `(${c.endReason})` : ''}
                       </span>
                     </td>
                     <td style={{ padding: '0.8rem' }}>{formatCustomerName(c.customer)}</td>
@@ -1753,6 +1760,8 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                       >
                         <Edit size={16} />
                       </button>
+                      {/* 끝난 계약은 지우거나 보관하지 않는다. 연장된 계약과 같은 차량·원장을 쓰고, 기록으로 남아야 한다 */}
+                      {c.status !== '종료' && (
                       <button
                         onClick={() => handleDeleteContractFromList(c._id)}
                         style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}
@@ -1760,7 +1769,8 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                       >
                         <Trash2 size={16} />
                       </button>
-                      {c.status === '보관됨' ? (
+                      )}
+                      {c.status === '종료' ? null : c.status === '보관됨' ? (
                         <button
                           onClick={() => handleUnarchiveContract(c)}
                           title="보관 해제 - 계약서 목록으로 되돌리고 차량 수정을 다시 엽니다"
@@ -1777,8 +1787,27 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                           <FolderCheck size={13} /> 보관
                         </button>
                       )}
+                      {/* 만기 처리 - 연장. 차량이 있는 진행 중·보관된 계약만 연장할 수 있다 */}
+                      {c.vehicle && (c.status === '진행중' || c.status === '보관됨') && (
+                        <button
+                          onClick={() => setExtendTarget(c._id)}
+                          title="같은 차량으로 계약을 연장합니다 (기존 번호 -1, 보증금 승계)"
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: '#fff', border: '1px solid #16a34a', color: '#16a34a', padding: '0.3rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                        >
+                          <CalendarPlus size={13} /> 연장
+                        </button>
+                      )}
+                      {c.vehicle && (c.status === '진행중' || c.status === '보관됨') && (
+                        <button
+                          onClick={() => setCloseTarget(c._id)}
+                          title="차가 돌아오면 반납, 고객이 차를 사면 인수"
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: '#fff', border: '1px solid #b45309', color: '#b45309', padding: '0.3rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                        >
+                          반납·인수
+                        </button>
+                      )}
                       {/* 차량이 만들어진 계약만 출고 준비로 보낼 수 있다 (임시저장 계약은 아직 차량이 없다) */}
-                      {c.vehicle && (
+                      {c.vehicle && c.status !== '종료' && (
                         <button
                           onClick={() => handleSendToDeliveryPrep(c)}
                           title="이 계약의 차량을 출고 준비로 보내기"
@@ -1793,6 +1822,22 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
               )}
             </tbody>
           </table>
+          {closeTarget && (
+            <ContractCloseDialog
+              contractId={closeTarget}
+              onClose={() => setCloseTarget(null)}
+              onDone={() => fetchContractsList()}
+              showToast={showToast}
+            />
+          )}
+          {extendTarget && (
+            <ContractExtendDialog
+              contractId={extendTarget}
+              onClose={() => setExtendTarget(null)}
+              onDone={() => fetchContractsList()}
+              showToast={showToast}
+            />
+          )}
         </div>
       ) : (
     <form onSubmit={handleRegisterContract} className="contract-register-container fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem', paddingBottom: '3rem' }}>

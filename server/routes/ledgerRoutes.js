@@ -12,7 +12,9 @@ import {
   extendLedger,
   searchContracts,
   getLedgerLabels,
-  getLedgerQuote
+  getLedgerQuote,
+  getShortTermReport,
+  getLedgerShortTerm
 } from '../controllers/ledgerController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
 
@@ -22,6 +24,7 @@ const router = express.Router();
 router.get('/linkable-vehicles', getLinkableVehicles);
 router.get('/contract-search', searchContracts);
 router.get('/labels', getLedgerLabels);
+router.get('/short-term-report', getShortTermReport);
 
 router.route('/')
   .get(getLedgers)
@@ -33,6 +36,7 @@ router.route('/:id')
   .delete(checkWritePermission, deleteLedger);
 
 router.get('/:id/quote', getLedgerQuote);
+router.get('/:id/short-term', getLedgerShortTerm);
 router.put('/:id/entries', checkWritePermission, saveLedgerEntries);
 router.post('/:id/sync', checkWritePermission, syncLedger);
 router.post('/:id/link-vehicle', checkWritePermission, linkVehicle);

@@ -269,7 +269,17 @@ const VehicleLedgerSchema = new Schema({
    *   반납: 차가 돌아온다 - 인수가 대신 중고차로 팔아야 하고, 목표 매각가를 보여 준다
    *   미정: 아직 모름 - 인수로 보고 계산한다(견적이 인수를 전제로 짜여 있다)
    */
-  maturityPlan: { type: String, enum: ['미정', '인수', '반납'], default: '미정' }
+  maturityPlan: { type: String, enum: ['미정', '인수', '반납'], default: '미정' },
+
+  /**
+   * 단기렌트 월 목표 (shared/shortTermTarget.js).
+   * 비워 두면 견적서 식(3년·인수가 30%·정비 포함)으로 낸 값과, 원장에서 찾은 시작일을 쓴다.
+   * 대표님이 따로 정한 목표나 실제 단기렌트 시작일이 다르면 여기에 적는다.
+   */
+  shortTerm: {
+    monthlyTarget: Number,
+    startDate: Date
+  }
 }, { timestamps: true });
 
 VehicleLedgerSchema.index({ vehicle: 1 });

@@ -151,3 +151,59 @@ button {
   animation: cell-update-glow 5s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
 }
 
+/* ─────────────────────────────────────────────────────────────
+   A4 인쇄·PDF 공통 (utils/printFit.js, docs/print-a4-guide.md)
+   인쇄할 문서에 class="print-fit", 그 안의 스크롤 상자에 class="print-fit-scroll"을 단다.
+   화면 폭 그대로 펼친 뒤 배율만 줄여 A4에 넣는다. 글자·여백은 인쇄 때 따로 바꾸지 않는다.
+   ───────────────────────────────────────────────────────────── */
+
+/* PDF 파일로 찍는 동안(makeFittedPdf): 화면 폭 그대로 펼치고 스크롤·고정 머리글을 푼다 */
+.print-fit-capture {
+  width: var(--print-fit-width) !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  box-shadow: none !important;
+}
+.print-fit-capture .print-fit-scroll {
+  overflow: visible !important;
+  max-height: none !important;
+}
+.print-fit-capture thead,
+.print-fit-capture th {
+  position: static !important;
+  box-shadow: none !important;
+}
+
+@media print {
+  /* 화면 오른쪽 위 알림("견적서가 저장되었습니다" 등)은 화면에 고정돼 있어 그대로 두면 종이에도 찍힌다.
+     저장 직후 인쇄 창이 열리는 견적서에서 실제로 로고 위에 찍혔다(2026-10-07). */
+  .toast-container,
+  .no-print {
+    display: none !important;
+  }
+  .print-fit {
+    width: var(--print-fit-width) !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    zoom: var(--print-fit-zoom, 1);
+    margin: var(--print-fit-top, 0) 0 0 var(--print-fit-left, 0) !important;
+    box-shadow: none !important;
+  }
+  /* 배경색(표 머리글 남색, 줄 음영)을 종이에도 그대로 찍는다 */
+  .print-fit,
+  .print-fit * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  /* 화면용 스크롤 상자는 인쇄 때 내용을 잘라먹는다 */
+  .print-fit .print-fit-scroll {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+  /* 화면에서 고정해 둔 표 머리글은 인쇄 때 제자리에 둔다 */
+  .print-fit thead,
+  .print-fit th {
+    position: static !important;
+  }
+}
+

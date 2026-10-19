@@ -4,6 +4,7 @@ import QuoteInputView from './QuoteInputView.jsx';
 import ContractRegisterView from './ContractRegisterView.jsx';
 import DeliveryPrepView from './DeliveryPrepView.jsx';
 import VehicleManagementView from './VehicleManagementView.jsx';
+import VehicleServiceView from './VehicleServiceView.jsx';
 import CalendarView from './CalendarView.jsx';
 import CustomerListView from './CustomerListView.jsx';
 import PendingInquiriesView from './PendingInquiriesView.jsx';
@@ -17,6 +18,7 @@ import MonthlyBillingView from './MonthlyBillingView.jsx';
 import InvoiceArchiveView from './InvoiceArchiveView.jsx';
 import FineNoticeView from './FineNoticeView.jsx';
 import LedgerView from './LedgerView.jsx';
+import ShortTermRatesView from './ShortTermRatesView.jsx';
 import MyPageView from './MyPageView.jsx';
 import HandbookView from './HandbookView.jsx';
 
@@ -44,14 +46,13 @@ import {
   Wrench,
   Landmark,
   Archive,
-  Receipt
-} from 'lucide-react';
+  Receipt, Tags } from 'lucide-react';
 
 function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   const getTabFromHash = () => {
     const hash = window.location.hash.replace('#/', '');
     // 메뉴를 새로 추가하면 여기에도 넣어야 한다. 빠지면 주소는 바뀌는데 화면은 대시보드로 되돌아간다.
-    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'delivery-prep', 'vehicles', 'calendar', 'users', 'billing', 'invoice-archive', 'fine-notices', 'ledgers', 'handbook', 'storage-settings', 'maintenance-rates', 'company-funding', 'company-book', 'mypage'];
+    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'delivery-prep', 'vehicles', 'vehicle-service', 'calendar', 'users', 'billing', 'invoice-archive', 'fine-notices', 'ledgers', 'handbook', 'storage-settings', 'maintenance-rates', 'company-funding', 'company-book', 'short-term-rates', 'mypage'];
     return validTabs.includes(hash) ? hash : 'dashboard';
   };
 
@@ -124,6 +125,8 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
     ] },
     { label: '차량', items: [
       { id: 'vehicles', name: '렌트차량 DB', icon: <Car size={ICON_SIZE} /> },
+      { id: 'vehicle-service', name: '정비·검사 관리', icon: <Wrench size={ICON_SIZE} /> },
+      { id: 'short-term-rates', name: '단기렌트·사고대차 단가표', icon: <Tags size={ICON_SIZE} /> },
       { id: 'fine-notices', name: '고지서 관리', icon: <FileWarning size={ICON_SIZE} /> }
     ] },
     { label: '청구·정산', items: [
@@ -504,10 +507,12 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'contract-register' && '계약서 신규 등록'}
               {activeTab === 'delivery-prep' && '출고 준비'}
               {activeTab === 'vehicles' && '렌트차량 DB 관리'}
+              {activeTab === 'vehicle-service' && '차량 정비·검사 관리'}
               {activeTab === 'billing' && '장기렌트 청구서'}
               {activeTab === 'invoice-archive' && '청구서 보관함'}
               {activeTab === 'fine-notices' && '고지서 관리'}
               {activeTab === 'ledgers' && '차량 손익 원장 (갑지)'}
+              {activeTab === 'short-term-rates' && '단기렌트 · 사고대차 단가표'}
               {activeTab === 'calendar' && '캘린더 관리 일정표'}
               {activeTab === 'users' && '사용자 권한 관리'}
               {activeTab === 'storage-settings' && '파일 저장 경로'}
@@ -526,10 +531,12 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'contract-register' && '확정된 견적 정보를 계약서로 신규 등록하고 입고 차량 DB 및 알림 일정을 자동 생성합니다.'}
               {activeTab === 'delivery-prep' && '계약은 완료됐지만 차량번호/차대번호 등 실물 등록이 아직 안 끝난 차량을 정리합니다.'}
               {activeTab === 'vehicles' && '전체 렌트 차량의 계약정보, 잔여일정, 담당 정비 내역을 상세 조회합니다.'}
+              {activeTab === 'vehicle-service' && '차마다 다음 자동차검사·정기점검 날짜를 챙기고, 정비·수리 이력과 누적 수리비를 남깁니다.'}
               {activeTab === 'billing' && '계약 건별 대여료 및 기타 추가 납입 항목을 취합하여 프리미엄 청구서를 발행 및 관리합니다.'}
               {activeTab === 'invoice-archive' && '계약별로 1회차부터 모든 청구서를 보고, 과태료·자부담금을 더해 PDF로 만듭니다.'}
               {activeTab === 'fine-notices' && '범칙금·과태료·미납통행료 고지서를 모아 보고, 기한 안에 고객이 냈는지 확인해 청구 여부를 정합니다.'}
               {activeTab === 'ledgers' && '차량 1대에 들어간 돈과 들어온 돈을 갑지 한 장으로 모아 정산 결과를 확인합니다.'}
+              {activeTab === 'short-term-rates' && '단기렌트 차량별 1일·1주·1개월 요금, 대여료·탁송료 계산, 사고대차 보험사 기준표와 보험 담당자를 한곳에서 봅니다.'}
               {activeTab === 'calendar' && '정기점검, 종합검사, 렌트만료, 계산서발행 예정일을 한눈에 보여주는 관리 일정표입니다.'}
               {activeTab === 'users' && '가입된 사내 직원들의 권한(조회/수정 및 삭제/관리자)을 조정하고 승인합니다.'}
               {activeTab === 'storage-settings' && '견적서·계약서·청구서 파일이 원드라이브의 어느 폴더에 어떤 이름으로 저장될지 정합니다.'}
@@ -609,6 +616,10 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
             />
           )}
 
+          {activeTab === 'vehicle-service' && (
+            <VehicleServiceView showToast={showToast} currentUser={currentUser} />
+          )}
+
           {activeTab === 'invoice-archive' && (
             <InvoiceArchiveView showToast={showToast} currentUser={currentUser} />
           )}
@@ -624,6 +635,10 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               showToast={showToast}
               currentUser={currentUser}
             />
+          )}
+
+          {activeTab === 'short-term-rates' && (
+            <ShortTermRatesView showToast={showToast} currentUser={currentUser} />
           )}
 
           {activeTab === 'ledgers' && (

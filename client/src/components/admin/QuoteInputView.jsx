@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import html2pdf from 'html2pdf.js';
+import { printFitted, makeFittedPdf, PRINT_MARGIN_MM } from '../../utils/printFit.js';
 import { Sparkles, Save, ArrowRight, UserPlus, Users, Car, Coins, Settings, HelpCircle, CheckCircle, Plus, Trash2, FolderOpen, X, Search, List, Edit, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatCustomerName, cleanSpecValue, extractQuoteVehicleDetail } from '../../utils/format.js';
 import { useDraggableDialog, DIALOG_TOP } from './useDraggableDialog.js';
@@ -104,11 +104,10 @@ const getRecommendedTirePrices = (carModel) => {
 
 
 // 장기렌터카 견적서 한 장의 크기. A4(210 × 297mm)와 같은 비율로 화면에 그린다.
-// A4 폭은 96dpi 기준 793.7px이므로 인쇄 때 900px을 793.7px로 줄인다.
-// 세로 1270px × 0.8819 = 1120px로 A4 높이(1122.5px)보다 살짝 작게 잡아 두 번째 빈 장이 생기지 않게 한다.
+// 인쇄·PDF 때는 utils/printFit.js가 이 크기 그대로 A4 한 장에 맞춰 줄인다(약 0.88배).
+// 세로 1270px은 그 배율로 A4 높이보다 살짝 작아 두 번째 빈 장이 생기지 않는다.
 const RENTAL_SHEET_WIDTH_PX = 900;
 const RENTAL_SHEET_HEIGHT_PX = 1270;
-const RENTAL_PRINT_ZOOM = (210 / 25.4 * 96) / RENTAL_SHEET_WIDTH_PX;
 // 종이 가장자리 여백. 이 종이에서 1mm는 약 4.3px이라 40px이면 인쇄했을 때 사방 약 9mm가 된다.
 const RENTAL_SHEET_MARGIN_PX = 40;
 
@@ -1189,32 +1188,31 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
    *
    * 인쇄를 막지 않도록 뒤에서 조용히 돌고, 실패해도 알림만 띄운다.
    */
+  /**
+   * 지금 보고 있는 견적서의 인쇄 설정. 인쇄 창과 보관용 PDF가 같은 설정을 써야 두 결과가 같다.
+   * - 비교견적서: 5안 이상이면 가로 A4. 종이 여백은 printFit이 둔다.
+   * - 장기렌터카 견적서: 문서 안에 여백까지 그려 둔 A4 한 장이라 바깥 여백 없이 꽉 채운다.
+   */
+  const sheetPrintSetup = () => (printFormType === 'rental'
+    ? { element: document.querySelector('.rental-print-area'), orientation: 'portrait', marginMm: 0 }
+    : {
+      element: document.querySelector('.comparison-print-area'),
+      orientation: isComparisonLandscape ? 'landscape' : 'portrait',
+      marginMm: PRINT_MARGIN_MM
+    });
+
+  /** 화면에 보이는 견적서를 모양 그대로 A4 한 장에 맞춰 인쇄 창을 연다. */
+  const printSheet = (title) => {
+    const { element, ...options } = sheetPrintSetup();
+    printFitted(element, { ...options, title });
+  };
+
   const archiveQuotePdf = async (quoteId) => {
-    const element = document.querySelector(
-      printFormType === 'comparison' ? '.comparison-print-area' : '.rental-print-area'
-    );
+    const { element, orientation, marginMm } = sheetPrintSetup();
     if (!element || !quoteId) return;
 
     try {
-      // 화면 캡처는 jpeg로 뜬다. png로 뜨면 한 장에 8MB가 넘어 저장도 메일도 느려진다.
-      const blob = await html2pdf()
-        .set({
-          // 장기렌터카 견적서는 이미 A4 한 장 비율로 그려져 있어 여백 없이 꽉 채운다
-          margin: printFormType === 'rental' ? 0 : 5,
-          image: { type: 'jpeg', quality: 0.95 },
-          // html2pdf는 A4 폭만 한 틀에 문서를 넣고 찍는다. 장기렌터카 견적서는 그보다 넓게(900px) 그려져 있어
-          // 폭을 알려 주지 않으면 오른쪽이 잘리고 두 장으로 나뉜다.
-          html2canvas: printFormType === 'rental'
-            ? { scale: 2, useCORS: true, width: RENTAL_SHEET_WIDTH_PX, windowWidth: RENTAL_SHEET_WIDTH_PX }
-            : { scale: 2, useCORS: true },
-          jsPDF: {
-            unit: 'mm',
-            format: 'a4',
-            orientation: printFormType === 'comparison' && isComparisonLandscape ? 'landscape' : 'portrait'
-          }
-        })
-        .from(element)
-        .outputPdf('blob');
+      const blob = await makeFittedPdf(element, { orientation, marginMm });
 
       const fd = new FormData();
       fd.append('file', blob, 'quote.pdf');
@@ -1307,7 +1305,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
     } else {
       // Trigger print preview of the comparison sheet first, then go to the quote list
       setTimeout(() => {
-        window.print();
+        printSheet();
         fetchQuotesList();
         setViewMode('list');
       }, 800);
@@ -3755,17 +3753,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
               saveQuoteRecord({ silent: true }).then((result) => {
                 if (result?.savedQuote?._id) archiveQuotePdf(result.savedQuote._id);
               });
-              const originalTitle = document.title;
-              const printTitle = printFormType === 'comparison'
+              printSheet(printFormType === 'comparison'
                 ? `비교견적서_${displayCustomerName}_${todayDateStr}`
-                : `견적서_${displayCustomerName}_${todayDateStr}`;
-              document.title = printTitle;
-              const restoreTitle = () => {
-                document.title = originalTitle;
-                window.removeEventListener('afterprint', restoreTitle);
-              };
-              window.addEventListener('afterprint', restoreTitle);
-              window.print();
+                : `견적서_${displayCustomerName}_${todayDateStr}`);
             }}
             style={{
               display: 'flex',
@@ -3891,11 +3881,15 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             }
           }
 
-          /* Print Overrides */
+          /* Print Overrides
+             인쇄는 화면 모양 그대로 A4에 맞춰 배율만 줄인다(utils/printFit.js, docs/print-a4-guide.md).
+             여기서는 대시보드 화면 요소를 숨기고 문서를 종이 왼쪽 위에 놓는 일만 한다.
+             글자·여백·칸 크기를 인쇄 때만 따로 바꾸지 않는다. 바꾸면 화면과 종이가 달라지고,
+             그래도 A4 폭에 안 들어가면 표 오른쪽이 잘린다(2026-10-07 비교견적서). */
           @media print {
             @page {
               size: A4 ${printFormType === 'comparison' && isComparisonLandscape ? 'landscape' : 'portrait'};
-              margin: 0 !important; /* 브라우저 기본 헤더/푸터 강제 제거 */
+              margin: 0 !important; /* 브라우저 기본 머리글·바닥글(주소, 날짜)을 없앤다. 종이 여백은 printFit이 둔다 */
             }
             body {
               background: #fff !important;
@@ -3918,6 +3912,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
               /* 화면 배경색(회색)이 종이 가장자리와 문서 아래에 비치지 않게 한다 */
               background: #fff !important;
             }
+            /* 문서를 감싼 카드는 종이 왼쪽 위에 붙인다. 문서의 위치·여백은 printFit이 정한다 */
             .comparison-sheet-section {
               position: absolute !important;
               left: 0 !important;
@@ -3926,123 +3921,22 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
               border: none !important;
               border-radius: 0 !important;
               box-shadow: none !important;
-              /* 장기렌터카 견적서는 종이 한 장 크기로 그려 두었으니 바깥 여백을 더하지 않는다 */
-              padding: ${printFormType === 'rental' ? '0' : '8mm'} !important;
+              padding: 0 !important;
               margin: 0 !important;
               background: #fff !important;
               box-sizing: border-box !important;
             }
-            /* 1페이지 강제 고정을 위한 여백/폰트 축소 (5안 이상 가로 인쇄 시 더 컴팩트하게) */
-            .comparison-doc-header {
-              margin-top: 0 !important;
-              margin-bottom: ${isComparisonLandscape ? '0.4rem' : '0.8rem'} !important;
-              padding-bottom: ${isComparisonLandscape ? '0.3rem' : '0.4rem'} !important;
-              gap: 0.6rem !important;
+            .rental-sheet-scroll {
+              padding: 0 !important;
             }
-            .comparison-doc-logo {
-              height: ${isComparisonLandscape ? '22px' : '28px'} !important;
-            }
-            .comparison-doc-kicker {
-              font-size: 0.55rem !important;
-            }
-            .comparison-doc-title {
-              font-size: ${isComparisonLandscape ? '1.15rem' : '1.4rem'} !important;
-            }
-            .customer-info-bar {
-              margin-bottom: ${isComparisonLandscape ? '0.4rem' : '0.6rem'} !important;
-              font-size: 0.82rem !important;
-            }
-            .comparison-doc-footer {
-              margin-top: 0.5rem !important;
-              padding-top: 0.4rem !important;
-              font-size: 0.65rem !important;
-            }
-            .comparison-table-wrapper {
-              margin-top: 0 !important;
-              page-break-inside: avoid !important;
-              break-inside: avoid !important;
-              /* 화면용 세로 스크롤은 인쇄 시 표를 잘라먹는다 */
-              max-height: none !important;
-              overflow-y: visible !important;
-            }
-            .comparison-table-modern thead {
-              position: static !important;
-            }
+            /* 머리글 아래 금색 선은 화면에서 inset 그림자로 그린다. 인쇄에서는 그림자가 칸 전체를 칠하기도 해서 끈다 */
             .comparison-table-modern thead th {
               box-shadow: none !important;
             }
+            .comparison-table-wrapper,
             .comparison-table-modern {
-              width: 100% !important;
-              border-top: 3px solid #111e38 !important;
-              border-bottom: 3px solid #111e38 !important;
               page-break-inside: avoid !important;
               break-inside: avoid !important;
-            }
-            .comparison-table-modern th, .comparison-table-modern td {
-              border-bottom: 1px solid #e9e6e0 !important;
-              border-right: 1px solid #ad885c !important;
-              padding: ${isComparisonLandscape ? '5px 8px' : '7px 10px'} !important;
-              font-size: ${isComparisonLandscape ? '8pt' : '9.5pt'} !important;
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-            }
-            .comparison-table-modern thead tr:first-child th:last-child,
-            .comparison-table-modern tbody tr td:last-child {
-              border-right: none !important;
-            }
-            .comparison-table-modern th {
-              background-color: #111e38 !important;
-              color: #fff !important;
-            }
-            .comparison-th-group, .comparison-th-corner {
-              padding: ${isComparisonLandscape ? '0.35rem 0.4rem' : '0.55rem 0.4rem'} !important;
-              font-size: ${isComparisonLandscape ? '8.5pt' : '10pt'} !important;
-            }
-            .comparison-th-option {
-              padding: ${isComparisonLandscape ? '0.35rem 0.4rem' : '0.5rem 0.4rem'} !important;
-            }
-            .comparison-th-option div {
-              margin-bottom: 0 !important;
-            }
-            .comparison-table-modern td.row-header {
-              text-align: center !important;
-              padding-left: 4px !important;
-              font-weight: 800 !important;
-              background-color: #fafafa !important;
-              border-right: 1px solid #ad885c !important;
-            }
-            /* Highlight total purchase cost in yellow when printed */
-            .print-highlight-yellow {
-              background-color: #ffff00 !important;
-              font-weight: 800 !important;
-            }
-            /* Reset badge styling in print */
-            .badge-green, .badge-red, .badge-gray {
-              background: transparent !important;
-              padding: 0 !important;
-              border-radius: 0 !important;
-              font-size: 9.5pt !important;
-              font-weight: 800 !important;
-            }
-            .badge-green { color: #000 !important; }
-            .badge-red { color: #d32f2f !important; }
-            .badge-gray { color: #000 !important; }
-            .print-only {
-              display: inline !important;
-            }
-
-            /* 장기렌터카 견적서: 화면에 그린 A4 한 장을 모양 그대로 A4 폭에 맞게 줄인다.
-               글자·여백을 인쇄 때만 따로 바꾸지 않는다. 바꾸면 화면과 종이가 달라진다. */
-            .rental-sheet-scroll {
-              overflow: visible !important;
-              padding: 0 !important;
-            }
-            .rental-print-area {
-              zoom: ${RENTAL_PRINT_ZOOM};
-              margin: 0 !important;
-              box-shadow: none !important;
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
             }
           }
         `}} />
@@ -4050,7 +3944,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
         {/* PDF Layout Content */}
         {/* PDF Layout Content */}
         {printFormType === 'comparison' ? (
-          <div className="comparison-print-area" style={{ maxWidth: isComparisonLandscape ? '100%' : '900px', margin: '0 auto', background: '#fff', padding: '10px' }}>
+          <div className="comparison-print-area print-fit" style={{ maxWidth: isComparisonLandscape ? '100%' : '900px', margin: '0 auto', background: '#fff', padding: '10px' }}>
             {/* Document Title Header */}
             <div className="comparison-doc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isComparisonLandscape ? '0.8rem' : '1.5rem', marginTop: '0.3rem', borderBottom: '2px solid #ad885c', paddingBottom: '0.6rem' }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '150px' }}>
@@ -4101,7 +3995,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             </div>
 
             {/* Table Wrapper */}
-            <div className="comparison-table-wrapper">
+            <div className="comparison-table-wrapper print-fit-scroll">
               <table className="comparison-table-modern">
                 <thead>
                   {/* Row 1: Vehicle model colspans */}
@@ -4407,11 +4301,11 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             </div>
           </div>
         ) : (
-          <div className="rental-sheet-scroll">
+          <div className="rental-sheet-scroll print-fit-scroll">
           {/* 화면에서 A4 한 장과 같은 비율(가로 900px × 세로 1270px)로 그린다.
-              인쇄와 PDF는 이 모양을 그대로 A4 폭에 맞게 줄이기만 한다(RENTAL_PRINT_ZOOM).
+              인쇄와 PDF는 이 모양을 그대로 A4 한 장에 맞게 줄이기만 한다(utils/printFit.js).
               예전에는 인쇄할 때만 글자·여백을 따로 줄이고 세로를 억지로 늘려서, 화면과 종이 모양이 달랐다. */}
-          <div className="rental-print-area" style={{ width: `${RENTAL_SHEET_WIDTH_PX}px`, height: `${RENTAL_SHEET_HEIGHT_PX}px`, margin: '0 auto', background: '#fff', padding: `${RENTAL_SHEET_MARGIN_PX}px`, color: '#000', fontFamily: "'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif", fontSize: '0.76rem', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden' }}>
+          <div className="rental-print-area print-fit" style={{ width: `${RENTAL_SHEET_WIDTH_PX}px`, height: `${RENTAL_SHEET_HEIGHT_PX}px`, margin: '0 auto', background: '#fff', padding: `${RENTAL_SHEET_MARGIN_PX}px`, color: '#000', fontFamily: "'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif", fontSize: '0.76rem', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden' }}>
             {/* 1. Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', borderBottom: '2.5px double #000', paddingBottom: '0.6rem' }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '150px' }}>
@@ -4591,7 +4485,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             {/* 5. Fine Print / Guidelines */}
             <div style={{ background: '#fdfbfa', border: '1px dashed #ad885c', padding: '4px 8px', fontSize: '0.66rem', color: '#555', marginBottom: '0.3rem', lineHeight: '1.35' }}>
               <div>• 상기 견적 금액은 운용대수(계약대수/차량보유대수), 차량가 변동 또는 정부 시책에 따라 변동될 수 있습니다.</div>
-              <div>• 상기 견적 중 선납금을 선택하신 경우는 선납금액을 계약기간으로 균등하게 나눈 금액을 월대여료에서 차감하고 청구됩니다.</div>
+              {/* 표의 월대여료는 이미 선납금을 뺀 금액이다. 예전 문구("월대여료에서 차감하고 청구")는
+                  표의 금액에서 한 번 더 빼는 것처럼 읽혀, 실제 청구액보다 적게 낼 것으로 오해하게 했다. */}
+              <div>• 선납금을 선택하신 경우, 상기 월대여료는 선납금을 계약기간으로 균등하게 나눈 금액을 <b>이미 차감한 실제 매월 납부 금액</b>입니다(예: 월 렌트료 100만원, 선납금 600만원·60개월이면 월 10만원 차감 → 월대여료 90만원).</div>
               <div>• 차량 등급별 세부 옵션 사항을 반드시 확인하시기 바라며, 각 차종의 세부 옵션 사항은 차량제조사 홈페이지에서 확인이 가능합니다.</div>
               <div>• 전기차 지역 보조금 소진 및 정부 정책에 따라 견적 상세 내용이 변경될 수 있으며, 안내되는 보조금 신청 사항 및 서류 접수 내용과 상이할 경우 견적이 취소됩니다.</div>
             </div>

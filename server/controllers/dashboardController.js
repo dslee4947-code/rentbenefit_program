@@ -7,6 +7,7 @@ import Inquiry from '../models/Inquiry.js';
 import Quote from '../models/Quote.js';
 import ActivityLog, { DEPARTMENTS } from '../models/ActivityLog.js';
 import { resolveScheduleInputs } from './billingScheduleController.js';
+import { buildShortTermReport } from '../utils/shortTermReport.js';
 
 // @desc    Get dashboard summary (counts via aggregation + upcoming schedule notifications)
 // @route   GET /api/dashboard/summary
@@ -353,6 +354,47 @@ export const getExecutiveSummary = async (req, res) => {
     const [inqThis, quoteThis, contractThis] = funnelThis;
     const [inqLast, quoteLast, contractLast] = funnelLast;
 
+    // 단기렌트 월 목표 달성. 견적서(3년·인수가 30%·정비 포함) 월 렌트료만큼 차마다 매달 벌어 오는지.
+    // 목표를 못 내도 나머지 요약은 보여야 하므로 실패하면 비워 둔다.
+    const shortTermReport = await buildShortTermReport(now).catch((err) => {
+      console.error('[경영 요약] 단기렌트 목표 계산 실패:', err.message);
+      return null;
+    });
+    const shortTermTargets = shortTermReport && {
+      count: shortTermReport.count,
+      monthlyTarget: shortTermReport.monthlyTarget,
+      thisMonth: shortTermReport.thisMonth,
+      lastMonth: shortTermReport.lastMonth,
+      cumTarget: shortTermReport.cumTarget,
+      cumActual: shortTermReport.cumActual,
+      rows: shortTermReport.rows.map((r) => {
+        const p = r.performance;
+        return {
+          ledgerId: r.ledgerId,
+          ledgerNo: r.ledgerNo,
+          carModel: r.carModel,
+          plateNo: r.plateNo,
+          reason: r.reason,
+          targetSource: r.targetSource,
+          monthlyTarget: p.currentTarget || p.monthlyTarget || 0, // 이번 달 차령을 반영한 목표
+          baseTarget: p.monthlyTarget || 0,
+          ageYear: p.ageYear || null,
+          ageFactor: p.ageFactor || null,
+          startDate: p.start?.date || null,
+          startSource: p.start?.source || null,
+          elapsedMonths: p.elapsedMonths || 0,
+          lastMonth: p.lastMonth || null,
+          thisMonth: p.thisMonth || null,
+          avg3: p.avg3 ?? null,
+          avg3Rate: p.avg3Rate ?? null,
+          metMonths: p.metMonths || 0,
+          doneMonths: p.doneMonths || 0,
+          gap: p.gap ?? null,
+          recoveryRate: p.recoveryRate ?? null
+        };
+      })
+    };
+
     // 만기는 달별로 묶어 "언제 몰리는지"를 보이고, 목록은 가까운 순으로 준다
     const expiringByMonth = {};
     for (const c of expiring) {
@@ -383,6 +425,7 @@ export const getExecutiveSummary = async (req, res) => {
       },
       activityToday: activityByDept,
       collections,
+      shortTermTargets,
       expiring: {
         count: expiring.length,
         monthlyRent: expiring.reduce((s, c) => s + (c.vehicle?.monthlyFee || c.pricing?.monthlyFee || 0), 0),

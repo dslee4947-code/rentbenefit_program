@@ -1,6 +1,6 @@
 import CompanyTransaction from '../models/CompanyTransaction.js';
 import { COMPANY_ACCOUNTS, isCompanyAccount } from '../../shared/companyAccounts.js';
-import { parseCompanyBookWorkbook } from '../utils/companyBookImport.js';
+import { applyCompanyBookExcel } from '../utils/companyBookApply.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
 
 /**
@@ -148,58 +148,20 @@ export const deleteTransaction = async (req, res) => {
 export const importExcel = async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: '엑셀 파일을 골라 주세요.' });
-    const { rows, skipped, sheets } = parseCompanyBookWorkbook(req.file.buffer);
-    if (!rows.length) {
+    // 반영 규칙은 OneDrive 자동 갱신(utils/excelAutoSync.js)과 같은 함수를 쓴다
+    const apply = String(req.body?.apply || req.query?.apply) === '1';
+    const summary = await applyCompanyBookExcel(req.file.buffer, { apply, userId: req.user?._id });
+    if (summary.empty) {
       return res.status(400).json({ success: false, message: '읽을 줄이 없습니다. "렌트베네핏 입출금 리스트" 엑셀(고정비용·부대비용·기타비용 시트)이 맞는지 확인해 주세요.' });
     }
-
-    const fileSheets = [...new Set(rows.map((r) => r.sourceSheet))];
-    const existing = await CompanyTransaction.find({ source: 'excel' }).select('importKey account accountEdited sourceSheet description amount date direction').lean();
-    const byKey = new Map(existing.map((e) => [e.importKey, e]));
-    const fileKeys = new Set(rows.map((r) => r.importKey));
-
-    const added = rows.filter((r) => !byKey.has(r.importKey));
-    const kept = rows.filter((r) => byKey.has(r.importKey));
-    const removed = existing.filter((e) => fileSheets.includes(e.sourceSheet) && !fileKeys.has(e.importKey));
-
-    const summary = {
-      sheets,
-      total: rows.length,
-      added: added.length,
-      kept: kept.length,
-      removed: removed.length,
-      excluded: rows.filter((r) => r.excluded).length,
-      skipped,
-      addedSample: added.slice(0, 20),
-      removedSample: removed.slice(0, 20)
-    };
-
-    if (String(req.body?.apply || req.query?.apply) !== '1') {
-      return res.json({ success: true, preview: true, ...summary });
-    }
-
-    const now = { createdBy: req.user?._id, updatedBy: req.user?._id };
-    if (added.length) {
-      await CompanyTransaction.insertMany(added.map((r) => ({ ...r, source: 'excel', ...now })), { ordered: false });
-    }
-    if (kept.length) {
-      await CompanyTransaction.bulkWrite(kept.map((r) => {
-        const prev = byKey.get(r.importKey);
-        const set = { memo: r.memo, excluded: !!r.excluded, excludeReason: r.excludeReason || '', sourceRow: r.sourceRow, sourceColumn: r.sourceColumn, updatedBy: req.user?._id };
-        if (!prev.accountEdited) set.account = r.account;
-        return { updateOne: { filter: { importKey: r.importKey }, update: { $set: set } } };
-      }));
-    }
-    if (removed.length) {
-      await CompanyTransaction.deleteMany({ source: 'excel', importKey: { $in: removed.map((r) => r.importKey) } });
-    }
+    if (!apply) return res.json({ success: true, preview: true, ...summary });
 
     logActivity({
       req, dept: '재무부', action: ACTIONS.COMPANY_BOOK_EDIT,
-      summary: `회사 장부 엑셀 반영: 새 줄 ${added.length}건, 지운 줄 ${removed.length}건`,
-      meta: { added: added.length, kept: kept.length, removed: removed.length }
+      summary: `회사 장부 엑셀 반영: 새 줄 ${summary.added}건, 지운 줄 ${summary.removed}건`,
+      meta: { added: summary.added, kept: summary.kept, removed: summary.removed }
     });
-    res.json({ success: true, preview: false, ...summary, message: `엑셀을 반영했습니다. 새 줄 ${added.length}건, 그대로 ${kept.length}건, 엑셀에서 사라져 지운 줄 ${removed.length}건.` });
+    res.json({ success: true, preview: false, ...summary, message: `엑셀을 반영했습니다. 새 줄 ${summary.added}건, 그대로 ${summary.kept}건, 엑셀에서 사라져 지운 줄 ${summary.removed}건.` });
   } catch (error) {
     res.status(500).json({ success: false, message: `엑셀을 읽지 못했습니다: ${error.message}` });
   }

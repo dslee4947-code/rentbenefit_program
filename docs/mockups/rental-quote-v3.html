@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>장기렌터카 견적서 시안 v3</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css" />
+<style>
+  /* 기준: 법인 담당자가 미팅 자리에서 1분 안에 훑어본다. 월 납입금과 계약 기간이 먼저 보여야 한다.
+     A4 한 장(화면 900 × 1270px)에 지금 견적서의 내용을 빠짐없이 담는다. */
+  :root { --navy: #111e38; --gold: #ad885c; --gold-soft: #f8f3eb; --line: #e3e6eb; --muted: #8a94a6; --text: #1f2937; --bg: #f6f7f9; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #e9ecf1; font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif; color: var(--text); font-variant-numeric: tabular-nums; }
+  .sheet { width: 900px; height: 1270px; margin: 0 auto; padding: 36px 40px 28px; background: #fff; display: flex; flex-direction: column; font-size: 12.5px; }
+
+  .head { display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 12px; border-bottom: 2px solid var(--navy); }
+  .head .co { font-size: 12.5px; font-weight: 700; color: var(--gold); letter-spacing: 1px; }
+  .head h1 { margin: 3px 0 0; font-size: 27px; font-weight: 800; color: var(--navy); letter-spacing: 1px; }
+  .head .right { text-align: right; }
+  .head .logo { font-weight: 800; color: #3b5a8c; font-size: 20px; font-family: Georgia, serif; }
+  .head .num { margin-top: 3px; font-size: 11.5px; color: #667; }
+
+  /* 고객·차량 / 견적·담당 */
+  .info { display: grid; grid-template-columns: 1.35fr 1fr; gap: 18px; margin-top: 14px; }
+  .kv { display: grid; grid-template-columns: 74px 1fr; row-gap: 5px; column-gap: 10px; align-content: start; }
+  .kv dt { color: var(--muted); font-size: 11.5px; padding-top: 1px; }
+  .kv dd { margin: 0; font-weight: 600; color: #223; }
+  .to { font-size: 17px; font-weight: 800; color: var(--navy); margin-bottom: 8px; }
+  .accent { color: #c2410c; font-weight: 700; }
+  .contact { background: var(--bg); border-radius: 8px; padding: 10px 12px; }
+
+  /* 한눈에: 월 납입금과 계약 기간 */
+  .h2 { display: flex; justify-content: space-between; align-items: baseline; margin: 16px 0 7px; }
+  .h2 b { font-size: 13.5px; font-weight: 800; color: var(--navy); }
+  .h2 span { font-size: 11px; color: var(--muted); }
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+  .card { border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; }
+  .card .top { display: flex; justify-content: space-between; align-items: baseline; }
+  .card .no { font-size: 12px; font-weight: 800; color: var(--gold); }
+  .card .term { font-size: 15px; font-weight: 800; color: var(--navy); }
+  .card .monthly { margin-top: 6px; font-size: 25px; font-weight: 800; color: var(--navy); letter-spacing: -0.5px; line-height: 1.1; }
+  .card .monthly small { font-size: 13px; margin-left: 2px; }
+  .card .label { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+  .card .cond { margin-top: 7px; padding-top: 6px; border-top: 1px dashed var(--line); font-size: 11px; color: #556; }
+
+  table { width: 100%; border-collapse: collapse; }
+  .detail th { background: var(--navy); color: #fff; font-weight: 700; font-size: 11.5px; padding: 6px 6px; }
+  .detail td { padding: 5px 8px; border-bottom: 1px solid var(--line); text-align: right; font-size: 12px; }
+  .detail td.c { text-align: center; }
+  .detail td.l { text-align: left; }
+  .detail td.m { font-weight: 800; color: var(--navy); background: var(--gold-soft); font-size: 13px; }
+  .detail .pct { color: var(--muted); font-size: 10.5px; margin-left: 3px; }
+  .detail-note { text-align: right; font-size: 10.5px; color: var(--muted); margin-top: 3px; }
+
+  /* 조건 2단 그리드 */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; margin-top: 12px; }
+  .box h3 { margin: 0 0 5px; font-size: 12.5px; font-weight: 800; color: var(--navy); padding-bottom: 4px; border-bottom: 1.5px solid var(--navy); }
+  .rows { width: 100%; }
+  .rows td { padding: 3.5px 2px; border-bottom: 1px solid var(--line); font-size: 11.5px; }
+  .rows td:last-child { text-align: right; font-weight: 700; color: #223; }
+  .rows td.sub { color: var(--muted); width: 82px; }
+  .yes { color: #0f766e !important; }
+  .no-svc { color: #a0a7b4 !important; font-weight: 600 !important; }
+  .list { margin: 0; padding-left: 14px; font-size: 11.5px; line-height: 1.6; color: #334; }
+  .list .x { color: #a0a7b4; }
+
+  .notice { margin-top: 12px; background: var(--bg); border-radius: 8px; padding: 9px 12px; font-size: 10.5px; color: #556; line-height: 1.6; }
+  .notice b { color: #334; }
+  .docs { margin-top: 8px; font-size: 10.5px; color: #556; }
+  .docs b { color: var(--navy); margin-right: 6px; }
+
+  .spacer { flex: 1; }
+  .foot { display: flex; justify-content: space-between; align-items: center; padding-top: 10px; border-top: 2px solid var(--navy); }
+  .foot .sign { font-size: 15px; font-weight: 800; color: var(--navy); letter-spacing: 1px; }
+  .foot .sign span { font-size: 12.5px; font-weight: 600; margin-left: 10px; color: #334; }
+  .foot .tag { color: var(--gold); font-size: 11px; font-weight: 800; letter-spacing: 3px; }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div class="head">
+    <div><div class="co">(주)렌트베네핏</div><h1>장기렌터카 견적서</h1></div>
+    <div class="right"><div class="logo">BENefit</div><div class="num">견적번호 RB-261007-062 · 작성일 2026-10-07</div></div>
+  </div>
+
+  <div class="info">
+    <div>
+      <div class="to">이주동 대표님 귀하</div>
+      <dl class="kv">
+        <dt>차종</dt><dd>레이 1.0 가솔린 트렌디</dd>
+        <dt>색상</dt><dd>외장 화이트 · 내장 블랙</dd>
+        <dt>옵션</dt><dd>컴포트 1, 드라이브 와이즈, 8인치 내비게이션(트렌디)</dd>
+        <dt>예상 납기</dt><dd class="accent">10개월</dd>
+      </dl>
+    </div>
+    <div class="contact">
+      <dl class="kv">
+        <dt>담당자</dt><dd>이두식 팀장</dd>
+        <dt>TEL</dt><dd>02-547-0303 · 010-9061-3000</dd>
+        <dt>FAX</dt><dd>02-529-3303</dd>
+        <dt>E-mail</dt><dd>rent@sdibenefit.com</dd>
+        <dt>유효기간</dt><dd>작성일로부터 10일</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="h2"><b>견적 요약</b><span>월 납입금 VAT 포함 · 보험료·세금 포함</span></div>
+  <div class="cards">
+    <div class="card"><div class="top"><span class="no">1안 · 렌트</span><span class="term">36개월</span></div><div class="monthly">398,000<small>원</small></div><div class="label">월 납입금</div><div class="cond">보증 30% · 선수 0% · 인수 60%</div></div>
+    <div class="card"><div class="top"><span class="no">2안 · 렌트</span><span class="term">36개월</span></div><div class="monthly">413,000<small>원</small></div><div class="label">월 납입금</div><div class="cond">보증 0% · 선수 0% · 인수 60%</div></div>
+    <div class="card"><div class="top"><span class="no">3안 · 렌트</span><span class="term">48개월</span></div><div class="monthly">370,000<small>원</small></div><div class="label">월 납입금</div><div class="cond">보증 30% · 선수 0% · 인수 50%</div></div>
+    <div class="card"><div class="top"><span class="no">4안 · 렌트</span><span class="term">48개월</span></div><div class="monthly">384,000<small>원</small></div><div class="label">월 납입금</div><div class="cond">보증 0% · 선수 0% · 인수 50%</div></div>
+  </div>
+
+  <div class="h2"><b>세부 내역</b><span>단위: 원</span></div>
+  <table class="detail">
+    <thead><tr><th style="width:44px">구분</th><th>차종</th><th style="width:40px">수량</th><th style="width:66px">계약기간</th><th>차량가격</th><th>보증금</th><th>선수금</th><th>인수가</th><th>정비</th><th style="width:96px">월 납입금</th></tr></thead>
+    <tbody>
+      <tr><td class="c">1안</td><td class="l">레이 1.0 가솔린 트렌디</td><td class="c">1</td><td class="c">36개월</td><td>17,900,000</td><td>5,370,000<span class="pct">30%</span></td><td>0<span class="pct">0%</span></td><td>10,740,000<span class="pct">60%</span></td><td class="c">미가입</td><td class="m">398,000</td></tr>
+      <tr><td class="c">2안</td><td class="l">레이 1.0 가솔린 트렌디</td><td class="c">1</td><td class="c">36개월</td><td>17,900,000</td><td>0<span class="pct">0%</span></td><td>0<span class="pct">0%</span></td><td>10,740,000<span class="pct">60%</span></td><td class="c">미가입</td><td class="m">413,000</td></tr>
+      <tr><td class="c">3안</td><td class="l">레이 1.0 가솔린 트렌디</td><td class="c">1</td><td class="c">48개월</td><td>17,900,000</td><td>5,370,000<span class="pct">30%</span></td><td>0<span class="pct">0%</span></td><td>8,950,000<span class="pct">50%</span></td><td class="c">미가입</td><td class="m">370,000</td></tr>
+      <tr><td class="c">4안</td><td class="l">레이 1.0 가솔린 트렌디</td><td class="c">1</td><td class="c">48개월</td><td>17,900,000</td><td>0<span class="pct">0%</span></td><td>0<span class="pct">0%</span></td><td>8,950,000<span class="pct">50%</span></td><td class="c">미가입</td><td class="m">384,000</td></tr>
+    </tbody>
+  </table>
+  <div class="detail-note">차량가격: 소비자가격(옵션·VAT 포함) · 월 납입금: VAT 포함</div>
+
+  <div class="grid">
+    <div class="box">
+      <h3>월 납입금 포함 내용</h3>
+      <ul class="list">
+        <li>보험료, 차량 검사비, 세금, 공과금 전부 포함</li>
+        <li class="x">차량점검, 수리·소모품 교체 비용 불포함</li>
+        <li class="x">유류비, 세차비, 과태료, 범칙금은 임차인 부담</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>대여 조건</h3>
+      <table class="rows">
+        <tr><td>약정 주행거리</td><td>20,000km / 년</td></tr>
+        <tr><td>중도해지 수수료율</td><td>35%</td></tr>
+        <tr><td>연체 이율</td><td>연 25%</td></tr>
+      </table>
+    </div>
+    <div class="box">
+      <h3>보험 가입 내용</h3>
+      <table class="rows">
+        <tr><td>운전 범위 · 연령</td><td>임직원 · 만 26세 이상</td></tr>
+        <tr><td>대인</td><td>무제한</td></tr>
+        <tr><td>대물</td><td>2억원</td></tr>
+        <tr><td>자기신체</td><td>사상 1억 / 부상 1,500만</td></tr>
+        <tr><td>자기부담금(CMD)</td><td>30만원</td></tr>
+        <tr><td>무보험차상해</td><td>2억원 / 1인당</td></tr>
+        <tr><td>긴급출동</td><td>5회 / 년</td></tr>
+      </table>
+    </div>
+    <div class="box">
+      <h3>차량 관리 서비스</h3>
+      <table class="rows">
+        <tr><td class="sub">기본 제공</td><td>차량 법정 검사 대행</td><td class="yes">가입</td></tr>
+        <tr><td class="sub"></td><td>사고 처리 및 사고 수리</td><td>자기부담금</td></tr>
+        <tr><td class="sub"></td><td>사고·고장 긴급출동</td><td>5회 / 년</td></tr>
+        <tr><td class="sub">정비</td><td>순회정비</td><td class="no-svc">미가입</td></tr>
+        <tr><td class="sub"></td><td>일반정비(고장수리)</td><td class="no-svc">미가입</td></tr>
+        <tr><td class="sub"></td><td>소모품 교환(오일·배터리 등)</td><td class="no-svc">미가입</td></tr>
+        <tr><td class="sub"></td><td>타이어 교체</td><td class="no-svc">미제공</td></tr>
+      </table>
+    </div>
+    <div class="box">
+      <h3>특약사항</h3>
+      <ul class="list">
+        <li>개별소비세 관련 정부 정책 변경 이후 출고되는 차량의 렌탈료는 (개별소비세 변동 금액/계약 개월 수)만큼 변동됩니다.</li>
+        <li>전기차의 대차는 내연기관 차량으로 제공됩니다.</li>
+        <li>전기차 일반정비/일반형 정비상품은 순회정비, 소모품은 에어컨 필터, 와이퍼, 워셔액 교체만 가능하며, 그 외 서비스(소모, 차량 생활물질, 스캐너 진단)는 희망시 제공됩니다.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>비고</h3>
+      <div style="color:#c3c8d1">–</div>
+    </div>
+  </div>
+
+  <div class="notice">
+    <b>견적 안내</b> · 상기 견적 금액은 운용대수(계약대수/차량보유대수), 차량가 변동 또는 정부 시책에 따라 변동될 수 있습니다.
+    선납금을 선택하신 경우, 위 월대여료는 선납금을 계약기간으로 균등하게 나눈 금액을 이미 차감한 실제 매월 납부 금액입니다.
+    차량 등급별 세부 옵션 사항을 반드시 확인하시기 바라며, 각 차종의 세부 옵션 사항은 차량제조사 홈페이지에서 확인 가능합니다.
+    전기차 지역 보조금 조건 및 정부 정책에 따라 견적 상세 내용이 변경될 수 있으며, 안내되는 보조금 신청 사항 및 서류 접수 내용과 상이할 경우 견적이 취소됩니다.<br />
+    <b>신용조회 안내</b> (대출액 10억 이하인 경우 및 최근 1개년 재무제표 미제출시) · 1. 기업의 신용도 판단 목적으로 대표자의 개인신용정보를 조회할 경우, 렌트베네핏은 해당 기업의 대표자에게 조회 사실 및 이유 등을 사전 고지하여야 합니다.
+    2. 렌트베네핏에 장기 견적을 요청한 업무담당자께서는 귀사의 대표자에게 신용조회가 발생할 수 있음을 반드시 사전 보고해 주시기 바랍니다.
+  </div>
+  <div class="docs"><b>계약 시 필요서류</b>법인: 법인등기부등본(원본), 법인인감증명서(원본), 사업자등록증(사본), 사용인감사용시 사용인감계, 대리인 날인시 위임장, CMS통장사본</div>
+
+  <div class="spacer"></div>
+  <div class="foot"><div class="sign">주식회사 렌트베네핏<span>대표이사 신동일</span></div><div class="tag">TOTAL CAR PREMIUM SOLUTION</div></div>
+</div>
+</body>
+</html>

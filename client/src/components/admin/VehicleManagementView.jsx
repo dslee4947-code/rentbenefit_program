@@ -10,8 +10,10 @@ import {
   FileSignature,
   Download,
   Upload,
-  Truck
+  Truck,
+  Repeat
 } from 'lucide-react';
+import VehicleRerentDialog from './VehicleRerentDialog.jsx';
 import { formatCustomerName, PAYMENT_DAY_OPTIONS, formatPaymentDay } from '../../utils/format.js';
 import MoneyInput from './MoneyInput.jsx';
 import { useTableSort } from './useTableSort.js';
@@ -24,13 +26,14 @@ import { createPortal } from 'react-dom';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
 // 목록에 보이는 순서이자 상태 선택 상자의 순서.
-// 계약중(출고 전) -> 장기렌트(운용 중) -> 단기렌트 -> 거래완료 순으로, 지금 손이 가는 차가 위로 온다.
+// 계약중(출고 전) -> 장기렌트(운용 중) -> 단기렌트 -> 재고(반납 후 대기) -> 거래완료 순으로, 지금 손이 가는 차가 위로 온다.
 // 사고대차는 단기렌트로 통일했다. 사고대차인지는 차가 아니라 대여 건마다 가른다.
 // 예전에 쓰던 '예약'은 뜻이 같은 '계약중'으로 합쳤다(서버가 켜질 때 남은 자료도 함께 바꾼다).
 const STATUS_LABELS = {
   '계약중': '계약중',
   '장기렌트': '장기렌트',
   '단기렌트': '단기렌트',
+  '재고': '재고',
   '거래완료': '거래완료'
 };
 
@@ -101,6 +104,8 @@ const STATUS_COLORS = {
   '계약중': { bg: '#f0e6ff', text: '#7c3aed', row: '#faf6ff' },
   '장기렌트': { bg: '#e6f7ff', text: '#1890ff', row: '#f4fbff' },
   '단기렌트': { bg: '#fff7e6', text: '#fa8c16', row: '#fffbf5' },
+  // 재고: 반납받고 다음 고객을 기다리는 차
+  '재고': { bg: '#f1f5f9', text: '#475569', row: '#f8fafc' },
   '거래완료': { bg: '#f6ffed', text: '#52c41a', row: '#f8fdf4' }
 };
 
@@ -113,7 +118,7 @@ const rowBackgroundFor = (vehicle, isEditing) => {
 /**
  * 목록의 기본 순서.
  *
- * 1) 상태: 계약중 -> 장기렌트 -> 단기렌트 -> 거래완료 (모르는 상태는 맨 뒤)
+ * 1) 상태: 계약중 -> 장기렌트 -> 단기렌트 -> 재고 -> 거래완료 (모르는 상태는 맨 뒤)
  * 2) 같은 상태 안에서는 출고일(인도일)이 최근인 차가 위로.
  *    출고일이 아직 없는 차(출고 준비 전)는 그 상태의 아래쪽에 모인다.
  *
@@ -351,7 +356,7 @@ function VehicleManagementView({ showToast, currentUser }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [stats, setStats] = useState({ total: 0, '계약중': 0, '장기렌트': 0, '단기렌트': 0, '거래완료': 0 });
+  const [stats, setStats] = useState({ total: 0, '계약중': 0, '장기렌트': 0, '단기렌트': 0, '재고': 0, '거래완료': 0 });
 
   const [showModal, setShowModal] = useState(false);
   // 표에서 고치고 있는 줄. 수정 단추를 누르면 그 줄이 입력칸으로 바뀐다.
@@ -363,6 +368,8 @@ function VehicleManagementView({ showToast, currentUser }) {
   const [editingVehicle, setEditingVehicle] = useState(null);
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  // 재렌트 창을 띄울 차(재고·단기렌트)
+  const [rerentTarget, setRerentTarget] = useState(null);
 
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef(null);
@@ -425,7 +432,7 @@ function VehicleManagementView({ showToast, currentUser }) {
       const data = await res.json();
       if (data.success) {
         setVehicles(data.vehicles || []);
-        setStats(data.stats || { total: 0, '계약중': 0, '장기렌트': 0, '단기렌트': 0, '거래완료': 0 });
+        setStats(data.stats || { total: 0, '계약중': 0, '장기렌트': 0, '단기렌트': 0, '재고': 0, '거래완료': 0 });
       }
     } catch (err) {
       console.error(err);
@@ -1095,6 +1102,12 @@ function VehicleManagementView({ showToast, currentUser }) {
             <button onClick={() => handleDelete(v)} title="삭제" style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}>
               <Trash2 size={16} />
             </button>
+            {/* 반납받은 차는 새 고객에게 재렌트한다. 차는 새로 만들지 않고 같은 원장에 이어 붙인다 */}
+            {(v.status === '재고' || v.status === '단기렌트') && (
+              <button onClick={() => setRerentTarget(v)} title="새 고객에게 중고 장기렌트(재렌트)" style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', border: '1px solid var(--primary)', background: '#fff', color: 'var(--primary)', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '700', padding: '0.15rem 0.4rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                <Repeat size={12} /> 재렌트
+              </button>
+            )}
           </div>
         )}
       </td>
@@ -1120,11 +1133,20 @@ function VehicleManagementView({ showToast, currentUser }) {
     { key: '계약중', label: '계약중', value: stats['계약중'], color: STATUS_COLORS['계약중'].text },
     { key: '장기렌트', label: '장기렌트', value: stats['장기렌트'], color: STATUS_COLORS['장기렌트'].text },
     { key: '단기렌트', label: '단기렌트', value: stats['단기렌트'], color: STATUS_COLORS['단기렌트'].text },
+    { key: '재고', label: '재고', value: stats['재고'], color: STATUS_COLORS['재고'].text },
     { key: '거래완료', label: '거래완료', value: stats['거래완료'], color: STATUS_COLORS['거래완료'].text }
   ];
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      {rerentTarget && (
+        <VehicleRerentDialog
+          vehicle={rerentTarget}
+          onClose={() => setRerentTarget(null)}
+          onDone={() => fetchVehicles()}
+          showToast={showToast}
+        />
+      )}
       {/* 통계 카드 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem' }}>
         {statCards.map(card => (

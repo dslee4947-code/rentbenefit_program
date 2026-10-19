@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { PARTY_TYPES } from '../utils/partyType.js';
+import { contractEndOf } from '../utils/contractTerm.js';
 const { Schema } = mongoose;
 
 const ContractSchema = new Schema({
@@ -27,7 +28,7 @@ const ContractSchema = new Schema({
   contractDate: Date,
   deliveryDate: Date,
   termMonths: Number,
-  endDate: Date, // pre-save 훅에서 자동 계산
+  endDate: Date, // 만기일. 인도일 + 개월수(연장은 계약일 + 개월수). pre-save 훅과 utils/contractEndDate.js가 계산
   branch: String,
   managerMain: String, // 책임담당자
   managerMainPhone: String, // 책임담당자 연락처
@@ -75,6 +76,36 @@ const ContractSchema = new Schema({
   // 되돌리면 다시 '진행중'이 되어 수정할 수 있다. 지우지 않고 상태로 두는 이유는
   // 차량과 청구서가 이 계약을 가리키고 있어, 삭제하면 그 연결이 끊기기 때문이다.
   status: { type: String, enum: ['임시저장', '진행중', '보관됨', '종료', '중도해지'], default: '진행중' },
+
+  /**
+   * 계약의 이어짐. 차 한 대에 계약이 순서대로 붙는다(신규 → 연장 → 반납 후 재렌트 …).
+   *
+   * 예전에는 연장할 때 기존 계약의 계약일을 고쳐 쓰거나 계약을 새로 만들면서 차량도 새로 만들었다.
+   * 그러면 최초 계약의 회차·입금이 사라지거나, 같은 차가 렌트차량 DB에 두 번 생겼다.
+   * 이제 이전 계약은 '종료'로 닫고 새 계약을 이어 붙인다. 기록은 지우지 않는다.
+   */
+  contractKind: { type: String, enum: ['신규', '연장', '재렌트'], default: '신규' },
+  previousContract: { type: Schema.Types.ObjectId, ref: 'Contract' },
+  // 연장 번호는 최초 계약번호 뒤에 -1, -2를 붙인다(대표님 결정 2026-10-05). 그 뿌리와 순번.
+  baseContractNo: String,
+  extensionSeq: { type: Number, default: 0 },
+  // 계약이 끝난 사유와 실제 끝난 날. 만기 전에 연장·반납하면 endDate(예정)와 다르다.
+  endReason: { type: String, enum: ['연장', '반납', '인수', '중도해지'] },
+  actualEndDate: Date,
+  // 보증금을 이전 계약에서 그대로 넘겨받았는지. 계약자가 같으면 승계, 다르면 돌려주고 새로 받는다.
+  depositCarriedOver: { type: Boolean, default: false },
+  // 반납할 때 정산한 내용. 보증금 반환·손상 수리비·초과 주행은 원장에도 줄로 들어간다.
+  returnInfo: {
+    returnDate: Date,
+    mileage: Number, // 반납 때 주행거리
+    depositRefund: Number, // 돌려준 보증금
+    damageCharge: Number, // 고객에게 받는 손상 수리비
+    excessMileageCharge: Number, // 초과 주행 정산
+    note: String
+  },
+  // 재렌트 계약의 차량 평가액. 중고차 사업부가 알려 준 금액을 직원이 넣는다(대표님 결정 2026-10-05).
+  // 이 구간의 수익성은 신차가가 아니라 이 금액을 원가로 보고 따진다.
+  appraisalValue: Number,
   archivedAt: Date, // 계약서를 폴더에 저장해 보관한 시각
   customerFolder: String, // 계약자 폴더명 (계약자명). 나중에 계약자명이 바뀌어도 파일을 찾을 수 있게 남긴다
 
@@ -118,13 +149,14 @@ ContractSchema.index({ customer: 1 });
 ContractSchema.index({ vehicle: 1 });
 ContractSchema.index({ vehicles: 1 });
 ContractSchema.index({ createdAt: -1 });
+ContractSchema.index({ previousContract: 1 });
 
+// 만기일은 계약일이 아니라 인도일 기준이다(연장 계약만 계약일). 자세한 이유는 utils/contractTerm.js.
+// 계약 문서는 차량을 모르므로 계약의 인도일로 계산한다. 차량 인도일이 바뀌면
+// utils/contractEndDate.js가 계약의 인도일과 만기일을 함께 맞춘다.
 ContractSchema.pre('save', function (next) {
-  if (this.contractDate && this.termMonths) {
-    const end = new Date(this.contractDate);
-    end.setMonth(end.getMonth() + this.termMonths);
-    this.endDate = end;
-  }
+  const end = contractEndOf(this);
+  if (end) this.endDate = end;
   next();
 });
 

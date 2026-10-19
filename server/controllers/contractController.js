@@ -138,46 +138,14 @@ const buildVehicleFields = (vehicleInfo, pricing, status, bank, terms) => ({
   sellingAdminExpense: pricing?.pandanbi
 });
 
-// 계약이 확정될 때(신규 등록/임시저장 확정) 함께 만드는 정기점검/차량검사/렌트만료/청구서발송 일정
-const buildSchedules = (vehicleId, contract, termMonths, pricing, managerOps, managerMain) => {
+// 계약이 확정될 때(신규 등록/임시저장 확정) 함께 만드는 렌트만료 일정
+//
+// 정기점검·차량검사 일정은 여기서 만들지 않는다.
+// 예전에는 계약일부터 6개월마다 점검, 24개월에 검사를 넣었는데, 검사는 최초등록일 기준이고
+// 점검은 약정 주행거리와 정비 가입 여부에 따라 주기가 달라 날짜가 맞지 않았다.
+// 지금은 utils/vehicleServiceScheduleJob.js가 정비·검사 기록을 보고 차마다 다음 한 건만 잡는다.
+export const buildSchedules = (vehicleId, contract, termMonths, pricing, managerOps, managerMain) => {
   const schedulesToCreate = [];
-  const contractDateObj = new Date(contract.contractDate);
-
-  const maintenanceIntervals = Math.floor(termMonths / 6);
-  for (let i = 1; i <= maintenanceIntervals; i++) {
-    const maintenanceDate = new Date(contractDateObj);
-    maintenanceDate.setMonth(maintenanceDate.getMonth() + (i * 6));
-    schedulesToCreate.push({
-      type: '정기점검',
-      targetVehicle: vehicleId,
-      targetContract: contract._id,
-      dueDate: maintenanceDate,
-      status: '예정',
-      assignee: managerOps || managerMain || '담당자 미정'
-    });
-  }
-
-  const inspectionDate = new Date(contractDateObj);
-  if (termMonths >= 24) {
-    inspectionDate.setMonth(inspectionDate.getMonth() + 24);
-    schedulesToCreate.push({
-      type: '차량검사',
-      targetVehicle: vehicleId,
-      targetContract: contract._id,
-      dueDate: inspectionDate,
-      status: '예정',
-      assignee: managerOps || managerMain || '담당자 미정'
-    });
-  } else {
-    schedulesToCreate.push({
-      type: '차량검사',
-      targetVehicle: vehicleId,
-      targetContract: contract._id,
-      dueDate: contract.endDate,
-      status: '예정',
-      assignee: managerOps || managerMain || '담당자 미정'
-    });
-  }
 
   schedulesToCreate.push({
     type: '렌트만료',
@@ -254,12 +222,12 @@ const resolveCustomer = async (req) => {
 };
 
 // 고객ID-연월-일련번호 형식으로 계약번호를 채번한다 (예: CUST001-2601-01)
-const generateContractNo = async (customer, contractDateObj) => {
+export const generateContractNo = async (customer, contractDateObj) => {
   const cId = customer.customerId || 'CUST000';
   const yy = String(contractDateObj.getFullYear()).slice(-2);
   const mm = String(contractDateObj.getMonth() + 1).padStart(2, '0');
   const prefix = `${cId}-${yy}${mm}-`;
-  const contractCount = await Contract.countDocuments({ contractNo: new RegExp('^' + prefix) });
+  const contractCount = await Contract.countDocuments({ contractNo: new RegExp('^' + prefix), contractKind: { $ne: '연장' } });
   return `${prefix}${String(contractCount + 1).padStart(2, '0')}`;
 };
 
@@ -821,6 +789,10 @@ export const archiveContract = async (req, res) => {
     if (contract.status === '보관됨') {
       return res.status(400).json({ message: '이미 보관된 계약입니다.' });
     }
+    // 끝난 계약을 보관하면 '종료(연장)' 같은 기록이 '보관됨'으로 덮인다
+    if (contract.status === '종료' || contract.status === '중도해지') {
+      return res.status(400).json({ message: `${contract.status}된 계약은 보관할 수 없습니다. 기록은 그대로 남아 있습니다.` });
+    }
 
     const partyName = contract.companyId?.name || contract.customer?.name;
     if (!partyName) {
@@ -872,13 +844,25 @@ export const deleteContract = async (req, res) => {
   try {
     const contract = await Contract.findById(req.params.id);
     if (contract) {
+      // 연장으로 이어진 계약은 지우지 않는다.
+      // 연장 계약은 이전 계약과 같은 차량을 쓴다. 이전 계약을 지우면서 차량까지 지우면
+      // 지금 운행 중인 계약의 차가 사라진다. 이어진 계약의 회차·입금 기록도 끊긴다.
+      const successor = await Contract.exists({ previousContract: contract._id });
+      if (successor || contract.previousContract) {
+        return res.status(409).json({
+          message: `${contract.contractNo}는 연장으로 이어진 계약이라 삭제할 수 없습니다. 이전·다음 계약과 같은 차량, 같은 원장을 씁니다.`
+        });
+      }
       // Remove associated schedules
       await Schedule.deleteMany({ targetContract: contract._id });
-      // 이 계약에 묶인 차량을 모두 지운다 (임시저장 상태라면 아직 차량이 없을 수 있다).
-      // vehicles 배열과 Vehicle.contract 양쪽을 다 훑어, 한쪽만 연결된 예전 데이터도 빠뜨리지 않는다.
+      // 이 계약에 묶인 차량을 지운다 (임시저장 상태라면 아직 차량이 없을 수 있다).
+      // 단, 지금 다른 계약에 붙어 있는 차는 지우지 않는다(그 계약의 차다).
       const vehicleIds = [...(contract.vehicles || []), contract.vehicle].filter(Boolean);
       if (vehicleIds.length) {
-        await Vehicle.deleteMany({ _id: { $in: vehicleIds } });
+        await Vehicle.deleteMany({
+          _id: { $in: vehicleIds },
+          $or: [{ contract: contract._id }, { contract: null }, { contract: { $exists: false } }]
+        });
       }
       await Vehicle.deleteMany({ contract: contract._id });
       // 청구 회차표도 함께 지운다. 남겨 두면 청구 목록에 계약 없는 항목이 뜬다.
@@ -1132,7 +1116,7 @@ export const importContracts = async (req, res) => {
       const yy = String(contractDateObj.getFullYear()).slice(-2);
       const mm = String(contractDateObj.getMonth() + 1).padStart(2, '0');
       const prefix = `${cId}-${yy}${mm}-`;
-      const contractCount = await Contract.countDocuments({ contractNo: new RegExp('^' + prefix) });
+      const contractCount = await Contract.countDocuments({ contractNo: new RegExp('^' + prefix), contractKind: { $ne: '연장' } });
       const finalContractNo = `${prefix}${String(contractCount + 1).padStart(2, '0')}`;
 
       // 4. Generate vehicle code and model
@@ -1319,43 +1303,7 @@ export const importContracts = async (req, res) => {
       // 5. Generate Schedules
       const schedulesToCreate = [];
 
-      // Regular Maintenance: Every 6 months
-      const maintenanceIntervals = Math.floor(termMonthsValue / 6);
-      for (let i = 1; i <= maintenanceIntervals; i++) {
-        const maintenanceDate = new Date(contractDateObj);
-        maintenanceDate.setMonth(maintenanceDate.getMonth() + (i * 6));
-        schedulesToCreate.push({
-          type: '정기점검',
-          targetVehicle: vehicle._id,
-          targetContract: savedContract._id,
-          dueDate: maintenanceDate,
-          status: '예정',
-          assignee: practicalManager || ceoName || '담당자 미정'
-        });
-      }
-
-      // Vehicle Inspection
-      const inspectionDate = new Date(contractDateObj);
-      if (termMonthsValue >= 24) {
-        inspectionDate.setMonth(inspectionDate.getMonth() + 24);
-        schedulesToCreate.push({
-          type: '차량검사',
-          targetVehicle: vehicle._id,
-          targetContract: savedContract._id,
-          dueDate: inspectionDate,
-          status: '예정',
-          assignee: practicalManager || ceoName || '담당자 미정'
-        });
-      } else {
-        schedulesToCreate.push({
-          type: '차량검사',
-          targetVehicle: vehicle._id,
-          targetContract: savedContract._id,
-          dueDate: savedContract.endDate,
-          status: '예정',
-          assignee: practicalManager || ceoName || '담당자 미정'
-        });
-      }
+      // 정기점검·차량검사 일정은 만들지 않는다. vehicleServiceScheduleJob이 기록을 보고 잡는다(위 buildSchedules 주석 참고).
 
       // Rent Expiration
       schedulesToCreate.push({

@@ -1,4 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import ContractExtendDialog from './ContractExtendDialog.jsx';
 import { AlertTriangle, ChevronRight, TrendingUp, Car, CalendarClock, Users, Info, Wallet, AlertOctagon } from 'lucide-react';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -43,6 +45,85 @@ function Kpi({ icon, label, value, sub, onClick }) {
   );
 }
 
+const pct = (r) => (r === null || r === undefined ? '-' : `${Math.round(r * 100)}%`);
+const rateColor = (r) => (r === null || r === undefined ? 'var(--text-muted)' : r >= 1 ? '#15803d' : r >= 0.7 ? '#b45309' : '#b91c1c');
+
+/**
+ * 단기렌트 차가 매달 목표만큼 벌어 오는지.
+ * 월 목표 = 견적서로 3년·인수가 30%·정비 포함 계약을 잡았을 때의 월 렌트료(이만큼 벌고 3년 뒤 차량가 30%에 팔면 회수).
+ * 지금까지 덜 번 금액이 큰 차부터 놓는다.
+ */
+function ShortTermTargets({ st, onOpen }) {
+  const lm = st.lastMonth;
+  const lmRate = lm.target ? lm.actual / lm.target : null;
+  const cumRate = st.cumTarget ? st.cumActual / st.cumTarget : null;
+  const month = lm.month ? `${Number(lm.month.slice(5))}월` : '지난달';
+  return (
+    <div style={{ ...card }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 800, color: 'var(--text-bright)' }}>단기렌트 월 목표 달성 ({st.count}대)</span>
+        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+          월 목표 = 견적서 3년 · 인수가 30% · 정비 포함 월 렌트료 · 실제는 원장 고객입금
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: '1.6rem', flexWrap: 'wrap', marginBottom: '0.7rem', fontSize: '0.88rem' }}>
+        <span>월 목표 합계 <b>{krw(st.monthlyTarget)}</b></span>
+        <span>{month} <b style={{ color: rateColor(lmRate) }}>{krw(lm.actual)} / {krw(lm.target)} ({pct(lmRate)})</b> · 못 미친 차 {lm.belowCount}대</span>
+        <span>이번 달 오늘까지 {krw(st.thisMonth.actual)} / {krw(st.thisMonth.target)}</span>
+        <span>시작 후 누적 <b style={{ color: rateColor(cumRate) }}>{pct(cumRate)}</b> ({krw(st.cumActual - st.cumTarget)})</span>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+          <thead>
+            <tr style={{ color: 'var(--text-muted)', textAlign: 'left', fontSize: '0.76rem' }}>
+              <th style={{ padding: '0.4rem' }}>차량</th>
+              <th style={{ padding: '0.4rem', textAlign: 'right' }}>월 목표</th>
+              <th style={{ padding: '0.4rem', textAlign: 'right' }}>{month}</th>
+              <th style={{ padding: '0.4rem', textAlign: 'right' }}>최근 3개월 평균</th>
+              <th style={{ padding: '0.4rem', textAlign: 'right' }}>목표 채운 달</th>
+              <th style={{ padding: '0.4rem', textAlign: 'right' }}>누적 목표 대비</th>
+            </tr>
+          </thead>
+          <tbody>
+            {st.rows.map((r) => (
+              <tr key={r.ledgerId} onClick={onOpen} style={{ borderTop: '1px solid var(--border-color)', cursor: 'pointer' }}>
+                <td style={{ padding: '0.45rem' }}>
+                  <span style={{ fontWeight: 600 }}>{r.carModel}</span>{' '}
+                  <span style={{ color: 'var(--text-muted)' }}>{r.plateNo || r.ledgerNo}</span>
+                  {r.startSource === 'afterLongTerm' && <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}> · 장기렌트 후 {ymd(r.startDate).slice(0, 7)}부터</span>}
+                </td>
+                {r.reason ? (
+                  <td colSpan={5} style={{ padding: '0.45rem', color: '#b45309' }}>{r.reason}</td>
+                ) : (
+                  <>
+                    <td style={{ padding: '0.45rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {krw(r.monthlyTarget)}{r.targetSource === 'manual' ? ' *' : ''}
+                      {r.ageYear && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.ageYear}년차 ×{r.ageFactor}</div>}
+                    </td>
+                    <td style={{ padding: '0.45rem', textAlign: 'right', whiteSpace: 'nowrap', color: rateColor(r.lastMonth?.rate), fontWeight: 700 }}>
+                      {r.lastMonth ? `${krw(r.lastMonth.actual)} (${pct(r.lastMonth.rate)})` : '-'}
+                    </td>
+                    <td style={{ padding: '0.45rem', textAlign: 'right', whiteSpace: 'nowrap', color: rateColor(r.avg3Rate) }}>
+                      {r.avg3 === null ? '-' : `${krw(r.avg3)} (${pct(r.avg3Rate)})`}
+                    </td>
+                    <td style={{ padding: '0.45rem', textAlign: 'right', whiteSpace: 'nowrap' }}>{r.metMonths} / {r.doneMonths}</td>
+                    <td style={{ padding: '0.45rem', textAlign: 'right', whiteSpace: 'nowrap', color: r.gap < 0 ? '#b91c1c' : '#15803d' }}>
+                      {r.gap < 0 ? '-' : '+'}{krw(Math.abs(r.gap))}
+                    </td>
+                  </>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.5rem', lineHeight: 1.5 }}>
+        월 목표는 차령에 따라 1년차 ×1.1 · 2년차 ×1.0 · 3년차 ×0.9 · 4년차 ×0.8 · 5년차 이후 ×0.7로 가감합니다(새 차일수록 더 받음, 3년 합계는 같음). 시작 달과 이번 달은 날짜만큼 나눠 목표를 잡습니다. * 표시는 원장에서 목표를 직접 정한 차입니다. 차마다 달별 내역은 손익 원장 해당 차의 '단기렌트 월 목표'에서 봅니다.
+      </div>
+    </div>
+  );
+}
+
 /**
  * 대표용 경영 요약. 대시보드 맨 위에 관리자에게만 보인다.
  *
@@ -53,7 +134,9 @@ function Kpi({ icon, label, value, sub, onClick }) {
  * @param {object} [props.gapData] 청구 누락 계약 (대시보드가 이미 불러 온 것을 그대로 받는다)
  * @param {(tab: string) => void} props.setActiveTab 해당 화면으로 이동
  */
-function ExecutiveSummary({ gapData, setActiveTab }) {
+function ExecutiveSummary({ gapData, setActiveTab, showToast }) {
+  const queryClient = useQueryClient();
+  const [extendTarget, setExtendTarget] = useState(null);
   const { data, isLoading, isError } = useQuery({
     queryKey: ['dashboard-executive'],
     queryFn: fetchExecutive,
@@ -63,7 +146,7 @@ function ExecutiveSummary({ gapData, setActiveTab }) {
   if (isLoading) return <div style={{ ...card, color: 'var(--text-muted)' }}>경영 요약을 불러오는 중입니다...</div>;
   if (isError || !data?.success) return <div style={{ ...card, color: '#b91c1c' }}>경영 요약을 불러오지 못했습니다.</div>;
 
-  const { fleet, newDeliveries, funnel, expiring, collections } = data;
+  const { fleet, newDeliveries, funnel, expiring, collections, shortTermTargets: st } = data;
   const mmdd = (d) => (d ? `${new Date(d).getMonth() + 1}/${new Date(d).getDate()}` : '-');
   const recordedUntil = mmdd(collections.lastPaidAt);
   const today = new Date(data.asOf);
@@ -95,6 +178,12 @@ function ExecutiveSummary({ gapData, setActiveTab }) {
       text: `30일 안에 끝나는 계약 ${soon.length}건 — 재계약·인수 연락 필요 (월 ${krw(soon.reduce((s, it) => s + it.monthlyFee, 0))})`,
       weight: soon.reduce((s, it) => s + it.monthlyFee, 0),
       tab: 'contract-register'
+    },
+    st?.lastMonth?.belowCount > 0 && {
+      tone: 'warn',
+      text: `지난달 월 목표에 못 미친 단기렌트 차 ${st.lastMonth.belowCount}대 — 목표 ${krw(st.lastMonth.target)} 중 ${krw(st.lastMonth.actual)} 벌어 옴`,
+      weight: Math.max(0, st.lastMonth.target - st.lastMonth.actual),
+      tab: 'ledgers'
     },
     funnel.pendingInquiries > 0 && {
       tone: 'info',
@@ -211,6 +300,9 @@ function ExecutiveSummary({ gapData, setActiveTab }) {
         ))}
       </div>
 
+      {/* 단기렌트 월 목표 달성 */}
+      {st && st.rows.length > 0 && <ShortTermTargets st={st} onOpen={() => setActiveTab('ledgers')} />}
+
       {/* 입금 기록이 끊긴 계약 */}
       {collections.streaks.length > 0 && (
         <div style={{ ...card }}>
@@ -259,6 +351,15 @@ function ExecutiveSummary({ gapData, setActiveTab }) {
                     <td style={{ padding: '0.45rem', color: 'var(--text-muted)' }}>{it.carModel} {it.plateNo}</td>
                     <td style={{ padding: '0.45rem', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{ymd(it.endDate)}</td>
                     <td style={{ padding: '0.45rem', whiteSpace: 'nowrap', textAlign: 'right' }}>{it.monthlyFee ? `월 ${krw(it.monthlyFee)}` : '-'}</td>
+                    <td style={{ padding: '0.45rem', textAlign: 'right' }}>
+                      <button
+                        type="button"
+                        onClick={() => setExtendTarget(it._id)}
+                        style={{ border: '1px solid #16a34a', color: '#16a34a', background: '#fff', borderRadius: '6px', padding: '0.2rem 0.55rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                      >
+                        연장
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -269,6 +370,15 @@ function ExecutiveSummary({ gapData, setActiveTab }) {
           </div>
         )}
       </div>
+
+      {extendTarget && (
+        <ContractExtendDialog
+          contractId={extendTarget}
+          onClose={() => setExtendTarget(null)}
+          onDone={() => queryClient.invalidateQueries({ queryKey: ['dashboard-executive'] })}
+          showToast={showToast}
+        />
+      )}
 
       {/* 부서별 오늘 한 일 (활동 기록) */}
       <div style={{ ...card }}>

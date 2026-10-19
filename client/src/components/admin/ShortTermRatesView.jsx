@@ -1,0 +1,434 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { Save, Printer, Plus, Trash2 } from 'lucide-react';
+import { toCommaString, parseNumber } from '../../utils/format.js';
+import { quoteRental, insurerAmountFor } from '../../../../shared/shortTermRates.js';
+
+const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
+
+const won = (n) => (n === null || n === undefined ? '-' : `${toCommaString(Math.round(n))}`);
+const yearMonth = (d) => (d ? `${new Date(d).getFullYear()}년 ${new Date(d).getMonth() + 1}월` : '-');
+const card = { background: '#fff', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-premium)', padding: '1.1rem 1.2rem' };
+const th = { padding: '0.5rem 0.55rem', fontSize: '0.76rem', fontWeight: 800, background: 'var(--bg-main)', borderBottom: '2px solid var(--border-color)', whiteSpace: 'nowrap', textAlign: 'left' };
+const td = { padding: '0.4rem 0.55rem', borderBottom: '1px solid var(--border-color)', fontSize: '0.82rem', verticalAlign: 'middle' };
+const num = { ...td, textAlign: 'right', whiteSpace: 'nowrap' };
+const inputSt = { width: '96px', padding: '0.28rem 0.4rem', border: '1px solid var(--border-color)', borderRadius: '5px', textAlign: 'right', fontSize: '0.8rem' };
+const btn = (primary) => ({
+  display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.4rem 0.85rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer',
+  border: primary ? 'none' : '1px solid var(--border-color)', background: primary ? 'var(--primary)' : '#fff', color: primary ? '#fff' : 'var(--text-bright)'
+});
+
+const TABS = [
+  ['rates', '단기렌트 단가표'],
+  ['calc', '대여료 계산기'],
+  ['accident', '사고대차 기준표'],
+  ['policy', '요금 규칙']
+];
+
+/**
+ * 단기렌트 · 사고대차 단가표 (엑셀 "12. 단기 렌트비용.xls"를 옮긴 화면).
+ *
+ * 1개월 요금 = 손익 원장의 단기렌트 월 목표(견적 3년 · 인수가 30% · 정비 포함, 차령 가감).
+ * 1일 = 1개월 × 10%(2,500원 단위 올림), 1주 = 1일 × 4 — 엑셀 단가표의 규칙. 요금 규칙 탭에서 바꾼다.
+ */
+function ShortTermRatesView({ showToast, currentUser }) {
+  const [data, setData] = useState(null);
+  const [tab, setTab] = useState('rates');
+  const [edits, setEdits] = useState({}); // ledgerId -> { day, week, month, renting, note }
+  const [contacts, setContacts] = useState([]);
+  const [policy, setPolicy] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const canEdit = currentUser?.role !== 'viewer';
+  const isAdmin = currentUser?.role === 'admin';
+
+  const load = () => fetch(`${API_HOST}/api/short-term-rates`)
+    .then((res) => res.json())
+    .then((d) => {
+      if (!d.success) throw new Error(d.message || '단가표를 불러오지 못했습니다.');
+      setData(d);
+      setContacts(d.contacts || []);
+      setPolicy(d.policy);
+      setEdits({});
+    })
+    .catch((err) => showToast?.(err.message, 'error'));
+
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const save = async (body, okMessage) => {
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_HOST}/api/short-term-rates`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      });
+      const d = await res.json();
+      if (!d.success) throw new Error(d.message || '저장하지 못했습니다.');
+      showToast?.(okMessage || d.message, 'success');
+      await load();
+    } catch (err) {
+      showToast?.(err.message, 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!data || !policy) return <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>단가표를 불러오는 중…</div>;
+
+  const cars = data.cars.filter((c) => !c.hidden);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+        {TABS.map(([key, label]) => (
+          <button key={key} type="button" onClick={() => setTab(key)}
+            style={{ ...btn(tab === key), background: tab === key ? 'var(--primary)' : '#fff' }}>{label}</button>
+        ))}
+      </div>
+
+      {tab === 'rates' && (
+        <RateCard data={data} cars={cars} policy={data.policy} edits={edits} setEdits={setEdits} canEdit={canEdit} saving={saving}
+          onSave={() => save({ vehicles: edits }, '차별 요금·대여 중 표시를 저장했습니다.')} />
+      )}
+      {tab === 'calc' && <Calculator cars={cars} policy={data.policy} holidays={data.holidays} regions={data.regions} />}
+      {tab === 'accident' && (
+        <Accident data={data} cars={cars} contacts={contacts} setContacts={setContacts} canEdit={canEdit} saving={saving}
+          onSave={() => save({ contacts }, '보험 담당자를 저장했습니다.')}
+          onGrade={(id, grade) => save({ vehicles: { [id]: { insurerGrade: grade || null } } }, grade ? `보험사 등급을 ${grade}로 정했습니다.` : '보험사 등급을 자동으로 되돌렸습니다.')} />
+      )}
+      {tab === 'policy' && (
+        <Policy policy={policy} setPolicy={setPolicy} isAdmin={isAdmin} saving={saving}
+          onSave={() => save({ policy }, '요금 규칙을 저장했습니다. 단가표가 새 규칙으로 다시 계산됩니다.')} />
+      )}
+    </div>
+  );
+}
+
+// ───────────────────────── 단기렌트 단가표
+
+function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave }) {
+  const setEdit = (id, key, value) => setEdits((prev) => ({ ...prev, [id]: { ...(prev[id] || {}), [key]: value } }));
+  const valueOf = (c, key) => (edits[c.ledgerId] && key in edits[c.ledgerId] ? edits[c.ledgerId][key] : c[key]);
+  const dirty = Object.keys(edits).length > 0;
+
+  const print = () => {
+    const rows = cars.map((c) => (valueOf(c, 'renting')
+      ? `<tr><td>${c.carModel}</td><td colspan="3" style="text-align:center;color:#b45309">단기 렌트 중</td><td>${c.plateNo}</td><td>${c.fuelType || ''}</td><td>${yearMonth(c.ageStart)}</td></tr>`
+      : `<tr><td>${c.carModel}</td><td class="n">${won(c.rates.day)}</td><td class="n">${won(c.rates.week)}</td><td class="n">${won(c.rates.month)}</td><td>${c.plateNo}</td><td>${c.fuelType || ''}</td><td>${yearMonth(c.ageStart)}</td></tr>`)).join('');
+    const ins = policy.insurance;
+    const w = window.open('', '_blank');
+    if (!w) return;
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>렌트베네핏 단기렌트료</title>
+      <style>body{font-family:'Malgun Gothic',sans-serif;padding:24px;color:#111}h1{text-align:center;font-size:22px}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13px}td,th{border:1px solid #999;padding:6px 8px}th{background:#f1f5f9}.n{text-align:right}.s{font-size:12px;color:#333;line-height:1.7}</style></head><body>
+      <h1>렌트베네핏 단기렌트료</h1>
+      <div class="s">${policy.notes.filter((n) => n.trim()).map((n) => `* ${n}`).join(' &nbsp; ')}<br/>1일 ${policy.kmPerDay}km, 1주 ${toCommaString(policy.kmPerWeek)}km, 월 ${toCommaString(policy.kmPerMonth)}km 기준 (초과 시 km당 ${policy.excessPerKm}원)<br/>* 주말·공휴일 1일 렌트 시 1일 렌트료에 ${Math.round(policy.weekendSurchargeRate * 100)}% 추가</div>
+      <table><tr><th>차량 보험 조건</th><th>대인</th><th>대물</th><th>자손</th><th>자차 수리금</th><th>면책금</th></tr><tr><td>모든 렌터카</td><td>${ins.bodily}</td><td>${ins.property}</td><td>${ins.selfInjury}</td><td>${ins.ownDamageLimit}</td><td>${ins.deductible}</td></tr></table>
+      <table><tr><th>차종</th><th>1일(평일)</th><th>1주</th><th>1개월</th><th>번호</th><th>유종</th><th>년식</th></tr>${rows}</table>
+      <div class="s">* 렌트비는 부가세 포함 금액<br/>탁송: ${deliveryText(policy)}</div>
+      <script>window.onload=()=>window.print()</script></body></html>`);
+    w.document.close();
+  };
+
+  return (
+    <div style={card}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+        <span style={{ fontWeight: 800, color: '#fa8c16' }}>렌트베네핏 단기렌트료 ({cars.length}대)</span>
+        <div style={{ display: 'flex', gap: '0.4rem' }}>
+          <button type="button" style={btn(false)} onClick={print}><Printer size={14} /> 인쇄·PDF</button>
+          {canEdit && <button type="button" style={btn(true)} disabled={!dirty || saving} onClick={onSave}><Save size={14} /> {saving ? '저장 중…' : '저장'}</button>}
+        </div>
+      </div>
+      {cars.some((c) => c.rentalLife && c.rentalLife.daysLeft <= 180) && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', borderRadius: '8px', padding: '0.55rem 0.75rem', fontSize: '0.8rem', marginBottom: '0.7rem', lineHeight: 1.6 }}>
+          <b>렌터카 차령 만료 6개월 안</b> (경·소·중형 5년, 대형 8년 · 검사로 최대 2년 연장):{' '}
+          {cars.filter((c) => c.rentalLife && c.rentalLife.daysLeft <= 180)
+            .map((c) => `${c.carModel} ${c.plateNo} ${ymdText(c.rentalLife.until)}${c.rentalLife.daysLeft < 0 ? ' (지남)' : ` (D-${c.rentalLife.daysLeft})`}`).join(' · ')}
+          {' '}— 연장 검사 또는 매각을 정해야 합니다.
+        </div>
+      )}
+      <p style={{ margin: '0 0 0.7rem', fontSize: '0.76rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+        <b>1개월</b> = 단기렌트 월 목표(견적 3년 · 인수가 30% · 정비 포함, 차령 가감) · <b>1일(평일)</b> = 1개월 × {Math.round(policy.dayRatio * 100)}% ({toCommaString(policy.dayRoundUnit)}원 단위 올림) · <b>1주</b> = 1일 × {policy.weekDays}.
+        칸에 금액을 적으면 그 차만 직접 정한 요금을 씁니다(비우면 계산값). 주말·공휴일 1일 렌트는 {Math.round(policy.weekendSurchargeRate * 100)}% 추가 · 부가세·자차 포함.
+      </p>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={th}>차종</th><th style={th}>번호</th><th style={th}>년식 · 차령</th><th style={th}>렌터카 차령 만료</th>
+              <th style={{ ...th, textAlign: 'right' }}>1일(평일)</th><th style={{ ...th, textAlign: 'right' }}>1주</th><th style={{ ...th, textAlign: 'right' }}>1개월</th>
+              <th style={{ ...th, textAlign: 'right' }}>지난달 번 돈</th><th style={th}>대여 중</th><th style={th}>메모</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cars.map((c) => {
+              const e = edits[c.ledgerId] || {};
+              const field = (key) => (canEdit ? (
+                <input style={{ ...inputSt, fontWeight: c.overridden[key] || e[key] ? 800 : 400, color: c.overridden[key] || e[key] ? '#b45309' : undefined }}
+                  placeholder={toCommaString(c.calculated[key])}
+                  value={key in e ? toCommaString(e[key] || '') : (c.overridden[key] ? toCommaString(c.rates[key]) : '')}
+                  onChange={(ev) => setEdit(c.ledgerId, key, parseNumber(ev.target.value) || null)} />
+              ) : won(c.rates[key]));
+              return (
+                <tr key={c.ledgerId} style={{ background: valueOf(c, 'renting') ? '#fffbeb' : undefined }}>
+                  <td style={{ ...td, fontWeight: 700 }}>{c.carModel}{c.reason && <div style={{ fontSize: '0.7rem', color: '#b45309', fontWeight: 400 }}>{c.reason}</div>}</td>
+                  <td style={td}>{c.plateNo}</td>
+                  <td style={{ ...td, whiteSpace: 'nowrap' }}>{yearMonth(c.ageStart)}<div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{c.ageYear ? `${c.ageYear}년차 ×${c.ageFactor}` : ''} · {c.fuelType || '유종 미상'}</div></td>
+                  <td style={{ ...td, whiteSpace: 'nowrap', color: c.rentalLife?.daysLeft <= 180 ? '#b91c1c' : 'var(--text-muted)', fontWeight: c.rentalLife?.daysLeft <= 180 ? 700 : 400 }}>
+                    {c.rentalLife ? <>{ymdText(c.rentalLife.until)}<div style={{ fontSize: '0.7rem' }}>{c.rentalLife.years}년 · {c.rentalLife.daysLeft < 0 ? '지남' : `D-${c.rentalLife.daysLeft}`}</div></> : '-'}
+                  </td>
+                  <td style={num}>{field('day')}</td>
+                  <td style={num}>{field('week')}</td>
+                  <td style={num}>{field('month')}</td>
+                  <td style={{ ...num, color: c.lastMonth?.rate >= 1 ? '#15803d' : '#b91c1c' }}>
+                    {c.lastMonth ? <>{won(c.lastMonth.actual)}<div style={{ fontSize: '0.7rem' }}>목표의 {Math.round((c.lastMonth.rate || 0) * 100)}%</div></> : '-'}
+                  </td>
+                  <td style={td}>
+                    <input type="checkbox" disabled={!canEdit} checked={!!valueOf(c, 'renting')} onChange={(ev) => setEdit(c.ledgerId, 'renting', ev.target.checked)} />
+                  </td>
+                  <td style={td}>
+                    {canEdit ? <input style={{ ...inputSt, width: '140px', textAlign: 'left' }} value={valueOf(c, 'note') || ''} onChange={(ev) => setEdit(c.ledgerId, 'note', ev.target.value)} /> : c.note}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ marginTop: '0.7rem', fontSize: '0.76rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
+        보험: 대인 {policy.insurance.bodily} · 대물 {policy.insurance.property} · 자손 {policy.insurance.selfInjury} · 자차 수리 {policy.insurance.ownDamageLimit} · 면책금 {policy.insurance.deductible}<br />
+        주행거리: 1일 {policy.kmPerDay}km · 1주 {toCommaString(policy.kmPerWeek)}km · 월 {toCommaString(policy.kmPerMonth)}km (초과 km당 {policy.excessPerKm}원)<br />
+        탁송: {deliveryText(policy)}<br />
+        {policy.notes.filter((n) => n.trim()).join(' · ')}
+      </div>
+    </div>
+  );
+}
+
+const ymdText = (d) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+const GRADE_BASIS = { cc: '배기량', hybrid: '하이브리드 → 같은 모델 내연기관 기준', hybridUnknown: '하이브리드 · 기준 확인 필요', manual: '직접 고름' };
+
+const deliveryText = (p) => {
+  const d = p.delivery;
+  const days = [d.holidayIncludesSaturday && '토요일', d.holidayIncludesSunday && '일요일', '공휴일'].filter(Boolean).join('·');
+  const region = Object.entries(d.regionFees).filter(([k]) => k !== '서울')
+    .map(([k, v]) => `${k} ${v === null || v === undefined ? '별도 협의' : `왕복 ${toCommaString(v)}원`}`).join(', ');
+  return `서울 ${d.seoulFree ? '무료' : '유료'}(1일 대여는 ${toCommaString(d.oneDayFee)}원) · ${days} 인도·회수는 1회 ${toCommaString(d.holidayFee)}원 추가 · ${region}`;
+};
+
+// ───────────────────────── 대여료 계산기
+
+const localInput = (d) => {
+  const x = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  return x.toISOString().slice(0, 16);
+};
+
+function Calculator({ cars, policy, holidays, regions }) {
+  const today = new Date();
+  today.setHours(10, 0, 0, 0);
+  const [ledgerId, setLedgerId] = useState(cars[0]?.ledgerId || '');
+  const [start, setStart] = useState(localInput(new Date(today.getTime() + 86400000)));
+  const [end, setEnd] = useState(localInput(new Date(today.getTime() + 4 * 86400000)));
+  const [region, setRegion] = useState('서울');
+  const [km, setKm] = useState('');
+  const car = cars.find((c) => String(c.ledgerId) === String(ledgerId));
+  const q = useMemo(() => (car ? quoteRental({ rates: car.rates, start, end, region, holidays, policy, expectedKm: Number(km) || 0 }) : null),
+    [car, start, end, region, holidays, policy, km]);
+
+  const label = { display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.76rem', fontWeight: 700 };
+  const field = { padding: '0.35rem 0.45rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' };
+  const line = (l, v, strong) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.3rem 0', borderTop: '1px dashed var(--border-color)', fontWeight: strong ? 800 : 400 }}>
+      <span>{l}</span><span>{v === null ? '별도 협의' : `${won(v)}원`}</span>
+    </div>
+  );
+
+  return (
+    <div style={{ ...card, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.2rem' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+        <span style={{ fontWeight: 800, color: '#fa8c16' }}>대여료 계산기</span>
+        <label style={label}>차량
+          <select style={field} value={ledgerId} onChange={(e) => setLedgerId(e.target.value)}>
+            {cars.map((c) => <option key={c.ledgerId} value={c.ledgerId}>{c.carModel} {c.plateNo}{c.renting ? ' (대여 중)' : ''}</option>)}
+          </select>
+        </label>
+        <label style={label}>인도 일시<input type="datetime-local" style={field} value={start} onChange={(e) => setStart(e.target.value)} /></label>
+        <label style={label}>반납 일시<input type="datetime-local" style={field} value={end} onChange={(e) => setEnd(e.target.value)} /></label>
+        <label style={label}>탁송 지역
+          <select style={field} value={region} onChange={(e) => setRegion(e.target.value)}>{regions.map((r) => <option key={r}>{r}</option>)}</select>
+        </label>
+        <label style={label}>예상 주행거리(km, 선택)<input style={field} value={km} onChange={(e) => setKm(e.target.value.replace(/[^0-9]/g, ''))} placeholder="비우면 초과 요금 계산 안 함" /></label>
+        {car && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>이 차 요금: 1일 {won(car.rates.day)} · 1주 {won(car.rates.week)} · 1개월 {won(car.rates.month)}원</div>}
+      </div>
+      <div>
+        {!q ? null : !q.ok ? <div style={{ color: '#b91c1c' }}>{q.reason}</div> : (
+          <div style={{ fontSize: '0.86rem' }}>
+            <div style={{ fontWeight: 800, marginBottom: '0.4rem' }}>{q.days}일 대여 {[q.months && `${q.months}개월`, q.weeks && `${q.weeks}주`, q.restDays && `${q.restDays}일`].filter(Boolean).join(' + ')}</div>
+            {q.monthCost > 0 && line(`1개월 × ${q.months}`, q.monthCost)}
+            {q.weekCost > 0 && line(`1주 × ${q.weekCost / car.rates.week}`, q.weekCost)}
+            {q.dayCost > 0 && (q.restDays
+              ? q.dayLines.map((l) => line(`${l.date}${l.surcharge ? ` (주말·공휴일 +${Math.round(policy.weekendSurchargeRate * 100)}%)` : ''}`, l.amount))
+              : line('남은 날 → 1주 요금', q.dayCost))}
+            {q.deliveryLines.length === 0 ? line('탁송 (서울 무료)', 0) : q.deliveryLines.map((l) => line(l.label, l.amount))}
+            {q.excess > 0 && line(`초과 주행 ${toCommaString(q.excessKm)}km × ${policy.excessPerKm}원`, q.excess)}
+            {line(q.deliveryKnown ? '합계 (부가세 포함)' : '합계 (탁송료 별도)', q.total, true)}
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.5rem', lineHeight: 1.6 }}>
+              포함 주행거리 {toCommaString(q.allowanceKm)}km{q.notes.length ? <><br />{q.notes.join(' / ')}</> : null}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────── 사고대차
+
+function Accident({ data, cars, contacts, setContacts, canEdit, saving, onSave, onGrade }) {
+  const setC = (i, key, v) => setContacts((prev) => prev.map((c, j) => (j === i ? { ...c, [key]: v } : c)));
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <div style={card}>
+        <div style={{ fontWeight: 800, marginBottom: '0.4rem' }}>사고대차 보험사 기준표 (통상의 요금, 원/일)</div>
+        <p style={{ margin: '0 0 0.6rem', fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+          보험사는 <b>피해 차량</b>의 배기량 등급으로 대차료를 줍니다. 피해 차량이 운행연한(경·소·중형 5년, 대형 8년)을 넘으면 그 규모의 최저 등급으로 줍니다.
+        </p>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr>
+              {['규모', '등급', '배기량', '1~2일차', '3~4일차', '5~6일차', '7일 이상', '6시간', '10시간', '12시간'].map((h, i) => <th key={h} style={{ ...th, textAlign: i > 2 ? 'right' : 'left' }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {data.insurerTable.map((g, i, all) => (
+                <tr key={g.grade}>
+                  <td style={td}>{g.size} ({g.lifeYears}년)</td><td style={td}>{g.grade}</td>
+                  <td style={td}>{i === 0 ? 0 : all[i - 1].ccMax + 1} ~ {g.ccMax ?? ''}cc</td>
+                  {['d1', 'd3', 'd5', 'd7', 'h6', 'h10', 'h12'].map((k) => <td key={k} style={num}>{won(g[k])}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style={card}>
+        <div style={{ fontWeight: 800, marginBottom: '0.4rem' }}>우리 차를 사고대차로 내보내면</div>
+        <p style={{ margin: '0 0 0.6rem', fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+          같은 급 피해 차량에 내보낸다고 보고, 우리 차 등급의 보험사 기준 대차료를 단기렌트 요금과 견줍니다. 30일 사고대차 = 보험사 기준으로 30일 대차료 합계.
+          하이브리드는 2022-10부터 배기량이 아니라 같은 모델 내연기관 차 기준이라 그 등급으로 잡았습니다(예: 그랜저·쏘렌토 HEV → 2.5 기준 D). 다르면 등급을 직접 고르세요.
+        </p>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr>
+              {['차종', '배기량', '보험사 등급', '보험사 1일(1~2일차)', '우리 1일', '30일 사고대차', '우리 1개월'].map((h, i) => <th key={h} style={{ ...th, textAlign: i > 2 ? 'right' : 'left' }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {cars.map((c) => {
+                const g = data.insurerTable.find((x) => x.grade === c.insurer?.grade);
+                return (
+                  <tr key={c.ledgerId}>
+                    <td style={{ ...td, fontWeight: 700 }}>{c.carModel} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>{c.plateNo}</span></td>
+                    <td style={td}>{c.cc ? `${toCommaString(c.cc)}cc` : '모름'}</td>
+                    <td style={td}>
+                      {canEdit ? (
+                        <select value={c.insurer?.grade || ''} onChange={(e) => onGrade(c.ledgerId, e.target.value)} style={{ fontSize: '0.8rem', padding: '0.2rem' }}>
+                          <option value="">자동</option>
+                          {data.insurerTable.map((g) => <option key={g.grade} value={g.grade}>{g.size} {g.grade}</option>)}
+                        </select>
+                      ) : (c.insurer ? `${c.insurer.size} ${c.insurer.grade}` : '-')}
+                      {c.insurer && <div style={{ fontSize: '0.68rem', color: c.insurer.basis === 'hybridUnknown' ? '#b45309' : 'var(--text-muted)' }}>{GRADE_BASIS[c.insurer.basis]}</div>}
+                    </td>
+                    <td style={num}>{won(c.insurer?.d1)}</td>
+                    <td style={num}>{won(c.rates.day)}</td>
+                    <td style={num}>{g ? won(insurerAmountFor(g, 30)) : '-'}</td>
+                    <td style={num}>{won(c.rates.month)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style={card}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+          <span style={{ fontWeight: 800 }}>공업사별 보험 담당자</span>
+          {canEdit && (
+            <div style={{ display: 'flex', gap: '0.4rem' }}>
+              <button type="button" style={btn(false)} onClick={() => setContacts((p) => [...p, { shop: '', insurer: '', name: '', phone: '', note: '' }])}><Plus size={14} /> 줄 추가</button>
+              <button type="button" style={btn(true)} disabled={saving} onClick={onSave}><Save size={14} /> 저장</button>
+            </div>
+          )}
+        </div>
+        {contacts.length === 0 && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>아직 적은 담당자가 없습니다. [줄 추가]로 공업사·보험사·담당자·연락처를 적어 주세요.</div>}
+        {contacts.length > 0 && (
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr>{['공업사', '보험사', '보험 담당자', '연락처', '비고', ''].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {contacts.map((c, i) => (
+                <tr key={i}>
+                  {['shop', 'insurer', 'name', 'phone', 'note'].map((k) => (
+                    <td key={k} style={td}>{canEdit ? <input style={{ ...inputSt, width: '100%', textAlign: 'left' }} value={c[k] || ''} onChange={(e) => setC(i, k, e.target.value)} /> : c[k]}</td>
+                  ))}
+                  <td style={td}>{canEdit && <button type="button" style={{ ...btn(false), padding: '0.2rem 0.4rem' }} onClick={() => setContacts((p) => p.filter((_, j) => j !== i))}><Trash2 size={13} /></button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────── 요금 규칙
+
+function Policy({ policy, setPolicy, isAdmin, saving, onSave }) {
+  const set = (path, value) => setPolicy((prev) => {
+    const next = structuredClone(prev);
+    let o = next;
+    path.slice(0, -1).forEach((k) => { o = o[k]; });
+    o[path[path.length - 1]] = value;
+    return next;
+  });
+  const row = (label, input, hint) => (
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 220px) 1fr', gap: '0.6rem', alignItems: 'center', padding: '0.35rem 0', borderTop: '1px solid var(--border-color)' }}>
+      <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>{label}</span>
+      <span style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', fontSize: '0.78rem', color: 'var(--text-muted)' }}>{input}{hint}</span>
+    </div>
+  );
+  const numIn = (path, value, opts = {}) => (
+    <input disabled={!isAdmin} style={inputSt} value={opts.pct ? Math.round(value * 1000) / 10 : toCommaString(value ?? '')}
+      onChange={(e) => {
+        const raw = opts.pct ? Number(e.target.value.replace(/[^0-9.]/g, '')) / 100 : parseNumber(e.target.value);
+        set(path, opts.nullable && e.target.value.trim() === '' ? null : raw);
+      }} />
+  );
+  const textIn = (path, value) => <input disabled={!isAdmin} style={{ ...inputSt, width: '160px', textAlign: 'left' }} value={value} onChange={(e) => set(path, e.target.value)} />;
+  const d = policy.delivery;
+
+  return (
+    <div style={card}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+        <span style={{ fontWeight: 800 }}>요금 규칙</span>
+        {isAdmin ? <button type="button" style={btn(true)} disabled={saving} onClick={onSave}><Save size={14} /> 저장</button>
+          : <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>관리자만 바꿀 수 있습니다</span>}
+      </div>
+      {row('1개월 요금', <span>단기렌트 월 목표 (견적 3년 · 인수가 30% · 정비 포함, 차령 1년차 ×1.1 ~ 5년차 ×0.7)</span>)}
+      {row('1일 = 1개월 ×', numIn(['dayRatio'], policy.dayRatio, { pct: true }), '%')}
+      {row('1일 요금 올림 단위', numIn(['dayRoundUnit'], policy.dayRoundUnit), '원')}
+      {row('1주 = 1일 ×', numIn(['weekDays'], policy.weekDays), '일치')}
+      {row('주말·공휴일 1일 할증', numIn(['weekendSurchargeRate'], policy.weekendSurchargeRate, { pct: true }), '%')}
+      {row('포함 주행거리', <>1일 {numIn(['kmPerDay'], policy.kmPerDay)} · 1주 {numIn(['kmPerWeek'], policy.kmPerWeek)} · 월 {numIn(['kmPerMonth'], policy.kmPerMonth)}</>, 'km')}
+      {row('초과 주행', numIn(['excessPerKm'], policy.excessPerKm), '원/km')}
+      {row('보험', <>대인 {textIn(['insurance', 'bodily'], policy.insurance.bodily)} 대물 {textIn(['insurance', 'property'], policy.insurance.property)} 자손 {textIn(['insurance', 'selfInjury'], policy.insurance.selfInjury)} 자차 {textIn(['insurance', 'ownDamageLimit'], policy.insurance.ownDamageLimit)} 면책금 {textIn(['insurance', 'deductible'], policy.insurance.deductible)}</>)}
+      {row('서울 탁송', <label><input type="checkbox" disabled={!isAdmin} checked={d.seoulFree} onChange={(e) => set(['delivery', 'seoulFree'], e.target.checked)} /> 2일 이상 대여 무료</label>)}
+      {row('1일 대여 탁송료', numIn(['delivery', 'oneDayFee'], d.oneDayFee), '원')}
+      {row('휴일 인도·회수 추가', <>{numIn(['delivery', 'holidayFee'], d.holidayFee)}원 / 1회 · 공휴일
+        <label><input type="checkbox" disabled={!isAdmin} checked={d.holidayIncludesSunday} onChange={(e) => set(['delivery', 'holidayIncludesSunday'], e.target.checked)} /> 일요일 포함</label>
+        <label><input type="checkbox" disabled={!isAdmin} checked={d.holidayIncludesSaturday} onChange={(e) => set(['delivery', 'holidayIncludesSaturday'], e.target.checked)} /> 토요일 포함</label></>)}
+      {row('경기·인천 왕복 탁송', numIn(['delivery', 'regionFees', '경기·인천'], d.regionFees['경기·인천'], { nullable: true }), '원 (비우면 별도 협의)')}
+      {row('그 밖의 지역', numIn(['delivery', 'regionFees', '기타'], d.regionFees['기타'], { nullable: true }), '원 (비우면 별도 협의)')}
+      {row('안내 문구', <textarea disabled={!isAdmin} rows={3} style={{ width: '100%', fontSize: '0.8rem', padding: '0.4rem' }} value={policy.notes.join('\n')}
+        onChange={(e) => set(['notes'], e.target.value.split('\n').map((s) => s.trim()).filter(Boolean))} />)}
+    </div>
+  );
+}
+
+export default ShortTermRatesView;

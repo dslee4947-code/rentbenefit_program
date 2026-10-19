@@ -239,3 +239,149 @@ test('회사 내부 금리와 차별 내부 이자', async () => {
   near(x.interest, 10000000 * 0.06 / 12 * 3, 0.01, '내부 이자');
   assert.equal(hasOwnLoan(entries), true);
 });
+
+test('단기렌트 월 목표: 견적 3년·인수가 30%·정비 포함, 원장 고객입금과 달마다 비교', async () => {
+  const { calculateShortTermTarget, shortTermPerformance, isShortTermIncome, SHORT_TERM_TARGET_TERMS, SHORT_TERM_COMPARE_TERMS } = await import('../../shared/shortTermTarget.js');
+  const car = { carPrice: 35550000, cc: 1598, carModel: 'K5 하이브리드' };
+  const t = calculateShortTermTarget(car, { annualRate: 0.06 });
+  assert.equal(t.ok, true);
+  // 같은 조건을 견적 식에 직접 넣은 값과 같아야 한다(수수료 0, 영업이익 0)
+  const q = calculateQuoteOption(
+    { termYears: 3, mileage: 20000, depositRate: 0, advancePaymentRate: 0, residualRate: 0.3, calcMode: 'auto', targetProfitInput: 0, isMaintenanceEnabled: true,
+      maintenanceItems: undefined },
+    { carPrice: 35550000, carOptionPrice: 0, discountPrice: 0, consignmentFee: 0, isBondExempt: false, globalInsuranceFee: 800000, cc: 1598,
+      baseInterestRate: 0.06, dealerCommissionRateP: 0, commissionRateP: 0, isPandanbiEnabled: true, isMaintenanceEnabled: true, globalRegistrationAgencyFee: 100000 }
+  );
+  // 단기렌트는 선수금을 받지 않는다(선수금을 넣으면 조달이자가 빠진다). 인수가는 차량가의 30%
+  assert.equal(t.advancePayment, 0);
+  assert.equal(t.takeoverPrice, q.takeoverPrice);
+  assert.equal(t.takeoverPrice, 10665000);
+  assert.ok(t.monthlyTarget > 900000 && t.monthlyTarget < 1200000, `K5 월 목표 ${t.monthlyTarget}`);
+  assert.ok(t.maintenanceCost > 0, '정비 포함');
+  // 36개월 렌트료 + 3년 뒤 인수가(30%)가 3년 원가를 덮는다(1000원 절사만큼만 모자람)
+  assert.ok(t.monthlyTarget * 36 + t.takeoverPrice >= t.totalCost - 36 * 1000);
+  // 비교: 5년·인수가 0%는 월 목표가 더 낮고, 60개월 렌트료만으로 5년 원가를 덮는다
+  const five = calculateShortTermTarget(car, { annualRate: 0.06, terms: SHORT_TERM_COMPARE_TERMS });
+  assert.equal(five.takeoverPrice, 0);
+  assert.ok(five.monthlyTarget < t.monthlyTarget);
+  assert.ok(five.monthlyTarget * 60 >= five.totalCost - 60 * 1000);
+  assert.equal(SHORT_TERM_TARGET_TERMS.termMonths, 36);
+  assert.equal(calculateShortTermTarget({ carPrice: 0 }).ok, false);
+
+  // 매출로 세는 줄: 고객입금 열의 대여 입금. 보증금·장기 렌트료·과태료 대납·수수료(기타 열)는 뺀다
+  assert.equal(isShortTermIncome({ side: '입금', group: '고객입금', category: '기타', amount: 300000 }), true);
+  assert.equal(isShortTermIncome({ side: '입금', group: '고객입금', category: '보증금', amount: 300000 }), false);
+  assert.equal(isShortTermIncome({ side: '입금', group: '고객입금', category: '과태료·통행료', amount: 30000 }), false);
+  assert.equal(isShortTermIncome({ side: '입금', group: '기타', category: '수수료', amount: 30000 }), false);
+  assert.equal(isShortTermIncome({ side: '지출', group: '회사출금', category: '기타', amount: 30000 }), false);
+
+  // 6월 16일(30일 중 15일 남음) 출고, 오늘 8월 10일. 6월 목표는 절반, 8월은 10/31
+  const ledger = {
+    header: { deliveredAt: '2026-06-16T00:00:00+09:00' },
+    entries: [
+      { side: '입금', group: '고객입금', category: '기타', amount: 600000, date: '2026-06-20T00:00:00+09:00' },
+      { side: '입금', group: '고객입금', category: '기타', amount: 1200000, date: '2026-07-05T00:00:00+09:00' },
+      { side: '입금', group: '고객입금', category: '보증금', amount: 5000000, date: '2026-07-05T00:00:00+09:00' },
+      { side: '입금', group: '고객입금', category: '기타', amount: 100000, date: '2026-08-03T00:00:00+09:00' }
+    ]
+  };
+  const p = shortTermPerformance(ledger, 1000000, new Date('2026-08-10T12:00:00+09:00'));
+  assert.equal(p.ok, true);
+  assert.deepEqual(p.months.map((m) => m.month), ['2026-06', '2026-07', '2026-08']);
+  // 새 차(1년차)라 목표를 10% 더 잡는다
+  assert.equal(p.ageYear, 1);
+  assert.equal(p.currentTarget, 1100000);
+  assert.equal(p.months[0].target, 550000);
+  assert.equal(p.months[1].target, 1100000);
+  assert.equal(p.months[2].target, Math.round(1100000 * 10 / 31));
+  assert.deepEqual(p.months.map((m) => m.actual), [600000, 1200000, 100000]);
+  assert.equal(p.metMonths, 2); // 이번 달은 진행 중이라 세지 않는다
+  assert.equal(p.doneMonths, 2);
+  assert.equal(p.cumActual, 1900000);
+
+  // 장기렌트를 마친 차는 마지막 렌트료 다음 달부터 센다
+  const converted = { header: { deliveredAt: '2023-01-10' }, entries: [
+    { side: '입금', group: '고객입금', category: '렌트료', amount: 900000, date: '2026-03-10T00:00:00+09:00' },
+    { side: '입금', group: '고객입금', category: '기타', amount: 400000, date: '2026-03-20T00:00:00+09:00' },
+    { side: '입금', group: '고객입금', category: '기타', amount: 700000, date: '2026-04-20T00:00:00+09:00' }
+  ] };
+  const c = shortTermPerformance(converted, 1000000, new Date('2026-05-31T12:00:00+09:00'));
+  assert.equal(c.start.source, 'afterLongTerm');
+  assert.equal(c.months[0].month, '2026-04');
+  assert.equal(c.cumActual, 700000); // 3월 단기 입금은 장기 기간이라 뺀다
+  // 직접 정한 시작일이 먼저다
+  const manual = shortTermPerformance({ ...converted, shortTerm: { startDate: '2026-03-01T00:00:00+09:00' } }, 1000000, new Date('2026-05-31T12:00:00+09:00'));
+  assert.equal(manual.start.source, 'manual');
+  assert.equal(manual.cumActual, 1100000);
+});
+
+test('단기렌트 차령 가감: 1년차 ×1.1 · 2년차 ×1.0 · 3년차 ×0.9, 3년 합계는 그대로', async () => {
+  const { ageFactorFor, ageAdjustedTarget, shortTermPerformance, SHORT_TERM_AGE_FACTORS } = await import('../../shared/shortTermTarget.js');
+  assert.equal(ageFactorFor(0).factor, 1.1);
+  assert.equal(ageFactorFor(11).ageYear, 1);
+  assert.equal(ageFactorFor(12).factor, 1.0);
+  assert.equal(ageFactorFor(35).factor, 0.9);
+  assert.equal(ageFactorFor(40).factor, 0.8);
+  assert.equal(ageFactorFor(200).factor, SHORT_TERM_AGE_FACTORS[SHORT_TERM_AGE_FACTORS.length - 1]);
+  // 월 120만 원: 1년차 132만 · 2년차 120만 · 3년차 108만 → 36개월 합계 4,320만 원 그대로
+  const total = Array.from({ length: 36 }, (_, i) => ageAdjustedTarget(1200000, i)).reduce((a, b) => a + b, 0);
+  assert.equal(ageAdjustedTarget(1200000, 0), 1320000);
+  assert.equal(ageAdjustedTarget(1200000, 30), 1080000);
+  assert.equal(total, 1200000 * 36);
+  // 장기렌트를 마치고 넘어온 차는 처음 들인 날로 차령을 센다(2022년 차를 2026년에 단기로 돌리면 5년차)
+  const p = shortTermPerformance(
+    { header: { registeredAt: '2022-01-10T00:00:00+09:00' }, shortTerm: { startDate: '2026-03-01T00:00:00+09:00' }, entries: [] },
+    1000000, new Date('2026-04-15T12:00:00+09:00')
+  );
+  assert.equal(p.months[0].ageYear, 5);
+  assert.equal(p.months[0].target, 700000);
+});
+
+test('단기렌트 단가표: 1일=1개월×10%(2,500원 올림)·1주=1일×4, 대여료·탁송료 계산', async () => {
+  const { deriveRates, quoteRental, insurerGradeFor, insurerAmountFor, mergeRatePolicy, DEFAULT_RATE_POLICY } = await import('../../shared/shortTermRates.js');
+  // 엑셀 단가표와 같은 규칙: K5 1,096,000 → 110,000 / 440,000, 레이 439,000 → 45,000, S500 5,871,000 → 587,500
+  assert.deepEqual(deriveRates(1096000), { day: 110000, week: 440000, month: 1096000 });
+  assert.equal(deriveRates(439000).day, 45000);
+  assert.equal(deriveRates(5871000).day, 587500);
+  const rates = deriveRates(1096000);
+  const policy = mergeRatePolicy(null);
+  // 1일 대여(평일, 서울): 렌트료 + 1일 탁송료 3만 원
+  const one = quoteRental({ rates, start: '2026-10-06T10:00', end: '2026-10-07T10:00', region: '서울', holidays: [], policy });
+  assert.equal(one.rent, 110000);
+  assert.equal(one.delivery, 30000);
+  // 목(평일)·금(한글날)·토 3일: 공휴일·토요일은 10% 할증, 일요일 반납은 휴일 회수 탁송 추가
+  const three = quoteRental({ rates, start: '2026-10-08T10:00', end: '2026-10-11T10:00', region: '서울', holidays: ['2026-10-09'], policy });
+  assert.equal(three.rent, 110000 + 121000 + 121000);
+  assert.equal(three.delivery, DEFAULT_RATE_POLICY.delivery.holidayFee);
+  // 6일은 1일 요금 합보다 1주 요금이 싸서 1주로
+  const six = quoteRental({ rates, start: '2026-10-12T10:00', end: '2026-10-18T10:00', region: '서울', holidays: [], policy });
+  assert.equal(six.rent, 440000);
+  assert.equal(six.weeks, 1);
+  assert.equal(six.allowanceKm, 1050);
+  // 26일은 1개월 요금으로 끊고, 주행 한도도 1개월(2,500km). 경기·인천은 왕복 탁송료
+  const month = quoteRental({ rates, start: '2026-10-06T10:00', end: '2026-11-01T09:00', region: '경기·인천', holidays: [], policy, expectedKm: 3000 });
+  assert.equal(month.rent, 1096000);
+  assert.equal(month.allowanceKm, 2500);
+  assert.equal(month.excess, 500 * 200);
+  assert.equal(month.delivery, 40000 + DEFAULT_RATE_POLICY.delivery.holidayFee); // 11/1은 일요일
+  // 그 밖의 지역은 별도 협의
+  assert.equal(quoteRental({ rates, start: '2026-10-06T10:00', end: '2026-10-09T09:00', region: '기타', holidays: [], policy }).deliveryKnown, false);
+  // 사고대차 보험사 기준: 1,598cc는 소형 B, 7일 = 77,000×2 + 69,300×2 + 65,800×2 + 61,600
+  assert.equal(insurerGradeFor(1598).grade, 'B');
+  assert.equal(insurerGradeFor(2497).grade, 'D');
+  assert.equal(insurerGradeFor(0), null);
+  assert.equal(insurerAmountFor(insurerGradeFor(1598), 7), 77000 * 2 + 69300 * 2 + 65800 * 2 + 61600);
+});
+
+test('사고대차 하이브리드 기준·렌터카 차령', async () => {
+  const { insurerCcFor, insurerGradeFor, rentalLifeFor } = await import('../../shared/shortTermRates.js');
+  // 하이브리드는 같은 모델 내연기관 기준(2022-10~): 그랜저·쏘렌토 HEV 1.6 → 2.5 기준 D, K5 HEV → 2.0 기준 C
+  assert.equal(insurerGradeFor(insurerCcFor({ cc: 1598, carModel: 'Sorento(H) HEV 2WD' }).cc).grade, 'D');
+  assert.equal(insurerGradeFor(insurerCcFor({ cc: 1600, carModel: '그랜저(H) 1.6T' }).cc).grade, 'D');
+  assert.equal(insurerGradeFor(insurerCcFor({ cc: 1999, carModel: 'K5(H) 하이브리드' }).cc).grade, 'C');
+  assert.equal(insurerCcFor({ cc: 2999, carModel: 'E450 4M' }).basis, 'cc');
+  // 차령은 실제 배기량 규모: 레이 2021-11-02 → 5년 2026-11-02, S400d(2,999cc 대형) → 8년
+  assert.equal(rentalLifeFor({ cc: 998, ageStart: new Date(2021, 10, 2) }).until.getFullYear(), 2026);
+  assert.equal(rentalLifeFor({ cc: 2999, ageStart: new Date(2021, 11, 26) }).years, 8);
+  assert.equal(rentalLifeFor({ cc: 1598, ageStart: new Date(2025, 11, 29) }).years, 5); // 하이브리드 1.6도 소형 5년
+});

@@ -3,15 +3,17 @@ import crypto from 'crypto';
 import BillingSchedule from '../models/BillingSchedule.js';
 import RentalNotice from '../models/RentalNotice.js';
 import Contract from '../models/Contract.js';
+import ExcelInvoice from '../models/ExcelInvoice.js';
 import Vehicle from '../models/Vehicle.js';
 import Company from '../models/Company.js';
 import Schedule from '../models/Schedule.js';
 import { buildDueDates, resolveFirstDueDate, calcDailyRent, calcLateInterest, daysBetween, calcSendDate } from '../utils/billingDate.js';
+import { isHoliday } from '../utils/koreanHolidays.js';
 import { saveDocument, findContractDocument, readSavedFile, getDocumentSettings, fillPattern } from '../utils/documentStorageService.js';
 import { mimeTypeOf } from '../utils/oneDriveStorage.js';
 import { parseHistoryWorkbook, applyHistoryRows } from '../utils/billingHistoryImport.js';
 import XLSX from 'xlsx';
-import { sendInvoiceMail, sendFineNoticeMail } from '../utils/mailService.js';
+import { sendInvoiceMail, sendFineNoticeMail, sendInternalMail } from '../utils/mailService.js';
 import { isMaintenanceKind } from '../utils/maintenance.js';
 import { noticeKeyOf, findOverdueNotices, upsertNoticeSchedule, collectNotices } from '../utils/fineNoticeScheduleJob.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
@@ -109,14 +111,59 @@ const recalcRound = (round) => {
 };
 
 /**
+ * 연체 이자를 붙이기 전에 기다리는 날수.
+ *
+ * 고객 통장에서는 결제일(25일 등)에 자동이체로 나가지만, 우리 통장에는 영업일 기준 약 3일 뒤에 들어온다.
+ * 그래서 결제일 뒤 15일 안에 들어온 돈은 연체가 아니다(대표님 확인 2026-10-18).
+ * 15일이 지나도 안 들어오면 그 금액이 다음 달 청구서에 '전월 미결제'로 넘어가고, 그때 이자를 붙인다.
+ * 청구서는 출금일 10일 전에 나가므로(직전 결제일 + 약 20일), 청구서를 만들 때는 늘 이 15일이 지나 있다.
+ * 이 값은 화면에서 '미납'을 찍어도 되는 날을 가르는 데 쓴다.
+ */
+export const LATE_GRACE_DAYS = 15;
+
+/**
+ * 직전 회차에서 다음 회차로 넘어가는 돈과, 그중 이자가 붙는 원금.
+ *
+ * 연체 이자 규칙 (2026-10-18 확정)
+ *  - 안 낸 돈은 전부 다음 회차의 '전월 미결제'로 넘어간다(지난번에 붙은 이자도 받을 돈이므로 함께 넘어간다).
+ *  - 이자는 그중 원금(렌트료·범칙금·정비·기타)에만 붙는다. 이자에는 이자를 붙이지 않는다.
+ *  - 일부만 들어오면 원금부터 갚은 것으로 본다. 엑셀로 청구하던 방식(밀린 달의 렌트료를 오래된 것부터 정리)과 같다.
+ *  - 이자는 넘어간 기간(직전 결제일 → 이번 결제일)만큼 한 달치씩. 계속 밀리면 넘어갈 때마다 다시 한 달치.
+ *
+ * 예전에는 직전 회차 청구액 전체(이자 포함)에 이자를 붙여 달마다 이자에 이자가 쌓였다.
+ * 동춘푸드 36회차가 엑셀 4,101,000원(이자 미포함)인데 시스템이 5,606,610원으로 계산한 이유다.
+ *
+ * 회차 안에 들어 있는 '아직 안 받은 이자'를 첫 회차부터 따라가며 센다. 회차 수가 많아야 60이라 매번 처음부터 센다.
+ *
+ * @param {Array<object>} rounds 회차표의 회차들 (순서 상관없음)
+ * @param {number} no 이번 회차 번호
+ * @returns {{carried: number, interestBase: number}} carried: 전월 미결제로 넘어오는 돈, interestBase: 이자가 붙는 원금
+ */
+export const carryInto = (rounds, no) => {
+  const sorted = [...(rounds || [])].sort((a, b) => a.no - b.no);
+  let interestIn = 0; // 이 회차의 '전월 미결제' 안에 들어 있는 이자
+  let carried = 0;
+  let interestBase = 0;
+  for (const r of sorted) {
+    if (r.no >= no) break;
+    const owe = r.status === '미납' ? Math.max(0, (r.total || 0) - (r.paidAmount || 0)) : 0;
+    // 이 회차 청구액 안의 이자 = 이번에 붙은 이자 + 앞에서 넘어온 이자. 입금은 원금부터 갚은 것으로 보므로 이자가 남는다.
+    const interestPart = Math.min(owe, (r.interest || 0) + Math.min(r.prevUnpaid || 0, interestIn));
+    carried = owe;
+    interestBase = owe - interestPart;
+    interestIn = interestPart;
+  }
+  return { carried, interestBase };
+};
+
+/**
  * 미납이 뒤 회차로 굴러가도록 다시 계산한다.
  *
- * 미납이 여러 달 이어지면 이런 식으로 쌓인다.
+ * 미납이 여러 달 이어지면 이렇게 쌓인다(월 137만원, 연 20%).
  *   33회차 미납 137만원
- *   34회차 = 렌트료 137만 + 전월 미결제 137만 + 이자   -> 청구 275만
- *   35회차 = 렌트료 137만 + 전월 미결제 275만 + 이자   -> 청구 415만
- * 앞 회차의 청구액 전체가 다음 회차의 미결제가 되므로, 한 회차만 고쳐도 뒤가 전부 달라진다.
- * 그래서 바뀐 회차부터 끝까지 순서대로 다시 센다.
+ *   34회차 = 렌트료 137만 + 전월 미결제 137만 + 이자(137만 기준 한 달치)
+ *   35회차 = 렌트료 137만 + 전월 미결제(34회 안 낸 돈 전부) + 이자(원금 274만 기준 한 달치)
+ * 이자는 원금에만 붙는다(carryInto). 한 회차만 고쳐도 뒤가 달라지므로 바뀐 회차부터 끝까지 다시 센다.
  *
  * 이미 발행한 회차는 건드리지 않는다. 보낸 청구서 금액이 나중에 바뀌면 안 되기 때문이다.
  *
@@ -125,7 +172,7 @@ const recalcRound = (round) => {
  * @param {number} [fromNo] 이 회차 다음부터 다시 센다
  * @returns {number} 값이 바뀐 회차 수
  */
-const applyCarryForward = (schedule, annualRate, fromNo = 0) => {
+export const applyCarryForward = (schedule, annualRate, fromNo = 0) => {
   const rounds = [...schedule.rounds].sort((a, b) => a.no - b.no);
   let changed = 0;
 
@@ -135,20 +182,15 @@ const applyCarryForward = (schedule, annualRate, fromNo = 0) => {
     if (round.no <= fromNo) continue;
     if (round.issuedAt) continue; // 이미 나간 청구서는 그대로 둔다
 
-    const unpaid = prev.status === '미납'
-      ? Math.max(0, (prev.total || 0) - (prev.paidAmount || 0))
-      : 0;
-    const interest = calcLateInterest({
-      unpaid,
-      annualRate,
-      days: daysBetween(prev.dueDate, round.dueDate)
-    });
+    const { carried, interestBase } = carryInto(rounds, round.no);
+    const days = daysBetween(prev.dueDate, round.dueDate);
+    const interest = calcLateInterest({ unpaid: interestBase, annualRate, days });
 
     const before = round.total;
-    round.prevUnpaid = unpaid;
+    round.prevUnpaid = carried;
     round.interest = interest;
-    round.interestRate = unpaid ? annualRate : undefined;
-    round.interestDays = unpaid ? daysBetween(prev.dueDate, round.dueDate) : undefined;
+    round.interestRate = interest ? annualRate : undefined;
+    round.interestDays = interest ? days : undefined;
     recalcRound(round);
     if (round.total !== before) changed += 1;
   }
@@ -164,7 +206,7 @@ const applyCarryForward = (schedule, annualRate, fromNo = 0) => {
  * @param {Array<string>} contractIds 계약 id 목록
  * @returns {Promise<Map<string, number>>} 계약 id -> 연체 이율
  */
-const loadLateInterestRates = async (contractIds) => {
+export const loadLateInterestRates = async (contractIds) => {
   const vehicles = await Vehicle.find({ contract: { $in: contractIds } })
     .select('contract lateInterestRate')
     .lean();
@@ -198,6 +240,12 @@ const scheduleError = (code, message) => Object.assign(new Error(message), { cod
 export const resolveScheduleInputs = async (contractId) => {
   const contract = await Contract.findById(contractId).lean();
   if (!contract) throw scheduleError('NO_CONTRACT', '계약을 찾을 수 없습니다.');
+  // 끝난 계약(연장·반납·인수·중도해지)은 회차표를 다시 만들지 않는다.
+  // 반납한 차는 마지막 계약을 가리킨 채 재고로 남는데, 그 차를 저장할 때마다 회차표를 다시 만들면
+  // 반납 뒤의 회차가 되살아나 청구 대상에 뜬다.
+  if (contract.status === '종료' || contract.status === '중도해지') {
+    throw scheduleError('CONTRACT_ENDED', `${contract.status}된 계약이라 회차표를 다시 만들지 않습니다.`);
+  }
 
   const vehicles = await Vehicle.find({ contract: contractId }).lean();
   if (!vehicles.length) throw scheduleError('NO_VEHICLE', '이 계약에 묶인 차량이 없습니다.');
@@ -312,10 +360,16 @@ export const getScheduleByContract = async (req, res) => {
     if (!schedule) {
       return res.status(404).json({ success: false, message: '회차표가 아직 없습니다.' });
     }
-    const vehicles = await Vehicle.find({ contract: req.params.contractId })
-      .select('code carModel plateNo monthlyFee deliveryDate')
+    const contract = await Contract.findById(req.params.contractId).select('termMonths').lean();
+    const found = await Vehicle.find({ contract: req.params.contractId })
+      .select('code carModel plateNo monthlyFee deliveryDate advancePayment paymentTerm')
       .lean();
-    res.json({ success: true, schedule, vehicles });
+    // 선납금은 차량마다 '선납금 ÷ 개월 수'씩 월 렌트료에서 빠진다(계약서 조건). 개월 수는 차량 값,
+    // 없으면 계약기간, 그것도 없으면 회차표의 회차 수(일할 회차가 끼면 하나 많을 수 있다)를 쓴다. 청구서가 차감액·잔액을 그릴 때 쓴다(advancePayment.js).
+    const vehicles = found.map((v) => ({ ...v, advanceMonths: Number(v.paymentTerm) || Number(contract?.termMonths) || schedule.totalRounds || 0 }));
+    // 엑셀로 보냈던 청구서 기록(드롭박스에서 읽어 넣은 것). 보관함이 회차 옆에 함께 보여 준다
+    const excelInvoices = await ExcelInvoice.find({ schedule: schedule._id }).select('-__v').lean();
+    res.json({ success: true, schedule, vehicles, excelInvoices });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -356,9 +410,8 @@ export const getDueRounds = async (req, res) => {
 
       // 전월(직전 회차) 상황. 화면에서 미결제를 한 번에 체크할 수 있게 같이 내려 준다.
       const prev = s.rounds.find((r) => r.no === round.no - 1) || null;
-      const unpaid = prev && prev.status === '미납'
-        ? Math.max(0, (prev.total || 0) - (prev.paidAmount || 0))
-        : 0;
+      // 넘어오는 돈 전부(unpaid)와 그중 이자가 붙는 원금(interestBase). 이자에는 이자를 붙이지 않는다.
+      const { carried: unpaid, interestBase } = carryInto(s.rounds, round.no);
       const lateInterestRate = rateByContract.get(String(s.contract?._id))
         || s.contract?.terms?.lateInterestRate
         || 0;
@@ -394,7 +447,7 @@ export const getDueRounds = async (req, res) => {
           unpaid
         } : null,
         overdueDays,
-        suggestedInterest: calcLateInterest({ unpaid, annualRate: lateInterestRate, days: overdueDays }),
+        suggestedInterest: calcLateInterest({ unpaid: interestBase, annualRate: lateInterestRate, days: overdueDays }),
         round
       });
     }
@@ -409,6 +462,885 @@ export const getDueRounds = async (req, res) => {
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
+};
+
+/**
+ * 청구서를 넣을 계약 폴더 이름. 계약을 만들 때 정해 둔 "계약번호_차종"을 그대로 쓴다.
+ * 여기서 다시 만들면 차종을 고쳤을 때 폴더가 갈려 이미 보낸 청구서를 못 찾는다.
+ */
+const invoiceFolderOf = (schedule) => schedule.contract?.docFolderName || schedule.contract?.contractNo || '계약번호미상';
+
+/**
+ * 청구서 파일명. 규칙은 설정 화면에서 바꿀 수 있다.
+ * 화면 발행과 자동 발송 승인이 같은 이름을 써야 같은 파일을 가리킨다.
+ */
+const invoiceFileNameOf = async (partyName, round) => {
+  const settings = await getDocumentSettings();
+  return `${fillPattern(settings.fileNames.invoice, {
+    법인명: partyName,
+    계약자: partyName, // 예전 설정이 {계약자}를 쓰고 있어도 그대로 채워지게 둔다
+    회차: round.no,
+    날짜: new Date().toISOString().slice(0, 10)
+  })}.pdf`;
+};
+
+/**
+ * 저장해 둔 청구서를 메일로 보내고 회차를 '청구됨'으로 바꾼다.
+ *
+ * 화면의 [발행]과 아침 자동 발송이 함께 쓴다. 두 길이 따로 놀면 한쪽만 서류 첨부나
+ * 캘린더 정리를 빠뜨리게 된다.
+ *
+ * 메일이 실패해도 상태 갱신은 되돌리지 않는다. 파일은 이미 남았고 메일만 다시 보내면 된다.
+ *
+ * @returns {Promise<{mailResult: object|null, mailError: string|null}>}
+ */
+const deliverInvoice = async ({ schedule, round, partyName, fileName, pdfBuffer, saved, to, sendEmail, req, user }) => {
+  let mailResult = null;
+  let mailError = null;
+  if (sendEmail) {
+    try {
+      // 이 회차에 올려 둔 서류를 함께 붙인다. 파일이 사라졌으면 그 건만 건너뛴다.
+      const extraFiles = [];
+      for (const att of round.attachments || []) {
+        const buffer = await readSavedFile(att.savedPath);
+        if (buffer) extraFiles.push({ fileName: att.fileName, buffer });
+      }
+
+      // 제목·본문은 화면에서 고친 양식을 쓰고, 아래 값들로 {{계약자}} 같은 자리를 채운다
+      mailResult = await sendInvoiceMail({
+        to,
+        fileName,
+        fileBuffer: pdfBuffer,
+        extraFiles,
+        values: {
+          계약자: partyName,
+          계약번호: schedule.contract?.contractNo || '',
+          회차: round.no,
+          총회차: schedule.totalRounds,
+          출금일: formatYmd(round.dueDate),
+          청구액: `${Number(round.total || 0).toLocaleString()}원`
+        }
+      });
+    } catch (err) {
+      mailError = err.message;
+    }
+  }
+
+  round.status = round.status === '입금완료' ? round.status : '청구됨';
+  round.issuedAt = new Date();
+  round.invoiceFileName = saved.fileName;
+  round.invoiceSavedPath = saved.localPath;
+  if (mailResult) round.sentAt = new Date();
+  await schedule.save();
+
+  const logTarget = { model: 'BillingSchedule', id: schedule._id };
+  const logMeta = { round: round.no, amount: round.total || 0, contractNo: schedule.contract?.contractNo };
+  logActivity({
+    req, user, dept: '청구부', action: ACTIONS.INVOICE_ISSUE, target: logTarget, meta: logMeta,
+    summary: `${partyName} ${round.no}회차 청구서 발행`
+  });
+  if (mailResult) {
+    logActivity({
+      req, user, dept: '청구부', action: ACTIONS.INVOICE_SEND, target: logTarget, meta: { ...logMeta, to: mailResult.to },
+      summary: `${partyName} ${round.no}회차 청구서 메일 발송`
+    });
+  }
+
+  // 캘린더에 잡아 둔 발송 일정을 끝난 것으로 바꾼다. 보낸 건이 알림에 계속 남으면 안 된다.
+  // 여기서 실패해도 청구서는 이미 나갔다. 실패로 알리면 담당자가 다시 보내 고객이 두 번 받는다.
+  try {
+    await Schedule.updateMany(
+      { type: '청구서발송', targetContract: schedule.contract?._id, status: '예정', dueDate: { $lte: round.dueDate } },
+      { status: '완료' }
+    );
+  } catch (err) {
+    console.error('[청구서 발송] 캘린더 정리 실패:', err.message);
+  }
+
+  return { mailResult, mailError };
+};
+
+/**
+ * 승인할 때의 청구 내용 지문.
+ *
+ * 금액 항목, 기타 청구, 붙은 서류(지문·금액·처리 상태), 받는 주소를 묶는다.
+ * 승인 뒤 고지서가 하나 더 붙거나 전월 미결제가 바뀌면 지문이 달라져 자동 발송이 멈춘다.
+ */
+const roundSnapshot = (round, to, context = {}) => crypto.createHash('sha256').update(JSON.stringify({
+  amounts: ['monthlyRent', 'prevUnpaid', 'prevOverpaid', 'interest', 'fine', 'maintenance', 'other', 'total']
+    .map((k) => Number(round[k]) || 0),
+  extras: (round.extras || []).map((e) => [e.label, Number(e.amount) || 0]),
+  attachments: (round.attachments || []).map((a) => [a.fileHash || a.fileName, Number(a.amount) || 0, a.noticeStatus || '']),
+  // 청구서에 찍히는 나머지 값. 금액이 같아도 이것이 바뀌면 담당자가 본 청구서와 다르다
+  note: round.note || '',
+  interestRate: Number(round.interestRate) || 0,
+  interestDays: Number(round.interestDays) || 0,
+  dueDate: formatYmd(round.dueDate),
+  party: context.partyName || '',
+  vehicles: context.vehicles || [],
+  to: String(to || '').trim().toLowerCase()
+})).digest('hex');
+
+/**
+ * 지문에 넣을 계약자명과 차량 표. 청구서 아래 차량 표가 이 값으로 그려진다.
+ * @returns {Promise<{partyName: string, vehicles: Array}>}
+ */
+const snapshotContextOf = async (schedule) => {
+  const contractId = schedule.contract?._id || schedule.contract;
+  const vehicles = contractId
+    ? await Vehicle.find({ contract: contractId }).select('plateNo carModel monthlyFee advancePayment paymentTerm').sort({ _id: 1 }).lean()
+    : [];
+  return {
+    partyName: resolvePartyName(schedule),
+    // 선납금·개월 수가 바뀌면 청구서의 선납금 차감·잔액 줄이 달라진다. 승인 뒤 바뀌면 보내지 않게 함께 넣는다
+    vehicles: vehicles.map((v) => [v.plateNo || '', v.carModel || '', Number(v.monthlyFee) || 0, Number(v.advancePayment) || 0, Number(v.paymentTerm) || 0])
+  };
+};
+
+/** 회차가 아직 보낼 수 있는 상태인지. 이미 발행했거나 입금이 끝났으면 자동 발송 대상이 아니다. */
+const isSendable = (round) => !round.issuedAt && round.status === '예정';
+
+/** 날짜만 비교한다(시각은 버린다). */
+const dayKey = (d) => {
+  const x = new Date(d);
+  return x.getFullYear() * 10000 + (x.getMonth() + 1) * 100 + x.getDate();
+};
+
+/**
+ * 이번 회차가 평소(월 렌트료만 청구)와 무엇이 다른지 항목으로 뽑는다.
+ *
+ * 매달 나가는 청구서 대부분은 렌트료만 있는 똑같은 청구서다. 담당자가 70장을 하나하나 열어 보면
+ * 정작 봐야 할 몇 장(과태료가 붙었거나 미납이 이월된 건)을 놓친다. 다른 점만 보여 주고,
+ * 다른 점이 없는 건은 한꺼번에 승인하게 한다.
+ *
+ * 금액은 청구서 화면이 회차를 열 때와 같은 규칙으로 낸다(저장된 값이 없으면 이월 미수금·연체 이자 제안값).
+ */
+const reviewOf = ({ round, schedule, unpaid, suggestedInterest }) => {
+  const prevUnpaid = round.prevUnpaid || unpaid || 0;
+  const interest = round.interest || suggestedInterest || 0;
+  const changes = [];
+  const rentGap = (round.monthlyRent || 0) - (schedule.monthlyRent || 0);
+  if (rentGap) changes.push({ key: 'rent', label: rentGap < 0 ? '렌트료 일할·감액' : '렌트료 변동', amount: rentGap });
+  if (prevUnpaid) changes.push({ key: 'unpaid', label: '전월 미결제', amount: prevUnpaid });
+  if (interest) changes.push({ key: 'interest', label: '연체 이자', amount: interest });
+  const fines = (round.attachments || []).filter((a) => !isMaintenanceKind(a.kind) && Number(a.amount) > 0
+    && !['납부완료', '변경완료', '고객납부'].includes(a.noticeStatus));
+  if (round.fine) changes.push({ key: 'fine', label: fines.length ? `범칙금·과태료 ${fines.length}건` : '범칙금·과태료', amount: round.fine });
+  // 금액이 없는 서류도 청구서와 함께 메일로 나간다. 무엇이 붙어 나가는지 사람이 봐야 한다.
+  const docsWithoutAmount = (round.attachments || []).filter((a) => !(Number(a.amount) > 0)).length;
+  if (docsWithoutAmount) changes.push({ key: 'docs', label: `첨부 서류 ${docsWithoutAmount}건`, amount: 0 });
+  if (round.maintenance) changes.push({ key: 'maintenance', label: '정비 비용', amount: round.maintenance });
+  if (round.other) {
+    const names = (round.extras || []).map((e) => e.label).filter(Boolean).join(', ');
+    changes.push({ key: 'other', label: names ? `기타 (${names})` : '기타 청구', amount: round.other });
+  }
+  if (round.prevOverpaid) changes.push({ key: 'overpaid', label: '전월 초과 입금 차감', amount: -round.prevOverpaid });
+  if ((round.note || '').trim()) changes.push({ key: 'note', label: '메모 있음', amount: 0 });
+
+  const expectedTotal = (round.monthlyRent || 0) + prevUnpaid + interest
+    + (round.fine || 0) + (round.maintenance || 0) + (round.other || 0) - (round.prevOverpaid || 0);
+  return { changes, expectedTotal };
+};
+
+/**
+ * 자동 발송 목록. 오늘부터 며칠 안에 보낼 청구서와, 발송일이 지났는데 아직 안 나간 청구서.
+ *
+ * 화면은 이 목록을 보고 회차마다 PDF를 만들어 [승인]한다. 금액 계산(전월 미결제·연체 이자 제안)이
+ * 청구 대상 화면과 같아야 해서, 청구 대상 목록(getDueRounds)과 같은 모양으로 내려 준다.
+ *
+ * @route GET /api/billing-schedules/auto-send/queue?days=7
+ */
+export const getAutoSendQueue = async (req, res) => {
+  try {
+    const days = Math.min(31, Math.max(1, Number(req.query.days) || 7));
+    const items = await buildAutoSendQueue(days);
+    res.json({ success: true, days, count: items.length, items });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 자동 발송 목록을 만든다. 화면(getAutoSendQueue)과 오후 알림(sendApprovalReminder)이 함께 쓴다.
+ * 알림이 조용히 빠지지 않도록 실패하면 예외를 그대로 던진다.
+ *
+ * @param {number} days 앞으로 며칠 안에 보낼 것까지
+ * @returns {Promise<object[]>}
+ */
+const buildAutoSendQueue = async (days) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const horizon = new Date(today);
+  horizon.setDate(horizon.getDate() + days);
+  // 발송일은 출금일 10일 전(휴일이면 더 앞)이다. 출금일 기준으로 넉넉히 잡아 거른 뒤 발송일로 다시 거른다.
+  const dueUntil = new Date(horizon);
+  dueUntil.setDate(dueUntil.getDate() + 20);
+  // 출금일이 이미 지난 회차는 넣지 않는다. 엑셀로 관리하던 시절에 보내 놓고 시스템에는 '예정'으로 남은 회차가
+  // 많아서(2026-10 기준 100건 넘게), 넣으면 이미 보낸 청구서를 또 보내게 된다.
+  // 발송일은 지났지만 출금일 전인 회차는 '놓친 건'으로 보여 준다.
+  const dueFrom = today;
+
+  const schedules = await BillingSchedule.find({ rounds: { $elemMatch: { dueDate: { $gte: dueFrom, $lt: dueUntil }, status: '예정' } } })
+    .populate('contract', 'contractNo termMonths terms')
+    .populate('company', 'name bizNo billingEmail')
+    .populate('customer', 'name contactName email')
+    .lean();
+  const rateByContract = await loadLateInterestRates(schedules.map((s) => s.contract?._id).filter(Boolean));
+
+  const items = [];
+  for (const s of schedules) {
+    for (const round of s.rounds) {
+      if (round.dueDate < dueFrom || round.dueDate >= dueUntil) continue;
+      // 보낼 수 있는 회차, 그리고 자동 발송이 걸려 있던 회차(보냄·실패·확인 필요)는 결과가 보여야 한다
+      if (!isSendable(round) && !round.autoSend?.status) continue;
+      const sendDate = calcSendDate(round.dueDate);
+      if (!sendDate || dayKey(sendDate) > dayKey(horizon)) continue;
+
+      const prev = s.rounds.find((r) => r.no === round.no - 1) || null;
+      const { carried: unpaid, interestBase } = carryInto(s.rounds, round.no);
+      const lateInterestRate = rateByContract.get(String(s.contract?._id)) || s.contract?.terms?.lateInterestRate || 0;
+      const overdueDays = prev ? daysBetween(prev.dueDate, round.dueDate) : 0;
+      const to = round.autoSend?.to || s.company?.billingEmail || s.customer?.email || '';
+
+      // 승인했어도 그 뒤 내용이 바뀌었으면 화면에 '다시 승인'으로 보여 준다
+      let autoStatus = round.autoSend?.status || '';
+      if (autoStatus === '승인') {
+        const context = await snapshotContextOf(s);
+        if (round.autoSend.snapshot !== roundSnapshot(round, round.autoSend.to, context)) autoStatus = '변경됨';
+      }
+
+      const suggestedInterest = calcLateInterest({ unpaid: interestBase, annualRate: lateInterestRate, days: overdueDays });
+      const review = reviewOf({ round, schedule: s, unpaid, suggestedInterest });
+
+      items.push({
+        scheduleId: s._id,
+        contract: s.contract,
+        company: s.company,
+        customer: s.customer,
+        totalRounds: s.totalRounds,
+        lateInterestRate,
+        // 평소(월 렌트료만)와 무엇이 다른지. 담당자는 이것만 보고 확인할 건을 고른다
+        changes: review.changes,
+        routine: review.changes.length === 0,
+        expectedTotal: review.expectedTotal,
+        sendDate,
+        sendDday: daysUntil(sendDate),
+        prevRound: prev ? { no: prev.no, dueDate: prev.dueDate, status: prev.status, total: prev.total || 0, paidAmount: prev.paidAmount || 0, unpaid } : null,
+        overdueDays,
+        suggestedInterest,
+        defaultTo: to,
+        autoStatus,
+        issued: Boolean(round.issuedAt),
+        round
+      });
+    }
+  }
+
+  const nameOf = (it) => it.company?.name || it.customer?.name || '';
+  items.sort((a, b) => (new Date(a.sendDate) - new Date(b.sendDate)) || nameOf(a).localeCompare(nameOf(b), 'ko'));
+  return items;
+};
+
+/**
+ * 자동 발송을 승인한다. 화면에서 만든 청구서 PDF를 받아 청구서 폴더에 저장하고, 발송일 아침에 보낸다.
+ *
+ * 승인만으로는 고객에게 아무것도 나가지 않는다. 회차 상태도 '예정' 그대로다.
+ *
+ * @route POST /api/billing-schedules/:id/rounds/:no/auto-send (multipart: file, to)
+ */
+export const approveAutoSend = async (req, res) => {
+  try {
+    const schedule = await BillingSchedule.findById(req.params.id)
+      .populate('company', 'name billingEmail folderName')
+      .populate('customer', 'name')
+      .populate('contract', 'contractNo docFolderName leaseCompany');
+    if (!schedule) return res.status(404).json({ success: false, message: '회차표를 찾을 수 없습니다.' });
+    const round = schedule.rounds.find((r) => r.no === Number(req.params.no));
+    if (!round) return res.status(404).json({ success: false, message: '해당 회차가 없습니다.' });
+    if (!isSendable(round)) return res.status(400).json({ success: false, message: '이미 발행했거나 입금이 끝난 회차입니다.' });
+    if (!req.file) return res.status(400).json({ success: false, message: '청구서 PDF가 없습니다.' });
+
+    const to = String(req.body.to || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+      return res.status(400).json({ success: false, message: '받는 사람 이메일이 없거나 형식이 맞지 않습니다.' });
+    }
+    // 화면이 PDF에 그린 청구액과 지금 저장된 청구액이 같아야 한다. 그사이 입금·이월이 바뀌었으면
+    // PDF와 메일 본문의 금액이 서로 달라진다.
+    if (req.body.expectedTotal !== undefined && Number(req.body.expectedTotal) !== Number(round.total || 0)) {
+      return res.status(409).json({
+        success: false,
+        message: `청구액이 그사이 바뀌었습니다(화면 ${Number(req.body.expectedTotal).toLocaleString()}원 · 저장 ${Number(round.total || 0).toLocaleString()}원). 새로고침 후 다시 승인해 주세요.`
+      });
+    }
+    if (['발송중', '발송완료'].includes(round.autoSend?.status)) {
+      return res.status(409).json({ success: false, message: '이미 보내는 중이거나 보낸 청구서입니다.' });
+    }
+
+    const partyName = resolvePartyName(schedule);
+    const fileName = await invoiceFileNameOf(partyName, round);
+    // 다시 승인하면 같은 이름으로 덮어쓴다. 아직 고객에게 나가지 않은 파일이다.
+    const saved = await saveDocument({
+      partyName,
+      kind: 'invoice',
+      subFolder: invoiceFolderOf(schedule),
+      fileName,
+      fileBuffer: req.file.buffer
+    });
+
+    round.autoSend = {
+      status: '승인',
+      approvedAt: new Date(),
+      approvedBy: req.user?.name || req.user?.email || '',
+      to,
+      snapshot: roundSnapshot(round, to, await snapshotContextOf(schedule)),
+      pdfFileName: saved.fileName,
+      pdfSavedPath: saved.localPath,
+      pdfHash: crypto.createHash('sha256').update(req.file.buffer).digest('hex'),
+      message: ''
+    };
+    await schedule.save();
+
+    res.json({
+      success: true,
+      autoSend: round.autoSend,
+      message: `${partyName} ${round.no}회차를 승인했습니다. ${formatYmd(calcSendDate(round.dueDate))} 아침에 ${to}로 보냅니다.`
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 시험 메일. 화면에서 만든 청구서 PDF를 시험 주소로만 보낸다.
+ *
+ * 회차 상태·발행 기록·자동 발송 승인은 하나도 바꾸지 않는다. 실제 고객에게 보내기 전에
+ * 메일 제목·본문·첨부·PDF 모양을 확인하는 용도다. 받는 주소를 실수로 고객 주소로 넣지 않도록
+ * 계약에 등록된 청구 메일 주소로는 보내지 않는다.
+ *
+ * @route POST /api/billing-schedules/:id/rounds/:no/test-send (multipart: file, to)
+ */
+export const testSendInvoice = async (req, res) => {
+  try {
+    const schedule = await BillingSchedule.findById(req.params.id)
+      .populate('company', 'name billingEmail')
+      .populate('customer', 'name email')
+      .populate('contract', 'contractNo docFolderName leaseCompany');
+    if (!schedule) return res.status(404).json({ success: false, message: '회차표를 찾을 수 없습니다.' });
+    const round = schedule.rounds.find((r) => r.no === Number(req.params.no));
+    if (!round) return res.status(404).json({ success: false, message: '해당 회차가 없습니다.' });
+    if (!req.file) return res.status(400).json({ success: false, message: '청구서 PDF가 없습니다.' });
+
+    const to = String(req.body.to || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return res.status(400).json({ success: false, message: '시험 메일 주소를 확인해 주세요.' });
+    // 실제 발송 때 승인한 주소(직원이 손으로 넣은 고객 주소일 수 있다)도 막는다
+    const customerMails = [schedule.company?.billingEmail, schedule.customer?.email, round.autoSend?.to].filter(Boolean).map((m) => m.toLowerCase());
+    if (customerMails.includes(to.toLowerCase())) {
+      return res.status(400).json({ success: false, message: '고객 주소로는 시험 메일을 보낼 수 없습니다. 회사 시험 주소를 넣어 주세요.' });
+    }
+
+    const extraFiles = [];
+    for (const att of round.attachments || []) {
+      const buffer = await readSavedFile(att.savedPath);
+      if (buffer) extraFiles.push({ fileName: att.fileName, buffer });
+    }
+    const partyName = resolvePartyName(schedule);
+    const fileName = await invoiceFileNameOf(partyName, round);
+    const mail = await sendInvoiceMail({
+      to,
+      fileName,
+      fileBuffer: req.file.buffer,
+      extraFiles,
+      values: {
+        계약자: partyName,
+        계약번호: schedule.contract?.contractNo || '',
+        회차: round.no,
+        총회차: schedule.totalRounds,
+        출금일: formatYmd(round.dueDate),
+        // 시험은 저장하지 않고 화면 계산값으로 PDF를 만든다. 본문 금액도 PDF와 같게 화면 값을 쓴다.
+        청구액: `${Number(req.body.total ?? round.total ?? 0).toLocaleString()}원`
+      }
+    });
+    res.json({ success: true, message: `시험 메일을 ${mail.to}로 보냈습니다. 회차 상태는 바뀌지 않았습니다.` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 승인을 취소한다. 저장해 둔 PDF는 지우지 않는다(다시 승인하면 덮어쓴다).
+ *
+ * @route DELETE /api/billing-schedules/:id/rounds/:no/auto-send
+ */
+export const cancelAutoSend = async (req, res) => {
+  try {
+    const schedule = await BillingSchedule.findById(req.params.id);
+    if (!schedule) return res.status(404).json({ success: false, message: '회차표를 찾을 수 없습니다.' });
+    const round = schedule.rounds.find((r) => r.no === Number(req.params.no));
+    if (!round) return res.status(404).json({ success: false, message: '해당 회차가 없습니다.' });
+    if (['발송중', '발송완료'].includes(round.autoSend?.status)) {
+      return res.status(400).json({ success: false, message: '이미 보내는 중이거나 보낸 청구서입니다.' });
+    }
+    round.autoSend = undefined;
+    await schedule.save();
+    res.json({ success: true, message: '자동 발송 승인을 취소했습니다.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 승인된 청구서 중 발송일이 된 것을 보낸다. 매일 아침 정기 작업과 화면의 [지금 보내기]가 부른다.
+ *
+ * 보내기 직전에 지문을 다시 본다. 승인 뒤 금액·서류·주소가 바뀌었으면 보내지 않고 '변경됨'으로 남긴다.
+ * 담당자가 확인한 것과 다른 청구서가 고객에게 나가면 되돌릴 수 없다.
+ *
+ * @param {object} [options]
+ * @param {object} [options.user] 화면에서 눌렀을 때 누른 사람. 정기 작업이면 비워 둔다('시스템')
+ * @param {string} [options.scheduleId] 이 회차표만 처리한다 (화면에서 한 건만 보낼 때)
+ * @param {number} [options.roundNo]
+ * @param {boolean} [options.ignoreSendDate] 발송일 전이어도 보낸다 (한 건을 지금 보낼 때)
+ * @returns {Promise<{sent: number, held: number, failed: number, results: object[]}>}
+ */
+export const runAutoSend = async ({ user, scheduleId, roundNo, ignoreSendDate = false } = {}) => {
+  // 아침 정기 작업과 화면의 [지금 보내기]가 겹치면 같은 청구서가 두 번 나간다. 한 번에 하나만 돈다.
+  if (autoSendRunning) return { sent: 0, held: 0, failed: 0, results: [], busy: true };
+  autoSendRunning = true;
+  try {
+    return await sendApprovedInvoices({ user, scheduleId, roundNo, ignoreSendDate });
+  } finally {
+    autoSendRunning = false;
+  }
+};
+
+let autoSendRunning = false;
+
+const sendApprovedInvoices = async ({ user, scheduleId, roundNo, ignoreSendDate }) => {
+  const today = dayKey(new Date());
+  const filter = { 'rounds.autoSend.status': '승인' };
+  if (scheduleId) filter._id = scheduleId;
+  const schedules = await BillingSchedule.find(filter)
+    .populate('company', 'name billingEmail folderName')
+    .populate('customer', 'name')
+    .populate('contract', 'contractNo docFolderName leaseCompany');
+
+  const results = [];
+  for (const schedule of schedules) {
+    const partyName = resolvePartyName(schedule);
+    const context = await snapshotContextOf(schedule);
+    for (const round of schedule.rounds) {
+      if (round.autoSend?.status !== '승인') continue;
+      if (roundNo && round.no !== Number(roundNo)) continue;
+      if (!ignoreSendDate && dayKey(calcSendDate(round.dueDate)) > today) continue;
+
+      const record = { partyName, roundNo: round.no, to: round.autoSend.to };
+      // 상태를 남긴다. 저장이 실패해도 다음 회차는 계속 처리한다.
+      const hold = async (status, message) => {
+        round.autoSend.status = status;
+        round.autoSend.message = message;
+        try { await schedule.save(); } catch (err) { console.error('[청구서 자동 발송] 상태 저장 실패:', err.message); }
+        results.push({ ...record, status, message });
+      };
+
+      if (!isSendable(round)) { await hold('변경됨', '그사이 화면에서 발행했거나 입금이 끝난 회차입니다.'); continue; }
+      if (dayKey(round.dueDate) < today) { await hold('변경됨', '출금일이 이미 지났습니다. 청구서 화면에서 확인해 주세요.'); continue; }
+      if (round.autoSend.snapshot !== roundSnapshot(round, round.autoSend.to, context)) {
+        await hold('변경됨', '승인한 뒤 금액·서류·받는 주소·차량이 바뀌었습니다. 다시 확인하고 승인해 주세요.');
+        continue;
+      }
+      const pdfBuffer = await readSavedFile(round.autoSend.pdfSavedPath);
+      if (!pdfBuffer) { await hold('실패', '승인할 때 저장한 청구서 PDF를 찾지 못했습니다. 다시 승인해 주세요.'); continue; }
+      if (round.autoSend.pdfHash
+          && crypto.createHash('sha256').update(pdfBuffer).digest('hex') !== round.autoSend.pdfHash) {
+        await hold('변경됨', '승인한 뒤 OneDrive의 청구서 PDF가 바뀌었습니다. 다시 승인해 주세요.');
+        continue;
+      }
+      // 붙여 보낼 서류가 하나라도 없으면 보내지 않는다. 승인한 것과 다른 묶음이 나가면 안 된다.
+      let missingDoc = '';
+      for (const att of round.attachments || []) {
+        if (!(await readSavedFile(att.savedPath))) { missingDoc = att.fileName || att.kind; break; }
+      }
+      if (missingDoc) { await hold('실패', `함께 보낼 서류(${missingDoc})를 찾지 못했습니다. 서류를 확인한 뒤 다시 승인해 주세요.`); continue; }
+
+      // 보내기 직전에 이 회차를 DB에서 붙잡는다. 화면의 [발행]이나 다른 서버가 먼저 잡았으면 보내지 않는다.
+      // 메모리의 표시(autoSendRunning)만으로는 화면 발행이나 서버 여러 대를 막지 못한다.
+      const claim = await BillingSchedule.updateOne(
+        { _id: schedule._id, rounds: { $elemMatch: { no: round.no, 'autoSend.status': '승인', issuedAt: null } } },
+        { $set: { 'rounds.$.autoSend.status': '발송중', 'rounds.$.autoSend.claimedAt': new Date() } }
+      );
+      if (claim.modifiedCount !== 1) {
+        results.push({ ...record, status: '건너뜀', message: '그사이 다른 곳에서 처리했습니다.' });
+        continue;
+      }
+      round.autoSend.status = '발송중';
+
+      // 여기부터는 실패해도 '승인'으로 되돌리지 않는다. 메일이 이미 나갔을 수 있어서다.
+      // '발송중'이나 '실패'로 남은 건은 사람이 발행 이력에서 확인한다.
+      try {
+        const { mailResult, mailError } = await deliverInvoice({
+          schedule,
+          round,
+          partyName,
+          fileName: round.autoSend.pdfFileName,
+          pdfBuffer,
+          saved: { fileName: round.autoSend.pdfFileName, localPath: round.autoSend.pdfSavedPath },
+          to: round.autoSend.to,
+          sendEmail: true,
+          user
+        });
+        if (mailResult) {
+          round.autoSend.status = '발송완료';
+          round.autoSend.sentAt = new Date();
+          round.autoSend.message = '';
+          try { await schedule.save(); } catch (err) { console.error('[청구서 자동 발송] 발송완료 저장 실패:', err.message); }
+          results.push({ ...record, status: '발송완료' });
+        } else {
+          // 회차는 발행 처리됐지만 메일만 실패했다. 화면 발행과 같은 상태다. 메일은 발행 이력에서 다시 보낸다.
+          await hold('실패', `청구서는 발행했지만 메일을 보내지 못했습니다. 발행 이력에서 다시 보내 주세요. ${mailError || ''}`.trim());
+        }
+      } catch (err) {
+        await hold('실패', `보내는 도중 오류가 났습니다. 메일이 나갔는지 확인한 뒤 처리해 주세요. (${err.message})`);
+      }
+    }
+  }
+
+  const count = (st) => results.filter((r) => r.status === st).length;
+  const summary = { sent: count('발송완료'), held: count('변경됨'), failed: count('실패'), results };
+  if (results.length) {
+    console.log(`[청구서 자동 발송] 보냄 ${summary.sent} · 보류 ${summary.held} · 실패 ${summary.failed}`);
+  }
+  return summary;
+};
+
+/**
+ * 화면에서 자동 발송을 지금 돌린다. 한 건만 고르면 발송일 전이어도 그 건을 바로 보낸다.
+ *
+ * @route POST /api/billing-schedules/auto-send/run  { scheduleId?, roundNo? }
+ */
+export const runAutoSendNow = async (req, res) => {
+  try {
+    const one = req.body?.scheduleId && req.body?.roundNo;
+    const summary = await runAutoSend({
+      user: req.user,
+      scheduleId: req.body?.scheduleId,
+      roundNo: req.body?.roundNo,
+      ignoreSendDate: Boolean(one)
+    });
+    if (summary.busy) {
+      return res.status(409).json({ success: false, message: '자동 발송이 이미 돌고 있습니다. 잠시 뒤 새로고침해 주세요.' });
+    }
+    const parts = [`${summary.sent}건 보냈습니다.`];
+    if (summary.held) parts.push(`${summary.held}건은 내용이 바뀌어 보류했습니다.`);
+    if (summary.failed) parts.push(`${summary.failed}건은 실패했습니다.`);
+    res.json({ success: true, ...summary, message: summary.results.length ? parts.join(' ') : '보낼 청구서가 없습니다.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 승인할 때 저장한 청구서 PDF를 연다. 보내기 전에 무엇이 나갈지 확인하는 데 쓴다.
+ *
+ * @route GET /api/billing-schedules/:id/rounds/:no/auto-send/file
+ */
+export const getAutoSendFile = async (req, res) => {
+  try {
+    const schedule = await BillingSchedule.findById(req.params.id).lean();
+    const round = schedule?.rounds.find((r) => r.no === Number(req.params.no));
+    if (!round?.autoSend?.pdfSavedPath) return res.status(404).json({ success: false, message: '승인한 청구서가 없습니다.' });
+    const buffer = await readSavedFile(round.autoSend.pdfSavedPath);
+    if (!buffer) return res.status(410).json({ success: false, message: '파일이 OneDrive에서 옮겨졌거나 지워져 열 수 없습니다.' });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(round.autoSend.pdfFileName || 'invoice.pdf')}`);
+    res.send(buffer);
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 발송 결과. 최근 며칠 동안 발행한 청구서와, 자동 발송이 멈췄거나 실패한 건.
+ *
+ * 담당자가 아침에 "어제·오늘 나간 것이 다 잘 나갔나"를 한 화면에서 확인하게 한다.
+ * 메일이 실패한 건은 여기서 바로 다시 보낸다.
+ *
+ * @route GET /api/billing-schedules/auto-send/history?days=14
+ */
+export const getSendHistory = async (req, res) => {
+  try {
+    const days = Math.min(90, Math.max(1, Number(req.query.days) || 14));
+    const since = new Date();
+    since.setHours(0, 0, 0, 0);
+    since.setDate(since.getDate() - days);
+
+    const schedules = await BillingSchedule.find({
+      $or: [
+        { 'rounds.issuedAt': { $gte: since } },
+        { 'rounds.autoSend.status': { $in: ['발송중', '실패', '변경됨'] } }
+      ]
+    })
+      .populate('contract', 'contractNo')
+      .populate('company', 'name billingEmail')
+      .populate('customer', 'name email')
+      .lean();
+
+    const items = [];
+    for (const s of schedules) {
+      for (const r of s.rounds) {
+        const recent = r.issuedAt && new Date(r.issuedAt) >= since;
+        const stuck = ['발송중', '실패', '변경됨'].includes(r.autoSend?.status);
+        if (!recent && !stuck) continue;
+        // 발행했지만 메일 기록이 없으면 '메일 안 감'. 자동 발송이 실패·보류로 남았으면 그 상태를 쓴다.
+        let result = r.sentAt ? '보냄' : (r.issuedAt ? '메일 안 감' : '');
+        if (r.autoSend?.status === '실패') result = r.issuedAt ? '메일 실패' : '실패';
+        // 메일은 나갔는데 그 뒤 저장 등에서 실패한 건. 다시 보내면 고객이 두 번 받는다
+        if (r.autoSend?.status === '실패' && r.sentAt) result = '확인 필요';
+        if (r.autoSend?.status === '발송중') result = '확인 필요';
+        if (r.autoSend?.status === '변경됨') result = '보류';
+        items.push({
+          scheduleId: s._id,
+          partyName: s.company?.name || s.customer?.name || '',
+          contractNo: s.contract?.contractNo || '',
+          roundNo: r.no,
+          totalRounds: s.totalRounds,
+          dueDate: r.dueDate,
+          total: r.total || 0,
+          issuedAt: r.issuedAt || null,
+          sentAt: r.sentAt || null,
+          to: r.autoSend?.to || s.company?.billingEmail || s.customer?.email || '',
+          via: r.autoSend?.status ? '자동' : '직접',
+          result,
+          message: r.autoSend?.message || '',
+          status: r.status,
+          hasFile: Boolean(r.invoiceSavedPath)
+        });
+      }
+    }
+    // 손볼 것이 위로 온다
+    const weight = { '확인 필요': 0, '메일 실패': 1, 실패: 1, '메일 안 감': 2, 보류: 3, 보냄: 4 };
+    items.sort((a, b) => ((weight[a.result] ?? 5) - (weight[b.result] ?? 5))
+      || (new Date(b.issuedAt || 0) - new Date(a.issuedAt || 0)));
+    res.json({ success: true, days, items });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 입금 확인할 것. 청구서는 나갔는데(청구됨) 출금일이 지난 회차.
+ *
+ * 청구서를 보내는 일과 돈이 들어왔는지 보는 일이 한 흐름이라 같은 화면에 둔다.
+ * 입금완료·미납은 기존 일괄 처리(PATCH rounds/bulk-status)로 찍는다. 미납으로 찍으면
+ * 다음 회차에 전월 미결제와 연체 이자가 붙는다.
+ *
+ * @route GET /api/billing-schedules/auto-send/payments
+ */
+export const getPaymentChecks = async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    const schedules = await BillingSchedule.find({ rounds: { $elemMatch: { status: '청구됨', dueDate: { $lte: today } } } })
+      .populate('contract', 'contractNo')
+      .populate('company', 'name')
+      .populate('customer', 'name')
+      .lean();
+    const items = [];
+    for (const s of schedules) {
+      for (const r of s.rounds) {
+        if (r.status !== '청구됨' || new Date(r.dueDate) > today) continue;
+        items.push({
+          scheduleId: s._id,
+          partyName: s.company?.name || s.customer?.name || '',
+          contractNo: s.contract?.contractNo || '',
+          roundNo: r.no,
+          dueDate: r.dueDate,
+          total: r.total || 0,
+          paidAmount: r.paidAmount || 0,
+          daysPast: -daysUntil(r.dueDate),
+          // 결제일 뒤 15일 안이면 아직 들어오는 중일 수 있다. 미납으로 찍지 않는다
+          inGrace: -daysUntil(r.dueDate) <= LATE_GRACE_DAYS
+        });
+      }
+    }
+    items.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+    res.json({ success: true, items });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 발행한 청구서를 메일로 다시 보낸다. 메일만 실패한 건, 주소를 잘못 넣었던 건에 쓴다.
+ *
+ * 청구서 파일은 발행할 때 저장한 것을 그대로 쓴다. 다시 만들지 않으므로 금액이 바뀌지 않는다.
+ *
+ * @route POST /api/billing-schedules/:id/rounds/:no/resend  { to? }
+ */
+export const resendInvoice = async (req, res) => {
+  try {
+    const schedule = await BillingSchedule.findById(req.params.id)
+      .populate('company', 'name billingEmail')
+      .populate('customer', 'name email')
+      .populate('contract', 'contractNo docFolderName leaseCompany');
+    if (!schedule) return res.status(404).json({ success: false, message: '회차표를 찾을 수 없습니다.' });
+    const round = schedule.rounds.find((r) => r.no === Number(req.params.no));
+    if (!round?.issuedAt || !round.invoiceSavedPath) {
+      return res.status(400).json({ success: false, message: '아직 발행하지 않은 회차입니다. 청구서 화면에서 발행해 주세요.' });
+    }
+    if (round.autoSend?.status === '발송중') {
+      return res.status(409).json({ success: false, message: '자동 발송이 보내던 중 멈춘 건입니다. 고객이 받았는지 먼저 확인해 주세요. 받지 않았으면 [못 받음]을 누른 뒤 다시 보내세요.' });
+    }
+    // 이미 메일을 보낸 기록이 있으면 다시 보내지 않는다(고객이 두 번 받는다). 주소를 바꿔 다시 보낼 때만 force로 연다.
+    if (round.sentAt && req.body.force !== true) {
+      return res.status(409).json({ success: false, message: `이미 ${formatYmd(round.sentAt)}에 메일을 보낸 기록이 있습니다. 그래도 다시 보내려면 확인 후 진행해 주세요.`, alreadySent: true });
+    }
+    const to = String(req.body.to || round.autoSend?.to || schedule.company?.billingEmail || schedule.customer?.email || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return res.status(400).json({ success: false, message: '받는 사람 이메일을 확인해 주세요.' });
+
+    const pdfBuffer = await readSavedFile(round.invoiceSavedPath);
+    if (!pdfBuffer) return res.status(410).json({ success: false, message: '저장된 청구서 파일을 찾지 못했습니다.' });
+    const extraFiles = [];
+    for (const att of round.attachments || []) {
+      const buffer = await readSavedFile(att.savedPath);
+      if (!buffer) return res.status(410).json({ success: false, message: `함께 보낼 서류(${att.fileName || att.kind})를 찾지 못했습니다.` });
+      extraFiles.push({ fileName: att.fileName, buffer });
+    }
+
+    const partyName = resolvePartyName(schedule);
+    const mail = await sendInvoiceMail({
+      to,
+      fileName: round.invoiceFileName || 'invoice.pdf',
+      fileBuffer: pdfBuffer,
+      extraFiles,
+      values: {
+        계약자: partyName,
+        계약번호: schedule.contract?.contractNo || '',
+        회차: round.no,
+        총회차: schedule.totalRounds,
+        출금일: formatYmd(round.dueDate),
+        청구액: `${Number(round.total || 0).toLocaleString()}원`
+      }
+    });
+    round.sentAt = new Date();
+    if (round.autoSend?.status === '실패') {
+      round.autoSend.status = '발송완료';
+      round.autoSend.sentAt = new Date();
+      round.autoSend.message = '';
+    }
+    await schedule.save();
+    logActivity({
+      req, dept: '청구부', action: ACTIONS.INVOICE_SEND,
+      target: { model: 'BillingSchedule', id: schedule._id },
+      summary: `${partyName} ${round.no}회차 청구서 메일 다시 발송`,
+      meta: { round: round.no, to: mail.to }
+    });
+    res.json({ success: true, message: `${mail.to}로 다시 보냈습니다.` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 보내던 중 멈춘 건(발송중)을 사람이 확인하고 정리한다.
+ *
+ * 서버가 메일을 보낸 직후 멈추면 고객이 받았는지 시스템은 알 수 없다. 담당자가 보낸편지함이나
+ * 고객에게 확인한 결과를 찍는다. 받았으면 '보냄'으로 끝내고, 못 받았으면 다시 보낼 수 있게 푼다.
+ *
+ * @route POST /api/billing-schedules/:id/rounds/:no/auto-send/resolve  { received: boolean }
+ */
+export const resolveStuckSend = async (req, res) => {
+  try {
+    const schedule = await BillingSchedule.findById(req.params.id);
+    const round = schedule?.rounds.find((r) => r.no === Number(req.params.no));
+    const uncertain = round && (round.autoSend?.status === '발송중' || (round.autoSend?.status === '실패' && round.sentAt));
+    if (!uncertain) {
+      return res.status(400).json({ success: false, message: '확인할 건이 아닙니다.' });
+    }
+    if (req.body.received) {
+      round.autoSend.status = '발송완료';
+      round.autoSend.sentAt = round.autoSend.sentAt || new Date();
+      round.autoSend.message = '담당자가 받은 것을 확인했습니다.';
+      if (!round.sentAt) round.sentAt = new Date();
+    } else if (round.issuedAt) {
+      // 발행은 됐고 메일만 안 갔다. 발송 결과에서 [다시 보내기]로 보낸다.
+      round.autoSend.status = '실패';
+      round.autoSend.message = '고객이 받지 못했습니다. 다시 보내 주세요.';
+      round.sentAt = undefined; // 받지 못했으므로 보낸 기록을 지워 다시 보낼 수 있게 한다
+    } else {
+      // 발행 전에 멈췄다. 승인을 풀어 다시 승인·발송하게 한다.
+      round.autoSend = undefined;
+    }
+    await schedule.save();
+    res.json({ success: true, message: req.body.received ? '보냄으로 정리했습니다.' : '다시 보낼 수 있게 풀었습니다.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** 고객 이름·오류 문구가 그대로 HTML로 들어가지 않게 한다 */
+const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/** 알림 메일 본문의 표 한 줄 */
+const digestRow = (cells) => `<tr>${cells.map((c) => `<td style="padding:4px 8px;border-bottom:1px solid #eee">${escapeHtml(c)}</td>`).join('')}</tr>`;
+const digestTable = (head, rows) => `<table style="border-collapse:collapse;font-size:13px">`
+  + `<tr>${head.map((h) => `<th style="padding:4px 8px;text-align:left;background:#f3f4f6">${h}</th>`).join('')}</tr>${rows.join('')}</table>`;
+
+/**
+ * 오후 알림: 내일 아침 나갈 청구서 중 아직 승인하지 않은 건을 담당자 메일로 알린다.
+ *
+ * 화면을 열어 봐야만 알 수 있으면 바쁜 날 빠뜨린다. 승인할 것이 없으면 보내지 않는다(알림 피로를 줄인다).
+ */
+export const sendApprovalReminder = async () => {
+  const items = await buildAutoSendQueue(7);
+  // 다음 영업일까지 나갈 것. 금요일 오후면 월요일 발송분까지 챙긴다(발송일은 휴일이면 앞 영업일로 당겨진다).
+  const next = new Date();
+  next.setHours(0, 0, 0, 0);
+  do { next.setDate(next.getDate() + 1); } while (isHoliday(next));
+  const nextKey = dayKey(next);
+  const needs = (it) => !it.issued && ['', '변경됨', '실패'].includes(it.autoStatus);
+  const pending = items.filter((it) => needs(it)
+    && (dayKey(it.sendDate) <= nextKey)
+    // 발송일이 지난 건 중 아무 처리도 안 된 것은 대개 밖에서 이미 보낸 건이라 따로 센다
+    && !(it.sendDday < 0 && !it.autoStatus));
+  const missedCount = items.filter((it) => needs(it) && it.sendDday < 0 && !it.autoStatus).length;
+  const stuck = items.filter((it) => it.autoStatus === '발송중');
+  if (!pending.length && !stuck.length) return { sent: false };
+
+  const routine = pending.filter((it) => it.routine).length;
+  const rows = pending.map((it) => digestRow([
+    formatYmd(it.sendDate),
+    it.company?.name || it.customer?.name || '',
+    `${it.round.no}회차`,
+    `${Number(it.expectedTotal || 0).toLocaleString()}원`,
+    it.routine ? '평소와 같음' : it.changes.map((c) => c.label).join(', ')
+  ]));
+  const html = `<div style="font-family:'Malgun Gothic',sans-serif;font-size:14px">
+    <p><b>다음 영업일(${formatYmd(next)}) 아침 9시까지 나갈 청구서 중 아직 승인하지 않은 건이 ${pending.length}건 있습니다.</b><br>
+    평소와 같은 ${routine}건은 한 번에 승인할 수 있고, 나머지 ${pending.length - routine}건은 달라진 내용을 확인해 주세요.<br>
+    승인하지 않은 건은 보내지 않습니다.</p>
+    ${digestTable(['발송일', '계약자', '회차', '청구액', '달라진 점'], rows)}
+    ${stuck.length ? `<p style="color:#b45309">보내던 중 멈춰 확인이 필요한 건이 ${stuck.length}건 있습니다.</p>` : ''}
+    ${missedCount ? `<p style="color:#64748b">발송일이 지났는데 처리하지 않은 건이 ${missedCount}건 있습니다. 밖에서 이미 보냈다면 '이미 보냄'으로 정리해 주세요.</p>` : ''}
+    <p>장기렌트 청구서 &gt; 청구서 발송 센터에서 처리합니다.</p></div>`;
+  await sendInternalMail({ subject: `[청구서] 내일 발송 승인 대기 ${pending.length}건`, html });
+  return { sent: true, pending: pending.length };
+};
+
+/**
+ * 아침 발송 결과를 담당자 메일로 알린다. 보낸 것이 없으면 보내지 않는다.
+ * @param {object} summary runAutoSend의 결과
+ */
+export const sendAutoSendReport = async (summary) => {
+  if (!summary?.results?.length) return { sent: false };
+  const rows = summary.results.map((r) => digestRow([
+    r.partyName, `${r.roundNo}회차`, r.to || '', r.status, r.message || ''
+  ]));
+  const bad = summary.held + summary.failed;
+  const html = `<div style="font-family:'Malgun Gothic',sans-serif;font-size:14px">
+    <p><b>오늘 아침 청구서 자동 발송: 보냄 ${summary.sent}건${bad ? ` · 확인 필요 ${bad}건` : ''}</b></p>
+    ${bad ? '<p style="color:#b45309">보류·실패한 건은 청구서 발송 센터의 [발송 결과]에서 처리해 주세요. 보류는 승인한 뒤 내용이 바뀐 건입니다.</p>' : ''}
+    ${digestTable(['계약자', '회차', '받는 주소', '결과', '사유'], rows)}</div>`;
+  await sendInternalMail({ subject: `[청구서] 오늘 자동 발송 결과 - 보냄 ${summary.sent}건${bad ? ` / 확인 필요 ${bad}건` : ''}`, html });
+  return { sent: true };
 };
 
 /**
@@ -442,17 +1374,8 @@ export const issueRound = async (req, res) => {
     const partyName = resolvePartyName(schedule) !== '거래처'
       ? resolvePartyName(schedule)
       : (req.body.companyName || '거래처');
-    // 폴더 이름은 계약을 만들 때 정해 둔 "계약번호_차종"을 그대로 쓴다.
-    // 여기서 다시 만들면 차종을 고쳤을 때 폴더가 갈려 이미 보낸 청구서를 못 찾는다.
-    const contractNo = schedule.contract?.docFolderName || schedule.contract?.contractNo || '계약번호미상';
-    // 파일명 규칙은 설정 화면에서 바꿀 수 있다.
-    const settings = await getDocumentSettings();
-    const fileName = `${fillPattern(settings.fileNames.invoice, {
-      법인명: partyName,
-      계약자: partyName, // 예전 설정이 {계약자}를 쓰고 있어도 그대로 채워지게 둔다
-      회차: round.no,
-      날짜: new Date().toISOString().slice(0, 10)
-    })}.pdf`;
+    const contractNo = invoiceFolderOf(schedule);
+    const fileName = await invoiceFileNameOf(partyName, round);
 
     // 1) 계약자 폴더 > 02.청구서 > 계약번호 에 저장.
     //    한 법인에 계약이 여러 건이라, 계약번호로 한 단계 더 나누지 않으면
@@ -472,72 +1395,36 @@ export const issueRound = async (req, res) => {
       return res.status(500).json({ success: false, message: `청구서 저장에 실패했습니다: ${err.message}` });
     }
 
-    // 2) 메일 발송 (요청했을 때만)
-    let mailResult = null;
-    let mailError = null;
-    if (String(req.body.sendEmail) === 'true') {
-      const to = req.body.to || schedule.company?.billingEmail;
+    // 2) 메일 발송(요청했을 때만)과 3) 회차 상태 갱신. 자동 발송도 같은 함수를 쓴다.
+    const sendEmail = String(req.body.sendEmail) === 'true';
+    const to = req.body.to || schedule.company?.billingEmail;
 
-      // 담당자가 바뀌어 받는 주소를 고쳐 보냈다면, 법인에도 반영해 다음 달부터 그 주소가 기본이 되게 한다.
-      // 매달 같은 주소를 다시 고쳐 넣는 일을 없앤다.
-      if (String(req.body.saveEmailToCompany) === 'true' && to && schedule.company?._id
-          && to !== schedule.company.billingEmail) {
-        await Company.findByIdAndUpdate(schedule.company._id, { billingEmail: to });
-      }
-      try {
-        // 이 회차에 올려 둔 서류를 함께 붙인다. 파일이 사라졌으면 그 건만 건너뛴다.
-        const extraFiles = [];
-        for (const att of round.attachments || []) {
-          const buffer = await readSavedFile(att.savedPath);
-          if (buffer) extraFiles.push({ fileName: att.fileName, buffer });
-        }
-
-        // 제목·본문은 화면에서 고친 양식을 쓰고, 아래 값들로 {{계약자}} 같은 자리를 채운다
-        mailResult = await sendInvoiceMail({
-          to,
-          fileName,
-          fileBuffer: req.file.buffer,
-          extraFiles,
-          values: {
-            계약자: partyName,
-            계약번호: schedule.contract?.contractNo || '',
-            회차: round.no,
-            총회차: schedule.totalRounds,
-            출금일: formatYmd(round.dueDate),
-            청구액: `${Number(round.total || 0).toLocaleString()}원`
-          }
-        });
-      } catch (err) {
-        mailError = err.message;
-      }
+    // 담당자가 바뀌어 받는 주소를 고쳐 보냈다면, 법인에도 반영해 다음 달부터 그 주소가 기본이 되게 한다.
+    // 매달 같은 주소를 다시 고쳐 넣는 일을 없앤다.
+    if (sendEmail && String(req.body.saveEmailToCompany) === 'true' && to && schedule.company?._id
+        && to !== schedule.company.billingEmail) {
+      await Company.findByIdAndUpdate(schedule.company._id, { billingEmail: to });
     }
 
-    // 3) 회차 상태 갱신
-    round.status = round.status === '입금완료' ? round.status : '청구됨';
-    round.issuedAt = new Date();
-    round.invoiceFileName = saved.fileName;
-    round.invoiceSavedPath = saved.localPath;
-    if (mailResult) round.sentAt = new Date();
-    await schedule.save();
+    // 자동 발송이 이 회차를 보내는 중이거나 이미 보냈으면 화면에서 또 보내지 않는다(고객이 두 번 받는다).
+    // 승인만 걸려 있으면 DB에서 조건부로 풀어 아침 발송과 겹치지 않게 한다. 그사이 서버가 먼저 잡았으면 멈춘다.
+    if (['발송중', '발송완료'].includes(round.autoSend?.status)) {
+      return res.status(409).json({ success: false, message: '자동 발송으로 보내는 중이거나 이미 보낸 청구서입니다. 자동 발송 탭에서 확인해 주세요.' });
+    }
+    if (round.autoSend?.status) {
+      const released = await BillingSchedule.updateOne(
+        { _id: schedule._id, rounds: { $elemMatch: { no: round.no, 'autoSend.status': round.autoSend.status } } },
+        { $unset: { 'rounds.$.autoSend': '' } }
+      );
+      if (released.modifiedCount !== 1) {
+        return res.status(409).json({ success: false, message: '자동 발송이 방금 이 청구서를 보내기 시작했습니다. 새로고침 후 확인해 주세요.' });
+      }
+      round.autoSend = undefined;
+    }
 
-    const logTarget = { model: 'BillingSchedule', id: schedule._id };
-    const logMeta = { round: round.no, amount: round.total || 0, contractNo: schedule.contract?.contractNo };
-    logActivity({
-      req, dept: '청구부', action: ACTIONS.INVOICE_ISSUE, target: logTarget, meta: logMeta,
-      summary: `${partyName} ${round.no}회차 청구서 발행`
+    const { mailResult, mailError } = await deliverInvoice({
+      schedule, round, partyName, fileName, pdfBuffer: req.file.buffer, saved, to, sendEmail, req
     });
-    if (mailResult) {
-      logActivity({
-        req, dept: '청구부', action: ACTIONS.INVOICE_SEND, target: logTarget, meta: { ...logMeta, to: mailResult.to },
-        summary: `${partyName} ${round.no}회차 청구서 메일 발송`
-      });
-    }
-
-    // 캘린더에 잡아 둔 발송 일정을 끝난 것으로 바꾼다. 보낸 건이 알림에 계속 남으면 안 된다.
-    await Schedule.updateMany(
-      { type: '청구서발송', targetContract: schedule.contract?._id, status: '예정', dueDate: { $lte: round.dueDate } },
-      { status: '완료' }
-    );
 
     res.json({
       success: true,
@@ -647,6 +1534,19 @@ export const bulkUpdateRoundStatus = async (req, res) => {
       if (!schedule) { skipped.push(`${t.scheduleId} 회차표 없음`); continue; }
       const round = schedule.rounds.find((r) => r.no === Number(t.no));
       if (!round) { skipped.push(`${t.no}회차 없음`); continue; }
+      // 화면을 연 뒤 다른 사람이 상태를 바꿨으면 건드리지 않는다(목록에서 본 것과 다른 회차를 바꾸게 된다)
+      if (t.expectStatus && round.status !== t.expectStatus) { skipped.push(`${t.no}회차 상태가 그사이 바뀜`); continue; }
+      // 일부 입금이 적혀 있는 회차를 한꺼번에 '전액 입금'으로 찍으면 부분 입금 기록이 사라진다
+      if (status === '입금완료' && t.paidAmount === undefined && t.keepPartial && (round.paidAmount || 0) > 0) {
+        skipped.push(`${t.no}회차 일부 입금 있음`);
+        continue;
+      }
+
+      // 결제일 뒤 15일 안은 아직 연체가 아니다(입금이 며칠 늦게 찍힌다). 미납으로 찍으면 다음 달에 이자가 붙는다.
+      if (status === '미납' && daysUntil(round.dueDate) >= -LATE_GRACE_DAYS && !t.force) {
+        skipped.push(`${t.no}회차 결제일 뒤 ${LATE_GRACE_DAYS}일 안`);
+        continue;
+      }
 
       round.status = status;
       if (status === '입금완료') {
@@ -1670,6 +2570,16 @@ export const getOverdueNotices = async (req, res) => {
  * @route GET /api/billing-schedules/:id/rounds/:no/file           청구서
  * @route GET /api/billing-schedules/:id/rounds/:no/file?attachment=2 첨부 서류(순번)
  */
+/**
+ * 엑셀 청구서 기록의 파일. OneDrive 사본이 있으면 그것을, 없으면 드롭박스 원본 경로를 준다
+ * (원본은 이 PC에서 돌린 서버만 읽을 수 있다. 운영 서버에서는 '파일 없음'이 된다).
+ */
+const excelInvoiceFileOf = async (scheduleId, roundNo) => {
+  const inv = await ExcelInvoice.findOne({ schedule: scheduleId, roundNo }).lean();
+  if (!inv) return null;
+  return { savedPath: inv.savedPath || inv.sourcePath, fileName: inv.fileName };
+};
+
 export const getRoundFile = async (req, res) => {
   try {
     const schedule = await BillingSchedule.findById(req.params.id).lean();
@@ -1678,9 +2588,12 @@ export const getRoundFile = async (req, res) => {
     if (!round) return res.status(404).json({ success: false, message: '해당 회차가 없습니다.' });
 
     const index = req.query.attachment;
+    // ?excel=1 이면 엑셀로 보냈던 청구서 사본(excelInvoice)을 연다
     const target = index !== undefined
       ? (round.attachments || [])[Number(index)]
-      : { savedPath: round.invoiceSavedPath, fileName: round.invoiceFileName };
+      : (req.query.excel
+        ? await excelInvoiceFileOf(schedule._id, round.no)
+        : { savedPath: round.invoiceSavedPath, fileName: round.invoiceFileName });
     if (!target?.savedPath) {
       return res.status(404).json({ success: false, message: '이 회차에 저장된 파일이 없습니다.' });
     }

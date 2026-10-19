@@ -226,3 +226,39 @@ const sendTemplateMail = async ({ to, cc, subject, values = {}, templateKey = 'i
 
   return { sender, to, subject: finalSubject };
 };
+
+/**
+ * 우리 직원에게 보내는 알림 메일(양식·서명 없이 본문만).
+ *
+ * 받는 곳은 청구서를 보내는 회사 메일함 자신이다. 담당자가 이미 매일 보는 메일함이라
+ * 따로 받는 사람을 설정하지 않아도 되고, 담당자가 바뀌어도 알림이 끊기지 않는다.
+ * INTERNAL_NOTICE_EMAIL을 두면 그 주소로 보낸다(쉼표로 여럿).
+ *
+ * @param {object} params
+ * @param {string} params.subject 제목
+ * @param {string} params.html 본문 HTML
+ */
+export const sendInternalMail = async ({ subject, html }) => {
+  const sender = process.env.INVOICE_SENDER_EMAIL || process.env.OUTLOOK_TARGET_EMAIL;
+  if (!sender) throw new Error('보내는 메일 주소가 설정되지 않았습니다.');
+  const toList = String(process.env.INTERNAL_NOTICE_EMAIL || sender).split(',').map((x) => x.trim()).filter(Boolean);
+
+  const token = await getGraphAccessToken();
+  const res = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: {
+        subject,
+        body: { contentType: 'HTML', content: html },
+        toRecipients: toList.map((address) => ({ emailAddress: { address } }))
+      },
+      saveToSentItems: false
+    })
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`알림 메일을 보내지 못했습니다. (Graph ${res.status}) ${detail.slice(0, 200)}`);
+  }
+  return { to: toList };
+};

@@ -121,7 +121,34 @@ const BillingRoundSchema = new Schema({
 
   // 청구서 PDF가 저장된 곳
   invoiceFileName: String,
-  invoiceSavedPath: String
+  invoiceSavedPath: String,
+
+  /**
+   * 자동 발송.
+   *
+   * 발송 전날 담당자가 [승인]하면 그때 화면에서 PDF를 만들어 저장해 두고, 발송일 아침에 서버가 보낸다.
+   * 서버가 혼자 PDF를 만들지 않는 이유: 청구서 양식이 화면 컴포넌트라 서버에서 같은 모양을 그리려면
+   * 크롬을 서버에 넣어야 하는데, 지금 서버(512MB)로는 메모리가 모자라 서버 전체가 멈출 수 있다.
+   *
+   * snapshot은 승인할 때의 금액·서류·받는 주소의 지문이다. 승인 뒤 무엇이든 바뀌면 보내지 않고 '변경됨'으로
+   * 멈춘다. 담당자가 본 것과 다른 청구서가 고객에게 나가는 일을 막는다.
+   */
+  autoSend: {
+    // 발송중: 서버가 이 회차를 보내려고 붙잡은 상태. 메일을 보낸 뒤 저장 전에 서버가 죽으면 여기 멈춘다.
+    //        그때 다시 보내면 고객이 두 번 받으므로 자동으로는 다시 보내지 않고 사람이 확인한다.
+    status: { type: String, enum: ['승인', '발송중', '발송완료', '변경됨', '실패'] },
+    approvedAt: Date,
+    approvedBy: String,
+    to: String, // 받는 주소. 승인할 때 정한다
+    snapshot: String,
+    pdfFileName: String,
+    pdfSavedPath: String,
+    // 저장한 PDF의 지문. OneDrive에서 파일이 바뀌어 있으면 보내지 않는다
+    pdfHash: String,
+    claimedAt: Date,
+    sentAt: Date,
+    message: String // 보내지 못한 이유
+  }
 }, { _id: false });
 
 const BillingScheduleSchema = new Schema({

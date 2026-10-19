@@ -25,11 +25,13 @@ const PAY_STYLE = {
 /**
  * 회차가 어떤 상태인지 한 단어로. 폴더에서 PDF가 있나 없나로 보던 것을 화면에서 대신한다.
  * - 발행: 이 프로그램에서 청구서를 만들었다(파일이 저장돼 있다)
+ * - 엑셀 발송: 프로그램 이전처럼 엑셀로 만들어 보냈다(드롭박스 청구서를 읽어 넣은 기록이 있다)
  * - 기록 없음: 출금일이 지났는데 프로그램에 발행 기록이 없다. 예전처럼 엑셀로 보냈거나 빠진 회차다.
  * - 예정: 아직 출금일이 오지 않았다
  */
 const issueStateOf = (round) => {
   if (round.issuedAt) return { label: '발행', color: '#0284c7', bg: '#e0f2fe' };
+  if (round.excelInvoice?.total !== undefined) return { label: '엑셀 발송', color: '#0f766e', bg: '#ccfbf1' };
   if (ymd(round.dueDate) < todayYmd()) return { label: '기록 없음', color: '#b45309', bg: '#fef3c7' };
   return { label: '예정', color: '#64748b', bg: '#f1f5f9' };
 };
@@ -101,9 +103,15 @@ function InvoiceArchiveView({ showToast, currentUser }) {
         showToast?.(data.message || '회차표를 불러오지 못했습니다.', 'error');
         return;
       }
-      setDetail({ schedule: data.schedule, vehicles: data.vehicles || [] });
+      // 엑셀로 보낸 청구서 기록을 회차에 붙여 둔다(따로 저장돼 있다. ExcelInvoice 모델 참고)
+      const excelByNo = new Map((data.excelInvoices || []).map((x) => [x.roundNo, x]));
+      const schedule = {
+        ...data.schedule,
+        rounds: (data.schedule.rounds || []).map((r) => (excelByNo.has(r.no) ? { ...r, excelInvoice: excelByNo.get(r.no) } : r))
+      };
+      setDetail({ schedule, vehicles: data.vehicles || [] });
       // 처음 열면 가장 최근에 출금일이 지난 회차를 먼저 보여 준다(보통 그걸 확인하러 온다)
-      const rounds = data.schedule.rounds || [];
+      const rounds = schedule.rounds;
       const lastPast = [...rounds].reverse().find((r) => ymd(r.dueDate) <= todayYmd());
       const no = keepNo || lastPast?.no || rounds[0]?.no || null;
       setSelectedNo(no);
@@ -180,7 +188,7 @@ function InvoiceArchiveView({ showToast, currentUser }) {
       }
       setDetail((prev) => ({
         ...prev,
-        schedule: { ...prev.schedule, rounds: prev.schedule.rounds.map((r) => (r.no === round.no ? data.round : r)) }
+        schedule: { ...prev.schedule, rounds: prev.schedule.rounds.map((r) => (r.no === round.no ? { ...data.round, excelInvoice: r.excelInvoice } : r)) }
       }));
       setDraft((data.round.extras || []).map((e) => ({ ...e })));
       setDirty(false);
@@ -217,10 +225,10 @@ function InvoiceArchiveView({ showToast, currentUser }) {
   };
 
   // OneDrive에 저장해 둔 파일을 새 창으로 연다. 창을 먼저 열어 두지 않으면 팝업 차단에 걸린다.
-  const openSavedFile = async (attachmentIndex) => {
+  const openSavedFile = async (attachmentIndex, { excel = false } = {}) => {
     const win = window.open('', '_blank');
     try {
-      const q = attachmentIndex !== undefined ? `?attachment=${attachmentIndex}` : '';
+      const q = excel ? '?excel=1' : (attachmentIndex !== undefined ? `?attachment=${attachmentIndex}` : '');
       const res = await fetch(`${API_HOST}/api/billing-schedules/${detail.schedule._id}/rounds/${round.no}/file${q}`);
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -244,7 +252,8 @@ function InvoiceArchiveView({ showToast, currentUser }) {
       past: past.length,
       issued: rounds.filter((r) => r.issuedAt).length,
       sent: rounds.filter((r) => r.sentAt).length,
-      missing: past.filter((r) => !r.issuedAt).length
+      excel: rounds.filter((r) => r.excelInvoice?.total !== undefined).length,
+      missing: past.filter((r) => !r.issuedAt && r.excelInvoice?.total === undefined).length
     };
   }, [rounds]);
 
@@ -307,6 +316,7 @@ function InvoiceArchiveView({ showToast, currentUser }) {
               <span>출금일 지난 회차 <b>{counts.past}</b></span>
               <span style={{ color: '#0284c7' }}>프로그램 발행 <b>{counts.issued}</b></span>
               <span style={{ color: '#16a34a' }}>메일 발송 <b>{counts.sent}</b></span>
+              {counts.excel > 0 && <span style={{ color: '#0f766e' }}>엑셀 청구서 <b>{counts.excel}</b></span>}
               {counts.missing > 0 && <span style={{ color: '#b45309' }}>발행 기록 없음 <b>{counts.missing}</b></span>}
             </div>
           </div>
@@ -337,6 +347,9 @@ function InvoiceArchiveView({ showToast, currentUser }) {
                         <td style={{ padding: '0.5rem', textAlign: 'center', whiteSpace: 'nowrap' }}>{ymd(r.dueDate)}</td>
                         <td style={{ padding: '0.5rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
                           {won(r.total)}
+                          {r.excelInvoice?.total !== undefined && r.excelInvoice.total !== r.total && (
+                            <div style={{ fontSize: '0.7rem', color: '#0f766e' }}>엑셀 {won(r.excelInvoice.total)}</div>
+                          )}
                           {(r.extras || []).length > 0 && (
                             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', whiteSpace: 'normal' }}>+ {r.extras.map((e) => e.label).join(', ')}</div>
                           )}
@@ -426,6 +439,14 @@ function InvoiceArchiveView({ showToast, currentUser }) {
                     </>
                   )}
 
+                  {round.excelInvoice?.total !== undefined && (
+                    <ExcelInvoiceBox
+                      inv={round.excelInvoice}
+                      systemTotal={round.total}
+                      onOpen={(round.excelInvoice.savedPath || round.excelInvoice.sourcePath) ? () => openSavedFile(undefined, { excel: true }) : null}
+                    />
+                  )}
+
                   {(round.attachments || []).length > 0 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', borderTop: '1px dashed var(--border-color)', paddingTop: '0.5rem' }}>
                       {round.attachments.map((a, i) => (
@@ -493,6 +514,51 @@ function InvoiceArchiveView({ showToast, currentUser }) {
               </div>
             )}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 엑셀로 보낸 청구서의 내용. 드롭박스 청구서 PDF에서 읽은 '청구내역' 줄(미납통행료·범칙금·자부담금 등)을
+ * 이름 그대로 보여 주고, 프로그램 계산과 금액이 다르면 차이를 함께 적는다.
+ */
+function ExcelInvoiceBox({ inv, systemTotal, onOpen }) {
+  const diff = (Number(inv.total) || 0) - (Number(systemTotal) || 0);
+  const items = (inv.items || []).filter((it) => Number(it.amount));
+  return (
+    <div style={{ border: '1px solid #99f6e4', background: '#f0fdfa', borderRadius: '8px', padding: '0.6rem 0.75rem', fontSize: '0.8rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <div style={{ fontWeight: 800, color: '#0f766e' }}>
+          엑셀로 보낸 청구서
+          <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: '0.4rem' }}>
+            {inv.payDate ? `결제일 ${inv.payDate}` : ''}{inv.roundNo ? ` · 청구서상 ${inv.roundNo}회` : ''}
+          </span>
+        </div>
+        {onOpen && (
+          <button type="button" onClick={onOpen} style={{ border: '1px solid #5eead4', background: '#fff', color: '#0f766e', borderRadius: '6px', padding: '0.25rem 0.6rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>
+            보낸 PDF 보기
+          </button>
+        )}
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '0.4rem' }}>
+        <tbody>
+          {items.map((it, i) => (
+            <tr key={`${i}-${it.label}`} style={{ borderTop: '1px dashed #ccfbf1' }}>
+              <td style={{ padding: '0.2rem 0' }}>{it.label}</td>
+              <td style={{ padding: '0.2rem 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{won(it.amount)}</td>
+            </tr>
+          ))}
+          <tr style={{ borderTop: '1px solid #5eead4' }}>
+            <td style={{ padding: '0.3rem 0', fontWeight: 800 }}>결제금액</td>
+            <td style={{ padding: '0.3rem 0', textAlign: 'right', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{won(inv.total)}</td>
+          </tr>
+        </tbody>
+      </table>
+      {diff !== 0 && (
+        <div style={{ marginTop: '0.3rem', color: '#b45309' }}>
+          프로그램 계산 {won(systemTotal)}과 {won(Math.abs(diff))} {diff > 0 ? '많게' : '적게'} 청구했습니다.
         </div>
       )}
     </div>

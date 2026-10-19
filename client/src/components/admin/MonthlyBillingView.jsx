@@ -1,8 +1,12 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { loadStorageSettings, contractFolderPath } from './storagePaths.js';
 import { Calendar, RefreshCw, Save, FileText, Send, Paperclip, Trash2, AlertCircle, Plus, Upload, History, Mail, Search, X, ChevronDown, ChevronRight } from 'lucide-react';
-import InvoiceSheet, { isMaintenanceKind, sumAmount, isBilledNotice, makeInvoicePdf } from './InvoiceSheet.jsx';
+import InvoiceSheet, { isMaintenanceKind, makeInvoicePdf } from './InvoiceSheet.jsx';
 import MoneyInput from './MoneyInput.jsx';
+import { buildRoundForm, formTotals, roundSaveBody } from './billingForm.js';
+import AutoSendView from './AutoSendView.jsx';
+import PaymentDayBadge from './PaymentDayBadge.jsx';
+import { paymentDayStyle, paymentDayStyleOf, paymentDayKey, NUMERIC } from './paymentDay.js';
 import { NOTICE_KINDS, isReadableFile, readNotice } from './noticeOcr.js';
 import AmountChoices from './AmountChoices.jsx';
 import IssuedInvoicesView from './IssuedInvoicesView.jsx';
@@ -144,7 +148,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
   // 전월 미결제를 한 번에 처리하기 위한 체크 목록
   const [checked, setChecked] = useState([]);
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [tab, setTab] = useState('due'); // due: 청구 대상, issued: 발행 이력
+  const [tab, setTab] = useState('due'); // due: 청구 대상, auto: 자동 발송, issued: 발행 이력
   const [showDocUpload, setShowDocUpload] = useState(false);
   const [showMailTemplate, setShowMailTemplate] = useState(false);
   // 회차표가 없어 청구 대상에 뜨지 못하는 계약. 원인을 화면에서 바로 알려 준다.
@@ -198,17 +202,6 @@ function MonthlyBillingView({ showToast, currentUser }) {
   }, []);
 
   useEffect(() => { fetchMissing(); }, [fetchMissing]);
-
-  /**
-   * 직전 회차에서 아직 안 받은 금액을 구한다.
-   * 청구했는데 입금이 그만큼 안 들어왔으면 그 차액이 이번 회차의 '전월 미결제'가 된다.
-   */
-  const unpaidOfPrevRound = (rounds, no) => {
-    const prev = (rounds || []).find((r) => r.no === no - 1);
-    // 미납으로 찍은 회차만 이월한다. 청구만 나간 상태(청구됨)는 아직 입금 기한 안이라 미결제가 아니다.
-    if (!prev || prev.status !== '미납') return 0;
-    return Math.max(0, (prev.total || 0) - (prev.paidAmount || 0));
-  };
 
   /**
    * 고른 회차들의 상태를 한 번에 바꾼다.
@@ -272,26 +265,8 @@ function MonthlyBillingView({ showToast, currentUser }) {
 
       // 전월을 미결제로 찍어 두었으면 미수금과 연체 이자를 서버 계산값으로 채운다.
       // 연체 이율은 렌트차량 DB의 현재 값이라, 요율이 바뀌면 다음 청구부터 바로 반영된다.
-      const carried = item.prevRound?.unpaid || unpaidOfPrevRound(data.schedule.rounds, round.no);
-      const suggestedInterest = item.suggestedInterest || 0;
-
-      setForm({
-        no: round.no,
-        monthlyRent: round.monthlyRent ?? 0,
-        prevUnpaid: round.prevUnpaid || carried,
-        prevOverpaid: round.prevOverpaid || 0,
-        interest: round.interest || suggestedInterest,
-        fine: round.fine || 0,
-        maintenance: round.maintenance || 0,
-        other: round.other || 0,
-        extras: (round.extras || []).map((e) => ({ label: e.label || '', amount: e.amount || 0 })),
-        note: round.note || '',
-        carried,
-        suggestedInterest,
-        interestRate: item.lateInterestRate || 0,
-        interestDays: item.overdueDays || 0,
-        issuedAt: round.issuedAt || null // 발행한 회차는 서류 상태를 바꿀 수 없다
-      });
+      // 자동 발송 승인(AutoSendView)도 같은 식을 쓴다.
+      setForm(buildRoundForm(item, round, data.schedule.rounds));
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
     }
@@ -299,22 +274,10 @@ function MonthlyBillingView({ showToast, currentUser }) {
 
   // 서류에 금액을 적어 두면 그 합계가 청구 금액이 된다(사람이 더하다 틀리는 일을 없앤다).
   // 고객이 직접 냈거나 명의가 넘어간 건은 뺀다. 서버가 청구액을 그렇게 계산하므로 화면도 같아야 한다.
-  const willBeBilled = isBilledNotice;
-  const docFine = sumAmount(attachments.filter((a) => !isMaintenanceKind(a.kind) && willBeBilled(a)));
-  const docMaintenance = sumAmount(attachments.filter((a) => isMaintenanceKind(a.kind) && willBeBilled(a)));
-  const hasDocFine = attachments.some((a) => !isMaintenanceKind(a.kind) && Number(a.amount) > 0);
-  const hasDocMaintenance = attachments.some((a) => isMaintenanceKind(a.kind) && Number(a.amount) > 0);
-
-  const extrasTotal = form ? (form.extras || []).reduce((sum, e) => sum + (Number(e.amount) || 0), 0) : 0;
-  const otherTotal = form ? ((form.extras || []).length ? extrasTotal : Number(form.other || 0)) : 0;
-  const fineTotal = form ? (hasDocFine ? docFine : Number(form.fine || 0)) : 0;
-  const maintenanceTotal = form ? (hasDocMaintenance ? docMaintenance : Number(form.maintenance || 0)) : 0;
-
-  const total = form
-    ? Number(form.monthlyRent || 0) + Number(form.prevUnpaid || 0) + Number(form.interest || 0)
-      + fineTotal + maintenanceTotal + otherTotal
-      - Number(form.prevOverpaid || 0)
-    : 0;
+  const {
+    docFine, docMaintenance, hasDocFine, hasDocMaintenance,
+    extrasTotal, otherTotal, fineTotal, maintenanceTotal, total
+  } = formTotals(form, attachments);
 
   const handleSaveRound = async (silent = false) => {
     if (currentUser?.role === 'viewer') {
@@ -326,7 +289,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
       const res = await fetch(`${API_HOST}/api/billing-schedules/${schedule._id}/rounds/${form.no}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'X-User-Role': currentUser?.role || 'viewer' },
-        body: JSON.stringify({ ...form, fine: fineTotal, maintenance: maintenanceTotal, other: otherTotal })
+        body: JSON.stringify(roundSaveBody(form, { fineTotal, maintenanceTotal, otherTotal }))
       });
       const data = await res.json();
       if (data.success) {
@@ -771,6 +734,9 @@ function MonthlyBillingView({ showToast, currentUser }) {
         <button type="button" onClick={() => setTab('due')} style={tabStyle('due')}>
           <Calendar size={14} /> 청구 대상
         </button>
+        <button type="button" onClick={() => setTab('auto')} style={tabStyle('auto')}>
+          <Send size={14} /> 발송 센터
+        </button>
         <button type="button" onClick={() => setTab('issued')} style={tabStyle('issued')}>
           <History size={14} /> 발행 이력
         </button>
@@ -808,6 +774,8 @@ function MonthlyBillingView({ showToast, currentUser }) {
       )}
 
       {tab === 'issued' && <IssuedInvoicesView showToast={showToast} />}
+
+      {tab === 'auto' && <AutoSendView showToast={showToast} currentUser={currentUser} onChanged={refreshAll} />}
 
       {tab === 'due' && (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
@@ -903,6 +871,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
         </button>
         {dayButtons.map((b) => {
           const on = dayFilter.includes(b.key);
+          const dc = paymentDayStyle(b.key); // 결제일마다 정해 둔 색(paymentDay.js). 목록의 띠·묶음 머리줄과 같은 색이다
           return (
             <button
               key={b.key}
@@ -911,9 +880,9 @@ function MonthlyBillingView({ showToast, currentUser }) {
               disabled={!b.count && !on}
               title={b.count ? `${b.label} 출금 ${b.count}건` : '해당 출금일 계약이 없습니다'}
               style={{
-                border: `1px solid ${on ? 'var(--primary)' : 'var(--border-color)'}`,
-                background: on ? 'var(--primary)' : '#fff',
-                color: on ? '#fff' : (b.count ? 'var(--text-bright)' : 'var(--text-muted)'),
+                border: `1px solid ${on ? dc.color : (b.count ? `${dc.color}66` : 'var(--border-color)')}`,
+                background: on ? dc.color : (b.count ? dc.bg : '#fff'),
+                color: on ? '#fff' : (b.count ? dc.color : 'var(--text-muted)'),
                 opacity: (b.count || on) ? 1 : 0.5,
                 padding: '0.35rem 0.8rem', borderRadius: '20px', fontSize: '0.82rem', fontWeight: '700',
                 cursor: (b.count || on) ? 'pointer' : 'not-allowed'
@@ -1021,16 +990,22 @@ function MonthlyBillingView({ showToast, currentUser }) {
                   {groupByDay && (
                     <tr
                       onClick={() => toggleGroup(g.key)}
-                      style={{ background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }}
+                      style={{
+                        background: paymentDayStyleOf(g.key).bg,
+                        boxShadow: `inset 6px 0 0 ${paymentDayStyleOf(g.key).color}`,
+                        borderBottom: '1px solid var(--border-color)',
+                        cursor: 'pointer'
+                      }}
                     >
                       <td colSpan={10} style={{ padding: '0.5rem 0.7rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                           {isCollapsed(g.key) ? <ChevronRight size={15} style={{ color: 'var(--text-muted)' }} /> : <ChevronDown size={15} style={{ color: 'var(--text-muted)' }} />}
-                          <span style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--text-bright)' }}>
-                            {g.day ? `${g.day}일` : '출금일 미정'}{g.lastDay ? ' (말일)' : ''}
+                          <PaymentDayBadge date={g.key} size="md" />
+                          <span style={{ fontSize: '0.85rem', fontWeight: '800', color: paymentDayStyleOf(g.key).color }}>
+                            {g.day ? `${g.day}일` : '출금일 미정'}{g.lastDay && paymentDayKey(g.key) !== 'last' ? ' (말일)' : ''}
                           </span>
                           <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{g.key}</span>
-                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>· {g.items.length}건 · {won(g.total)}</span>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 700 }}>· {g.items.length}건 · <span style={{ fontVariantNumeric: 'tabular-nums' }}>{won(g.total)}</span></span>
                           {g.unpaidCount > 0 && (
                             <span style={{ fontSize: '0.76rem', fontWeight: '800', color: 'var(--error)' }}>미납 {g.unpaidCount}건</span>
                           )}
@@ -1058,7 +1033,8 @@ function MonthlyBillingView({ showToast, currentUser }) {
                       cursor: 'pointer',
                       // 미납은 한눈에 보여야 한다. 고른 행 표시보다 미납 표시를 앞세운다.
                       background: it.round.status === '미납' ? '#fef2f2' : (active ? 'var(--primary-glow)' : 'transparent'),
-                      boxShadow: it.round.status === '미납' ? 'inset 3px 0 0 var(--error)' : 'none'
+                      // 왼쪽 띠: 결제일 색. 미납은 빨간 띠가 우선이다(가장 먼저 봐야 할 건이라)
+                      boxShadow: it.round.status === '미납' ? 'inset 4px 0 0 var(--error)' : `inset 4px 0 0 ${paymentDayStyleOf(it.round.dueDate).color}`
                     }}
                   >
                     <td style={{ padding: '0.7rem', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
@@ -1073,7 +1049,9 @@ function MonthlyBillingView({ showToast, currentUser }) {
                       />
                     </td>
                     <td style={{ padding: '0.7rem', fontWeight: '700' }}>{it.company?.name || it.customer?.name || '-'}</td>
-                    <td style={{ padding: '0.7rem', textAlign: 'center' }}>{ymd(it.round.dueDate)}</td>
+                    <td style={{ padding: '0.7rem', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      <PaymentDayBadge date={it.round.dueDate} /> <span style={{ fontVariantNumeric: 'tabular-nums' }}>{ymd(it.round.dueDate)}</span>
+                    </td>
                     <td style={{ padding: '0.7rem', textAlign: 'center' }}>
                       <div>{ymd(it.sendDate)}</div>
                       {it.round.status === '예정' && it.sendDday !== null && it.sendDday !== undefined && (
@@ -1098,7 +1076,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
                     </td>
                     <td style={{ padding: '0.7rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>{it.contract?.contractNo || '-'}</td>
                     <td style={{ padding: '0.7rem', textAlign: 'center' }}>{it.round.no} / {it.totalRounds}</td>
-                    <td style={{ padding: '0.7rem', textAlign: 'right', fontWeight: '700' }}>{won(it.round.total)}</td>
+                    <td style={{ padding: '0.7rem', ...NUMERIC, fontWeight: '800', color: 'var(--text-bright)' }}>{won(it.round.total)}</td>
                     <td style={{ padding: '0.7rem', textAlign: 'center' }}>
                       <span style={{ background: st.bg, color: st.color, padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '700' }}>
                         {it.round.status}

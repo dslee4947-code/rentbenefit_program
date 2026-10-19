@@ -20,7 +20,17 @@ import {
   getFineNotices,
   sendNoticeMail,
   bulkUpdateNotices,
-  getRoundFile
+  getRoundFile,
+  getAutoSendQueue,
+  approveAutoSend,
+  cancelAutoSend,
+  runAutoSendNow,
+  getAutoSendFile,
+  getSendHistory,
+  getPaymentChecks,
+  resendInvoice,
+  resolveStuckSend,
+  testSendInvoice
 } from '../controllers/billingScheduleController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
 
@@ -36,6 +46,11 @@ router.get('/overdue-notices', getOverdueNotices);
 // 고지서 관리 화면 목록 (계약을 가로질러 모은다)
 router.get('/fine-notices', getFineNotices);
 router.post('/import-history', checkWritePermission, upload.single('file'), importBillingHistory);
+// 청구서 자동 발송: 발송 전날 승인 -> 발송일 아침에 서버가 보낸다 (:id 보다 먼저 선언해야 한다)
+router.get('/auto-send/queue', getAutoSendQueue);
+router.post('/auto-send/run', checkWritePermission, runAutoSendNow);
+router.get('/auto-send/history', getSendHistory);
+router.get('/auto-send/payments', getPaymentChecks);
 router.get('/', getSchedulesSummary);
 router.get('/contract/:contractId', getScheduleByContract);
 // 회차를 고르지 않고 '다음에 나갈 청구서'에 서류를 붙인다
@@ -45,6 +60,12 @@ router.patch('/rounds/bulk-status', checkWritePermission, bulkUpdateRoundStatus)
 router.post('/notices/bulk', checkWritePermission, bulkUpdateNotices);
 router.post('/generate/:contractId', checkWritePermission, generateSchedule);
 router.get('/:id/rounds/:no/file', getRoundFile);
+router.post('/:id/rounds/:no/auto-send', checkWritePermission, upload.single('file'), approveAutoSend);
+router.delete('/:id/rounds/:no/auto-send', checkWritePermission, cancelAutoSend);
+router.get('/:id/rounds/:no/auto-send/file', getAutoSendFile);
+router.post('/:id/rounds/:no/auto-send/resolve', checkWritePermission, resolveStuckSend);
+router.post('/:id/rounds/:no/resend', checkWritePermission, resendInvoice);
+router.post('/:id/rounds/:no/test-send', checkWritePermission, upload.single('file'), testSendInvoice);
 router.put('/:id/rounds/:no', checkWritePermission, updateRound);
 router.patch('/:id/rounds/:no/payment', checkWritePermission, updateRoundPayment);
 router.post('/:id/rounds/:no/issue', checkWritePermission, upload.single('file'), issueRound);

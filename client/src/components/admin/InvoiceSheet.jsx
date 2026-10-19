@@ -1,4 +1,5 @@
-import html2pdf from 'html2pdf.js';
+import { makeFittedPdf } from '../../utils/printFit.js';
+import { advanceSummary } from './advancePayment.js';
 
 /**
  * 청구서 양식과 PDF 만들기.
@@ -32,19 +33,12 @@ export const roundTotal = (round) => Number(round?.monthlyRent || 0) + Number(ro
   + Number(round?.other || 0) - Number(round?.prevOverpaid || 0);
 
 /**
- * 화면에 그려 둔 청구서 양식을 PDF로 만든다.
+ * 화면에 그려 둔 청구서 양식을 모양 그대로 A4 PDF로 만든다(utils/printFit.js, docs/print-a4-guide.md).
+ * 선과 작은 글자가 많은 표라 png로 뜬다.
  * @param {HTMLElement} element InvoiceSheet의 innerRef
  * @returns {Promise<Blob>}
  */
-export const makeInvoicePdf = (element) => html2pdf()
-  .set({
-    margin: 5,
-    image: { type: 'png' },
-    html2canvas: { scale: 2, useCORS: true },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-  })
-  .from(element)
-  .outputPdf('blob');
+export const makeInvoicePdf = (element) => makeFittedPdf(element, { orientation: 'portrait', marginMm: 5, imageType: 'png' });
 
 /**
  * 청구서 양식. 월 청구 화면은 숨겨 두고 PDF로 캡처하고, 청구서 보관함은 화면에 그대로 보여 준다.
@@ -79,6 +73,13 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
       ? round.extras.map((e) => [e.label || '기타 청구', e.amount])
       : [['기타 청구', round?.other]])
   ];
+  // 선납금이 있는 계약: 청구액은 그대로 두고, 월 렌트료·선납금 차감·잔액을 작게 보여 준다(대표님 지시 2026-10-18).
+  const adv = advanceSummary(vehicles, round?.no);
+  const billedRent = Number(round?.monthlyRent || 0);
+  // 첫 회차 일할처럼 이번 렌트료가 차량 월 렌트료 합과 다르면 '월 렌트료 − 차감' 식이 맞지 않으므로 그 줄은 뺀다
+  const fullMonth = adv && billedRent === adv.rows.reduce((s, r) => s + r.billed, 0);
+  const small = { fontSize: '10.5px', color: '#666' };
+
   const details = [
     ['고객명', name],
     ['거래은행', company?.bank?.bankName || '-'],
@@ -92,9 +93,15 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
       <div style={{ fontSize: '20px', fontWeight: 800, marginBottom: '16px' }}>{name}</div>
 
       <div style={{ background: '#8a8a8a', color: '#fff', padding: '5px 10px', fontWeight: 700, fontSize: '12px' }}>결제금액 내역</div>
-      <div style={{ textAlign: 'right', fontSize: '18px', fontWeight: 800, margin: '10px 0' }}>
+      <div style={{ textAlign: 'right', fontSize: '18px', fontWeight: 800, margin: '10px 0 2px' }}>
         {Number(total || 0).toLocaleString()} 원
       </div>
+      {adv && adv.deduction > 0 && fullMonth && (
+        <div style={{ ...small, textAlign: 'right', marginBottom: '8px' }}>
+          월 렌트료 {(billedRent + adv.deduction).toLocaleString()}원 − 선납금 차감 {adv.deduction.toLocaleString()}원
+          ({Math.min(round?.no || 0, adv.months)}/{adv.months}회) = 당월 렌트료 {billedRent.toLocaleString()}원
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: '16px', marginTop: '12px' }}>
         <table style={{ width: '50%', borderCollapse: 'collapse' }}>
@@ -159,21 +166,36 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
           <tr>
             <th style={{ ...head, width: '36px' }}>No</th>
             <th style={head}>차량번호</th>
-            <th style={head}>월 렌트료</th>
+            {adv && <th style={{ ...head, ...small, fontWeight: 600 }}>월 렌트료</th>}
+            {adv && <th style={{ ...head, ...small, fontWeight: 600 }}>선납금 차감</th>}
+            <th style={head}>{adv ? '청구 렌트료' : '월 렌트료'}</th>
             <th style={head}>인도일</th>
           </tr>
         </thead>
         <tbody>
-          {(vehicles || []).map((v, i) => (
-            <tr key={v._id}>
-              <td style={{ ...cell, textAlign: 'center' }}>{i + 1}</td>
-              <td style={{ ...cell, textAlign: 'center' }}>{v.plateNo || v.code || '-'}</td>
-              <td style={{ ...cell, textAlign: 'right' }}>{v.monthlyFee ? Number(v.monthlyFee).toLocaleString() : '-'}</td>
-              <td style={{ ...cell, textAlign: 'center' }}>{ymd(v.deliveryDate)}</td>
-            </tr>
-          ))}
+          {(vehicles || []).map((v, i) => {
+            const a = adv?.rows.find((r) => r.plateNo === v.plateNo);
+            const fee = Number(v.monthlyFee) || 0;
+            return (
+              <tr key={v._id}>
+                <td style={{ ...cell, textAlign: 'center' }}>{i + 1}</td>
+                <td style={{ ...cell, textAlign: 'center' }}>{v.plateNo || v.code || '-'}</td>
+                {adv && <td style={{ ...cell, ...small, textAlign: 'right' }}>{a?.deduction ? (fee + a.deduction).toLocaleString() : (fee ? fee.toLocaleString() : '-')}</td>}
+                {adv && <td style={{ ...cell, ...small, textAlign: 'right' }}>{a?.deduction ? `-${a.deduction.toLocaleString()}` : '-'}</td>}
+                <td style={{ ...cell, textAlign: 'right', fontWeight: adv ? 700 : 400 }}>{fee ? fee.toLocaleString() : '-'}</td>
+                <td style={{ ...cell, textAlign: 'center' }}>{ymd(v.deliveryDate)}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
+      {adv && (
+        <div style={{ ...small, marginTop: '6px' }}>
+          선납금 {adv.total.toLocaleString()}원 중 이번 회차까지 {adv.deducted.toLocaleString()}원 차감 ·
+          {' '}잔액 {adv.balance.toLocaleString()}원{adv.remaining ? ` (남은 ${adv.remaining}회)` : ' (차감 완료)'}
+          {' '}· 선납금은 계약기간 동안 매월 같은 금액으로 월 렌트료에서 차감됩니다.
+        </div>
+      )}
 
       <div style={{ marginTop: '28px', borderTop: '2px solid #333', paddingTop: '10px', fontSize: '11px', color: '#444' }}>
         <div style={{ fontWeight: 800, fontSize: '13px', color: '#111' }}>(주)렌트베네핏</div>

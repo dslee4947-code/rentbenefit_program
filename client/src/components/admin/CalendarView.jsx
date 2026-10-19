@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Calendar, User, Info, DollarSign } from 'lucide-react';
 import { useDraggableDialog, DIALOG_TOP } from './useDraggableDialog.js';
 import { createPortal } from 'react-dom';
+import { paymentDayKey, paymentDayKeyOfSetting, paymentDayStyle } from './paymentDay.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -16,6 +17,19 @@ const TYPE_STYLE = {
   '정기점검': { color: '#d97706', bg: '#fef3c7' }
 };
 const styleOf = (type) => TYPE_STYLE[type] || TYPE_STYLE['정기점검'];
+
+/**
+ * 청구서 발송 칸의 색. 한 칸의 건이 모두 같은 결제일이면 그 결제일 색(청구 화면·발송 센터와 같은 색)을 쓴다.
+ * 결제일이 섞여 있으면 원래 '청구서발송' 색을 쓴다.
+ */
+const billingGroupStyle = (items) => {
+  const keys = new Set(items.map((x) => (x.invoice?.paymentDay
+    ? paymentDayKeyOfSetting(x.invoice.paymentDay)
+    : paymentDayKey(x.invoice?.billingDueDate))));
+  if (keys.size !== 1) return null;
+  const st = paymentDayStyle([...keys][0]);
+  return st.key === 'etc' ? null : st;
+};
 
 /**
  * 일정 하나를 한 줄로 부르는 이름.
@@ -288,7 +302,8 @@ function CalendarView({ showToast, currentUser }) {
                   {/* Day Schedule Badges */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', overflowY: 'auto', flex: 1 }} className="calendar-badges-box">
                     {groupByType(daySchedules).map(group => {
-                      const { color: typeColor, bg: typeBg } = styleOf(group.type);
+                      const dayStyle = group.type === '청구서발송' ? billingGroupStyle(group.items) : null;
+                      const { color: typeColor, bg: typeBg } = dayStyle || styleOf(group.type);
                       const many = group.items.length > 1;
                       const sched = group.items[0];
                       // 여러 건이면 건수만 적고 목록은 눌렀을 때 펼친다.

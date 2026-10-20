@@ -50,15 +50,11 @@ export const mimeTypeOf = (fileName) => {
  * 메일·주소록 동기화는 as@를 보고 있어서, 그 값(OUTLOOK_TARGET_EMAIL)을 파일 저장에도
  * 같이 쓰면 서류가 렌트팀이 열어 보지 않는 드라이브에 쌓인다. 실제로 그렇게 쌓였다.
  *
- * 그래서 파일 저장 계정을 따로 둔다. 설정하지 않으면 예전처럼 메일 계정을 쓴다.
+ * 그래서 파일 저장 계정을 따로 둔다. 설정하지 않으면 렌트팀 계정(rent@)을 쓴다.
+ * 예전에는 메일 계정(as@)으로 넘어갔는데, 운영 서버에 이 설정이 빠져 있어 rent@에 저장된 청구서·서류를
+ * 운영 화면에서 열지 못했다(2026-10-20 확인: 저장 기록 34건 중 33건이 rent@, as@에는 0건).
  */
-const targetAccount = () => {
-  const email = process.env.ONEDRIVE_TARGET_EMAIL || process.env.OUTLOOK_TARGET_EMAIL;
-  if (!email) {
-    throw new Error('ONEDRIVE_TARGET_EMAIL 환경변수가 없습니다. 파일을 저장할 OneDrive 계정을 설정해 주세요.');
-  }
-  return email;
-};
+const targetAccount = () => process.env.ONEDRIVE_TARGET_EMAIL || 'rent@sdibenefit.com';
 
 /** 'RENT/법인명/02.청구서' 같은 경로를 주소로 바꾼다 */
 const encodePath = (segments) => segments.filter(Boolean).map(encodeURIComponent).join('/');

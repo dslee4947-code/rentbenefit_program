@@ -253,7 +253,11 @@ function InvoiceArchiveView({ showToast, currentUser }) {
       issued: rounds.filter((r) => r.issuedAt).length,
       sent: rounds.filter((r) => r.sentAt).length,
       excel: rounds.filter((r) => r.excelInvoice?.total !== undefined).length,
-      missing: past.filter((r) => !r.issuedAt && r.excelInvoice?.total === undefined).length
+      missing: past.filter((r) => !r.issuedAt && r.excelInvoice?.total === undefined).length,
+      unpaid: rounds.filter((r) => r.status === '미납').length,
+      // 다음 청구서에 전월 미결제로 넘어간 회차(청구 당시 미납이었던 회차)
+      overdue: rounds.filter((r) => Number(rounds.find((x) => x.no === r.no + 1)?.prevUnpaid) > 0).length,
+      unbilledInterest: rounds.reduce((s, r) => s + (Number(r.unbilledInterest?.amount) || 0), 0)
     };
   }, [rounds]);
 
@@ -320,6 +324,9 @@ function InvoiceArchiveView({ showToast, currentUser }) {
               <span style={{ color: '#16a34a' }}>메일 발송 <b>{counts.sent}</b></span>
               {counts.excel > 0 && <span style={{ color: '#0f766e' }}>엑셀 청구서 <b>{counts.excel}</b></span>}
               {counts.missing > 0 && <span style={{ color: '#b45309' }}>발행 기록 없음 <b>{counts.missing}</b></span>}
+              {counts.unpaid > 0 && <span style={{ color: '#dc2626' }}>지금 미납 <b>{counts.unpaid}</b></span>}
+              {counts.overdue > 0 && <span style={{ color: '#b45309' }}>연체 이력 <b>{counts.overdue}</b>회</span>}
+              {counts.unbilledInterest > 0 && <span style={{ color: '#92400e' }}>받지 않은 연체 이자 <b>{won(counts.unbilledInterest)}</b></span>}
             </div>
           </div>
 
@@ -362,6 +369,15 @@ function InvoiceArchiveView({ showToast, currentUser }) {
                         </td>
                         <td style={{ padding: '0.5rem', textAlign: 'center' }}>
                           <span style={{ background: pay.bg, color: pay.color, padding: '0.1rem 0.5rem', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap' }}>{r.status}</span>
+                          {/* 다음 회차에 전월 미결제로 넘어간 회차 = 청구 당시 미납. 나중에 들어왔으면 입금일을 같이 보여 준다 */}
+                          {Number(rounds.find((x) => x.no === r.no + 1)?.prevUnpaid) > 0 && (
+                            <div style={{ fontSize: '0.66rem', color: '#b45309', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                              연체{r.status === '입금완료' && r.paidAt ? ` · ${ymd(r.paidAt).slice(5)} 입금` : ''}
+                            </div>
+                          )}
+                          {r.unbilledInterest?.amount > 0 && (
+                            <div style={{ fontSize: '0.66rem', color: '#92400e', whiteSpace: 'nowrap' }}>미청구 이자 {won(r.unbilledInterest.amount)}</div>
+                          )}
                         </td>
                       </tr>
                     );

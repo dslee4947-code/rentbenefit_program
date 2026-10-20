@@ -38,6 +38,20 @@ const BillingRoundSchema = new Schema({
 
   total: { type: Number, default: 0 }, // 청구 합계
 
+  /**
+   * 받았어야 했지만 청구하지 않은 연체 이자(기록용, 청구 합계에 들어가지 않는다).
+   *
+   * 엑셀로 보내던 시절에는 미납을 다음 달 '전월 미결제'로만 넘기고 이자를 붙이지 않았다.
+   * 대표님 지시(2026-10-20): 이자를 받은 적은 없지만 청구서에는 얼마였는지 명시한다.
+   * principal = 이 회차로 넘어온 원금(전월 미결제), days = 직전 출금일 → 이 회차 출금일.
+   */
+  unbilledInterest: {
+    amount: Number,
+    principal: Number,
+    rate: Number,
+    days: Number
+  },
+
   status: {
     type: String,
     enum: ['예정', '청구됨', '입금완료', '미납'],

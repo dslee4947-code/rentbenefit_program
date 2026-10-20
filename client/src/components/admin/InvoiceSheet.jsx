@@ -165,6 +165,14 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
         </table>
       </div>
 
+      {/* 받지 않은 연체 이자(기록용). 엑셀 시절에는 미납을 다음 달로만 넘기고 이자를 받지 않았다. 청구 합계에는 들어가지 않는다(대표님 지시 2026-10-20) */}
+      {round?.unbilledInterest?.amount > 0 && (
+        <div style={{ marginTop: '10px', padding: '6px 10px', border: '1px dashed #f59e0b', borderRadius: '4px', fontSize: '10.5px', color: '#92400e', background: '#fffbeb' }}>
+          <b>연체 이자 (청구하지 않음) {Number(round.unbilledInterest.amount).toLocaleString()}원</b>
+          {' '}— 전월 미결제 {Number(round.unbilledInterest.principal || 0).toLocaleString()}원 · 연 {round.unbilledInterest.rate}% · {round.unbilledInterest.days}일. 이번 청구액에는 포함하지 않았습니다.
+        </div>
+      )}
+
       {fineDocs.length > 0 && (
         <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '16px' }}>
           <thead>

@@ -445,6 +445,7 @@ export const getDueRounds = async (req, res) => {
           status: prev.status,
           total: prev.total || 0,
           paidAmount: prev.paidAmount || 0,
+          paidAt: prev.paidAt || null, // 늦게 입금된 회차를 '청구 당시 미납'으로 보여 줄 때 쓴다
           unpaid
         } : null,
         overdueDays,
@@ -727,7 +728,7 @@ const buildAutoSendQueue = async (days) => {
         expectedTotal: review.expectedTotal,
         sendDate,
         sendDday: daysUntil(sendDate),
-        prevRound: prev ? { no: prev.no, dueDate: prev.dueDate, status: prev.status, total: prev.total || 0, paidAmount: prev.paidAmount || 0, unpaid } : null,
+        prevRound: prev ? { no: prev.no, dueDate: prev.dueDate, status: prev.status, total: prev.total || 0, paidAmount: prev.paidAmount || 0, paidAt: prev.paidAt || null, unpaid } : null,
         overdueDays,
         suggestedInterest,
         defaultTo: to,

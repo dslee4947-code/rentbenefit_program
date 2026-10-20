@@ -1066,6 +1066,12 @@ function MonthlyBillingView({ showToast, currentUser }) {
                           <span style={{ background: prevSt.bg, color: prevSt.color, padding: '0.15rem 0.5rem', borderRadius: '20px', fontSize: '0.72rem', fontWeight: '700' }}>
                             {prev.status}
                           </span>
+                          {/* 이번 청구서에 전월 미결제가 들어갔는데 전월이 지금 '입금완료'면, 청구서를 만들 때는 미납이었다가 나중에 들어온 것이다 */}
+                          {prev.status === '입금완료' && Number(it.round.prevUnpaid) > 0 && (
+                            <div style={{ fontSize: '0.7rem', color: '#b45309', fontWeight: 700, marginTop: '0.15rem' }}>
+                              청구 당시 미납{prev.paidAt ? ` → ${ymd(prev.paidAt).slice(5)} 입금` : ''}
+                            </div>
+                          )}
                           {prev.unpaid > 0 && (
                             <div style={{ fontSize: '0.72rem', color: 'var(--error)', fontWeight: '700', marginTop: '0.15rem' }}>
                               {won(prev.unpaid)}

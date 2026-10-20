@@ -39,7 +39,7 @@ import { syncOutlookContacts } from './utils/outlookSyncService.js';
 import { syncInvoiceSendSchedules } from './utils/invoiceScheduleJob.js';
 import { syncFineNoticeSchedules } from './utils/fineNoticeScheduleJob.js';
 import { syncVehicleServiceSchedules } from './utils/vehicleServiceScheduleJob.js';
-import { runAutoSend, sendAutoSendReport, sendApprovalReminder } from './controllers/billingScheduleController.js';
+import { runAutoSend, sendAutoSendReport, sendApprovalReminder, refreshAllUnbilledInterest } from './controllers/billingScheduleController.js';
 
 // Connect to MongoDB database
 connectDB().then(async () => {
@@ -88,6 +88,15 @@ connectDB().then(async () => {
     syncVehicleServiceSchedules().catch((err) => console.error('[정비·검사 일정] 실패:', err.message));
   }, CRON_OPTIONS);
   console.log('[Cron Scheduler] 정비·검사 일정 동기화 예약 완료 (매일 03:30).');
+
+  // 받지 않은 연체 이자 내역을 원장 입금일 기준으로 다시 센다. 미납이 이어지면 청구서마다 한 달치가 늘어난다.
+  // 청구서에 누적으로 남기는 값이라 날마다 한 번 맞춘다(원장 엑셀 마감 21:00 뒤 새벽).
+  cron.schedule('40 3 * * *', () => {
+    refreshAllUnbilledInterest()
+      .then((r) => console.log(`[연체 이자 내역] 회차표 ${r.schedules}개 중 ${r.changed}개 갱신`))
+      .catch((err) => console.error('[연체 이자 내역] 실패:', err.message));
+  }, CRON_OPTIONS);
+  console.log('[Cron Scheduler] 연체 이자 내역 갱신 예약 완료 (매일 03:40).');
 
   // 청구서 자동 발송. 전날 담당자가 승인한 청구서를 발송일 아침에 보낸다.
   // 새벽에 보내지 않는 이유: 법인 담당자가 출근해 바로 보는 시간에 받는 편이 결재가 빠르고,

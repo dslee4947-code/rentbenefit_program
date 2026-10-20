@@ -160,6 +160,9 @@ function InvoiceArchiveView({ showToast, currentUser }) {
     ? (locked ? round : { ...round, extras: draft, other: draftOther })
     : null;
   const previewTotal = previewRound ? (locked ? round.total : roundTotal(previewRound)) : 0;
+  // 이 회차까지 쌓인 받지 않은 연체 이자(청구서에 누적으로 남긴다)
+  const interestToDate = rounds.filter((r) => r.no <= (round?.no || 0) && Number(r.unbilledInterest?.amount) > 0)
+    .reduce((acc, r) => ({ amount: acc.amount + Number(r.unbilledInterest.amount), count: acc.count + ((r.unbilledInterest.items || []).length || 1) }), { amount: 0, count: 0 });
 
   const updateDraft = (index, patch) => {
     setDraft((prev) => prev.map((e, i) => (i === index ? { ...e, ...patch } : e)));
@@ -508,7 +511,7 @@ function InvoiceArchiveView({ showToast, currentUser }) {
                 >
                   <div style={{ zoom: previewZoom }}>
                     <InvoiceSheet
-                      item={{ company: detail.schedule.company, customer: detail.schedule.customer, proration: detail.schedule.proration }}
+                      item={{ company: detail.schedule.company, customer: detail.schedule.customer, proration: detail.schedule.proration, unbilledInterestToDate: interestToDate }}
                       round={previewRound}
                       vehicles={detail.vehicles}
                       total={previewTotal}
@@ -522,7 +525,7 @@ function InvoiceArchiveView({ showToast, currentUser }) {
                   >
                     <div style={{ width: 'fit-content', margin: '0 auto', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }}>
                       <InvoiceSheet
-                        item={{ company: detail.schedule.company, customer: detail.schedule.customer, proration: detail.schedule.proration }}
+                        item={{ company: detail.schedule.company, customer: detail.schedule.customer, proration: detail.schedule.proration, unbilledInterestToDate: interestToDate }}
                         round={previewRound}
                         vehicles={detail.vehicles}
                         total={previewTotal}
@@ -534,7 +537,7 @@ function InvoiceArchiveView({ showToast, currentUser }) {
                 <div style={{ position: 'fixed', left: '-10000px', top: 0 }} aria-hidden="true">
                   <InvoiceSheet
                     innerRef={sheetRef}
-                    item={{ company: detail.schedule.company, customer: detail.schedule.customer, proration: detail.schedule.proration }}
+                    item={{ company: detail.schedule.company, customer: detail.schedule.customer, proration: detail.schedule.proration, unbilledInterestToDate: interestToDate }}
                     round={previewRound}
                     vehicles={detail.vehicles}
                     total={previewTotal}

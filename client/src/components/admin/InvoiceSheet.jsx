@@ -165,22 +165,24 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
         </table>
       </div>
 
-      {/* 받지 않은 연체 이자(기록용). 엑셀 시절에는 미납을 다음 달로만 넘기고 이자를 받지 않았다. 청구 합계에는 들어가지 않는다(대표님 지시 2026-10-20) */}
-      {round?.unbilledInterest?.amount > 0 && (
+      {/* 받지 않은 연체 이자(기록용). 바로 청구하지 못해 청구서마다 누적으로 남긴다. 청구 합계에는 들어가지 않는다(대표님 지시 2026-10-20) */}
+      {(Number(item?.unbilledInterestToDate?.amount) > 0 || round?.unbilledInterest?.amount > 0) && (
         <div style={{ marginTop: '10px', padding: '6px 10px', border: '1px dashed #f59e0b', borderRadius: '4px', fontSize: '10.5px', color: '#92400e', background: '#fffbeb' }}>
-          <b>연체 이자 (청구하지 않음) {Number(round.unbilledInterest.amount).toLocaleString()}원</b>
-          {' '}— 이번 청구액에는 포함하지 않았습니다.
-          {(round.unbilledInterest.items || []).length ? (
-            <div style={{ marginTop: '2px' }}>
-              {round.unbilledInterest.items.map((it, i) => (
+          <div>
+            <b>누적 연체 이자 (청구 보류) {Number(item?.unbilledInterestToDate?.amount || round?.unbilledInterest?.amount || 0).toLocaleString()}원</b>
+            {item?.unbilledInterestToDate?.count ? ` · 이번 회차까지 ${item.unbilledInterestToDate.count}건` : ''}
+            {' '}— 이번 청구액에는 포함하지 않았으며, 추후 정산 때 청구할 수 있습니다.
+          </div>
+          {round?.unbilledInterest?.amount > 0 && (
+            <div style={{ marginTop: '3px' }}>
+              이번 회차에 붙은 이자 {Number(round.unbilledInterest.amount).toLocaleString()}원
+              {(round.unbilledInterest.items || []).map((it, i) => (
                 <div key={i}>
                   · {it.fromNo}회차 미납 {Number(it.principal).toLocaleString()}원 × 연 {it.rate}% × {it.days}일
                   ({String(it.from).slice(0, 10)} ~ {String(it.to).slice(0, 10)}) = {Number(it.amount).toLocaleString()}원
                 </div>
               ))}
             </div>
-          ) : (
-            <span> 전월 미결제 {Number(round.unbilledInterest.principal || 0).toLocaleString()}원 · 연 {round.unbilledInterest.rate}% · {round.unbilledInterest.days}일</span>
           )}
         </div>
       )}

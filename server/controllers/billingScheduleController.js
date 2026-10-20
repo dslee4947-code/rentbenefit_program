@@ -4,6 +4,7 @@ import BillingSchedule from '../models/BillingSchedule.js';
 import RentalNotice from '../models/RentalNotice.js';
 import Contract from '../models/Contract.js';
 import ExcelInvoice from '../models/ExcelInvoice.js';
+import { lateInterestByRound } from '../utils/lateInterestHistory.js';
 import Vehicle from '../models/Vehicle.js';
 import Company from '../models/Company.js';
 import Schedule from '../models/Schedule.js';
@@ -120,6 +121,19 @@ const recalcRound = (round) => {
  * 이 값은 화면에서 '미납'을 찍어도 되는 날을 가르는 데 쓴다.
  */
 export const LATE_GRACE_DAYS = 15;
+
+/**
+ * 이 회차까지 쌓인 '받지 않은 연체 이자' 합계와 건수. 바로 청구하지 못하는 이자를 청구서마다 누적으로 남긴다(대표님 지시 2026-10-20).
+ * @param {Array<object>} rounds 회차들
+ * @param {number} no 이 회차 번호
+ */
+export const unbilledInterestToDate = (rounds, no) => {
+  const upto = (rounds || []).filter((r) => r.no <= no && Number(r.unbilledInterest?.amount) > 0);
+  return {
+    amount: upto.reduce((s, r) => s + Number(r.unbilledInterest.amount), 0),
+    count: upto.reduce((s, r) => s + ((r.unbilledInterest.items || []).length || 1), 0)
+  };
+};
 
 /**
  * 직전 회차에서 다음 회차로 넘어가는 돈과, 그중 이자가 붙는 원금.
@@ -433,6 +447,7 @@ export const getDueRounds = async (req, res) => {
         monthlyRent: s.monthlyRent,
         dailyRent: s.dailyRent,
         proration: s.proration,
+        unbilledInterestToDate: unbilledInterestToDate(s.rounds, round.no),
         lateInterestRate,
         unpaid: thisUnpaid,
         // 출금일 10일 전이 발송일. 오늘 기준으로 며칠 남았는지 함께 준다.
@@ -721,6 +736,7 @@ const buildAutoSendQueue = async (days) => {
         customer: s.customer,
         totalRounds: s.totalRounds,
         proration: s.proration,
+        unbilledInterestToDate: unbilledInterestToDate(s.rounds, round.no),
         lateInterestRate,
         // 평소(월 렌트료만)와 무엇이 다른지. 담당자는 이것만 보고 확인할 건을 고른다
         changes: review.changes,
@@ -2687,4 +2703,48 @@ export const updateRound = async (req, res) => {
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
+};
+
+
+/**
+ * 모든 회차표의 '받지 않은 연체 이자' 내역을 원장 입금일 기준으로 다시 센다(매일 새벽, index.js).
+ *
+ * 연체 이자는 바로 청구하지 못해 청구서마다 누적으로 남긴다(대표님 지시 2026-10-20).
+ * 미납 회차가 계속 안 들어오면 다음 청구서를 만들 때마다 한 달치가 늘어나므로 날마다 다시 센다.
+ * 이미 청구서에 넣어 청구하는 이자(기타 청구의 '연체 이자 (n회차 …)' 줄이나 연체 이자 칸)는 겹치지 않게 뺀다.
+ *
+ * @returns {Promise<{schedules: number, changed: number}>}
+ */
+export const refreshAllUnbilledInterest = async () => {
+  const schedules = await BillingSchedule.find({}).populate('contract', 'contractNo terms');
+  const rates = await loadLateInterestRates(schedules.map((s) => s.contract?._id).filter(Boolean));
+  const now = new Date();
+  let changed = 0;
+  for (const s of schedules) {
+    // 대경인트라넷: 계약 중간에 차 대수가 바뀌어 회차 금액과 원장이 맞지 않는다. 확인 전까지 뺀다.
+    if (s.contract?.contractNo === '21110022') continue;
+    const rate = rates.get(String(s.contract?._id)) || s.contract?.terms?.lateInterestRate || 20;
+    const map = lateInterestByRound(s.rounds, rate, now);
+    let touched = false;
+    for (const r of s.rounds) {
+      const made = r.issuedAt || new Date(r.dueDate).getTime() - 12 * 864e5 <= now.getTime();
+      const charged = (fromNo) => (r.extras || []).some((e) => new RegExp(`^연체 이자 \\(${fromNo}회차`).test(e.label || ''))
+        || (Number(r.interest) > 0 && fromNo === r.no - 1);
+      const items = made ? (map.get(r.no) || []).filter((it) => !charged(it.fromNo)) : [];
+      const next = items.length
+        ? {
+          amount: items.reduce((a, i) => a + i.amount, 0),
+          principal: items.reduce((a, i) => a + i.principal, 0),
+          rate,
+          days: items[0].days,
+          items
+        }
+        : undefined;
+      const before = r.unbilledInterest?.amount ? JSON.stringify({ a: r.unbilledInterest.amount, n: (r.unbilledInterest.items || []).length }) : '';
+      const after = next ? JSON.stringify({ a: next.amount, n: next.items.length }) : '';
+      if (before !== after) { r.unbilledInterest = next; touched = true; }
+    }
+    if (touched) { s.markModified('rounds'); await s.save(); changed += 1; }
+  }
+  return { schedules: schedules.length, changed };
 };

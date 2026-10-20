@@ -269,12 +269,14 @@ function InvoiceArchiveView({ showToast, currentUser }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 260px) minmax(0, 1fr)', gap: '1rem', alignItems: 'start' }}>
       {/* 계약 고르기 */}
-      <div style={{ ...box, padding: '0.8rem', display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '80vh' }}>
+      {/* 목록은 화면 위에 붙어 있고(sticky) 안에서만 스크롤한다. 목록 끝에서 휠을 더 굴려도 페이지 전체가 따라 움직이지 않게
+          overscrollBehavior를 막는다. 오른쪽 청구서 길이(범칙금 줄 등)가 달라도 위쪽이 흔들리지 않는다. */}
+      <div style={{ ...box, padding: '0.8rem', display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: 'calc(100vh - 2rem)', position: 'sticky', top: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           <Search size={15} style={{ color: 'var(--primary)' }} />
           <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="계약자 / 계약번호 / 차량번호" style={{ ...inputStyle, flex: 1, minWidth: 0 }} />
         </div>
-        <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+        <div style={{ overflowY: 'auto', overscrollBehavior: 'contain', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
           {filtered.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', padding: '0.5rem' }}>맞는 계약이 없습니다.</div>}
           {filtered.map((c) => {
             const active = picked?.contractId === c.contractId;
@@ -323,7 +325,7 @@ function InvoiceArchiveView({ showToast, currentUser }) {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(360px, 400px) minmax(360px, 1fr)', gap: '1rem', alignItems: 'start' }}>
             {/* 회차 목록 */}
-            <div style={{ ...box, overflow: 'auto', maxHeight: '75vh' }}>
+            <div style={{ ...box, overflow: 'auto', overscrollBehavior: 'contain', maxHeight: 'calc(100vh - 2rem)', position: 'sticky', top: '1rem' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                 <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-main)' }}>
                   <tr>
@@ -479,7 +481,7 @@ function InvoiceArchiveView({ showToast, currentUser }) {
                 >
                   <div style={{ zoom: previewZoom }}>
                     <InvoiceSheet
-                      item={{ company: detail.schedule.company, customer: detail.schedule.customer }}
+                      item={{ company: detail.schedule.company, customer: detail.schedule.customer, proration: detail.schedule.proration }}
                       round={previewRound}
                       vehicles={detail.vehicles}
                       total={previewTotal}
@@ -493,7 +495,7 @@ function InvoiceArchiveView({ showToast, currentUser }) {
                   >
                     <div style={{ width: 'fit-content', margin: '0 auto', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }}>
                       <InvoiceSheet
-                        item={{ company: detail.schedule.company, customer: detail.schedule.customer }}
+                        item={{ company: detail.schedule.company, customer: detail.schedule.customer, proration: detail.schedule.proration }}
                         round={previewRound}
                         vehicles={detail.vehicles}
                         total={previewTotal}
@@ -505,7 +507,7 @@ function InvoiceArchiveView({ showToast, currentUser }) {
                 <div style={{ position: 'fixed', left: '-10000px', top: 0 }} aria-hidden="true">
                   <InvoiceSheet
                     innerRef={sheetRef}
-                    item={{ company: detail.schedule.company, customer: detail.schedule.customer }}
+                    item={{ company: detail.schedule.company, customer: detail.schedule.customer, proration: detail.schedule.proration }}
                     round={previewRound}
                     vehicles={detail.vehicles}
                     total={previewTotal}

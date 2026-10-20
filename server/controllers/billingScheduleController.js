@@ -355,14 +355,14 @@ export const getScheduleByContract = async (req, res) => {
   try {
     const schedule = await BillingSchedule.findOne({ contract: req.params.contractId })
       .populate('company', 'name bizNo ceoName billingEmail bank')
-      .populate('customer', 'name contactName contactPhone email')
+      .populate('customer', 'name contactName contactPhone email bank')
       .lean();
     if (!schedule) {
       return res.status(404).json({ success: false, message: '회차표가 아직 없습니다.' });
     }
     const contract = await Contract.findById(req.params.contractId).select('termMonths').lean();
     const found = await Vehicle.find({ contract: req.params.contractId })
-      .select('code carModel plateNo monthlyFee deliveryDate advancePayment paymentTerm')
+      .select('code carModel plateNo monthlyFee deliveryDate advancePayment paymentTerm banking')
       .lean();
     // 선납금은 차량마다 '선납금 ÷ 개월 수'씩 월 렌트료에서 빠진다(계약서 조건). 개월 수는 차량 값,
     // 없으면 계약기간, 그것도 없으면 회차표의 회차 수(일할 회차가 끼면 하나 많을 수 있다)를 쓴다. 청구서가 차감액·잔액을 그릴 때 쓴다(advancePayment.js).
@@ -432,6 +432,7 @@ export const getDueRounds = async (req, res) => {
         totalRounds: s.totalRounds,
         monthlyRent: s.monthlyRent,
         dailyRent: s.dailyRent,
+        proration: s.proration,
         lateInterestRate,
         unpaid: thisUnpaid,
         // 출금일 10일 전이 발송일. 오늘 기준으로 며칠 남았는지 함께 준다.
@@ -704,7 +705,7 @@ const buildAutoSendQueue = async (days) => {
 
       // 승인했어도 그 뒤 내용이 바뀌었으면 화면에 '다시 승인'으로 보여 준다
       let autoStatus = round.autoSend?.status || '';
-      if (autoStatus === '승인') {
+      if (autoStatus === '승인' || autoStatus === '대표승인대기') {
         const context = await snapshotContextOf(s);
         if (round.autoSend.snapshot !== roundSnapshot(round, round.autoSend.to, context)) autoStatus = '변경됨';
       }
@@ -718,6 +719,7 @@ const buildAutoSendQueue = async (days) => {
         company: s.company,
         customer: s.customer,
         totalRounds: s.totalRounds,
+        proration: s.proration,
         lateInterestRate,
         // 평소(월 렌트료만)와 무엇이 다른지. 담당자는 이것만 보고 확인할 건을 고른다
         changes: review.changes,
@@ -739,6 +741,24 @@ const buildAutoSendQueue = async (days) => {
   const nameOf = (it) => it.company?.name || it.customer?.name || '';
   items.sort((a, b) => (new Date(a.sendDate) - new Date(b.sendDate)) || nameOf(a).localeCompare(nameOf(b), 'ko'));
   return items;
+};
+
+/**
+ * 이 회차가 '평소와 같은'(월 렌트료만 있는) 청구서인지. 발송 센터 목록과 같은 기준(reviewOf)으로 본다.
+ * 달라진 청구서는 직원 확인 뒤 대표 승인까지 받아야 나간다(대표님 지시 2026-10-19).
+ *
+ * @param {object} schedule 회차표 (contract가 populate된 것)
+ * @param {object} round 회차
+ * @returns {Promise<boolean>}
+ */
+const isRoutineRound = async (schedule, round) => {
+  const contractId = schedule.contract?._id || schedule.contract;
+  const rate = (await loadLateInterestRates([contractId])).get(String(contractId)) || 0;
+  const prev = schedule.rounds.find((r) => r.no === round.no - 1) || null;
+  const { carried: unpaid, interestBase } = carryInto(schedule.rounds, round.no);
+  const days = prev ? daysBetween(prev.dueDate, round.dueDate) : 0;
+  const suggestedInterest = calcLateInterest({ unpaid: interestBase, annualRate: rate, days });
+  return reviewOf({ round, schedule, unpaid, suggestedInterest }).changes.length === 0;
 };
 
 /**
@@ -787,10 +807,19 @@ export const approveAutoSend = async (req, res) => {
       fileBuffer: req.file.buffer
     });
 
+    // 달라진 청구서는 대표(관리자)가 승인해야 나간다. 직원이 누르면 '확인'까지만 하고 대표 승인을 기다린다.
+    // 대표가 직접 연 건은 대표 승인 한 번으로 끝난다.
+    const who = req.user?.name || req.user?.email || '';
+    const isCeo = req.user?.role === 'admin';
+    const waitCeo = !isCeo && !(await isRoutineRound(schedule, round));
+    const checked = round.autoSend?.status === '대표승인대기' ? round.autoSend : null;
+
     round.autoSend = {
-      status: '승인',
-      approvedAt: new Date(),
-      approvedBy: req.user?.name || req.user?.email || '',
+      status: waitCeo ? '대표승인대기' : '승인',
+      approvedAt: waitCeo ? undefined : new Date(),
+      approvedBy: waitCeo ? '' : who,
+      checkedBy: waitCeo ? who : (checked?.checkedBy || ''),
+      checkedAt: waitCeo ? new Date() : checked?.checkedAt,
       to,
       snapshot: roundSnapshot(round, to, await snapshotContextOf(schedule)),
       pdfFileName: saved.fileName,
@@ -803,7 +832,10 @@ export const approveAutoSend = async (req, res) => {
     res.json({
       success: true,
       autoSend: round.autoSend,
-      message: `${partyName} ${round.no}회차를 승인했습니다. ${formatYmd(calcSendDate(round.dueDate))} 아침에 ${to}로 보냅니다.`
+      waitCeo,
+      message: waitCeo
+        ? `${partyName} ${round.no}회차를 확인했습니다. 대표님이 승인하시면 ${formatYmd(calcSendDate(round.dueDate))} 아침에 보냅니다.`
+        : `${partyName} ${round.no}회차를 승인했습니다. ${formatYmd(calcSendDate(round.dueDate))} 아침에 ${to}로 보냅니다.`
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -860,6 +892,8 @@ export const testSendInvoice = async (req, res) => {
         청구액: `${Number(req.body.total ?? round.total ?? 0).toLocaleString()}원`
       }
     });
+    // 보낸편지함을 볼 권한이 없어도 무엇을 보냈는지 서버 기록으로 되짚을 수 있게 남긴다
+    console.log(`[시험 메일] ${partyName} ${round.no}회차 → ${mail.to}`);
     res.json({ success: true, message: `시험 메일을 ${mail.to}로 보냈습니다. 회차 상태는 바뀌지 않았습니다.` });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -1303,7 +1337,9 @@ export const sendApprovalReminder = async () => {
     && !(it.sendDday < 0 && !it.autoStatus));
   const missedCount = items.filter((it) => needs(it) && it.sendDday < 0 && !it.autoStatus).length;
   const stuck = items.filter((it) => it.autoStatus === '발송중');
-  if (!pending.length && !stuck.length) return { sent: false };
+  // 직원이 확인했고 대표 승인만 남은 건. 대표가 안 누르면 나가지 않으므로 따로 알린다
+  const ceoWaiting = items.filter((it) => it.autoStatus === '대표승인대기' && dayKey(it.sendDate) <= nextKey);
+  if (!pending.length && !stuck.length && !ceoWaiting.length) return { sent: false };
 
   const routine = pending.filter((it) => it.routine).length;
   const rows = pending.map((it) => digestRow([
@@ -1318,10 +1354,11 @@ export const sendApprovalReminder = async () => {
     평소와 같은 ${routine}건은 한 번에 승인할 수 있고, 나머지 ${pending.length - routine}건은 달라진 내용을 확인해 주세요.<br>
     승인하지 않은 건은 보내지 않습니다.</p>
     ${digestTable(['발송일', '계약자', '회차', '청구액', '달라진 점'], rows)}
+    ${ceoWaiting.length ? `<p style="color:#7c3aed"><b>직원 확인이 끝나 대표님 승인을 기다리는 청구서 ${ceoWaiting.length}건</b>: ${ceoWaiting.map((it) => escapeHtml(`${it.company?.name || it.customer?.name || ''} ${it.round.no}회차`)).join(', ')}</p>` : ''}
     ${stuck.length ? `<p style="color:#b45309">보내던 중 멈춰 확인이 필요한 건이 ${stuck.length}건 있습니다.</p>` : ''}
     ${missedCount ? `<p style="color:#64748b">발송일이 지났는데 처리하지 않은 건이 ${missedCount}건 있습니다. 밖에서 이미 보냈다면 '이미 보냄'으로 정리해 주세요.</p>` : ''}
     <p>장기렌트 청구서 &gt; 청구서 발송 센터에서 처리합니다.</p></div>`;
-  await sendInternalMail({ subject: `[청구서] 내일 발송 승인 대기 ${pending.length}건`, html });
+  await sendInternalMail({ subject: `[청구서] 내일 발송 승인 대기 ${pending.length + ceoWaiting.length}건${ceoWaiting.length ? ` (대표 승인 ${ceoWaiting.length})` : ''}`, html });
   return { sent: true, pending: pending.length };
 };
 

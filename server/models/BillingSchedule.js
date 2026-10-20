@@ -136,9 +136,13 @@ const BillingRoundSchema = new Schema({
   autoSend: {
     // 발송중: 서버가 이 회차를 보내려고 붙잡은 상태. 메일을 보낸 뒤 저장 전에 서버가 죽으면 여기 멈춘다.
     //        그때 다시 보내면 고객이 두 번 받으므로 자동으로는 다시 보내지 않고 사람이 확인한다.
-    status: { type: String, enum: ['승인', '발송중', '발송완료', '변경됨', '실패'] },
+    // 대표승인대기: '달라진' 청구서(전월 미결제·이자·범칙금 등)를 직원이 확인했고 대표 승인을 기다린다.
+    //             발송은 '승인'만 한다. 평소와 같은 청구서는 직원 승인만으로 '승인'이 된다.
+    status: { type: String, enum: ['대표승인대기', '승인', '발송중', '발송완료', '변경됨', '실패'] },
     approvedAt: Date,
     approvedBy: String,
+    checkedBy: String, // 대표 승인 전에 확인한 직원
+    checkedAt: Date,
     to: String, // 받는 주소. 승인할 때 정한다
     snapshot: String,
     pdfFileName: String,
@@ -157,6 +161,24 @@ const BillingScheduleSchema = new Schema({
   customer: { type: Schema.Types.ObjectId, ref: 'Customer' },
 
   totalRounds: { type: Number, required: true }, // 계약 기간(개월)과 같다
+
+  /**
+   * 1회차 일할 정산.
+   *
+   * 인도일과 첫 결제일이 어긋나 1회차를 일할로 더(덜) 받은 계약은 그 차액을 마지막 회차에서 빼(더해) 맞춘다
+   * (첫 회차 + 마지막 회차 = 월 렌트료 × 2). 고객이 매달 청구서에서 이 약속을 볼 수 있게 모든 청구서에 안내한다.
+   * diff = 1회차 렌트료 − 월 렌트료 (더 받았으면 +, 덜 받았으면 −).
+   */
+  proration: {
+    firstNo: Number,
+    firstAmount: Number,
+    regular: Number,
+    diff: Number,
+    lastNo: Number,
+    lastAmount: Number,
+    days: Number, // 일할 일수(알 때만)
+    note: String
+  },
   monthlyRent: { type: Number, default: 0 }, // 계약에 묶인 차량들의 월 렌트료 합계
   dailyRent: { type: Number, default: 0 }, // 1일 렌트료 (첫 달/마지막 달 일할 계산용)
 

@@ -132,6 +132,12 @@ export const sendFineNoticeMail = async ({ to, cc, fileName, fileBuffer, values 
 };
 
 /**
+ * 청구서·안내 메일을 보내는 계정. 고객이 받는 메일의 보내는 사람이다(대표님 지정 2026-10-19: rent@sdibenefit.com).
+ * 예전에는 설정이 없으면 연락처 동기화 계정(as@)으로 보냈는데, 고객에게 엉뚱한 주소로 나가므로 rent@로 고정한다.
+ */
+const invoiceSender = () => process.env.INVOICE_SENDER_EMAIL || 'rent@sdibenefit.com';
+
+/**
  * 저장된 양식으로 메일을 보낸다. 청구서와 고지서 안내가 같은 길을 쓴다.
  *
  * Microsoft Graph의 앱 전용 토큰을 쓴다(아웃룩 동기화와 같은 Azure 앱).
@@ -149,10 +155,7 @@ export const sendFineNoticeMail = async ({ to, cc, fileName, fileBuffer, values 
 const sendTemplateMail = async ({ to, cc, subject, values = {}, templateKey = 'invoice', files = [], missingToMessage }) => {
   if (!to) throw new Error(missingToMessage || '받는 사람 이메일이 없습니다.');
 
-  const sender = process.env.INVOICE_SENDER_EMAIL || process.env.OUTLOOK_TARGET_EMAIL;
-  if (!sender) {
-    throw new Error('보내는 메일 주소가 설정되지 않았습니다. INVOICE_SENDER_EMAIL 또는 OUTLOOK_TARGET_EMAIL을 설정해 주세요.');
-  }
+  const sender = invoiceSender();
 
   const template = await getOrCreateTemplate(templateKey);
   const finalSubject = applyPlaceholders(subject || template.subject, values);
@@ -239,8 +242,7 @@ const sendTemplateMail = async ({ to, cc, subject, values = {}, templateKey = 'i
  * @param {string} params.html 본문 HTML
  */
 export const sendInternalMail = async ({ subject, html }) => {
-  const sender = process.env.INVOICE_SENDER_EMAIL || process.env.OUTLOOK_TARGET_EMAIL;
-  if (!sender) throw new Error('보내는 메일 주소가 설정되지 않았습니다.');
+  const sender = invoiceSender();
   const toList = String(process.env.INTERNAL_NOTICE_EMAIL || sender).split(',').map((x) => x.trim()).filter(Boolean);
 
   const token = await getGraphAccessToken();

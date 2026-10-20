@@ -4,7 +4,7 @@ import { RefreshCw, Send, CheckCircle2, AlertCircle, FileText, X, ChevronLeft, C
 import InvoiceSheet, { makeInvoicePdf } from './InvoiceSheet.jsx';
 import { buildRoundForm, formTotals, roundSaveBody } from './billingForm.js';
 import PaymentDayBadge from './PaymentDayBadge.jsx';
-import { paymentDayStripe } from './paymentDay.js';
+import { paymentDayStripe, paymentDayKey, PAYMENT_DAYS } from './paymentDay.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -79,8 +79,11 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
   const [testMail, setTestMail] = useState(readTestMail);
   const sheetRef = useRef(null);
   const reviewTokenRef = useRef(0); // 확인 창에서 마지막으로 연 청구서. 늦게 온 미리보기를 버린다
+  const waitCeoRef = useRef(0); // 이번 승인 중 대표 승인으로 넘긴 건수
 
   const canWrite = currentUser?.role !== 'viewer';
+  // 달라진 청구서는 대표(관리자)가 승인해야 나간다. 직원 승인은 '확인'까지만 된다(서버가 정한다)
+  const isCeo = currentUser?.role === 'admin';
   const keyOf = (it) => `${it.scheduleId}-${it.round?.no ?? it.roundNo}`;
 
   const loadAll = useCallback(async () => {
@@ -112,7 +115,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
   };
 
   // ---------- 나누기 ----------
-  const needsApproval = (it) => !it.issued && ['', '변경됨', '실패'].includes(it.autoStatus);
+  const needsApproval = (it) => !it.issued && ['', '변경됨', '실패', '대표승인대기'].includes(it.autoStatus);
   const isMissed = (it) => it.sendDday < 0;
   const missed = items.filter((it) => isMissed(it) && needsApproval(it) && !it.autoStatus);
   // 보류·실패한 건은 발송일이 지나도 여기 남는다. 빠지면 아무도 다시 승인하지 않아 청구서가 영영 안 나간다.
@@ -121,6 +124,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
   const routine = toReview.filter((it) => it.routine && !it.autoStatus);
   const changed = toReview.filter((it) => !(it.routine && !it.autoStatus));
   const scheduled = items.filter((it) => it.autoStatus === '승인');
+  const ceoWaiting = changed.filter((it) => it.autoStatus === '대표승인대기');
   const attention = history.filter((h) => h.result && h.result !== '보냄');
   const sentCount = history.filter((h) => h.result === '보냄').length;
   const routineSelected = routine.filter((it) => !routineExcluded.has(keyOf(it)));
@@ -162,7 +166,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
 
     // 3) 숨겨 둔 양식에 그려 PDF로 뜬다. 청구서 화면의 [발행]과 같은 양식·같은 함수다.
     flushSync(() => setSheet({
-      item: { ...it, company: data.schedule.company || it.company, customer: data.schedule.customer || it.customer },
+      item: { ...it, company: data.schedule.company || it.company, customer: data.schedule.customer || it.customer, proration: data.schedule.proration || it.proration },
       round: {
         ...form,
         fine: stored.fine,
@@ -190,6 +194,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
       body: fd
     });
     const approved = await appRes.json();
+    if (approved.success && approved.waitCeo) waitCeoRef.current += 1;
     return approved.success ? '' : (approved.message || '승인하지 못했습니다.');
   };
 
@@ -210,6 +215,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
     }
 
     setBusy('approve');
+    waitCeoRef.current = 0;
     const failures = [];
     let ok = 0;
     // 목록을 연 뒤 전월 입금이 들어왔을 수 있다. 전월 미결제·연체 이자 제안값을 지금 값으로 다시 받는다.
@@ -241,8 +247,12 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
     flushSync(() => setSheet(null));
     setProgress('');
     setBusy('');
-    if (failures.length) showToast?.(`${ok}건 승인, ${failures.length}건 못 함: ${failures.slice(0, 3).join(' / ')}`, 'warning');
-    else showToast?.(`${ok}건 승인했습니다. 발송일 아침 9시에 나갑니다.`, 'success');
+    const waited = waitCeoRef.current;
+    const okText = waited
+      ? `${ok - waited}건 승인, ${waited}건은 확인 완료 — 대표님 승인 후 나갑니다.`
+      : `${ok}건 승인했습니다. 발송일 아침 9시에 나갑니다.`;
+    if (failures.length) showToast?.(`${okText} ${failures.length}건 못 함: ${failures.slice(0, 3).join(' / ')}`, 'warning');
+    else showToast?.(okText, 'success');
     await loadAll();
     onChanged?.();
     return ok;
@@ -331,7 +341,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
     const form = buildRoundForm(it, round, data.schedule.rounds);
     const totals = formTotals(form, round.attachments);
     return {
-      item: { ...it, company: data.schedule.company || it.company, customer: data.schedule.customer || it.customer },
+      item: { ...it, company: data.schedule.company || it.company, customer: data.schedule.customer || it.customer, proration: data.schedule.proration || it.proration },
       round: { ...form, fine: totals.fineTotal, maintenance: totals.maintenanceTotal, other: totals.otherTotal, attachments: round.attachments || [], dueDate: round.dueDate },
       vehicles: data.vehicles || [],
       total: totals.total,
@@ -396,6 +406,51 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
     }
   };
 
+  /**
+   * 시험 메일 여러 건: 결제일 묶음(예: 5일 출금분)을 실제 청구서 그대로 PDF로 만들어 시험 주소로만 보낸다.
+   * 승인·저장·발행은 하지 않는다. 실제 발송 전에 한 묶음을 통째로 받아 보고 확인하는 용도다.
+   */
+  const testSendMany = async (list, label) => {
+    if (!guard() || !list.length) return;
+    const to = testMail.trim();
+    if (!isEmail(to)) { showToast?.('시험 메일 주소를 확인해 주세요.', 'error'); return; }
+    if (!window.confirm(`${label} ${list.length}건을 시험 주소 ${to}로만 보냅니다.
+고객에게는 나가지 않고, 승인·발행도 하지 않습니다. 보낼까요?`)) return;
+    try { localStorage.setItem('invoiceTestMail', to); } catch { /* 기억 못 해도 보내기에는 지장 없다 */ }
+    setBusy('test');
+    const failures = [];
+    let ok = 0;
+    for (let i = 0; i < list.length; i += 1) {
+      const it = list[i];
+      setProgress(`시험 메일 ${i + 1}/${list.length} ${nameOf(it)} ${it.round.no}회차`);
+      try {
+        const p = await loadPreview(it);
+        if (p.error) throw new Error(p.error);
+        flushSync(() => setSheet({ item: p.item, round: p.round, vehicles: p.vehicles, total: p.total }));
+        await settle();
+        if (!sheetRef.current) throw new Error('청구서 양식을 그리지 못했습니다.');
+        const blob = await makeInvoicePdf(sheetRef.current);
+        const fd = new FormData();
+        fd.append('file', blob, 'invoice.pdf');
+        fd.append('to', to);
+        fd.append('total', String(p.total || 0));
+        const data = await fetch(roundUrl(it.scheduleId, it.round.no, 'test-send'), {
+          method: 'POST',
+          headers: { 'X-User-Role': currentUser?.role || 'viewer' },
+          body: fd
+        }).then((r) => r.json());
+        if (data.success) ok += 1; else failures.push(`${nameOf(it)} ${it.round.no}회차: ${data.message || '실패'}`);
+      } catch (err) {
+        failures.push(`${nameOf(it)} ${it.round.no}회차: ${err.message || '오류'}`);
+      }
+    }
+    flushSync(() => setSheet(null));
+    setProgress('');
+    setBusy('');
+    if (failures.length) showToast?.(`시험 메일 ${ok}건 보냄, ${failures.length}건 못 보냄: ${failures.slice(0, 3).join(' / ')}`, 'warning');
+    else showToast?.(`시험 메일 ${ok}건을 ${to}로 보냈습니다.`, 'success');
+  };
+
   const reviewOutside = async () => {
     const it = review.list[review.index];
     const ok = await markSentOutside([it], { ask: false });
@@ -426,7 +481,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
   );
 
   const cards = [
-    { key: 'review', icon: <ListChecks size={18} />, label: '① 확인·승인', value: routine.length + changed.length, sub: `평소와 같음 ${routine.length} · 달라짐 ${changed.length}`, color: '#d97706', alert: changed.length > 0 || missed.length > 0 },
+    { key: 'review', icon: <ListChecks size={18} />, label: '① 확인·승인', value: routine.length + changed.length, sub: `평소와 같음 ${routine.length} · 달라짐 ${changed.length}${ceoWaiting.length ? ` (대표 승인 대기 ${ceoWaiting.length})` : ''}`, color: '#d97706', alert: changed.length > 0 || missed.length > 0 },
     { key: 'scheduled', icon: <Clock size={18} />, label: '② 보낼 예정', value: scheduled.length, sub: '발송일 아침 9시 자동 발송', color: '#16a34a' },
     { key: 'results', icon: <Send size={18} />, label: '③ 발송 결과', value: attention.length, sub: `손볼 것 ${attention.length} · 보냄 ${sentCount}`, color: attention.length ? '#dc2626' : '#0284c7', alert: attention.length > 0 },
     { key: 'payments', icon: <Wallet size={18} />, label: '④ 입금 확인', value: payments.length, sub: '출금일 지났는데 입금 처리 전', color: '#7c3aed', alert: payments.length > 0 }
@@ -469,6 +524,17 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
       )}
 
       {/* ① 확인·승인 */}
+      {tab === 'review' && canWrite && (
+        <TestSendBar
+          items={items.filter((it) => !it.issued && !['발송중', '발송완료'].includes(it.autoStatus))}
+          testMail={testMail}
+          setTestMail={setTestMail}
+          busy={Boolean(busy)}
+          onSend={testSendMany}
+          btn={btn}
+        />
+      )}
+
       {tab === 'review' && (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem' }}>
@@ -528,7 +594,10 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
                         <td style={{ ...cell, fontWeight: 800, whiteSpace: 'nowrap' }}>{won(it.expectedTotal)}</td>
                         <td style={cell}>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
-                            {it.autoStatus && <span style={chip('#b45309', '#ffedd5')}>{it.autoStatus === '실패' ? '실패' : '승인 뒤 바뀜'}</span>}
+                            {it.autoStatus === '대표승인대기' && (
+                              <span style={chip('#6d28d9', '#ede9fe')}>대표 승인 대기{it.round.autoSend?.checkedBy ? ` · ${it.round.autoSend.checkedBy} 확인` : ''}</span>
+                            )}
+                            {it.autoStatus && it.autoStatus !== '대표승인대기' && <span style={chip('#b45309', '#ffedd5')}>{it.autoStatus === '실패' ? '실패' : '승인 뒤 바뀜'}</span>}
                             {(it.changes || []).map((c) => (
                               <span key={c.key} style={chip('#92400e', '#fef3c7')}>{c.label}{c.amount ? ` ${signedWon(c.amount)}` : ''}</span>
                             ))}
@@ -831,7 +900,8 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
       {/* 한 장씩 확인 창 */}
       {review && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-          <div style={{ background: '#fff', borderRadius: '12px', width: 'min(1200px, 100%)', maxHeight: '94vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {/* 높이를 정해 두어야 안쪽 칸이 스크롤된다(최대 높이만 주면 긴 청구서 아래쪽이 잘려 내려갈 수 없었다) */}
+          <div style={{ background: '#fff', borderRadius: '12px', width: 'min(1200px, 100%)', height: '94vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {(() => {
               const it = review.list[review.index];
               const p = review.preview;
@@ -846,8 +916,8 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
                       <button type="button" style={btn()} disabled={Boolean(busy)} onClick={() => { setReview(null); loadAll(); }}><X size={14} /> 닫기</button>
                     </span>
                   </div>
-                  <div style={{ display: 'flex', flex: 1, minHeight: 0, flexWrap: 'wrap' }}>
-                    <div style={{ flex: '1 1 640px', overflow: 'auto', background: '#f1f5f9', padding: '1rem', minHeight: '300px' }}>
+                  <div style={{ display: 'flex', flex: 1, minHeight: 0, flexWrap: 'wrap', overflow: 'auto' }}>
+                    <div style={{ flex: '1 1 640px', overflow: 'auto', background: '#f1f5f9', padding: '1rem', minHeight: '300px', maxHeight: '100%' }}>
                       {review.loading && <div style={{ color: 'var(--text-muted)' }}>청구서를 그리는 중…</div>}
                       {p?.error && <div style={{ color: 'var(--error)' }}>{p.error}</div>}
                       {p && !p.error && (
@@ -895,7 +965,11 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
                       {canWrite && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: 'auto' }}>
                           <button type="button" style={{ ...btn('primary'), justifyContent: 'center', padding: '0.6rem' }} disabled={Boolean(busy) || review.loading || !p || Boolean(p.error) || p.key !== keyOf(it) || !isEmail(toOf(it))} onClick={reviewApprove}>
-                            <CheckCircle2 size={15} /> 확인했습니다, 승인 (다음 건으로)
+                            <CheckCircle2 size={15} />
+                            {/* 달라진 청구서: 직원은 확인까지, 대표가 최종 승인 */}
+                            {isCeo
+                              ? (it.autoStatus === '대표승인대기' ? '최종 승인 (다음 건으로)' : '확인했습니다, 승인 (다음 건으로)')
+                              : (it.routine && !it.autoStatus ? '확인했습니다, 승인 (다음 건으로)' : '확인 완료 — 대표 승인 요청 (다음 건으로)')}
                           </button>
                           {it.sendDday < 0 && (
                             <button type="button" style={{ ...btn('warn'), justifyContent: 'center' }} disabled={Boolean(busy)} onClick={reviewOutside}>밖에서 이미 보냄으로 표시</button>
@@ -934,6 +1008,34 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
           <InvoiceSheet innerRef={sheetRef} item={sheet.item} round={sheet.round} vehicles={sheet.vehicles} total={sheet.total} />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * 결제일 묶음별 시험 메일 버튼. 예: [5일 12건] 을 누르면 11/5 출금분 청구서 12장이 시험 주소로만 간다.
+ */
+function TestSendBar({ items, testMail, setTestMail, busy, onSend, btn }) {
+  const groups = PAYMENT_DAYS
+    .map((d) => ({ ...d, list: items.filter((it) => paymentDayKey(it.round.dueDate) === d.key) }))
+    .filter((g) => g.list.length);
+  if (!groups.length) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', padding: '0.6rem 0.8rem', marginBottom: '0.8rem', border: '1px dashed #94a3b8', borderRadius: '8px', background: '#f8fafc', fontSize: '0.8rem' }}>
+      <strong>시험 메일로 묶음 보내기</strong>
+      <span style={{ color: 'var(--text-muted)' }}>고객에게는 안 나가고 승인도 하지 않습니다 ·</span>
+      <input value={testMail} onChange={(e) => setTestMail(e.target.value)} placeholder="시험 메일 주소" style={{ padding: '0.3rem 0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', minWidth: '200px' }} />
+      {groups.map((g) => (
+        <button
+          key={g.key}
+          type="button"
+          disabled={busy}
+          onClick={() => onSend(g.list, `${g.label} 출금분`)}
+          style={{ ...btn(), borderColor: g.color, color: g.color, background: g.bg }}
+        >
+          {g.label} {g.list.length}건
+        </button>
+      ))}
     </div>
   );
 }

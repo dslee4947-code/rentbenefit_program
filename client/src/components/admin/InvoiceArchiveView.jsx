@@ -29,6 +29,13 @@ const PAY_STYLE = {
  * - 기록 없음: 출금일이 지났는데 프로그램에 발행 기록이 없다. 예전처럼 엑셀로 보냈거나 빠진 회차다.
  * - 예정: 아직 출금일이 오지 않았다
  */
+/** 출금일 + 15일 안에 입금이 없던 회차인지(나중에 들어왔어도 미납이었던 것). 서버 utils/lateInterestHistory.js와 같은 기준 */
+const wasLate = (r) => {
+  const due = new Date(r.dueDate).getTime();
+  if (r.paidAt) return (new Date(r.paidAt).getTime() - due) / 864e5 > 15;
+  return r.status === '미납';
+};
+
 const issueStateOf = (round) => {
   if (round.issuedAt) return { label: '발행', color: '#0284c7', bg: '#e0f2fe' };
   if (round.excelInvoice?.total !== undefined) return { label: '엑셀 발송', color: '#0f766e', bg: '#ccfbf1' };
@@ -256,7 +263,7 @@ function InvoiceArchiveView({ showToast, currentUser }) {
       missing: past.filter((r) => !r.issuedAt && r.excelInvoice?.total === undefined).length,
       unpaid: rounds.filter((r) => r.status === '미납').length,
       // 다음 청구서에 전월 미결제로 넘어간 회차(청구 당시 미납이었던 회차)
-      overdue: rounds.filter((r) => Number(rounds.find((x) => x.no === r.no + 1)?.prevUnpaid) > 0).length,
+      overdue: rounds.filter((r) => r.status !== '미납' && wasLate(r)).length,
       unbilledInterest: rounds.reduce((s, r) => s + (Number(r.unbilledInterest?.amount) || 0), 0)
     };
   }, [rounds]);
@@ -325,10 +332,12 @@ function InvoiceArchiveView({ showToast, currentUser }) {
               {counts.excel > 0 && <span style={{ color: '#0f766e' }}>엑셀 청구서 <b>{counts.excel}</b></span>}
               {counts.missing > 0 && <span style={{ color: '#b45309' }}>발행 기록 없음 <b>{counts.missing}</b></span>}
               {counts.unpaid > 0 && <span style={{ color: '#dc2626' }}>지금 미납 <b>{counts.unpaid}</b></span>}
-              {counts.overdue > 0 && <span style={{ color: '#b45309' }}>연체 이력 <b>{counts.overdue}</b>회</span>}
+              {counts.overdue > 0 && <span style={{ color: '#b45309' }}>늦게 입금(미납 이력) <b>{counts.overdue}</b>회</span>}
               {counts.unbilledInterest > 0 && <span style={{ color: '#92400e' }}>받지 않은 연체 이자 <b>{won(counts.unbilledInterest)}</b></span>}
             </div>
           </div>
+
+          <InterestHistory rounds={rounds} />
 
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(360px, 400px) minmax(360px, 1fr)', gap: '1rem', alignItems: 'start' }}>
             {/* 회차 목록 */}
@@ -368,12 +377,14 @@ function InvoiceArchiveView({ showToast, currentUser }) {
                           {r.sentAt && <Mail size={13} style={{ color: '#16a34a', marginLeft: '0.3rem', verticalAlign: 'middle' }} />}
                         </td>
                         <td style={{ padding: '0.5rem', textAlign: 'center' }}>
-                          <span style={{ background: pay.bg, color: pay.color, padding: '0.1rem 0.5rem', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap' }}>{r.status}</span>
-                          {/* 다음 회차에 전월 미결제로 넘어간 회차 = 청구 당시 미납. 나중에 들어왔으면 입금일을 같이 보여 준다 */}
-                          {Number(rounds.find((x) => x.no === r.no + 1)?.prevUnpaid) > 0 && (
-                            <div style={{ fontSize: '0.66rem', color: '#b45309', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                              연체{r.status === '입금완료' && r.paidAt ? ` · ${ymd(r.paidAt).slice(5)} 입금` : ''}
-                            </div>
+                          {/* 출금일 + 15일 안에 안 들어온 회차는 나중에 들어왔어도 '미납'으로 보여 주고 실제 입금일을 붙인다(대표님 지시 2026-10-20) */}
+                          {r.status === '입금완료' && wasLate(r) ? (
+                            <>
+                              <span style={{ background: PAY_STYLE['미납'].bg, color: PAY_STYLE['미납'].color, padding: '0.1rem 0.5rem', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap' }}>미납</span>
+                              <div style={{ fontSize: '0.66rem', color: '#16a34a', fontWeight: 700, whiteSpace: 'nowrap' }}>→ {ymd(r.paidAt).slice(2).replace(/-/g, '.')} 입금</div>
+                            </>
+                          ) : (
+                            <span style={{ background: pay.bg, color: pay.color, padding: '0.1rem 0.5rem', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap' }}>{r.status}</span>
                           )}
                           {r.unbilledInterest?.amount > 0 && (
                             <div style={{ fontSize: '0.66rem', color: '#92400e', whiteSpace: 'nowrap' }}>미청구 이자 {won(r.unbilledInterest.amount)}</div>
@@ -577,6 +588,65 @@ function ExcelInvoiceBox({ inv, systemTotal, onOpen }) {
       {diff !== 0 && (
         <div style={{ marginTop: '0.3rem', color: '#b45309' }}>
           프로그램 계산 {won(systemTotal)}과 {won(Math.abs(diff))} {diff > 0 ? '많게' : '적게'} 청구했습니다.
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 연체 이자 내역. 언제(어느 청구서에서), 어느 미납 회차에 대해, 어떤 기간으로 붙었는지 한 줄씩.
+ * 지난 청구서의 이자는 받지 않았으므로 '청구하지 않음', 앞으로 보낼 청구서에 넣은 이자는 '청구'로 적는다.
+ */
+function InterestHistory({ rounds }) {
+  const [open, setOpen] = useState(false);
+  const fmt = (d) => (d ? String(d).slice(2, 10).replace(/-/g, '.') : '-');
+  const rows = [];
+  for (const r of rounds) {
+    for (const it of r.unbilledInterest?.items || []) {
+      rows.push({ on: r, fromNo: it.fromNo, principal: it.principal, from: it.from, to: it.to, days: it.days, rate: it.rate, amount: it.amount, billed: false });
+    }
+    for (const e of r.extras || []) {
+      const m = /^연체 이자 \((\d+)회차 ([\d,]+)원 · 연 (\d+)% · (\d+)일\)/.exec(e.label || '');
+      if (m) rows.push({ on: r, fromNo: Number(m[1]), principal: Number(m[2].replace(/,/g, '')), from: null, to: r.dueDate, days: Number(m[4]), rate: Number(m[3]), amount: e.amount, billed: true });
+    }
+  }
+  if (!rows.length) return null;
+  const unbilledRows = rows.filter((x) => !x.billed);
+  const unbilled = unbilledRows.reduce((s, x) => s + x.amount, 0);
+  const billed = rows.filter((x) => x.billed).reduce((s, x) => s + x.amount, 0);
+  const th = { padding: '0.4rem', textAlign: 'center', fontWeight: 700, color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' };
+  const td = { padding: '0.35rem 0.4rem', textAlign: 'center', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' };
+  return (
+    <div style={{ background: '#fff', border: '1px solid #fcd34d', borderRadius: '10px', padding: '0.7rem 1rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap', fontSize: '0.84rem' }}>
+        <strong style={{ color: '#92400e' }}>연체 이자 내역</strong>
+        <span>받지 않은 이자 <b style={{ color: '#92400e' }}>{unbilled.toLocaleString()}원</b> ({unbilledRows.length}건)</span>
+        {billed > 0 && <span>청구한 이자 <b>{billed.toLocaleString()}원</b></span>}
+        <span style={{ color: 'var(--text-muted)', fontSize: '0.76rem' }}>출금일 + 15일 안에 안 들어온 회차에, 들어올 때까지 청구서마다 한 달치(원금 × 연이율 × 일수 ÷ 365)</span>
+        <button type="button" onClick={() => setOpen((v) => !v)} style={{ marginLeft: 'auto', border: '1px solid #fcd34d', background: '#fffbeb', color: '#92400e', borderRadius: '6px', padding: '0.25rem 0.7rem', fontSize: '0.76rem', fontWeight: 700, cursor: 'pointer' }}>
+          {open ? '접기' : '내역 보기'}
+        </button>
+      </div>
+      {open && (
+        <div style={{ overflowX: 'auto', marginTop: '0.5rem' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+            <thead><tr>{['이자가 붙은 청구서', '미납 회차', '원금', '기간', '일수', '이율', '이자', ''].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {rows.map((x, i) => (
+                <tr key={i} style={{ background: x.billed ? '#fef2f2' : undefined }}>
+                  <td style={td}>{x.on.no}회 ({fmt(x.on.dueDate)})</td>
+                  <td style={td}>{x.fromNo}회분</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{Number(x.principal).toLocaleString()}</td>
+                  <td style={td}>{x.from ? `${fmt(x.from)} ~ ${fmt(x.to)}` : `~ ${fmt(x.to)}`}</td>
+                  <td style={td}>{x.days}일</td>
+                  <td style={td}>연 {x.rate}%</td>
+                  <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{Number(x.amount).toLocaleString()}</td>
+                  <td style={{ ...td, color: x.billed ? '#dc2626' : '#92400e', fontWeight: 700 }}>{x.billed ? '청구' : '청구하지 않음'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

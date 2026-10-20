@@ -49,7 +49,19 @@ const BillingRoundSchema = new Schema({
     amount: Number,
     principal: Number,
     rate: Number,
-    days: Number
+    days: Number,
+    // 어느 미납 회차에 대해, 언제부터 언제까지 붙은 이자인지(원장 입금일 기준, utils/lateInterestHistory.js)
+    items: [{
+      _id: false,
+      fromNo: Number, // 미납이었던 회차
+      fromDue: Date, // 그 회차 출금일
+      principal: Number,
+      from: Date, // 이자 기간 시작(직전 출금일)
+      to: Date, // 이자 기간 끝(이 회차 출금일)
+      days: Number,
+      rate: Number,
+      amount: Number
+    }]
   },
 
   status: {

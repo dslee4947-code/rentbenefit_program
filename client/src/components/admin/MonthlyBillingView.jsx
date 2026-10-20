@@ -1067,9 +1067,10 @@ function MonthlyBillingView({ showToast, currentUser }) {
                             {prev.status}
                           </span>
                           {/* 이번 청구서에 전월 미결제가 들어갔는데 전월이 지금 '입금완료'면, 청구서를 만들 때는 미납이었다가 나중에 들어온 것이다 */}
-                          {prev.status === '입금완료' && Number(it.round.prevUnpaid) > 0 && (
+                          {/* 출금일 + 15일 안에 안 들어온 전월은 나중에 들어왔어도 미납이었다(대표님 지시 2026-10-20) */}
+                          {prev.status === '입금완료' && prev.paidAt && (new Date(prev.paidAt) - new Date(prev.dueDate)) / 864e5 > 15 && (
                             <div style={{ fontSize: '0.7rem', color: '#b45309', fontWeight: 700, marginTop: '0.15rem' }}>
-                              청구 당시 미납{prev.paidAt ? ` → ${ymd(prev.paidAt).slice(5)} 입금` : ''}
+                              미납 → {ymd(prev.paidAt).slice(5)} 입금
                             </div>
                           )}
                           {prev.unpaid > 0 && (

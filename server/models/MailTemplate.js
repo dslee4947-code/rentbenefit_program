@@ -20,6 +20,21 @@ const MailTemplateSchema = new Schema({
     default: '렌트베네핏 차량 청구서 보내드립니다.\n문의사항이 있으시면 언제든지 연락주시기 바랍니다.\n감사합니다.'
   },
 
+  // 인사말과 글자 서명. 대표님이 늘 보내던 메일 모양(2026-10-20): 인사말 → 본문 → 점선 사이 회사·연락처 → 맺음말 → 로고.
+  // 서명 이미지를 올리면 그 이미지가 글자 서명과 로고를 대신한다.
+  greeting: { type: String, default: '안녕하십니까. 렌트베네핏 이두식 팀장입니다.' },
+  signatureText: {
+    type: String,
+    default: [
+      '㈜S BENefit ㈜RENT BENefit ㈜FIN BENefit',
+      '팀장 이두식',
+      '(06772) 서울시 서초구 양재대로 11길 36 서울오토갤러리 은관 505호',
+      'Office: 02-547-0303  Fax: 02-529-3303  M: 010-9061-3000',
+      'E-mail: rent@sdibenefit.com'
+    ].join('\n')
+  },
+  closingLine: { type: String, default: '고객의 시간을 만드는 기업, BENefit' },
+
   signature: {
     fileName: String,
     contentType: String,

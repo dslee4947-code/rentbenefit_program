@@ -120,6 +120,9 @@ export const getInvoiceTemplate = async (req, res) => {
       template: {
         subject: t.subject,
         body: t.body,
+        greeting: t.greeting || '',
+        signatureText: t.signatureText || '',
+        closingLine: t.closingLine || '',
         signatureFileName: t.signature?.fileName || '',
         hasSignature: Boolean(t.signature?.data?.length),
         signatureUpdatedAt: t.signature?.updatedAt || null,
@@ -138,6 +141,9 @@ export const updateInvoiceTemplate = async (req, res) => {
     const t = await getOrCreateTemplate();
     if (req.body.subject !== undefined) t.subject = String(req.body.subject).trim();
     if (req.body.body !== undefined) t.body = String(req.body.body);
+    if (req.body.greeting !== undefined) t.greeting = String(req.body.greeting).trim();
+    if (req.body.signatureText !== undefined) t.signatureText = String(req.body.signatureText);
+    if (req.body.closingLine !== undefined) t.closingLine = String(req.body.closingLine).trim();
     t.updatedBy = req.headers['x-user-name'] || undefined;
     await t.save();
     res.json({ success: true, message: '메일 양식을 저장했습니다.' });

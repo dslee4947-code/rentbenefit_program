@@ -28,6 +28,10 @@ const fillSample = (text) => PLACEHOLDERS.reduce(
 function MailTemplateEditor({ onClose, showToast, currentUser }) {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
+  // 인사말·글자 서명·맺음말 (서명 이미지가 없을 때 이 모양으로 나간다)
+  const [greeting, setGreeting] = useState('');
+  const [signatureText, setSignatureText] = useState('');
+  const [closingLine, setClosingLine] = useState('');
   const [hasSignature, setHasSignature] = useState(false);
   const [signatureFileName, setSignatureFileName] = useState('');
   const [signatureVersion, setSignatureVersion] = useState(Date.now()); // 바꾼 그림이 바로 보이도록
@@ -44,6 +48,9 @@ function MailTemplateEditor({ onClose, showToast, currentUser }) {
       if (data.success) {
         setSubject(data.template.subject || '');
         setBody(data.template.body || '');
+        setGreeting(data.template.greeting || '');
+        setSignatureText(data.template.signatureText || '');
+        setClosingLine(data.template.closingLine || '');
         setHasSignature(data.template.hasSignature);
         setSignatureFileName(data.template.signatureFileName || '');
       }
@@ -66,7 +73,7 @@ function MailTemplateEditor({ onClose, showToast, currentUser }) {
       const res = await fetch(`${API_HOST}/api/mail-templates/invoice`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'X-User-Role': currentUser?.role || 'viewer' },
-        body: JSON.stringify({ subject, body })
+        body: JSON.stringify({ subject, body, greeting, signatureText, closingLine })
       });
       const data = await res.json();
       showToast?.(data.message || (data.success ? '저장했습니다.' : '저장하지 못했습니다.'), data.success ? 'success' : 'error');
@@ -154,6 +161,11 @@ function MailTemplateEditor({ onClose, showToast, currentUser }) {
             </div>
 
             <div>
+              <label style={labelStyle}>인사말 (본문 맨 위)</label>
+              <input value={greeting} onChange={(e) => setGreeting(e.target.value)} style={inputStyle} />
+            </div>
+
+            <div>
               <label style={labelStyle}>본문</label>
               <textarea
                 ref={bodyRef}
@@ -181,6 +193,21 @@ function MailTemplateEditor({ onClose, showToast, currentUser }) {
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div>
+              <label style={labelStyle}>서명 (점선 사이에 들어감 · 첫 줄은 굵게, E-mail 줄은 링크)</label>
+              <textarea
+                value={signatureText}
+                onChange={(e) => setSignatureText(e.target.value)}
+                rows={5}
+                style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6, fontFamily: 'inherit' }}
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>맺음말 (서명 아래, 로고 위)</label>
+              <input value={closingLine} onChange={(e) => setClosingLine(e.target.value)} style={inputStyle} />
             </div>
 
             <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.7rem' }}>
@@ -217,7 +244,7 @@ function MailTemplateEditor({ onClose, showToast, currentUser }) {
               disabled={saving}
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', background: 'var(--primary)', color: '#fff', border: 'none', padding: '0.6rem', borderRadius: '8px', fontWeight: '700', fontSize: '0.85rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}
             >
-              <Save size={15} /> {saving ? '저장 중...' : '제목 · 본문 저장'}
+              <Save size={15} /> {saving ? '저장 중...' : '메일 양식 저장'}
             </button>
           </div>
 
@@ -230,9 +257,20 @@ function MailTemplateEditor({ onClose, showToast, currentUser }) {
                 <div style={{ marginTop: '0.2rem', fontWeight: '700', color: 'var(--text-bright)' }}>{fillSample(subject) || '(제목 없음)'}</div>
               </div>
               <div style={{ padding: '0.9rem', background: '#fff', fontSize: '0.85rem', lineHeight: 1.7, color: '#222', minHeight: '160px' }}>
+                {greeting && <div style={{ marginBottom: '0.8rem' }}>{fillSample(greeting)}</div>}
                 {fillSample(body).split('\n').map((line, i) => (
                   <div key={i}>{line || ' '}</div>
                 ))}
+                {!hasSignature && signatureText && (
+                  <div style={{ marginTop: '14px', lineHeight: 1.75 }}>
+                    <div style={{ color: '#444' }}>{'-'.repeat(60)}</div>
+                    {signatureText.split('\n').filter((l) => l.trim()).map((l, i) => (
+                      <div key={i} style={{ fontWeight: i === 0 ? 700 : 400, color: /^E-mail:/i.test(l.trim()) ? '#1a5fb4' : undefined }}>{l}</div>
+                    ))}
+                    <div style={{ color: '#444' }}>{'-'.repeat(60)}</div>
+                    {closingLine && <div>{closingLine}</div>}
+                  </div>
+                )}
                 {hasSignature ? (
                   <img
                     src={`${API_HOST}/api/mail-templates/invoice/signature?v=${signatureVersion}`}
@@ -241,7 +279,7 @@ function MailTemplateEditor({ onClose, showToast, currentUser }) {
                   />
                 ) : (
                   <div style={{ marginTop: '18px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                    서명 이미지가 없어 기본 로고가 들어갑니다.
+                    (여기에 BENefit 로고가 들어갑니다)
                   </div>
                 )}
               </div>

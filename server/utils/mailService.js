@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { getGraphAccessToken } from './graphAuth.js';
 import { getOrCreateTemplate } from '../controllers/mailTemplateController.js';
 
@@ -36,6 +37,8 @@ export const applyPlaceholders = (text, values = {}) => {
 /** 메일에 붙일 로고를 읽는다. 없으면 로고 없이 보낸다(발송 자체를 막지 않는다). */
 const readLogo = () => {
   const candidates = [
+    // 서버 안에 둔 메일 로고가 먼저다. 운영 서버(Fly)에는 화면(client) 폴더가 없어 아래 후보로는 로고가 빠졌다.
+    fileURLToPath(new URL('../assets/mail-logo.png', import.meta.url)),
     path.resolve(process.cwd(), '../client/public/logo.png'),
     path.resolve(process.cwd(), 'client/public/logo.png'),
     path.resolve(process.cwd(), '../client/dist/logo.png')
@@ -55,22 +58,43 @@ const readLogo = () => {
  * @param {'signature'|'logo'|null} tail 아래에 붙일 그림
  * @returns {string} HTML
  */
-const buildHtmlBody = (body, tail) => {
-  const paragraphs = String(body || '')
+/**
+ * 글자 서명: 점선 사이에 회사·담당자·연락처, 아래 맺음말. 첫 줄(회사명)은 굵게, 'E-mail:' 줄은 주소를 링크로.
+ * 대표님이 늘 보내던 메일 모양 그대로다(2026-10-20).
+ * @param {string} text 서명 여러 줄
+ * @param {string} closing 맺음말
+ */
+const buildSignatureHtml = (text, closing) => {
+  const lines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) return '';
+  const dash = '<div style="color:#444">-----------------------------------------------------------------------------------</div>';
+  const rows = lines.map((line, i) => {
+    const mail = line.match(/^(E-mail:)\s*(\S+@\S+)/i);
+    if (mail) {
+      return `<div><span style="color:#2a9fd6">${escapeHtml(mail[1])}</span> <a href="mailto:${escapeHtml(mail[2])}" style="color:#1a5fb4">${escapeHtml(mail[2])}</a></div>`;
+    }
+    return `<div${i === 0 ? ' style="font-weight:700"' : ''}>${escapeHtml(line)}</div>`;
+  }).join('');
+  return `<div style="margin-top:20px;line-height:1.75">${dash}${rows}${dash}${closing ? `<div>${escapeHtml(closing)}</div>` : ''}</div>`;
+};
+
+const buildHtmlBody = (body, tail, { greeting = '', signatureHtml = '' } = {}) => {
+  const paragraphs = [greeting, String(body || '')].filter(Boolean).join('\n\n')
     .split(/\n{2,}/)
-    .map((block) => `<p style="margin:0 0 12px">${escapeHtml(block).replace(/\n/g, '<br>')}</p>`)
+    .map((block) => `<p style="margin:0 0 16px">${escapeHtml(block).replace(/\n/g, '<br>')}</p>`)
     .join('');
 
   let image = '';
   if (tail === 'signature') {
     image = `<div style="margin-top:24px"><img src="cid:${SIGNATURE_CONTENT_ID}" alt="" style="max-width:100%"></div>`;
   } else if (tail === 'logo') {
-    image = `<p style="margin-top:24px"><img src="cid:${LOGO_CONTENT_ID}" alt="RENT BENefit" style="height:40px"></p>`;
+    image = `<p style="margin-top:12px"><img src="cid:${LOGO_CONTENT_ID}" alt="BENefit" style="width:420px;max-width:100%"></p>`;
   }
 
   return `
   <div style="font-family:'Malgun Gothic',sans-serif;font-size:14px;color:#222;line-height:1.7">
     ${paragraphs}
+    ${signatureHtml}
     ${image}
   </div>
 `;
@@ -205,7 +229,14 @@ const sendTemplateMail = async ({ to, cc, subject, values = {}, templateKey = 'i
   const message = {
     message: {
       subject: finalSubject,
-      body: { contentType: 'HTML', content: buildHtmlBody(finalBody, tail) },
+      // 서명 이미지를 올렸으면 그 이미지가 서명이다. 없으면 인사말·글자 서명·로고로 늘 보내던 모양을 만든다.
+      body: {
+        contentType: 'HTML',
+        content: buildHtmlBody(finalBody, tail, {
+          greeting: applyPlaceholders(signatureSource.greeting || '', values),
+          signatureHtml: tail === 'signature' ? '' : buildSignatureHtml(signatureSource.signatureText, signatureSource.closingLine)
+        })
+      },
       toRecipients: [{ emailAddress: { address: to } }],
       ...(cc ? { ccRecipients: [{ emailAddress: { address: cc } }] } : {}),
       attachments

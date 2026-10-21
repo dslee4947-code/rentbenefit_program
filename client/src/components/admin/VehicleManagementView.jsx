@@ -22,6 +22,7 @@ import { useSaveShortcut } from './useSaveShortcut.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
 import { useDraggableDialog, DIALOG_TOP } from './useDraggableDialog.js';
 import { createPortal } from 'react-dom';
+import useBackClose from '../../utils/useBackClose.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -359,6 +360,8 @@ function VehicleManagementView({ showToast, currentUser }) {
   const [stats, setStats] = useState({ total: 0, '계약중': 0, '장기렌트': 0, '단기렌트': 0, '재고': 0, '거래완료': 0 });
 
   const [showModal, setShowModal] = useState(false);
+  // 뒤로 가기(핸드폰 화면 쓸기)로 닫는다 — utils/useBackClose.js
+  useBackClose(showModal, () => setShowModal(false));
   // 표에서 고치고 있는 줄. 수정 단추를 누르면 그 줄이 입력칸으로 바뀐다.
   const [editingRowId, setEditingRowId] = useState(null);
 

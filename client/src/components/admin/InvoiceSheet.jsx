@@ -122,7 +122,7 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
   const lateRate = Number(item?.lateInterestRate || round?.interestRate || 0);
 
   return (
-    <div ref={innerRef} style={{ width: '780px', padding: '28px', background: '#fff', color: '#111', fontFamily: "'Malgun Gothic', sans-serif" }}>
+    <div ref={innerRef} className="m-doc" style={{ width: '780px', padding: '28px', background: '#fff', color: '#111', fontFamily: "'Malgun Gothic', sans-serif" }}>
       <div style={{ fontSize: '20px', fontWeight: 800, marginBottom: '16px' }}>{name}</div>
 
       <div style={{ background: '#8a8a8a', color: '#fff', padding: '5px 10px', fontWeight: 700, fontSize: '12px' }}>결제금액 내역</div>

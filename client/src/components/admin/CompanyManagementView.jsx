@@ -19,6 +19,7 @@ import { useTableSort } from './useTableSort.js';
 import { downloadFile } from '../../utils/authFetch.js';
 import { useSaveShortcut } from './useSaveShortcut.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
+import useBackClose from '../../utils/useBackClose.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -44,6 +45,8 @@ function CompanyManagementView({ showToast, currentUser }) {
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
   const [showModal, setShowModal] = useState(false);
+  // 뒤로 가기(핸드폰 화면 쓸기)로 닫는다 — utils/useBackClose.js
+  useBackClose(showModal, () => setShowModal(false));
   const [editingCompany, setEditingCompany] = useState(null);
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);

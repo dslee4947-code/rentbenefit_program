@@ -15,6 +15,7 @@ import MailTemplateEditor from './MailTemplateEditor.jsx';
 import { useTableSort } from './useTableSort.js';
 import { useSaveShortcut } from './useSaveShortcut.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
+import useBackClose from '../../utils/useBackClose.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -149,6 +150,8 @@ function MonthlyBillingView({ showToast, currentUser }) {
   const [checked, setChecked] = useState([]);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [tab, setTab] = useState('due'); // due: 청구 대상, auto: 자동 발송, issued: 발행 이력
+  // 뒤로 가기(핸드폰 화면 쓸기)로 닫는다 — utils/useBackClose.js
+  useBackClose(Boolean(selected), () => { setSelected(null); setForm(null); setAttachments([]); });
   const [showDocUpload, setShowDocUpload] = useState(false);
   const [showMailTemplate, setShowMailTemplate] = useState(false);
   // 회차표가 없어 청구 대상에 뜨지 못하는 계약. 원인을 화면에서 바로 알려 준다.

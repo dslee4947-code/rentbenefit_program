@@ -7,6 +7,7 @@ import { useSaveShortcut } from './useSaveShortcut.js';
 import { calculateQuoteOption } from '../../../../shared/quoteCalc.js';
 import { GRADE_LABEL } from '../../../../shared/maintenanceRates.js';
 import { hasOwnLoan, internalInterestFor, DEFAULT_INTERNAL_RATE } from '../../../../shared/companyFunding.js';
+import useBackClose from '../../utils/useBackClose.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -1447,11 +1448,16 @@ function LedgerView({ showToast, currentUser }) {
   };
 
   const backToList = () => {
-    if (dirty && !window.confirm('저장하지 않은 내용이 있습니다. 목록으로 나가시겠습니까?')) return;
+    if (dirty && !window.confirm('저장하지 않은 내용이 있습니다. 목록으로 나가시겠습니까?')) return false;
     setViewMode('list');
     setLedger(null);
     fetchLedgers();
+    return true;
   };
+  // 뒤로 가기(핸드폰 화면 쓸기)로 닫는다 — utils/useBackClose.js
+  useBackClose(viewMode === 'detail', backToList);
+  useBackClose(linkOpen, () => setLinkOpen(false));
+  useBackClose(extendOpen, () => setExtendOpen(false));
 
   const handleCreate = async () => {
     const carModel = window.prompt('갑지를 만들 차종을 입력하세요. (차량 출고 전이면 예상 차종을 적어도 됩니다)');

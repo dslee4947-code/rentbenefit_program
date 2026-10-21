@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Search, FileText, Mail, Plus, Trash2, Save, Download, ExternalLink, Paperclip } from 'lucide-react';
 import MoneyInput from './MoneyInput.jsx';
 import InvoiceSheet, { makeInvoicePdf, roundTotal } from './InvoiceSheet.jsx';
+import useBackClose from '../../utils/useBackClose.js';
 
 // 핸드폰 폭(mobile.css와 같은 기준)
 const isPhone = () => window.matchMedia('(max-width: 768px)').matches;
@@ -142,6 +143,17 @@ function InvoiceArchiveView({ showToast, currentUser }) {
     // 핸드폰은 목록 아래에 청구서가 나온다. 고르면 바로 그쪽으로 내려간다.
     jumpToDetail.current = isPhone();
   };
+
+  // 뒤로 가기(핸드폰 화면 쓸기)로 닫는다 — utils/useBackClose.js
+  useBackClose(Boolean(picked), () => {
+    if (dirty && !window.confirm('저장하지 않은 항목이 있습니다. 계약 목록으로 돌아갈까요?')) return false;
+    setPicked(null);
+    setDetail(null);
+    setDirty(false);
+    if (isPhone()) window.scrollTo({ top: 0 });
+    return true;
+  });
+  useBackClose(bigView, () => setBigView(false));
 
   useEffect(() => {
     if (!detail || !jumpToDetail.current) return;

@@ -5,6 +5,7 @@ import InvoiceSheet, { makeInvoicePdf } from './InvoiceSheet.jsx';
 import { buildRoundForm, formTotals, roundSaveBody } from './billingForm.js';
 import PaymentDayBadge from './PaymentDayBadge.jsx';
 import { paymentDayStripe, paymentDayKey, PAYMENT_DAYS } from './paymentDay.js';
+import useBackClose from '../../utils/useBackClose.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -364,6 +365,9 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
     if (index < 0 || index >= review.list.length) { setReview(null); await loadAll(); return; }
     await openReview(review.list, index);
   };
+  // 뒤로 가기(핸드폰 화면 쓸기)로 닫는다 — utils/useBackClose.js
+  useBackClose(Boolean(review), () => { setReview(null); loadAll(); });
+
   const reviewApprove = async () => {
     const it = review.list[review.index];
     if (!review.preview || review.preview.key !== keyOf(it) || review.preview.error) return;

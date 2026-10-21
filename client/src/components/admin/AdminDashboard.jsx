@@ -22,6 +22,7 @@ import ShortTermRatesView from './ShortTermRatesView.jsx';
 import MyPageView from './MyPageView.jsx';
 import HandbookView from './HandbookView.jsx';
 
+import useBackClose from '../../utils/useBackClose.js';
 import {
   LayoutDashboard,
   Coins,
@@ -80,6 +81,8 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   const [prefilledQuoteData, setPrefilledQuoteData] = useState(null);
   const [prefilledContractData, setPrefilledContractData] = useState(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  // 뒤로 가기(핸드폰 화면 쓸기)로 닫는다 — utils/useBackClose.js
+  useBackClose(isMobileMenuOpen, () => setIsMobileMenuOpen(false));
   const [pendingUserCount, setPendingUserCount] = useState(0);
 
   const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);

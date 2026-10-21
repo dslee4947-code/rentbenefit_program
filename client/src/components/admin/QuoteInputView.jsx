@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { printFitted, makeFittedPdf, PRINT_MARGIN_MM } from '../../utils/printFit.js';
 import { Sparkles, Save, ArrowRight, UserPlus, Users, Car, Coins, Settings, HelpCircle, CheckCircle, Plus, Trash2, FolderOpen, X, Search, List, Edit, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatCustomerName, cleanSpecValue, extractQuoteVehicleDetail } from '../../utils/format.js';
@@ -10,6 +10,7 @@ import {
   DEFAULT_HIGH_RESIDUAL_FEE_RATE_PER_POINT, defaultMaintenanceItems, getCalculatedMaintenanceFee, calculateQuoteOption,
   getTireCount, getMaintenanceBreakdown, maintenanceTimes
 } from '../../../../shared/quoteCalc.js';
+import useBackClose from '../../utils/useBackClose.js';
 import {
   VEHICLE_GRADES, GRADE_LABEL, detectVehicleGrade, buildMaintenanceItemsFromRates, mergeMaintenanceRates
 } from '../../../../shared/maintenanceRates.js';
@@ -179,6 +180,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
 
   // 견적서 화면 상단 "불러오기" - 고객 선택 여부와 무관하게 전체 견적서를 검색해서 불러온다
   const [showLoadModal, setShowLoadModal] = useState(false);
+  // 뒤로 가기(핸드폰 화면 쓸기)로 닫는다 — utils/useBackClose.js
+  useBackClose(showLoadModal, () => setShowLoadModal(false));
   // 팝업을 제목 줄로 잡아 끌어 옮길 수 있게 한다
   const { dragHandleProps, dragStyle } = useDraggableDialog(showLoadModal);
   const [loadModalQuotes, setLoadModalQuotes] = useState([]);
@@ -1193,6 +1196,29 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
    * - 비교견적서: 5안 이상이면 가로 A4. 종이 여백은 printFit이 둔다.
    * - 장기렌터카 견적서: 문서 안에 여백까지 그려 둔 A4 한 장이라 바깥 여백 없이 꽉 채운다.
    */
+  // 핸드폰에서는 A4 견적서(가로 900px)를 화면 폭에 맞춰 통째로 줄여 보여 준다(mobile.css의 --phone-zoom).
+  // 인쇄·PDF는 이 배율과 상관없이 원래 크기로 만든다(아래 withoutPhoneZoom).
+  const rentalScrollRef = useRef(null);
+  const [phoneZoom, setPhoneZoom] = useState(1);
+  useEffect(() => {
+    const el = rentalScrollRef.current;
+    if (!el) return undefined;
+    const fit = () => {
+      const box = el.parentElement;
+      const cs = getComputedStyle(box);
+      const inner = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      setPhoneZoom(Math.min(1, Math.floor((inner - 4) / RENTAL_SHEET_WIDTH_PX * 1000) / 1000));
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(el.parentElement);
+    return () => observer.disconnect();
+  }, [printFormType]);
+  const withoutPhoneZoom = async (work) => {
+    document.body.classList.add('pdf-making');
+    try { return await work(); } finally { document.body.classList.remove('pdf-making'); }
+  };
+
   const sheetPrintSetup = () => (printFormType === 'rental'
     ? { element: document.querySelector('.rental-print-area'), orientation: 'portrait', marginMm: 0 }
     : {
@@ -1212,7 +1238,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
     if (!element || !quoteId) return;
 
     try {
-      const blob = await makeFittedPdf(element, { orientation, marginMm });
+      const blob = await withoutPhoneZoom(() => makeFittedPdf(element, { orientation, marginMm }));
 
       const fd = new FormData();
       fd.append('file', blob, 'quote.pdf');
@@ -3944,7 +3970,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
         {/* PDF Layout Content */}
         {/* PDF Layout Content */}
         {printFormType === 'comparison' ? (
-          <div className="comparison-print-area print-fit" style={{ maxWidth: isComparisonLandscape ? '100%' : '900px', margin: '0 auto', background: '#fff', padding: '10px' }}>
+          <div className="comparison-print-area print-fit m-doc" style={{ maxWidth: isComparisonLandscape ? '100%' : '900px', margin: '0 auto', background: '#fff', padding: '10px' }}>
             {/* Document Title Header */}
             <div className="comparison-doc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isComparisonLandscape ? '0.8rem' : '1.5rem', marginTop: '0.3rem', borderBottom: '2px solid #ad885c', paddingBottom: '0.6rem' }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '150px' }}>
@@ -4301,11 +4327,11 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             </div>
           </div>
         ) : (
-          <div className="rental-sheet-scroll print-fit-scroll">
+          <div className="rental-sheet-scroll print-fit-scroll" ref={rentalScrollRef} style={{ '--phone-zoom': phoneZoom }}>
           {/* 화면에서 A4 한 장과 같은 비율(가로 900px × 세로 1270px)로 그린다.
               인쇄와 PDF는 이 모양을 그대로 A4 한 장에 맞게 줄이기만 한다(utils/printFit.js).
               예전에는 인쇄할 때만 글자·여백을 따로 줄이고 세로를 억지로 늘려서, 화면과 종이 모양이 달랐다. */}
-          <div className="rental-print-area print-fit" style={{ width: `${RENTAL_SHEET_WIDTH_PX}px`, height: `${RENTAL_SHEET_HEIGHT_PX}px`, margin: '0 auto', background: '#fff', padding: `${RENTAL_SHEET_MARGIN_PX}px`, color: '#000', fontFamily: "'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif", fontSize: '0.76rem', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden' }}>
+          <div className="rental-print-area print-fit m-doc" style={{ width: `${RENTAL_SHEET_WIDTH_PX}px`, height: `${RENTAL_SHEET_HEIGHT_PX}px`, margin: '0 auto', background: '#fff', padding: `${RENTAL_SHEET_MARGIN_PX}px`, color: '#000', fontFamily: "'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif", fontSize: '0.76rem', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden' }}>
             {/* 1. Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', borderBottom: '2.5px double #000', paddingBottom: '0.6rem' }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '150px' }}>

@@ -20,6 +20,7 @@ import { useServerTableSort } from './useTableSort.js';
 import { useSaveShortcut } from './useSaveShortcut.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
 import * as XLSX from 'xlsx';
+import useBackClose from '../../utils/useBackClose.js';
 
 function CustomerListView({ showToast, currentUser }) {
   const [customers, setCustomers] = useState([]);
@@ -89,6 +90,8 @@ function CustomerListView({ showToast, currentUser }) {
 
   // Modal State for Add/Edit
   const [showModal, setShowModal] = useState(false);
+  // 뒤로 가기(핸드폰 화면 쓸기)로 닫는다 — utils/useBackClose.js
+  useBackClose(showModal, () => setShowModal(false));
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [formData, setFormData] = useState({
     name: '',

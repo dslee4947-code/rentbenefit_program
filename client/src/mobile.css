@@ -6,18 +6,18 @@
  * 화면마다 고치지 않고 여기서 한 번에 바로잡는다. 모두 아래 media 안에만 있어 PC 화면은 바뀌지 않는다.
  * 화면 하나만 다르게 해야 하면 그 화면에 className(m-*)을 달고 아래 '화면별'에 적는다.
  */
-@media (max-width: 768px) {
+@media screen and (max-width: 768px) {
   /* ---------- 표: 칸을 누르지 않고 옆으로 밀어서 본다 ---------- */
-  .main-content table {
+  .main-content table:not(.m-doc table) {
     width: max-content !important;
     min-width: 100% !important;
   }
-  .main-content th,
-  .main-content td {
+  .main-content th:not(.m-doc th),
+  .main-content td:not(.m-doc td) {
     white-space: nowrap;
   }
   /* 표를 바로 감싼 상자가 옆으로 밀리게 한다(대부분 overflow: hidden 카드라 그대로 두면 잘린다) */
-  .main-content :is(div, section):has(> table) {
+  .main-content :is(div, section):has(> table):not(.m-doc, .m-doc *) {
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch;
     max-width: 100%;
@@ -31,7 +31,7 @@
 
   /* ---------- 좌우로 나눈 화면은 위아래로 ---------- */
   /* 고정 폭(px)이 들어간 그리드: 목록 | 상세, 입력 | 미리보기 같은 2단 화면 */
-  .main-content [style*="grid-template-columns"][style*="px"] {
+  .main-content [style*="grid-template-columns"][style*="px"]:not(.m-doc *) {
     grid-template-columns: minmax(0, 1fr) !important;
   }
   /* 숫자 카드 4~6칸은 2칸으로 */
@@ -42,7 +42,7 @@
   }
   /* 화면(약 360px)보다 넓게 잡은 최소 폭(400px 이상)은 푼다. 표는 위에서 옆으로 밀리게 했으니 제외 */
   .main-content :is([style*="min-width: 4"], [style*="min-width: 5"], [style*="min-width: 6"], [style*="min-width: 7"],
-    [style*="min-width: 8"], [style*="min-width: 9"], [style*="min-width: 1"]):not(table):not([style*="min-width: 1rem"]):not([style*="min-width: 1."]) {
+    [style*="min-width: 8"], [style*="min-width: 9"], [style*="min-width: 1"]):not(table):not(.m-doc, .m-doc *):not([style*="min-width: 1rem"]):not([style*="min-width: 1."]) {
     min-width: 0 !important;
   }
   /* 최소 폭이 있는 칸(검색창 등)이 옆 칸과 한 줄에 안 들어가면 다음 줄로 */
@@ -71,6 +71,10 @@
   .main-content textarea {
     font-size: 16px !important;
   }
+  /* 긴 선택지(정렬 방법 등)가 화면 밖으로 나가지 않게 */
+  .main-content select {
+    max-width: 100%;
+  }
 
   /* ---------- 화면 위에 뜨는 창(미리보기·확인 창) ---------- */
   .m-modal-panel {
@@ -83,6 +87,21 @@
   .m-modal-split {
     grid-template-columns: minmax(0, 1fr) !important;
     overflow-y: auto !important;
+  }
+
+  /* ---------- 인쇄용 문서(견적서·청구서 양식, class m-doc) ----------
+     위의 공통 규칙에서 빼고, A4 모양 그대로 화면 폭에 맞춰 통째로 줄인다. */
+  body:not(.pdf-making) .rental-sheet-scroll {
+    zoom: var(--phone-zoom, 1);
+    overflow-x: visible !important;
+  }
+
+  /* 견적서: 카드 안의 카드 여백이 겹쳐 A4 문서가 화면 폭의 2/3로 작아진다. 여백을 줄여 문서를 크게 */
+  .main-content .quote-input-container {
+    padding: 0.75rem !important;
+  }
+  .main-content .comparison-sheet-section {
+    padding: 0.4rem !important;
   }
 
   /* ---------- 화면별 ---------- */

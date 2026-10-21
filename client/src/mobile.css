@@ -90,10 +90,15 @@
   }
 
   /* ---------- 인쇄용 문서(견적서·청구서 양식, class m-doc) ----------
-     위의 공통 규칙에서 빼고, A4 모양 그대로 화면 폭에 맞춰 통째로 줄인다. */
-  body:not(.pdf-making) .rental-sheet-scroll {
-    zoom: var(--phone-zoom, 1);
-    overflow-x: visible !important;
+     위의 공통 규칙에서 빼고, 원래 크기로 그린 뒤 화면 폭에 맞춰 통째로 줄인다(utils/usePhoneFit.js) */
+  /* 아이폰이 작은 글자를 제멋대로 키우지 않게. 키우면 줄인 문서 안 글자만 커져 문서가 눌린다 */
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  /* 줄여서 한눈에 보이니 '좌우로 밀어서 보세요' 안내는 감춘다 */
+  .m-fitted .mobile-scroll-hint {
+    display: none !important;
   }
 
   /* 견적서: 카드 안의 카드 여백이 겹쳐 A4 문서가 화면 폭의 2/3로 작아진다. 여백을 줄여 문서를 크게 */
@@ -116,5 +121,23 @@
   /* 청구서 보관함: 계약 목록은 짧게, 고른 계약의 청구서가 바로 아래 보이게 */
   .m-archive-list {
     max-height: 40vh !important;
+  }
+}
+
+/* PDF를 만들거나 인쇄할 때는 핸드폰 축소를 끄고 원래 크기로 */
+body.pdf-making .m-fitted {
+  transform: none !important;
+}
+body.pdf-making .m-fit-outer {
+  height: auto !important;
+  overflow: visible !important;
+}
+@media print {
+  .m-fitted {
+    transform: none !important;
+  }
+  .m-fit-outer {
+    height: auto !important;
+    overflow: visible !important;
   }
 }

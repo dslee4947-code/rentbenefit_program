@@ -3,6 +3,9 @@ import { Search, FileText, Mail, Plus, Trash2, Save, Download, ExternalLink, Pap
 import MoneyInput from './MoneyInput.jsx';
 import InvoiceSheet, { makeInvoicePdf, roundTotal } from './InvoiceSheet.jsx';
 
+// 핸드폰 폭(mobile.css와 같은 기준)
+const isPhone = () => window.matchMedia('(max-width: 768px)').matches;
+
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
 const won = (n) => `${Number(n || 0).toLocaleString()}원`;
@@ -66,6 +69,8 @@ function InvoiceArchiveView({ showToast, currentUser }) {
   const [bigView, setBigView] = useState(false);
   const sheetRef = useRef(null);
   const previewBoxRef = useRef(null);
+  const detailRef = useRef(null);
+  const jumpToDetail = useRef(false);
   const [previewZoom, setPreviewZoom] = useState(1);
 
   const canEdit = currentUser?.role !== 'viewer';
@@ -134,7 +139,15 @@ function InvoiceArchiveView({ showToast, currentUser }) {
     setPicked(c);
     setDetail(null);
     loadDetail(c.contractId);
+    // 핸드폰은 목록 아래에 청구서가 나온다. 고르면 바로 그쪽으로 내려간다.
+    jumpToDetail.current = isPhone();
   };
+
+  useEffect(() => {
+    if (!detail || !jumpToDetail.current) return;
+    jumpToDetail.current = false;
+    detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [detail]);
 
   const rounds = detail?.schedule?.rounds || [];
   const round = rounds.find((r) => r.no === selectedNo) || null;
@@ -285,7 +298,7 @@ function InvoiceArchiveView({ showToast, currentUser }) {
       {/* 계약 고르기 */}
       {/* 목록은 화면 위에 붙어 있고(sticky) 안에서만 스크롤한다. 목록 끝에서 휠을 더 굴려도 페이지 전체가 따라 움직이지 않게
           overscrollBehavior를 막는다. 오른쪽 청구서 길이(범칙금 줄 등)가 달라도 위쪽이 흔들리지 않는다. */}
-      <div style={{ ...box, padding: '0.8rem', display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: 'calc(100vh - 2rem)', position: 'sticky', top: '1rem' }}>
+      <div className="m-archive-list" style={{ ...box, padding: '0.8rem', display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: 'calc(100vh - 2rem)', position: 'sticky', top: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           <Search size={15} style={{ color: 'var(--primary)' }} />
           <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="계약자 / 계약번호 / 차량번호" style={{ ...inputStyle, flex: 1, minWidth: 0 }} />
@@ -320,7 +333,7 @@ function InvoiceArchiveView({ showToast, currentUser }) {
           왼쪽에서 계약을 고르면 1회차부터 모든 청구서를 볼 수 있습니다.
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0 }}>
+        <div ref={detailRef} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0, scrollMarginTop: '70px' }}>
           {/* 계약 요약 */}
           <div style={{ ...box, padding: '0.9rem 1.1rem' }}>
             <div style={{ fontSize: '1.05rem', fontWeight: 800 }}>{partyName}</div>

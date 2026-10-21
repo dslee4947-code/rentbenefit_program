@@ -1,0 +1,101 @@
+/*
+ * 핸드폰 화면 (폭 768px 이하)
+ *
+ * 관리 화면은 PC 폭에 맞춰 인라인 스타일로 짜여 있다. 핸드폰에서는 표 칸이 눌려 글자가 세로로 쪼개지고,
+ * 좌우로 나눈 화면은 한쪽이 거의 안 보인다(대표님 2026-10-21).
+ * 화면마다 고치지 않고 여기서 한 번에 바로잡는다. 모두 아래 media 안에만 있어 PC 화면은 바뀌지 않는다.
+ * 화면 하나만 다르게 해야 하면 그 화면에 className(m-*)을 달고 아래 '화면별'에 적는다.
+ */
+@media (max-width: 768px) {
+  /* ---------- 표: 칸을 누르지 않고 옆으로 밀어서 본다 ---------- */
+  .main-content table {
+    width: max-content !important;
+    min-width: 100% !important;
+  }
+  .main-content th,
+  .main-content td {
+    white-space: nowrap;
+  }
+  /* 표를 바로 감싼 상자가 옆으로 밀리게 한다(대부분 overflow: hidden 카드라 그대로 두면 잘린다) */
+  .main-content :is(div, section):has(> table) {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
+  /* 긴 설명이 들어간 칸은 줄바꿈을 허락한다 */
+  .main-content td.m-wrap,
+  .main-content th.m-wrap {
+    white-space: normal;
+    min-width: 12rem;
+  }
+
+  /* ---------- 좌우로 나눈 화면은 위아래로 ---------- */
+  /* 고정 폭(px)이 들어간 그리드: 목록 | 상세, 입력 | 미리보기 같은 2단 화면 */
+  .main-content [style*="grid-template-columns"][style*="px"] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  /* 숫자 카드 4~6칸은 2칸으로 */
+  .main-content [style*="grid-template-columns: repeat(4"],
+  .main-content [style*="grid-template-columns: repeat(5"],
+  .main-content [style*="grid-template-columns: repeat(6"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  /* 화면(약 360px)보다 넓게 잡은 최소 폭(400px 이상)은 푼다. 표는 위에서 옆으로 밀리게 했으니 제외 */
+  .main-content :is([style*="min-width: 4"], [style*="min-width: 5"], [style*="min-width: 6"], [style*="min-width: 7"],
+    [style*="min-width: 8"], [style*="min-width: 9"], [style*="min-width: 1"]):not(table):not([style*="min-width: 1rem"]):not([style*="min-width: 1."]) {
+    min-width: 0 !important;
+  }
+  /* 최소 폭이 있는 칸(검색창 등)이 옆 칸과 한 줄에 안 들어가면 다음 줄로 */
+  .main-content div:has(> [style*="min-width: 2"], > [style*="min-width: 3"]) {
+    flex-wrap: wrap;
+  }
+
+  /* 화면에 붙어 따라오는(sticky) 옆 목록은 위아래로 쌓이면 내용을 가린다 */
+  .main-content [style*="position: sticky"][style*="max-height"] {
+    position: static !important;
+  }
+
+  /* ---------- 버튼·탭 ---------- */
+  /* 버튼 글자가 세로로 쪼개지지 않게. 대신 줄이 넘치면 다음 줄로 */
+  .main-content button:not(:has(div)) {
+    white-space: nowrap;
+  }
+  .main-content div:has(> button) {
+    flex-wrap: wrap;
+  }
+
+  /* ---------- 입력칸 ---------- */
+  /* 아이폰은 16px보다 작은 입력칸을 누르면 화면을 확대한다 */
+  .main-content input:not([type="checkbox"]):not([type="radio"]),
+  .main-content select,
+  .main-content textarea {
+    font-size: 16px !important;
+  }
+
+  /* ---------- 화면 위에 뜨는 창(미리보기·확인 창) ---------- */
+  .m-modal-panel {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+  }
+  .m-modal-split {
+    grid-template-columns: minmax(0, 1fr) !important;
+    overflow-y: auto !important;
+  }
+
+  /* ---------- 화면별 ---------- */
+  /* 세로로 쌓인 화면에서 먼저 보여 줄 것(정산 결과 등)을 위로 올린다 */
+  .m-first { order: -2; }
+  .m-second { order: -1; }
+  /* 짧은 입력칸은 두 칸씩 */
+  .main-content .m-two-col.m-two-col[style] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  /* 청구서 보관함: 계약 목록은 짧게, 고른 계약의 청구서가 바로 아래 보이게 */
+  .m-archive-list {
+    max-height: 40vh !important;
+  }
+}

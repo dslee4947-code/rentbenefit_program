@@ -2070,7 +2070,7 @@ function LedgerView({ showToast, currentUser }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
       {/* 상단 바 */}
-      <div style={{ ...card, padding: '1rem 1.2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.6rem' }}>
+      <div className="m-first" style={{ ...card, padding: '1rem 1.2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.6rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem' }}>
           <button type="button" onClick={backToList} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', border: '1px solid var(--border-color)', background: '#fff', padding: '0.45rem 0.8rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: '600', cursor: 'pointer' }}>
             <ArrowLeft size={14} /> 목록
@@ -2125,9 +2125,9 @@ function LedgerView({ showToast, currentUser }) {
         </div>
       </div>
 
-      {/* 상단 정보 */}
+      {/* 상단 정보 (핸드폰은 두 칸씩) */}
       <div style={{ ...card, padding: '1.2rem' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.8rem' }}>
+        <div className="m-two-col" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.8rem' }}>
           {headerFields.map(([label, key, type]) => (
             <div key={key}>
               <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>{label}</label>
@@ -2183,8 +2183,8 @@ function LedgerView({ showToast, currentUser }) {
         </div>
       )}
 
-      {/* 집계 박스 - 엑셀 상단 박스와 같은 값 */}
-      <div style={{ ...card, padding: '1.2rem' }}>
+      {/* 집계 박스 - 엑셀 상단 박스와 같은 값. 핸드폰은 정산 결과부터 보이게 맨 위로 */}
+      <div className="m-second" style={{ ...card, padding: '1.2rem' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem' }}>
           {[
             { title: '지출계 (회사출금액)', pick: (r) => r.paidOut, total: summary.paidOut, color: '#d9534f' },

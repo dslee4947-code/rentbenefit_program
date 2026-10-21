@@ -12,6 +12,8 @@ import AmountChoices from './AmountChoices.jsx';
 import IssuedInvoicesView from './IssuedInvoicesView.jsx';
 import UpcomingDocUpload from './UpcomingDocUpload.jsx';
 import MailTemplateEditor from './MailTemplateEditor.jsx';
+import UnpaidBox from './UnpaidBox.jsx';
+import { daysSinceDue, LATE_GRACE_DAYS } from './unpaidRules.js';
 import { useTableSort } from './useTableSort.js';
 import { useSaveShortcut } from './useSaveShortcut.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
@@ -150,6 +152,8 @@ function MonthlyBillingView({ showToast, currentUser }) {
   const [checked, setChecked] = useState([]);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [tab, setTab] = useState('due'); // due: 청구 대상, auto: 자동 발송, issued: 발행 이력
+  const [unpaidFor, setUnpaidFor] = useState(null); // [미납 처리] 창을 연 줄
+  useBackClose(Boolean(unpaidFor), () => setUnpaidFor(null));
   // 뒤로 가기(핸드폰 화면 쓸기)로 닫는다 — utils/useBackClose.js
   useBackClose(Boolean(selected), () => { setSelected(null); setForm(null); setAttachments([]); });
   const [showDocUpload, setShowDocUpload] = useState(false);
@@ -733,6 +737,27 @@ function MonthlyBillingView({ showToast, currentUser }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+      {unpaidFor && (
+        <div onClick={() => setUnpaidFor(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.7rem', boxShadow: '0 10px 30px rgba(0,0,0,0.25)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+              <div>
+                <div style={{ fontWeight: 800 }}>{unpaidFor.company?.name || unpaidFor.customer?.name || '계약자'} · {unpaidFor.round.no}회차</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{unpaidFor.contract?.contractNo} · 청구액 {won(unpaidFor.round.total)}</div>
+              </div>
+              <button type="button" onClick={() => setUnpaidFor(null)} aria-label="닫기" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={20} /></button>
+            </div>
+            <UnpaidBox
+              key={`${unpaidFor.scheduleId}-${unpaidFor.round.no}-${unpaidFor.round.status}`}
+              scheduleId={unpaidFor.scheduleId}
+              round={unpaidFor.round}
+              rounds={[]}
+              showToast={showToast}
+              onDone={() => { setUnpaidFor(null); refreshAll(); }}
+            />
+          </div>
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.3rem', borderBottom: '1px solid var(--border-color)' }}>
         <button type="button" onClick={() => setTab('due')} style={tabStyle('due')}>
           <Calendar size={14} /> 청구 대상
@@ -1127,6 +1152,21 @@ function MonthlyBillingView({ showToast, currentUser }) {
                             <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                               {it.round.status === '입금완료' ? '완납' : (it.round.paidAmount > 0 ? `${won(it.round.paidAmount)} 들어옴` : '0 = 완납')}
                             </span>
+                            {/* 전달이 안 들어왔으면 [미납 처리] → 다음 청구서에 원금·이자(미리보기 후 확인). 출금일 뒤 15일이 지나야 보인다 */}
+                            {currentUser?.role !== 'viewer' && (it.round.status === '미납' || (it.round.status !== '입금완료' && daysSinceDue(it.round) > LATE_GRACE_DAYS)) && (
+                              <button
+                                type="button"
+                                onClick={() => setUnpaidFor(it)}
+                                title="미납으로 처리하면 다음 청구서에 미납 원금과 연체 이자가 붙습니다. 누르면 먼저 미리 보여 줍니다."
+                                style={{
+                                  border: `1px solid ${it.round.status === '미납' ? '#64748b' : '#dc2626'}`, background: '#fff',
+                                  color: it.round.status === '미납' ? '#475569' : '#dc2626', borderRadius: '6px',
+                                  padding: '0.25rem 0.55rem', fontSize: '0.72rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap'
+                                }}
+                              >
+                                {it.round.status === '미납' ? '미납 취소' : '미납 처리'}
+                              </button>
+                            )}
                           </div>
                         );
                       })()}

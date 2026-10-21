@@ -45,6 +45,13 @@ import { runAutoSend, sendAutoSendReport, sendApprovalReminder, refreshAllUnbill
 connectDB().then(async () => {
   await runDatabaseMigration();
 
+  // 시험 서버(시험용 DB로 띄운 것)는 정기 작업을 하나도 돌리지 않는다.
+  // 캘린더·아웃룩 동기화와 청구서 자동 발송은 시험 DB여도 실제 외부(고객 메일·캘린더)에 닿는다.
+  if (process.env.SCHEDULED_JOBS === 'off') {
+    console.log('[Cron Scheduler] SCHEDULED_JOBS=off — 정기 작업을 모두 끕니다 (시험 서버).');
+    return;
+  }
+
   // 아웃룩 연락처 동기화는 켜지자마자 하지 않는다.
   //
   // 연락처가 1만 8천 건이라 훑는 동안 서버가 다른 요청을 늦게 처리한다.

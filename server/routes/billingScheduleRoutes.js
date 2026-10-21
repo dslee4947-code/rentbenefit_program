@@ -15,6 +15,7 @@ import {
   importBillingHistory,
   downloadHistoryTemplate,
   updateRoundPayment,
+  toggleRoundUnpaid,
   updateAttachmentNoticeStatus,
   getOverdueNotices,
   getFineNotices,
@@ -68,6 +69,8 @@ router.post('/:id/rounds/:no/resend', checkWritePermission, resendInvoice);
 router.post('/:id/rounds/:no/test-send', checkWritePermission, upload.single('file'), testSendInvoice);
 router.put('/:id/rounds/:no', checkWritePermission, updateRound);
 router.patch('/:id/rounds/:no/payment', checkWritePermission, updateRoundPayment);
+// [미납으로 처리] / [미납 취소] — 다음 청구서에 원금·이자를 바로 붙인다(dryRun이면 미리보기만)
+router.post('/:id/rounds/:no/unpaid', checkWritePermission, toggleRoundUnpaid);
 router.post('/:id/rounds/:no/issue', checkWritePermission, upload.single('file'), issueRound);
 router.post('/:id/rounds/:no/attachments', checkWritePermission, upload.single('file'), addRoundAttachment);
 router.delete('/:id/rounds/:no/attachments/:index', checkWritePermission, removeRoundAttachment);

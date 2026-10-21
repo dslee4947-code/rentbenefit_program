@@ -2721,36 +2721,154 @@ export const updateRound = async (req, res) => {
  *
  * @returns {Promise<{schedules: number, changed: number}>}
  */
+/**
+ * 회차표 한 개의 '받지 않은 연체 이자' 내역을 다시 센다. 값이 바뀌었으면 true(저장은 부르는 쪽에서).
+ *
+ * @param {object} s 회차표 (contract에 contractNo가 있어야 대경인트라넷을 뺀다)
+ * @param {number} rate 연체 이율 (연 %)
+ * @param {Date} now 기준 시각
+ */
+export const refreshUnbilledInterestOf = (s, rate, now = new Date()) => {
+  // 대경인트라넷: 계약 중간에 차 대수가 바뀌어 회차 금액과 원장이 맞지 않는다. 확인 전까지 뺀다.
+  if (s.contract?.contractNo === '21110022') return false;
+  const map = lateInterestByRound(s.rounds, rate, now);
+  let touched = false;
+  for (const r of s.rounds) {
+    const made = r.issuedAt || new Date(r.dueDate).getTime() - 12 * 864e5 <= now.getTime();
+    const charged = (fromNo) => (r.extras || []).some((e) => new RegExp(`^연체 이자 \\(${fromNo}회차`).test(e.label || ''))
+      || (Number(r.interest) > 0 && fromNo === r.no - 1);
+    const items = made ? (map.get(r.no) || []).filter((it) => !charged(it.fromNo)) : [];
+    const next = items.length
+      ? {
+        amount: items.reduce((a, i) => a + i.amount, 0),
+        principal: items.reduce((a, i) => a + i.principal, 0),
+        rate,
+        days: items[0].days,
+        items
+      }
+      : undefined;
+    const before = r.unbilledInterest?.amount ? JSON.stringify({ a: r.unbilledInterest.amount, n: (r.unbilledInterest.items || []).length }) : '';
+    const after = next ? JSON.stringify({ a: next.amount, n: next.items.length }) : '';
+    if (before !== after) { r.unbilledInterest = next; touched = true; }
+  }
+  return touched;
+};
+
 export const refreshAllUnbilledInterest = async () => {
   const schedules = await BillingSchedule.find({}).populate('contract', 'contractNo terms');
   const rates = await loadLateInterestRates(schedules.map((s) => s.contract?._id).filter(Boolean));
   const now = new Date();
   let changed = 0;
   for (const s of schedules) {
-    // 대경인트라넷: 계약 중간에 차 대수가 바뀌어 회차 금액과 원장이 맞지 않는다. 확인 전까지 뺀다.
-    if (s.contract?.contractNo === '21110022') continue;
     const rate = rates.get(String(s.contract?._id)) || s.contract?.terms?.lateInterestRate || 20;
-    const map = lateInterestByRound(s.rounds, rate, now);
-    let touched = false;
-    for (const r of s.rounds) {
-      const made = r.issuedAt || new Date(r.dueDate).getTime() - 12 * 864e5 <= now.getTime();
-      const charged = (fromNo) => (r.extras || []).some((e) => new RegExp(`^연체 이자 \\(${fromNo}회차`).test(e.label || ''))
-        || (Number(r.interest) > 0 && fromNo === r.no - 1);
-      const items = made ? (map.get(r.no) || []).filter((it) => !charged(it.fromNo)) : [];
-      const next = items.length
-        ? {
-          amount: items.reduce((a, i) => a + i.amount, 0),
-          principal: items.reduce((a, i) => a + i.principal, 0),
-          rate,
-          days: items[0].days,
-          items
-        }
-        : undefined;
-      const before = r.unbilledInterest?.amount ? JSON.stringify({ a: r.unbilledInterest.amount, n: (r.unbilledInterest.items || []).length }) : '';
-      const after = next ? JSON.stringify({ a: next.amount, n: next.items.length }) : '';
-      if (before !== after) { r.unbilledInterest = next; touched = true; }
-    }
-    if (touched) { s.markModified('rounds'); await s.save(); changed += 1; }
+    if (refreshUnbilledInterestOf(s, rate, now)) { s.markModified('rounds'); await s.save(); changed += 1; }
   }
   return { schedules: schedules.length, changed };
+};
+
+
+/**
+ * [미납으로 처리] / [미납 취소] — 전달 청구서가 안 들어왔을 때 한 번 눌러 다음 청구서에 원금·이자를 바로 붙인다.
+ *
+ * 대표님 지시(2026-10-21): 전달 청구서가 미납이면 이자를 붙인다. 미납 여부는 사람이 눌러 정하고,
+ * 차량 손익 원장은 검산(맞춰 보기)으로만 쓴다. 이미 쌓여 있는 '청구 보류' 이자는 그대로 표시만 하고,
+ * 이 버튼으로 새로 미납 처리한 건만 다음 청구서에 원금 + 이자(원금 × 연 이율 × 출금일 사이 일수)로 실제 청구한다.
+ *
+ * body.dryRun이 true면 저장하지 않고 '누르면 어떻게 바뀌는지'만 돌려준다(화면의 미리보기).
+ * 이미 발행한 회차는 금액을 바꾸지 않는다(applyCarryForward). 다음 청구서가 이미 나갔으면 그 다음 미발행 회차로 넘어간다.
+ *
+ * @route POST /api/billing-schedules/:id/rounds/:no/unpaid   body: { action: 'mark' | 'unmark', dryRun? }
+ */
+export const toggleRoundUnpaid = async (req, res) => {
+  try {
+    const { action, dryRun } = req.body || {};
+    // 일부만 들어왔으면 들어온 금액(예: 52.4만 원 청구에 42.4만 원 입금). 나머지만 다음 청구서로 넘어간다.
+    const partial = req.body?.paidAmount === undefined || req.body?.paidAmount === '' ? null : Math.max(0, Number(req.body.paidAmount) || 0);
+    if (!['mark', 'unmark'].includes(action)) return res.status(400).json({ success: false, message: '알 수 없는 요청입니다.' });
+    const schedule = await BillingSchedule.findById(req.params.id).populate('contract', 'contractNo terms');
+    if (!schedule) return res.status(404).json({ success: false, message: '회차표를 찾을 수 없습니다.' });
+    const no = Number(req.params.no);
+    const target = schedule.rounds.find((r) => r.no === no);
+    if (!target) return res.status(404).json({ success: false, message: '해당 회차가 없습니다.' });
+
+    if (action === 'mark') {
+      if (target.status === '미납') return res.status(400).json({ success: false, message: `${no}회차는 이미 미납입니다.` });
+      if (target.status === '입금완료') return res.status(400).json({ success: false, message: `${no}회차는 입금완료로 되어 있습니다. 입금이 잘못 적혔으면 먼저 입금 기록을 고쳐 주세요.` });
+      // 출금일 뒤 15일 안은 아직 연체가 아니다(입금이 며칠 늦게 찍힌다)
+      if (daysUntil(target.dueDate) >= -LATE_GRACE_DAYS) {
+        return res.status(400).json({ success: false, message: `${no}회차는 출금일 뒤 ${LATE_GRACE_DAYS}일이 아직 안 지났습니다. 그 뒤에 미납으로 처리할 수 있습니다.` });
+      }
+    } else if (target.status !== '미납') {
+      return res.status(400).json({ success: false, message: `${no}회차는 미납이 아닙니다.` });
+    }
+
+    const contractId = schedule.contract?._id || schedule.contract;
+    const rateMap = await loadLateInterestRates([contractId]);
+    const rate = rateMap.get(String(contractId)) || schedule.contract?.terms?.lateInterestRate || 25;
+
+    const apply = (rounds) => {
+      const r = rounds.find((x) => x.no === no);
+      if (action === 'mark') {
+        r.status = '미납';
+        r.paidAmount = partial !== null ? Math.min(partial, r.total || 0) : (r.paidAmount || 0);
+        r.paidAt = undefined;
+      } else {
+        // 되돌리기: 발행한 회차는 '청구됨', 아니면 '예정'
+        r.status = r.issuedAt ? '청구됨' : '예정';
+        r.paidAmount = 0;
+        r.paidAt = undefined;
+      }
+      return applyCarryForward({ rounds }, rate, no);
+    };
+
+    // 바뀌는 회차를 사본에서 먼저 센다. 실제 저장도 같은 함수로 하므로 미리보기와 결과가 같다.
+    const before = new Map(schedule.rounds.map((r) => [r.no, { total: r.total || 0, prevUnpaid: r.prevUnpaid || 0, interest: r.interest || 0 }]));
+    const copy = schedule.toObject().rounds;
+    apply(copy);
+    const changes = copy
+      .filter((r) => r.no > no && !r.issuedAt)
+      .map((r) => ({
+        no: r.no,
+        dueDate: r.dueDate,
+        before: before.get(r.no),
+        after: { total: r.total || 0, prevUnpaid: r.prevUnpaid || 0, interest: r.interest || 0 },
+        interestRate: r.interestRate || null,
+        interestDays: r.interestDays || null,
+        // 발송 승인해 둔 청구서는 금액이 바뀌면 발송 센터에서 '변경됨'으로 막히고 다시 승인해야 한다
+        approved: ['승인', '대표승인대기'].includes(r.autoSend?.status)
+      }))
+      .filter((c) => c.before.total !== c.after.total || c.before.interest !== c.after.interest)
+      .sort((a, b) => a.no - b.no);
+    const copyTarget = copy.find((r) => r.no === no);
+    const owe = Math.max(0, (copyTarget.total || 0) - (copyTarget.paidAmount || 0));
+    const nextUnissued = copy.filter((r) => r.no > no && !r.issuedAt).sort((a, b) => a.no - b.no)[0] || null;
+
+    if (dryRun) {
+      return res.json({ success: true, dryRun: true, action, no, owe, rate, nextNo: nextUnissued?.no || null, changes });
+    }
+
+    apply(schedule.rounds);
+    refreshUnbilledInterestOf(schedule, rate);
+    schedule.markModified('rounds');
+    await schedule.save();
+
+    const first = changes[0];
+    logActivity({
+      req, dept: '재무부', action: ACTIONS.PAYMENT_UPDATE,
+      target: { model: 'BillingSchedule', id: schedule._id },
+      summary: action === 'mark'
+        ? `${no}회차 미납 처리 → ${first ? `${first.no}회차에 원금 ${first.after.prevUnpaid.toLocaleString()}원 + 이자 ${first.after.interest.toLocaleString()}원` : '바뀐 청구서 없음'}`
+        : `${no}회차 미납 취소`,
+      meta: { round: no, action, changes: changes.map((c) => ({ no: c.no, before: c.before.total, after: c.after.total })) }
+    });
+
+    const message = action === 'mark'
+      ? (first
+        ? `${no}회차를 미납으로 처리했습니다. ${first.no}회차 청구서에 미납 원금 ${first.after.prevUnpaid.toLocaleString()}원과 연체 이자 ${first.after.interest.toLocaleString()}원이 붙어 ${first.after.total.toLocaleString()}원이 됩니다.`
+        : `${no}회차를 미납으로 처리했습니다. 붙일 수 있는 다음 청구서가 없습니다(이미 모두 발행했거나 마지막 회차).`)
+      : `${no}회차 미납을 취소했습니다.${first ? ` ${first.no}회차 청구액이 ${first.after.total.toLocaleString()}원으로 돌아갑니다.` : ''}`;
+    res.json({ success: true, action, no, owe, rate, nextNo: nextUnissued?.no || null, changes, round: schedule.rounds.find((r) => r.no === no), message });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };

@@ -188,6 +188,14 @@ const BillingScheduleSchema = new Schema({
 
   totalRounds: { type: Number, required: true }, // 계약 기간(개월)과 같다
 
+  // 이 계약의 청구서를 받는 메일. 한 법인이라도 계약(차종)마다 담당자가 다를 수 있어 법인 기본 주소보다 먼저 쓴다
+  // (예: 신흥정보통신 레이밴 jhlee@ / 그랜저 lareum@ / G80·K9 shtel124@).
+  billingEmail: String,
+
+  // 청구서를 메일로 보내지 않는 계약(직원 차량처럼 매월 직접 이체). 발송 센터 목록에서 뺀다.
+  autoSendExcluded: { type: Boolean, default: false },
+  autoSendExcludedReason: String,
+
   /**
    * 1회차 일할 정산.
    *

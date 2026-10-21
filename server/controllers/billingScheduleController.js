@@ -583,7 +583,7 @@ const deliverInvoice = async ({ schedule, round, partyName, fileName, pdfBuffer,
  * 금액 항목, 기타 청구, 붙은 서류(지문·금액·처리 상태), 받는 주소를 묶는다.
  * 승인 뒤 고지서가 하나 더 붙거나 전월 미결제가 바뀌면 지문이 달라져 자동 발송이 멈춘다.
  */
-const roundSnapshot = (round, to, context = {}) => crypto.createHash('sha256').update(JSON.stringify({
+export const roundSnapshot = (round, to, context = {}) => crypto.createHash('sha256').update(JSON.stringify({
   amounts: ['monthlyRent', 'prevUnpaid', 'prevOverpaid', 'interest', 'fine', 'maintenance', 'other', 'total']
     .map((k) => Number(round[k]) || 0),
   extras: (round.extras || []).map((e) => [e.label, Number(e.amount) || 0]),
@@ -602,7 +602,7 @@ const roundSnapshot = (round, to, context = {}) => crypto.createHash('sha256').u
  * 지문에 넣을 계약자명과 차량 표. 청구서 아래 차량 표가 이 값으로 그려진다.
  * @returns {Promise<{partyName: string, vehicles: Array}>}
  */
-const snapshotContextOf = async (schedule) => {
+export const snapshotContextOf = async (schedule) => {
   const contractId = schedule.contract?._id || schedule.contract;
   const vehicles = contractId
     ? await Vehicle.find({ contract: contractId }).select('plateNo carModel monthlyFee advancePayment paymentTerm').sort({ _id: 1 }).lean()
@@ -706,6 +706,8 @@ const buildAutoSendQueue = async (days) => {
 
   const items = [];
   for (const s of schedules) {
+    // 직원 차량처럼 청구서를 메일로 보내지 않는 계약은 목록에 올리지 않는다(매번 '미승인'으로 떠 헷갈린다)
+    if (s.autoSendExcluded) continue;
     for (const round of s.rounds) {
       if (round.dueDate < dueFrom || round.dueDate >= dueUntil) continue;
       // 보낼 수 있는 회차, 그리고 자동 발송이 걸려 있던 회차(보냄·실패·확인 필요)는 결과가 보여야 한다
@@ -717,7 +719,7 @@ const buildAutoSendQueue = async (days) => {
       const { carried: unpaid, interestBase } = carryInto(s.rounds, round.no);
       const lateInterestRate = rateByContract.get(String(s.contract?._id)) || s.contract?.terms?.lateInterestRate || 0;
       const overdueDays = prev ? daysBetween(prev.dueDate, round.dueDate) : 0;
-      const to = round.autoSend?.to || s.company?.billingEmail || s.customer?.email || '';
+      const to = round.autoSend?.to || s.billingEmail || s.company?.billingEmail || s.customer?.email || '';
 
       // 승인했어도 그 뒤 내용이 바뀌었으면 화면에 '다시 승인'으로 보여 준다
       let autoStatus = round.autoSend?.status || '';
@@ -1157,7 +1159,7 @@ export const getSendHistory = async (req, res) => {
           total: r.total || 0,
           issuedAt: r.issuedAt || null,
           sentAt: r.sentAt || null,
-          to: r.autoSend?.to || s.company?.billingEmail || s.customer?.email || '',
+          to: r.autoSend?.to || s.billingEmail || s.company?.billingEmail || s.customer?.email || '',
           via: r.autoSend?.status ? '자동' : '직접',
           result,
           message: r.autoSend?.message || '',
@@ -1811,6 +1813,10 @@ export const addRoundAttachment = async (req, res) => {
     const round = schedule.rounds.find((r) => r.no === Number(req.params.no));
     if (!round) return res.status(404).json({ success: false, message: '해당 회차가 없습니다.' });
     if (!req.file) return res.status(400).json({ success: false, message: '올릴 파일이 없습니다.' });
+    // 이미 발행한 회차의 금액은 바꾸지 않는다. 고지서는 다음 달 청구서에 올린다(대표님 지시 2026-10-21).
+    if (round.issuedAt) {
+      return res.status(400).json({ success: false, message: `${round.no}회차는 이미 발행한 청구서라 고지서를 올릴 수 없습니다. 다음 청구 회차에 올려 주세요.` });
+    }
 
     const noticeNo = (req.body.noticeNo || '').trim();
     const fileHash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');

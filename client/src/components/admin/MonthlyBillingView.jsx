@@ -1049,6 +1049,10 @@ function MonthlyBillingView({ showToast, currentUser }) {
                 const active = selected?.scheduleId === it.scheduleId;
                 const prev = it.prevRound;
                 const prevSt = prev ? (STATUS_STYLE[prev.status] || STATUS_STYLE['예정']) : null;
+                // 출금일 뒤 15일이 지났는데 아직 '청구됨' = 입금 확인이 빠진 회차. 입금완료나 미납으로 정해야 한다(대표님 2026-10-21)
+                const needsCheck = (r) => r?.status === '청구됨' && daysSinceDue(r) > LATE_GRACE_DAYS;
+                const CHECK_CHIP = { background: '#fef3c7', color: '#b45309', border: '1px solid #fcd34d' };
+                const CHECK_TITLE = '출금일 뒤 15일이 지났는데 입금 확인이 안 된 회차입니다. 들어왔으면 미납액에 0, 안 들어왔으면 [미납 처리]를 눌러 주세요.';
                 return (
                   <tr
                     key={it.scheduleId}
@@ -1091,9 +1095,18 @@ function MonthlyBillingView({ showToast, currentUser }) {
                     <td style={{ padding: '0.7rem', textAlign: 'center' }}>
                       {prev ? (
                         <>
-                          <span style={{ background: prevSt.bg, color: prevSt.color, padding: '0.15rem 0.5rem', borderRadius: '20px', fontSize: '0.72rem', fontWeight: '700' }}>
-                            {prev.status}
-                          </span>
+                          {needsCheck(prev) ? (
+                            <span title={CHECK_TITLE} style={{ ...CHECK_CHIP, padding: '0.15rem 0.5rem', borderRadius: '20px', fontSize: '0.72rem', fontWeight: '800', whiteSpace: 'nowrap' }}>
+                              확인 필요
+                            </span>
+                          ) : (
+                            <span style={{ background: prevSt.bg, color: prevSt.color, padding: '0.15rem 0.5rem', borderRadius: '20px', fontSize: '0.72rem', fontWeight: '700' }}>
+                              {prev.status}
+                            </span>
+                          )}
+                          {needsCheck(prev) && (
+                            <div style={{ fontSize: '0.68rem', color: '#b45309', marginTop: '0.15rem', whiteSpace: 'nowrap' }}>청구됨 · 입금 미확인</div>
+                          )}
                           {/* 이번 청구서에 전월 미결제가 들어갔는데 전월이 지금 '입금완료'면, 청구서를 만들 때는 미납이었다가 나중에 들어온 것이다 */}
                           {/* 출금일 + 15일 안에 안 들어온 전월은 나중에 들어왔어도 미납이었다(대표님 지시 2026-10-20) */}
                           {prev.status === '입금완료' && prev.paidAt && (new Date(prev.paidAt) - new Date(prev.dueDate)) / 864e5 > 15 && (
@@ -1113,9 +1126,18 @@ function MonthlyBillingView({ showToast, currentUser }) {
                     <td style={{ padding: '0.7rem', textAlign: 'center' }}>{it.round.no} / {it.totalRounds}</td>
                     <td style={{ padding: '0.7rem', ...NUMERIC, fontWeight: '800', color: 'var(--text-bright)' }}>{won(it.round.total)}</td>
                     <td style={{ padding: '0.7rem', textAlign: 'center' }}>
-                      <span style={{ background: st.bg, color: st.color, padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '700' }}>
-                        {it.round.status}
-                      </span>
+                      {needsCheck(it.round) ? (
+                        <>
+                          <span title={CHECK_TITLE} style={{ ...CHECK_CHIP, padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '800', whiteSpace: 'nowrap' }}>
+                            확인 필요
+                          </span>
+                          <div style={{ fontSize: '0.68rem', color: '#b45309', marginTop: '0.15rem', whiteSpace: 'nowrap' }}>청구됨 · 입금 미확인</div>
+                        </>
+                      ) : (
+                        <span style={{ background: st.bg, color: st.color, padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '700' }}>
+                          {it.round.status}
+                        </span>
+                      )}
                       {it.round.status === '미납' && (
                         <div style={{ fontSize: '0.72rem', color: 'var(--error)', fontWeight: '800', marginTop: '0.15rem' }}>
                           미납 {won(it.unpaid)}

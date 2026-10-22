@@ -2,6 +2,7 @@ import XLSX from 'xlsx';
 import VehicleLedger, { summarizeLedger, pickLedgerCategory, parseLoanRound } from '../models/VehicleLedger.js';
 import Vehicle from '../models/Vehicle.js';
 import Contract from '../models/Contract.js';
+import { excelCellDate } from './excelDate.js';
 
 /**
  * 자금팀 정산 리스트 엑셀(장기렌트 / 사고대차 / 판매완료)로 차량 손익 원장(갑지)을 갱신한다.
@@ -70,7 +71,7 @@ const toNumber = (v) => {
 };
 
 const toDate = (v) => {
-  if (v instanceof Date && !Number.isNaN(v.getTime())) return v;
+  if (v instanceof Date && !Number.isNaN(v.getTime())) return excelCellDate(v);
   if (typeof v === 'string') {
     const d = new Date(v.trim());
     if (!Number.isNaN(d.getTime()) && /\d{4}/.test(v)) return d;
@@ -80,7 +81,7 @@ const toDate = (v) => {
 
 const text = (v) => {
   if (v === null || v === undefined) return '';
-  const s = v instanceof Date ? v.toISOString().slice(0, 10) : String(v).trim();
+  const s = v instanceof Date ? excelCellDate(v).toISOString().slice(0, 10) : String(v).trim();
   return s === '-' ? '' : s;
 };
 

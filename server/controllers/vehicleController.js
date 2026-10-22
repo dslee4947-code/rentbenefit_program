@@ -19,6 +19,7 @@ import { normalizeMaintenance } from '../utils/maintenance.js';
 import { applySupplyPrice, normalizeSellingAdminExpense } from '../utils/vehiclePricing.js';
 import { calculateVehicleProfit } from '../utils/vehicleProfit.js';
 import { getMaintenanceRates } from '../utils/maintenanceRates.js';
+import { excelCellDate } from '../utils/excelDate.js';
 
 const carModelEngMap = {
   '카니발': 'Carnival',
@@ -789,7 +790,7 @@ export const normalizeHeader = (value) => String(value ?? '').replace(/[\s()·/_
 
 const parseExcelDate = (value) => {
   if (!value) return undefined;
-  if (value instanceof Date) return value;
+  if (value instanceof Date) return excelCellDate(value);
   // 엑셀은 날짜를 1900-01-00 기준 일련번호로 저장한다
   if (typeof value === 'number') {
     const date = new Date(Math.round((value - 25569) * 86400 * 1000));

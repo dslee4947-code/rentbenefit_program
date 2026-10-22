@@ -258,6 +258,21 @@ const VehicleLedgerSchema = new Schema({
 
   entries: [LedgerEntrySchema],
 
+  /**
+   * 회차마다 월 렌트료가 다른 계약의 렌트료 표(있을 때만).
+   *
+   * 보통은 terms.monthlyRent 하나로 모든 회차를 본다. ㈜에이치와이파트너즈처럼 11개월 받고 12개월째는
+   * 쉬고(0원), 다음 11개월은 다른 차로 다른 금액을 받는 계약은 회차마다 금액·차를 적어 둔다
+   * (청구서 엑셀 '월대여료' 시트와 같은 표, 대표님 2026-10-22). 0원 회차는 청구하지 않는 달이다.
+   */
+  rentPlan: [{
+    _id: false,
+    round: Number,
+    amount: Number,
+    carModel: String,
+    plateNo: String
+  }],
+
   note: String,
 
   // 갑지 화면 '기타' 칸. 이 차의 수익성을 자금팀이 글로 적어 두는 자리다 (예: 인수 여부, 손익 전망).

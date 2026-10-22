@@ -213,7 +213,8 @@ function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount,
   // 이미 찍은 회차의 금액·날짜 고치기(잘못 적었을 때). 지우고 다시 찍지 않아도 된다(대표님 2026-10-22)
   const [fixing, setFixing] = useState(null); // { key, round, date, amount, entryIds }
 
-  const all = blocks.flatMap((b) => b.rounds);
+  // 쉬는 달(렌트료 표에서 0원인 회차)은 받을 돈이 없으니 진행 칸 수에서 뺀다
+  const all = blocks.flatMap((b) => b.rounds).filter((r) => !r.free);
   const paidCount = all.filter((r) => r.paid).length;
   const paidSum = all.reduce((s, r) => s + r.paidAmount, 0);
   const hasDue = all.some((r) => r.dueDate);
@@ -303,7 +304,7 @@ function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount,
                   const isPaying = paying && paying.key === b.key && paying.round === r.round;
                   const isFixing = fixing && fixing.key === b.key && fixing.round === r.round;
                   return (
-                    <tr key={r.round} style={{ borderBottom: '1px solid var(--border-color)', background: r.paid ? '#fff' : '#fffdf7' }}>
+                    <tr key={r.round} style={{ borderBottom: '1px solid var(--border-color)', background: r.paid ? '#fff' : (r.free ? '#f8fafc' : '#fffdf7') }}>
                       <td style={{ ...cellPad, fontSize: '0.78rem', fontWeight: '700' }}>{r.round}회</td>
                       {hasDue && <td style={{ ...cellPad, fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{r.dueDate || '-'}</td>}
                       <td style={{ ...cellPad, fontSize: '0.78rem', textAlign: 'right', whiteSpace: 'nowrap', color: r.paid ? 'inherit' : 'var(--text-muted)' }}>
@@ -324,7 +325,8 @@ function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount,
                             placeholder="금액"
                             style={editCell}
                           />
-                        ) : (r.paid ? toCommaString(r.paidAmount) : (b.defaultAmount ? toCommaString(b.defaultAmount) : '-'))}
+                        ) : (r.free && !r.paid ? <span style={{ color: 'var(--text-muted)' }}>0 · 쉼</span>
+                          : (r.paid ? toCommaString(r.paidAmount) : ((r.expected ?? b.defaultAmount) ? toCommaString(r.expected ?? b.defaultAmount) : '-')))}
                         {r.note && !isPaying && (
                           <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)' }} title="자동이체 수수료를 떼고 들어온 회차입니다">{r.note}</div>
                         )}
@@ -372,6 +374,8 @@ function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount,
                             <button type="button" onClick={confirmPay} title={`${verb} 확인`} style={iconBtn(accent)}><Check size={14} /></button>
                             <button type="button" onClick={() => setPaying(null)} title="닫기" style={iconBtn('var(--text-muted)')}><X size={14} /></button>
                           </div>
+                        ) : r.free ? (
+                          <span style={{ display: 'block', textAlign: 'center', fontSize: '0.72rem', color: 'var(--text-muted)' }} title="렌트료 표에서 0원인 달입니다. 이 계약은 11개월 받고 12개월째는 받지 않습니다.">청구 없음 (쉬는 달)</span>
                         ) : canEdit ? (
                           <button
                             type="button"
@@ -1627,6 +1631,65 @@ function LedgerView({ showToast, currentUser }) {
     if (!ledger || (ledger.ledgerType || '장기렌트') !== '장기렌트') return null;
     const terms = ledger.terms || {};
     const shown = periods.filter((p) => periodView === null || p.seq === periodView);
+
+    // 회차마다 금액이 다른 계약(렌트료 표, ledger.rentPlan). 예: ㈜에이치와이파트너즈
+    //   1~11회 그랜저 월 115만 → 12회 쉼(0원) → 13~23회 다른 차 월 107만 → 24회 쉼 …
+    // 차·금액이 바뀌는 구간마다 묶음을 나누고, 0원 회차는 '쉬는 달'로 바로 앞 구간 끝에 둔다.
+    const plan = [...(ledger.rentPlan || [])].sort((a, b) => a.round - b.round);
+    if (plan.length && periods.length <= 1 && (periodView === null || periodView === 1)) {
+      const start = terms.rentStartDate || periods[0]?.startDate;
+      const byRound = new Map();
+      entries.forEach((e) => {
+        if ((e.periodSeq || 1) !== 1) return;
+        const round = rentRoundOf(e);
+        if (!round) return;
+        if (!byRound.has(round)) byRound.set(round, []);
+        byRound.get(round).push(e);
+      });
+      const stages = [];
+      for (const p of plan) {
+        const amount = Number(p.amount) || 0;
+        const last = stages[stages.length - 1];
+        if (amount === 0 && last) { last.items.push(p); continue; }
+        if (last && last.amount === amount && (last.plateNo || '') === (p.plateNo || '') && !last.items.some((x) => !(Number(x.amount) > 0))) {
+          last.items.push(p);
+          continue;
+        }
+        stages.push({ amount, plateNo: p.plateNo || '', carModel: p.carModel || '', items: [p] });
+      }
+      return stages.map((st, i) => {
+        const rounds = st.items.map((p) => {
+          const hits = byRound.get(p.round) || [];
+          const dates = hits.map((e) => e.date).filter(Boolean).sort();
+          const expected = Number(p.amount) || 0;
+          const r = {
+            round: p.round,
+            dueDate: dueDateOf(start, p.round),
+            paid: hits.length > 0,
+            paidAmount: hits.reduce((sum, e) => sum + (Number(e.amount) || 0), 0),
+            paidDate: dates[dates.length - 1] || '',
+            entryIds: hits.map((e) => e._id),
+            expected,
+            free: expected === 0
+          };
+          const short = expected - r.paidAmount;
+          return r.paid && short > 0 && short < CMS_SHORT_TOLERANCE ? { ...r, note: `CMS −${toCommaString(short)}` } : r;
+        });
+        const paidRounds = st.items.filter((p) => Number(p.amount) > 0).map((p) => p.round);
+        const freeRounds = st.items.filter((p) => !(Number(p.amount) > 0)).map((p) => p.round);
+        const car = [st.carModel, st.plateNo].filter(Boolean).join(' ');
+        return {
+          key: `rent-1-s${i + 1}`,
+          seq: 1,
+          monthlyRent: st.amount,
+          defaultAmount: st.amount,
+          heading: `${paidRounds[0]}~${paidRounds[paidRounds.length - 1]}회${car ? ` · ${car}` : ''} · 월 ${toCommaString(st.amount)} 원`
+            + (freeRounds.length ? ` · ${freeRounds.join('·')}회 쉼` : ''),
+          rounds
+        };
+      });
+    }
+
     return shown
       .map((p) => {
         const seq = p.seq || 1;

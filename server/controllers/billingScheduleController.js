@@ -2068,6 +2068,8 @@ export const getSchedulesSummary = async (req, res) => {
         vehicles: cars.map((v) => ({ plateNo: v.plateNo || '', carModel: v.carModel || '' })),
         plateNos: cars.map((v) => v.plateNo).filter(Boolean),
         totalRounds: s.totalRounds,
+        // 결제일(5·10·15·25·말일)로 묶어 보여 줄 때 쓴다(청구서 보관함). 다음 회차, 없으면 마지막 회차의 출금일
+        payDueDate: (next || (s.rounds || []).slice(-1)[0])?.dueDate || null,
         upcoming: next ? {
           no: next.no,
           dueDate: next.dueDate,

@@ -207,9 +207,11 @@ const dueDateOf = (start, round) => {
  * askAmount가 켜져 있으면 체크할 때 금액도 받는다. 렌트료는 월 렌트료로 정해져 있지만
  * 보험료·자동차세는 회차마다 금액이 달라서 그때 적어야 한다.
  */
-function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount, onPay, onCancel, onAddRound, defaultOpen = true }) {
+function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount, onPay, onCancel, onEdit, onAddRound, defaultOpen = true }) {
   const [open, setOpen] = useState(defaultOpen);
   const [paying, setPaying] = useState(null); // { key, round, date, amount }
+  // 이미 찍은 회차의 금액·날짜 고치기(잘못 적었을 때). 지우고 다시 찍지 않아도 된다(대표님 2026-10-22)
+  const [fixing, setFixing] = useState(null); // { key, round, date, amount, entryIds }
 
   const all = blocks.flatMap((b) => b.rounds);
   const paidCount = all.filter((r) => r.paid).length;
@@ -234,6 +236,23 @@ function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount,
   const payKeys = (ev) => {
     if (ev.key === 'Enter') { ev.preventDefault(); confirmPay(); }
     if (ev.key === 'Escape') setPaying(null);
+  };
+
+  const startFix = (block, r) => {
+    setPaying(null);
+    setFixing({ key: block.key, round: r.round, date: r.paidDate || '', amount: r.paidAmount || '', entryIds: r.entryIds });
+  };
+  const confirmFix = () => {
+    const date = parseDateInput(fixing.date);
+    if (!date) { window.alert(`${verb}일을 261029 처럼 여섯 자리나 2026-10-29 형식으로 적어 주세요.`); return; }
+    const amount = Number(fixing.amount) || 0;
+    if (!amount) { window.alert('금액을 적어 주세요. 이 회차를 없애려면 × 로 취소해 주세요.'); return; }
+    onEdit(fixing.entryIds, fixing.round, date, amount);
+    setFixing(null);
+  };
+  const fixKeys = (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); confirmFix(); }
+    if (ev.key === 'Escape') setFixing(null);
   };
 
   return (
@@ -282,12 +301,22 @@ function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount,
                 )}
                 {b.rounds.map((r) => {
                   const isPaying = paying && paying.key === b.key && paying.round === r.round;
+                  const isFixing = fixing && fixing.key === b.key && fixing.round === r.round;
                   return (
                     <tr key={r.round} style={{ borderBottom: '1px solid var(--border-color)', background: r.paid ? '#fff' : '#fffdf7' }}>
                       <td style={{ ...cellPad, fontSize: '0.78rem', fontWeight: '700' }}>{r.round}회</td>
                       {hasDue && <td style={{ ...cellPad, fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{r.dueDate || '-'}</td>}
                       <td style={{ ...cellPad, fontSize: '0.78rem', textAlign: 'right', whiteSpace: 'nowrap', color: r.paid ? 'inherit' : 'var(--text-muted)' }}>
-                        {isPaying && askAmount ? (
+                        {isFixing ? (
+                          <MoneyInput
+                            value={fixing.amount}
+                            onChange={(ev) => setFixing((f) => ({ ...f, amount: ev.target.value }))}
+                            onKeyDown={fixKeys}
+                            placeholder="금액"
+                            autoFocus
+                            style={editCell}
+                          />
+                        ) : isPaying && askAmount ? (
                           <MoneyInput
                             value={paying.amount}
                             onChange={(ev) => setPaying((p) => ({ ...p, amount: ev.target.value }))}
@@ -301,10 +330,28 @@ function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount,
                         )}
                       </td>
                       <td style={{ ...cellPad, whiteSpace: 'nowrap' }}>
-                        {r.paid ? (
+                        {r.paid && isFixing ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                            <input
+                              value={fixing.date}
+                              onChange={(ev) => setFixing((f) => ({ ...f, date: ev.target.value }))}
+                              onKeyDown={fixKeys}
+                              placeholder="YYMMDD"
+                              title={`${verb}일. 261029 처럼 여섯 자리로 쳐도 됩니다`}
+                              style={{ ...editCell, minWidth: 0 }}
+                            />
+                            <button type="button" onClick={confirmFix} title="고친 내용 반영" style={iconBtn(accent)}><Check size={14} /></button>
+                            <button type="button" onClick={() => setFixing(null)} title="닫기" style={iconBtn('var(--text-muted)')}><X size={14} /></button>
+                          </div>
+                        ) : r.paid ? (
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', justifyContent: 'center' }}>
                             <Check size={13} color={accent} />
                             <span style={{ fontSize: '0.74rem', color: accent, fontWeight: '700' }}>{r.paidDate || '날짜 없음'}</span>
+                            {canEdit && onEdit && (
+                              <button type="button" onClick={() => startFix(b, r)} title={`${verb} 금액·날짜 수정`} style={iconBtn('var(--primary)')}>
+                                <Pencil size={13} />
+                              </button>
+                            )}
                             {canEdit && (
                               <button type="button" onClick={() => onCancel(r.entryIds, b, r.round)} title={`${verb} 취소`} style={iconBtn('var(--error)')}>
                                 <X size={13} />
@@ -1700,6 +1747,22 @@ function LedgerView({ showToast, currentUser }) {
     setDirty(true);
   };
 
+  /**
+   * 회차표에서 이미 찍은 회차의 금액·날짜를 고친다(렌트료·보험료·자동차세·검사 공통).
+   * 한 회차가 여러 줄(나눠 들어온 돈)이면 가장 늦은 줄에서 차이를 맞춰 회차 합계가 적은 금액이 되게 한다.
+   */
+  const editRoundEntries = (ids, round, date, amount) => {
+    setEntries((prev) => {
+      const hits = prev.filter((e) => ids.includes(e._id))
+        .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+      if (!hits.length) return prev;
+      const last = hits[hits.length - 1];
+      const others = hits.slice(0, -1).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+      return prev.map((e) => (e._id === last._id ? { ...e, amount: Math.max(0, amount - others), date } : e));
+    });
+    setDirty(true);
+  };
+
   const removeRow = (id) => {
     if (!window.confirm('이 줄을 지울까요?')) return;
     setEntries((prev) => prev.filter((e) => e._id !== id));
@@ -2265,7 +2328,7 @@ function LedgerView({ showToast, currentUser }) {
                 <RoundChecklist
                   title="월 렌트료" verb="입금" accent="#2f6f4e" tint="#f3f8f5"
                   blocks={rentBlocks} canEdit={canEdit}
-                  onPay={payRentRound} onCancel={cancelRentRound}
+                  onPay={payRentRound} onCancel={cancelRentRound} onEdit={editRoundEntries}
                 />
               ) : (
                 <div style={{ padding: '0.6rem 0.9rem', fontSize: '0.75rem', color: 'var(--text-muted)', background: '#f3f8f5', borderBottom: '1px solid var(--border-color)' }}>
@@ -2277,7 +2340,7 @@ function LedgerView({ showToast, currentUser }) {
                   key={b.key}
                   title={b.fixed.label} verb="납부" accent="#d9534f" tint="#fcf4f4"
                   blocks={[b]} canEdit={canEdit} askAmount defaultOpen={false}
-                  onPay={payExpenseRound} onCancel={cancelExpenseRound}
+                  onPay={payExpenseRound} onCancel={cancelExpenseRound} onEdit={editRoundEntries}
                   onAddRound={() => setExtraRounds((prev) => ({ ...prev, [b.key]: (prev[b.key] || 0) + 1 }))}
                 />
               ))}

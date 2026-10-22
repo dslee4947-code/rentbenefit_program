@@ -4,6 +4,8 @@ import MoneyInput from './MoneyInput.jsx';
 import InvoiceSheet, { makeInvoicePdf, roundTotal } from './InvoiceSheet.jsx';
 import useBackClose from '../../utils/useBackClose.js';
 import UnpaidBox from './UnpaidBox.jsx';
+import PaymentDayBadge from './PaymentDayBadge.jsx';
+import { PAYMENT_DAYS, paymentDayKey } from './paymentDay.js';
 import { daysSinceDue } from './unpaidRules.js';
 
 // 핸드폰 폭(mobile.css와 같은 기준)
@@ -110,6 +112,17 @@ function InvoiceArchiveView({ showToast, currentUser }) {
     return contracts.filter((c) => [c.partyName, c.contractNo, ...(c.plateNos || []), ...(c.vehicles || []).map((v) => v.carModel)]
       .some((v) => String(v || '').toLowerCase().includes(k)));
   }, [contracts, keyword]);
+
+  // 계약 목록을 결제일(5·10·15·25·말일)별로 묶는다. 장기렌트 청구서와 같은 묶음이라 찾기 쉽다.
+  // 묶음 안은 계약번호 내림차순(최근 계약이 위). 검색해도 묶음은 그대로 둔다(대표님 2026-10-22).
+  const groups = useMemo(() => {
+    const order = [...PAYMENT_DAYS.map((d) => d.key), 'etc'];
+    const byKey = new Map(order.map((k) => [k, []]));
+    for (const c of filtered) byKey.get(c.payDueDate ? paymentDayKey(c.payDueDate) : 'etc')?.push(c);
+    return order
+      .map((key) => ({ key, items: byKey.get(key).sort((a, b) => String(b.contractNo || '').localeCompare(String(a.contractNo || ''))) }))
+      .filter((g) => g.items.length);
+  }, [filtered]);
 
   const loadDetail = useCallback(async (contractId, keepNo) => {
     try {
@@ -320,7 +333,15 @@ function InvoiceArchiveView({ showToast, currentUser }) {
         </div>
         <div style={{ overflowY: 'auto', overscrollBehavior: 'contain', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
           {filtered.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', padding: '0.5rem' }}>맞는 계약이 없습니다.</div>}
-          {filtered.map((c) => {
+          {groups.map((g) => (
+            <div key={g.key} style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <div style={{ position: 'sticky', top: 0, zIndex: 1, background: '#fff', display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.35rem 0.2rem 0.25rem', borderBottom: '1px solid var(--border-color)' }}>
+                {g.key === 'etc'
+                  ? <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)' }}>결제일 미정</span>
+                  : <PaymentDayBadge dayKey={g.key} />}
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{g.items.length}건</span>
+              </div>
+          {g.items.map((c) => {
             const active = picked?.contractId === c.contractId;
             return (
               <button
@@ -335,11 +356,15 @@ function InvoiceArchiveView({ showToast, currentUser }) {
               >
                 <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{c.partyName || '계약자 미상'}</div>
                 <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                  {c.contractNo} · {(c.vehicles || []).map((v) => `${v.carModel} ${v.plateNo}`.trim()).join(', ') || '차량 미정'}
+                  {/* 차가 많은 계약(신흥 20대 등)은 두 대만 보이고 나머지는 '외 n대'. 검색은 모든 차량번호로 된다 */}
+                  {c.contractNo} · {(c.vehicles || []).slice(0, 2).map((v) => `${v.carModel} ${v.plateNo}`.trim()).join(', ') || '차량 미정'}
+                  {(c.vehicles || []).length > 2 ? ` 외 ${c.vehicles.length - 2}대` : ''}
                 </div>
               </button>
             );
           })}
+            </div>
+          ))}
         </div>
       </div>
 

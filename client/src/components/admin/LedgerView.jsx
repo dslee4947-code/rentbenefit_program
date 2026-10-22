@@ -186,7 +186,10 @@ const localToday = () => {
 // 렌트료 개시일에서 n회차 예정일을 낸다. 1월 31일 시작이면 2월은 말일로 맞춘다.
 const dueDateOf = (start, round) => {
   if (!start) return '';
-  const base = new Date(`${String(start).slice(0, 10)}T00:00:00`);
+  // 'YYYY-MM-DD'는 그 날짜 그대로, 시각이 붙은 값(DB 저장값)은 한국 시간으로 읽는다.
+  // 한국 자정은 UTC 전날 15시라 앞 10글자만 자르면 하루 앞당겨진다(3/31 → 3/30, 말일 결제가 30일로 보였다).
+  const s = String(start);
+  const base = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(`${s}T00:00:00`) : new Date(start);
   if (Number.isNaN(base.getTime())) return '';
   const target = new Date(base.getFullYear(), base.getMonth() + round - 1, 1);
   const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();

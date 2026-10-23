@@ -8,6 +8,7 @@ import { calculateQuoteOption } from '../../../../shared/quoteCalc.js';
 import { GRADE_LABEL } from '../../../../shared/maintenanceRates.js';
 import { hasOwnLoan, internalInterestFor, DEFAULT_INTERNAL_RATE } from '../../../../shared/companyFunding.js';
 import useBackClose from '../../utils/useBackClose.js';
+import { matchRentToRounds } from './rentMatch.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -307,7 +308,7 @@ function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount,
                   const isPaying = paying && paying.key === b.key && paying.round === r.round;
                   const isFixing = fixing && fixing.key === b.key && fixing.round === r.round;
                   return (
-                    <tr key={r.round} style={{ borderBottom: '1px solid var(--border-color)', background: r.paid ? '#fff' : (r.free ? '#f8fafc' : '#fffdf7') }}>
+                    <tr key={r.round} style={{ borderBottom: '1px solid var(--border-color)', background: r.paid ? '#fff' : (r.free ? '#f8fafc' : (r.overdue ? '#fef2f2' : '#fffdf7')) }}>
                       <td style={{ ...cellPad, fontSize: '0.78rem', fontWeight: '700' }}>{r.round}회</td>
                       {hasDue && <td style={{ ...cellPad, fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{r.dueDate || '-'}</td>}
                       <td style={{ ...cellPad, fontSize: '0.78rem', textAlign: 'right', whiteSpace: 'nowrap', color: r.paid ? 'inherit' : 'var(--text-muted)' }}>
@@ -331,7 +332,7 @@ function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount,
                         ) : (r.free && !r.paid ? <span style={{ color: 'var(--text-muted)' }}>0 · 쉼</span>
                           : (r.paid ? toCommaString(r.paidAmount) : ((r.expected ?? b.defaultAmount) ? toCommaString(r.expected ?? b.defaultAmount) : '-')))}
                         {r.note && !isPaying && (
-                          <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)' }} title="자동이체 수수료를 떼고 들어온 회차입니다">{r.note}</div>
+                          <div style={{ fontSize: '0.66rem', color: r.noteColor || 'var(--text-muted)', whiteSpace: 'normal' }} title={r.noteTitle || '자동이체 수수료를 떼고 들어온 회차입니다'}>{r.note}</div>
                         )}
                       </td>
                       <td style={{ ...cellPad, whiteSpace: 'nowrap' }}>
@@ -380,6 +381,8 @@ function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount,
                         ) : r.free ? (
                           <span style={{ display: 'block', textAlign: 'center', fontSize: '0.72rem', color: 'var(--text-muted)' }} title="렌트료 표에서 0원인 달입니다. 이 계약은 11개월 받고 12개월째는 받지 않습니다.">청구 없음 (쉬는 달)</span>
                         ) : canEdit ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                          {r.overdue && <span style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 800, color: '#dc2626' }}>미입금</span>}
                           <button
                             type="button"
                             onClick={() => startPay(b, r.round)}
@@ -387,8 +390,9 @@ function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount,
                           >
                             {verb} 완료
                           </button>
+                          </div>
                         ) : (
-                          <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>미{verb}</span>
+                          <span style={{ fontSize: '0.74rem', color: r.overdue ? '#dc2626' : 'var(--text-muted)', fontWeight: r.overdue ? 800 : 400 }}>미{verb}</span>
                         )}
                       </td>
                     </tr>
@@ -1392,6 +1396,23 @@ function LedgerView({ showToast, currentUser }) {
   }, [ledger]);
   const latestSeq = periods[periods.length - 1]?.seq || 1;
 
+  // 구간마다 이어진 계약의 청구서 회차. 원장 렌트료 입금을 청구서 회차(출금일)에 맞춰 보여 준다(rentMatch.js)
+  const contractIdOfPeriod = useCallback((p) => {
+    const c = p.contract || ((p.seq || 1) === 1 && periods.length <= 1 ? ledger?.contract : null);
+    return c ? String(c._id || c) : '';
+  }, [ledger, periods]);
+  const [scheduleRounds, setScheduleRounds] = useState({});
+  useEffect(() => {
+    const ids = [...new Set(periods.map(contractIdOfPeriod).filter(Boolean))];
+    if (!ids.length) return undefined;
+    let alive = true;
+    Promise.all(ids.map((id) => fetch(`${API_HOST}/api/billing-schedules/contract/${id}`)
+      .then((r) => (r.ok ? r.json() : null)).catch(() => null)
+      .then((d) => [id, d?.success ? d.schedule?.rounds || null : null])))
+      .then((pairs) => { if (alive) setScheduleRounds(Object.fromEntries(pairs.filter(([, v]) => v))); });
+    return () => { alive = false; };
+  }, [periods, contractIdOfPeriod]);
+
   // 구간별 월 렌트료. 렌트료 줄이 이보다 크면 과태료 등을 얹어 받은 것으로 본다(수익성 검토).
   const rentBySeq = useMemo(() => Object.fromEntries(periods.map((p) => [
     p.seq || 1,
@@ -1635,6 +1656,49 @@ function LedgerView({ showToast, currentUser }) {
     const terms = ledger.terms || {};
     const shown = periods.filter((p) => periodView === null || p.seq === periodView);
 
+    // 청구서 회차가 있는 구간: 청구서 회차(출금일·그 달 몫)마다 칸을 만들고 입금을 날짜로 맞춘다.
+    // 갑지 번호는 들어온 순서라 빠진 달이 안 보였다. 여기서는 안 들어온 회차가 '미입금'으로 남는다.
+    const KIND_COLOR = { '늦게 입금': '#b45309', '미납→합산': '#b45309', '일부 입금': '#b45309', '미입금': '#dc2626' };
+    const bySchedule = shown.map((p) => {
+      const seq = p.seq || 1;
+      const rounds = scheduleRounds[contractIdOfPeriod(p)];
+      if (!rounds?.length) return null;
+      const deposits = entries
+        .filter((e) => (e.periodSeq || 1) === seq && rentRoundOf(e))
+        .map((e) => ({ _id: e._id, date: e.date, amount: Number(e.amount) || 0, round: rentRoundOf(e) }));
+      const m = matchRentToRounds(rounds, deposits);
+      const rows = m.rows.map((r) => ({
+        round: r.no,
+        dueDate: r.due,
+        expected: r.own,
+        free: r.kind === '청구 없음',
+        paid: r.entryIds.length > 0,
+        paidAmount: r.paidAmount,
+        paidDate: r.paidDate,
+        entryIds: r.entryIds,
+        overdue: r.overdue,
+        note: ['정상', '청구 없음', '예정', '미입금'].includes(r.kind) ? (r.note || '') : `${r.kind}${r.note ? ` · ${r.note}` : ''}`,
+        noteColor: KIND_COLOR[r.kind],
+        noteTitle: r.kind
+      }));
+      const missing = rows.filter((r) => r.overdue).map((r) => r.round);
+      const monthlyRent = Number(p.monthlyRent) || Number(terms.monthlyRent) || 0;
+      return {
+        key: `rent-${seq}`,
+        seq,
+        monthlyRent,
+        defaultAmount: monthlyRent,
+        heading: `${shown.length > 1 ? `${periodName(seq)} · ` : ''}청구서 회차 기준 ${rows.length}회`
+          + (missing.length ? ` · 미입금 ${missing.join('·')}회` : ' · 미입금 없음')
+          + (m.unmatched.length ? ` · 회차를 못 찾은 입금 ${m.unmatched.length}건(${m.unmatched.map((u) => `${u.date} ${toCommaString(u.amount)}`).join(', ')})` : ''),
+        rounds: rows
+      };
+    });
+    if (bySchedule.some(Boolean)) {
+      // 청구서가 없는 구간은 예전처럼 갑지 번호대로
+      return bySchedule.map((b, i) => b || fallbackBlock(shown[i]));
+    }
+
     // 회차마다 금액이 다른 계약(렌트료 표, ledger.rentPlan). 예: ㈜에이치와이파트너즈
     //   1~11회 그랜저 월 115만 → 12회 쉼(0원) → 13~23회 다른 차 월 107만 → 24회 쉼 …
     // 차·금액이 바뀌는 구간마다 묶음을 나누고, 0원 회차는 '쉬는 달'로 바로 앞 구간 끝에 둔다.
@@ -1693,8 +1757,7 @@ function LedgerView({ showToast, currentUser }) {
       });
     }
 
-    return shown
-      .map((p) => {
+    function fallbackBlock(p) {
         const seq = p.seq || 1;
         const monthlyRent = Number(p.monthlyRent) || (seq === 1 ? Number(terms.monthlyRent) || 0 : 0);
         const termMonths = Number(p.termMonths) || (seq === 1 ? Number(terms.termMonths) || 0 : 0);
@@ -1734,8 +1797,10 @@ function LedgerView({ showToast, currentUser }) {
           heading: shown.length > 1 ? `${periodName(seq)} · ${rounds.length}회 · 월 ${toCommaString(monthlyRent)} 원` : null,
           rounds
         };
-      });
-  }, [ledger, periods, periodView, entries]);
+    }
+
+    return shown.map((p) => fallbackBlock(p));
+  }, [ledger, periods, periodView, entries, scheduleRounds, contractIdOfPeriod]);
 
   // 회사출금 회차표에서 "회차 추가"로 늘린 칸 수. 체크하면 줄이 생겨 그 뒤로는 저절로 남는다.
   const [extraRounds, setExtraRounds] = useState({});
@@ -1791,6 +1856,7 @@ function LedgerView({ showToast, currentUser }) {
   // 회차표에서 입금 완료를 찍으면 고객입금 열에 "렌트료 n회차" 줄이 생긴다
   const payRentRound = (block, round, date) => {
     const tag = block.seq > 1 ? ` (${block.seq - 1}차 연장)` : '';
+    const expected = block.rounds?.find((r) => r.round === round)?.expected;
     setEntries((prev) => [{
       _id: `new-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       isNew: true,
@@ -1798,7 +1864,7 @@ function LedgerView({ showToast, currentUser }) {
       group: '고객입금',
       category: '렌트료',
       label: `렌트료 ${round}회차${tag}`,
-      amount: block.monthlyRent,
+      amount: expected ?? block.monthlyRent,
       bank: draft['고객입금']?.bank || 'B',
       date,
       round,

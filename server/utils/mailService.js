@@ -156,6 +156,25 @@ export const sendFineNoticeMail = async ({ to, cc, fileName, fileBuffer, values 
 };
 
 /**
+ * 인도 서류 메일 (계약사실 증명원 + 상환스케쥴). 차량 인도 다음 날 아침에 고객 청구 메일로 보낸다.
+ *
+ * @param {object} params
+ * @param {string} params.to 받는 사람
+ * @param {string} params.fileName PDF 파일명
+ * @param {Buffer} params.fileBuffer PDF
+ * @param {object} [params.values] 치환 값 ({{계약자}} {{계약번호}} {{차량번호}} {{인도일}})
+ */
+export const sendDeliveryDocsMail = async ({ to, fileName, fileBuffer, values = {} }) => {
+  return sendTemplateMail({
+    to,
+    values,
+    templateKey: 'delivery-docs',
+    files: [{ fileName, buffer: fileBuffer, contentType: 'application/pdf' }],
+    missingToMessage: '받는 사람 이메일이 없습니다. 법인 관리에서 청구 이메일을 먼저 등록해 주세요.'
+  });
+};
+
+/**
  * 청구서·안내 메일을 보내는 계정. 고객이 받는 메일의 보내는 사람이다(대표님 지정 2026-10-19: rent@sdibenefit.com).
  * 예전에는 설정이 없으면 연락처 동기화 계정(as@)으로 보냈는데, 고객에게 엉뚱한 주소로 나가므로 rent@로 고정한다.
  */

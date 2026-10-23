@@ -28,6 +28,7 @@ import inquiryRoutes from './routes/inquiryRoutes.js';
 import vehicleServiceRoutes from './routes/vehicleServiceRoutes.js';
 import excelSyncRoutes from './routes/excelSyncRoutes.js';
 import { templateRouter as contractTemplateRoutes, documentRouter as contractDocumentRoutes } from './routes/contractDocumentRoutes.js';
+import deliveryDocsRoutes from './routes/deliveryDocsRoutes.js';
 import { runExcelAutoSync, isExcelAutoSyncEnabled } from './utils/excelAutoSync.js';
 
 // Load environment variables
@@ -41,6 +42,7 @@ import { syncInvoiceSendSchedules } from './utils/invoiceScheduleJob.js';
 import { syncFineNoticeSchedules } from './utils/fineNoticeScheduleJob.js';
 import { syncVehicleServiceSchedules } from './utils/vehicleServiceScheduleJob.js';
 import { runAutoSend, sendAutoSendReport, sendApprovalReminder, refreshAllUnbilledInterest } from './controllers/billingScheduleController.js';
+import { runDeliveryDocsSend, sendDeliveryDocsReminder } from './controllers/deliveryDocsController.js';
 
 // Connect to MongoDB database
 connectDB().then(async () => {
@@ -121,6 +123,16 @@ connectDB().then(async () => {
     sendApprovalReminder().catch((err) => console.error('[청구서 승인 알림] 실패:', err.message));
   }, CRON_OPTIONS);
   console.log('[Cron Scheduler] 청구서 자동 발송 예약 완료 (매일 09:00).');
+
+  // 인도 서류(계약사실 증명원·상환스케쥴) 발송. 인도일 다음 날 아침 9시, 담당자가 승인한 건만 보낸다.
+  cron.schedule('5 9 * * *', () => {
+    runDeliveryDocsSend().catch((err) => console.error('[인도 서류 발송] 실패:', err.message));
+  }, CRON_OPTIONS);
+  // 오후 4시: 내일 나갈 인도 서류 중 승인 안 한 건을 담당자 메일로 알린다(없으면 보내지 않는다)
+  cron.schedule('5 16 * * *', () => {
+    sendDeliveryDocsReminder().catch((err) => console.error('[인도 서류 승인 알림] 실패:', err.message));
+  }, CRON_OPTIONS);
+  console.log('[Cron Scheduler] 인도 서류 발송 예약 완료 (매일 09:05, 승인 알림 16:05).');
   // 9시에 서버가 꺼져 있었으면 그날 승인 건이 하루 밀린다. 근무 시간에 켜지면 한 번 따라잡는다.
   // 새벽 배포 때 돌면 고객이 새벽에 받게 되므로 근무 시간(9~18시)에만 돈다.
   const hour = Number(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul', hour: 'numeric', hourCycle: 'h23' }));
@@ -234,6 +246,7 @@ app.use('/api/vehicle-services', protect, vehicleServiceRoutes);
 app.use('/api/excel-sync', protect, excelSyncRoutes);
 app.use('/api/contract-templates', protect, contractTemplateRoutes);
 app.use('/api/contract-documents', protect, contractDocumentRoutes);
+app.use('/api/delivery-docs', protect, deliveryDocsRoutes);
 
 // Client-side routing: any non-/api request falls through to the SPA entry point
 if (serveClient) {

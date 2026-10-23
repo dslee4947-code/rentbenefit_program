@@ -141,6 +141,31 @@ const ContractSchema = new Schema({
     dealerCommission: Number // 타딜러수수료
   },
   gifts: [{ name: String, price: Number }],
+
+  /**
+   * 인도 서류 발송 (계약사실 증명원 + 상환스케쥴).
+   *
+   * 차량을 인도하면 차량번호가 정해지므로, 인도일 다음 날 아침 9시에 고객에게 두 서류를 보낸다.
+   * 청구서 자동 발송과 같은 길이다: 담당자가 화면에서 확인하고 승인하면 화면이 PDF를 만들어 OneDrive에 저장하고,
+   * 서버가 발송일 아침에 그 파일을 그대로 보낸다. 승인 뒤 내용이 바뀌면(지문이 다르면) 보내지 않고 '변경됨'으로 둔다.
+   *
+   * overrides는 프로그램에 없는 칸(운전자 범위·사고수리 등)을 담당자가 채운 값이다. 같은 계약을 다시 열어도 남는다.
+   */
+  deliveryDocs: {
+    status: { type: String, enum: ['승인', '발송중', '발송완료', '실패', '변경됨', '보내지 않음'] },
+    to: String,
+    approvedAt: Date,
+    approvedBy: String,
+    snapshot: String,
+    pdfFileName: String,
+    pdfSavedPath: String,
+    pdfHash: String,
+    sentAt: Date,
+    message: String,
+    overrides: Schema.Types.Mixed,
+    // 보낸 기록. 인도 다음 날 자동 발송과, 고객이 다시 요청해서 바로 보낸 것을 모두 남긴다.
+    history: [{ sentAt: Date, to: String, by: String, kind: String, fileName: String, _id: false }]
+  }
 }, { timestamps: true });
 
 // Dashboard/list filters query by `status`; populate joins query by `customer`/`vehicle`

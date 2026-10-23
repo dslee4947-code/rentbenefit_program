@@ -4,6 +4,7 @@ import QuoteInputView from './QuoteInputView.jsx';
 import ContractRegisterView from './ContractRegisterView.jsx';
 import ContractDocsView from './ContractDocsView.jsx';
 import DeliveryPrepView from './DeliveryPrepView.jsx';
+import DeliveryDocsView from './DeliveryDocsView.jsx';
 import VehicleManagementView from './VehicleManagementView.jsx';
 import VehicleServiceView from './VehicleServiceView.jsx';
 import CalendarView from './CalendarView.jsx';
@@ -48,13 +49,13 @@ import {
   Wrench,
   Landmark,
   Archive,
-  Receipt, Tags } from 'lucide-react';
+  Receipt, Tags, MailCheck } from 'lucide-react';
 
 function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   const getTabFromHash = () => {
     const hash = window.location.hash.replace('#/', '');
     // 메뉴를 새로 추가하면 여기에도 넣어야 한다. 빠지면 주소는 바뀌는데 화면은 대시보드로 되돌아간다.
-    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'contract-docs', 'delivery-prep', 'vehicles', 'vehicle-service', 'calendar', 'users', 'billing', 'invoice-archive', 'fine-notices', 'ledgers', 'handbook', 'storage-settings', 'maintenance-rates', 'company-funding', 'company-book', 'short-term-rates', 'mypage'];
+    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'contract-docs', 'delivery-prep', 'delivery-docs', 'vehicles', 'vehicle-service', 'calendar', 'users', 'billing', 'invoice-archive', 'fine-notices', 'ledgers', 'handbook', 'storage-settings', 'maintenance-rates', 'company-funding', 'company-book', 'short-term-rates', 'mypage'];
     return validTabs.includes(hash) ? hash : 'dashboard';
   };
 
@@ -126,7 +127,8 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
     { label: '계약·출고', items: [
       { id: 'contract-register', name: '계약서 등록', icon: <FileSignature size={ICON_SIZE} /> },
       { id: 'contract-docs', name: '전자계약서', icon: <FileText size={ICON_SIZE} /> },
-      { id: 'delivery-prep', name: '출고 준비', icon: <Truck size={ICON_SIZE} /> }
+      { id: 'delivery-prep', name: '출고 준비', icon: <Truck size={ICON_SIZE} /> },
+      { id: 'delivery-docs', name: '인도 서류 발송', icon: <MailCheck size={ICON_SIZE} /> }
     ] },
     { label: '차량', items: [
       { id: 'vehicles', name: '렌트차량 DB', icon: <Car size={ICON_SIZE} /> },
@@ -512,6 +514,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'contract-register' && '계약서 신규 등록'}
               {activeTab === 'contract-docs' && '전자계약서'}
               {activeTab === 'delivery-prep' && '출고 준비'}
+              {activeTab === 'delivery-docs' && '인도 서류 발송'}
               {activeTab === 'vehicles' && '렌트차량 DB 관리'}
               {activeTab === 'vehicle-service' && '차량 정비·검사 관리'}
               {activeTab === 'billing' && '장기렌트 청구서'}
@@ -537,6 +540,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'contract-register' && '확정된 견적 정보를 계약서로 신규 등록하고 입고 차량 DB 및 알림 일정을 자동 생성합니다.'}
               {activeTab === 'contract-docs' && '엑셀 전자계약서 양식을 올려 두면 견적에서 계약으로 전환할 때 계약서가 만들어집니다. 약관 원문도 버전별로 보관합니다.'}
               {activeTab === 'delivery-prep' && '계약은 완료됐지만 차량번호/차대번호 등 실물 등록이 아직 안 끝난 차량을 정리합니다.'}
+              {activeTab === 'delivery-docs' && '차량 인도 다음 날 아침, 고객에게 계약사실 증명원과 상환스케쥴을 보냅니다.'}
               {activeTab === 'vehicles' && '전체 렌트 차량의 계약정보, 잔여일정, 담당 정비 내역을 상세 조회합니다.'}
               {activeTab === 'vehicle-service' && '차마다 다음 자동차검사·정기점검 날짜를 챙기고, 정비·수리 이력과 누적 수리비를 남깁니다.'}
               {activeTab === 'billing' && '계약 건별 대여료 및 기타 추가 납입 항목을 취합하여 프리미엄 청구서를 발행 및 관리합니다.'}
@@ -618,6 +622,13 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
 
           {activeTab === 'delivery-prep' && (
             <DeliveryPrepView
+              showToast={showToast}
+              currentUser={currentUser}
+            />
+          )}
+
+          {activeTab === 'delivery-docs' && (
+            <DeliveryDocsView
               showToast={showToast}
               currentUser={currentUser}
             />

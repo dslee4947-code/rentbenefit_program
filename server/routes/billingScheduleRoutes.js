@@ -16,6 +16,7 @@ import {
   downloadHistoryTemplate,
   updateRoundPayment,
   toggleRoundUnpaid,
+  updateRoundAttachment,
   updateAttachmentNoticeStatus,
   getOverdueNotices,
   getFineNotices,
@@ -74,6 +75,8 @@ router.post('/:id/rounds/:no/unpaid', checkWritePermission, toggleRoundUnpaid);
 router.post('/:id/rounds/:no/issue', checkWritePermission, upload.single('file'), issueRound);
 router.post('/:id/rounds/:no/attachments', checkWritePermission, upload.single('file'), addRoundAttachment);
 router.delete('/:id/rounds/:no/attachments/:index', checkWritePermission, removeRoundAttachment);
+// 올린 고지서 내용 고치기(금액·납부기한·위반일·종류·고지번호·차량번호)
+router.patch('/:id/rounds/:no/attachments/:index', checkWritePermission, updateRoundAttachment);
 // 고지서 안내 메일 (계약의 범칙금 E-MAIL로 원본을 붙여 보낸다)
 router.post('/:id/rounds/:no/attachments/:index/notify', checkWritePermission, sendNoticeMail);
 // 고객이 직접 낸 고지서 표시 (청구액에서 빼되 기록은 남긴다)

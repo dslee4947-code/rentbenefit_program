@@ -53,7 +53,8 @@ export const sumAmount = (list) => (list || []).reduce((sum, a) => sum + (Number
 // 우리가 청구하지 않는 고지서 상태. 서버 recalcRound(billingScheduleController.js)와 같은 목록이다.
 //  납부완료 - 고객이 직접 냈다 / 변경완료 - 명의가 고객에게 넘어갔다 / 고객납부 - 예전 상태값
 // 예전 화면은 고객납부만 빼서, 고객이 이미 낸 과태료가 명세에 찍힐 수 있었다.
-export const NOT_BILLED_NOTICE_STATUSES = ['납부완료', '변경완료', '고객납부'];
+// 청구취소: 올린 뒤 고객이 직접 내겠다고 해 청구에서 뺀 건(대표님 2026-10-23)
+export const NOT_BILLED_NOTICE_STATUSES = ['납부완료', '변경완료', '고객납부', '청구취소'];
 export const isBilledNotice = (a) => !NOT_BILLED_NOTICE_STATUSES.includes(a?.noticeStatus);
 
 /**

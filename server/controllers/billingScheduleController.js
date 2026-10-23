@@ -70,7 +70,7 @@ const resolvePartyName = (schedule) => schedule?.company?.name
 // 고지서 처리 방식과 단계. 모델(BillingSchedule.js)의 enum과 같은 값이라야 한다.
 export const NOTICE_HANDLINGS = ['대납청구', '고객납부', '명의변경'];
 export const NOTICE_STATUSES = [
-  '접수', '안내', '운전자확인', '대납완료', '접수중', '납부완료', '변경완료', '기한초과'
+  '접수', '안내', '운전자확인', '대납완료', '접수중', '납부완료', '변경완료', '기한초과', '청구취소'
 ];
 const NOTICE_STATUS_MESSAGE = {
   접수: '접수',
@@ -80,7 +80,8 @@ const NOTICE_STATUS_MESSAGE = {
   접수중: '관공서 접수',
   납부완료: '고객이 직접 납부',
   변경완료: '명의 변경 완료',
-  기한초과: '기한 초과'
+  기한초과: '기한 초과',
+  청구취소: '고객이 직접 내기로 함(청구 취소)'
 };
 
 const recalcRound = (round) => {
@@ -94,8 +95,9 @@ const recalcRound = (round) => {
   //  납부완료 - 고객이 직접 냈다
   //  변경완료 - 명의가 고객에게 넘어가 우리 손을 떠났다
   //  고객납부 - 예전 상태값. 쓰던 데이터를 살린다
+  //  청구취소 - 고객이 직접 내겠다고 해 청구에서 뺐다(낸 것을 확인하면 납부완료)
   // '있는지'는 상태와 무관하게 보고 '얼마인지'만 걸러야, 모두 빠진 회차에서 예전 금액이 남지 않는다.
-  const NOT_BILLED = ['납부완료', '변경완료', '고객납부'];
+  const NOT_BILLED = ['납부완료', '변경완료', '고객납부', '청구취소'];
   const billable = (a) => !NOT_BILLED.includes(a.noticeStatus);
 
   if (hasAmount(isFine)) round.fine = sumOf((a) => isFine(a) && billable(a));
@@ -2227,6 +2229,62 @@ export const removeRoundAttachment = async (req, res) => {
 };
 
 /**
+ * 올린 고지서의 내용을 고친다(금액·납부기한·위반일·종류·고지번호·차량번호).
+ *
+ * 금액이나 기한을 잘못 읽었거나, 올린 뒤 내용이 바뀐 경우(대표님 2026-10-23). 지우고 다시 올리지 않아도 된다.
+ * 금액이 바뀌면 이 회차 청구액을 다시 맞추고, 캘린더 납부기한 일정도 새 값으로 다시 건다.
+ * 이미 발행한 회차는 고객이 받은 금액과 어긋나므로 고치지 않는다.
+ *
+ * @route PATCH /api/billing-schedules/:id/rounds/:no/attachments/:index
+ */
+export const updateRoundAttachment = async (req, res) => {
+  try {
+    const schedule = await BillingSchedule.findById(req.params.id);
+    if (!schedule) return res.status(404).json({ success: false, message: '회차표를 찾을 수 없습니다.' });
+    const round = schedule.rounds.find((r) => r.no === Number(req.params.no));
+    if (!round) return res.status(404).json({ success: false, message: '해당 회차가 없습니다.' });
+    const att = round.attachments[Number(req.params.index)];
+    if (!att) return res.status(404).json({ success: false, message: '해당 서류가 없습니다.' });
+    if (round.issuedAt) {
+      return res.status(400).json({ success: false, message: '이미 발행한 회차라 고칠 수 없습니다. 다음 회차에서 조정해 주세요.' });
+    }
+
+    const oldKey = noticeKeyOf(att, schedule._id, round.no);
+    const b = req.body || {};
+    const dateOf = (v) => (v ? new Date(`${String(v).slice(0, 10)}T00:00:00+09:00`) : undefined);
+    if (b.amount !== undefined) {
+      const amount = Number(String(b.amount).replace(/[^0-9]/g, '')) || 0;
+      att.amount = amount;
+    }
+    if (b.noticeDueDate !== undefined) att.noticeDueDate = dateOf(b.noticeDueDate);
+    if (b.occurredAt !== undefined) att.occurredAt = dateOf(b.occurredAt);
+    if (b.kind !== undefined && String(b.kind).trim()) att.kind = String(b.kind).trim();
+    if (b.noticeNo !== undefined) att.noticeNo = String(b.noticeNo).trim() || undefined;
+    if (b.plateNo !== undefined) att.plateNo = String(b.plateNo).trim();
+
+    // 금액을 다시 더한다(손으로 넣은 금액이 남지 않게, 서류에 금액이 하나도 없으면 0으로)
+    recalcAfterRemoval(round);
+    await schedule.save();
+
+    // 캘린더 납부기한 일정: 열쇠(고지번호·차량·위반일·금액)가 바뀌었을 수 있어 지우고 다시 건다
+    await Schedule.deleteOne({ 'source.key': oldKey });
+    await schedule.populate([{ path: 'company', select: 'name' }, { path: 'customer', select: 'name' }]);
+    await upsertNoticeSchedule({ schedule, round, attachment: att, partyName: schedule.company?.name || schedule.customer?.name || '' })
+      .catch((err) => console.error('[고지서 수정] 캘린더 다시 걸기 실패:', err.message));
+
+    logActivity({
+      req, dept: '재무부', action: ACTIONS.ROUND_STATUS_CHANGE,
+      target: { model: 'BillingSchedule', id: schedule._id },
+      summary: `${round.no}회차 고지서 수정 (${att.kind} ${Number(att.amount || 0).toLocaleString()}원)`,
+      meta: { round: round.no, kind: att.kind, amount: att.amount, noticeNo: att.noticeNo }
+    });
+    res.json({ success: true, round, attachment: att, message: `고지서를 고쳤습니다. ${round.no}회차 청구액은 ${Number(round.total || 0).toLocaleString()}원입니다.` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
  * 고지서 한 건의 단계를 바꾼다.
  *
  * 한 건씩 누를 때와 여러 건을 한꺼번에 처리할 때가 같은 규칙을 써야 한다.
@@ -2307,7 +2365,7 @@ export const updateAttachmentNoticeStatus = async (req, res) => {
     await schedule.save();
     await syncNoticeSchedule(att, schedule._id, round.no, status);
 
-    const billed = !['납부완료', '변경완료'].includes(status);
+    const billed = !['납부완료', '변경완료', '청구취소'].includes(status);
     res.json({
       success: true,
       round,

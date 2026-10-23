@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { AlertCircle, RefreshCw, Search, X, Upload, CheckCircle2, Clock, FileWarning, Mail, Trash2 } from 'lucide-react';
+import { AlertCircle, RefreshCw, Search, X, Upload, CheckCircle2, Clock, FileWarning, Mail, Trash2, Pencil } from 'lucide-react';
+import MoneyInput from './MoneyInput.jsx';
+import useBackClose from '../../utils/useBackClose.js';
 import UpcomingDocUpload from './UpcomingDocUpload.jsx';
 import BulkNoticeUpload from './BulkNoticeUpload.jsx';
 import RentalNoticeList from './RentalNoticeList.jsx';
@@ -45,7 +47,8 @@ const NEXT_STEP = {
     접수: { to: '운전자확인', label: '운전자 확인', hint: '누가 운전했는지 확인했습니다.' },
     안내: { to: '운전자확인', label: '운전자 확인', hint: '누가 운전했는지 확인했습니다.' },
     운전자확인: { to: '납부완료', label: '납부 확인', hint: '고객이 직접 냈습니다. 청구액에서 뺍니다.' },
-    기한초과: { to: '납부완료', label: '납부 확인', hint: '뒤늦게라도 고객이 냈으면 누르세요.' }
+    기한초과: { to: '납부완료', label: '납부 확인', hint: '뒤늦게라도 고객이 냈으면 누르세요.' },
+    청구취소: { to: '납부완료', label: '납부 확인', hint: '고객이 직접 낸 것을 확인했습니다.' }
   },
   명의변경: {
     접수: { to: '운전자확인', label: '운전자 확인', hint: '누가 운전했는지 확인했습니다.' },
@@ -65,6 +68,7 @@ const STATUS_STYLE = {
   납부완료: { bg: '#dcfce7', color: '#16a34a' },
   변경완료: { bg: '#dcfce7', color: '#16a34a' },
   기한초과: { bg: '#fee2e2', color: '#ef4444' },
+  청구취소: { bg: '#fef9c3', color: '#a16207' },
   청구예정: { bg: '#f1f5f9', color: '#475569' },
   고객납부: { bg: '#dcfce7', color: '#16a34a' }
 };
@@ -316,6 +320,56 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
       const data = await res.json();
       showToast?.(data.message || (data.success ? '처리했습니다.' : '처리하지 못했습니다.'), data.success ? 'success' : 'error');
       await fetchNotices();
+    } catch {
+      showToast?.('서버 통신 오류가 발생했습니다.', 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /**
+   * 고지서를 올린 뒤 고객이 "직접 내겠다"고 할 때(대표님 2026-10-23).
+   * 지우지 않고 '청구취소'로 두어 청구액에서만 뺀다. 고객이 낸 것을 확인하면 [납부 확인],
+   * 기한까지 안 내면 [다시 청구]로 되돌린다.
+   */
+  const cancelBilling = async (x) => {
+    const what = [x.partyName, x.plateNo, x.kind, won(x.amount || 0)].filter(Boolean).join(' · ');
+    if (!window.confirm(`고객이 직접 내기로 했나요?\n\n${what}\n\n${x.roundNo}회차 청구액에서 뺍니다. 고지서 기록은 남고,\n고객이 낸 것을 확인하면 [납부 확인], 안 내면 [다시 청구]를 누르세요.`)) return;
+    await setNoticeStatus(x, '청구취소', { handling: '고객납부' });
+  };
+  const rebill = async (x) => {
+    if (!window.confirm(`${x.plateNo} · ${x.kind} ${won(x.amount || 0)}\n\n다시 ${x.roundNo}회차 청구액에 넣을까요?`)) return;
+    await setNoticeStatus(x, '접수', { handling: x.contractHandling || '대납청구' });
+  };
+
+  // 고지서 내용 고치기(금액·납부기한·위반일·종류·고지번호·차량번호)
+  const [fixing, setFixing] = useState(null); // { row, amount, noticeDueDate, occurredAt, kind, noticeNo, plateNo }
+  useBackClose(Boolean(fixing), () => setFixing(null));
+  const openFix = (x) => setFixing({
+    row: x,
+    amount: x.amount || '',
+    noticeDueDate: ymd(x.noticeDueDate) === '-' ? '' : ymd(x.noticeDueDate),
+    occurredAt: ymd(x.occurredAt) === '-' ? '' : ymd(x.occurredAt),
+    kind: x.kind || '',
+    noticeNo: x.noticeNo || '',
+    plateNo: x.plateNo || ''
+  });
+  const saveFix = async () => {
+    const x = fixing.row;
+    const rid = `${x.scheduleId}-${x.roundNo}-${x.index}`;
+    try {
+      setBusy(rid);
+      const res = await fetch(`${API_HOST}/api/billing-schedules/${x.scheduleId}/rounds/${x.roundNo}/attachments/${x.index}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-User-Role': currentUser?.role || 'viewer' },
+        body: JSON.stringify({
+          amount: fixing.amount, noticeDueDate: fixing.noticeDueDate, occurredAt: fixing.occurredAt,
+          kind: fixing.kind, noticeNo: fixing.noticeNo, plateNo: fixing.plateNo
+        })
+      });
+      const data = await res.json();
+      showToast?.(data.message || (data.success ? '고쳤습니다.' : '고치지 못했습니다.'), data.success ? 'success' : 'error');
+      if (data.success) { setFixing(null); await fetchNotices(); }
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
     } finally {
@@ -692,7 +746,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                 <th style={{ ...thStyle, textAlign: 'center' }}>고객 안내</th>
                 <th style={{ ...thStyle, textAlign: 'center' }}>지금 단계</th>
                 <th style={{ ...thStyle, textAlign: 'center' }}>다음 할 일</th>
-                <th style={{ ...thStyle, textAlign: 'center', width: '44px' }}>삭제</th>
+                <th style={{ ...thStyle, textAlign: 'center', width: '64px' }}>수정·삭제</th>
               </tr>
             </thead>
             <tbody>
@@ -896,8 +950,45 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                           </button>
                         );
                       })()}
+                      {/* 올린 뒤 고객이 직접 내겠다고 하면: 청구에서 빼기 / 다시 넣기 */}
+                      {!x.issued && !paid && x.noticeStatus !== '청구취소' && x.noticeStatus !== '대납완료' && (
+                        <button
+                          type="button"
+                          onClick={() => cancelBilling(x)}
+                          disabled={busy === id}
+                          title="고객이 직접 내기로 했습니다. 청구액에서 빼고 고지서 기록은 남깁니다."
+                          style={{ display: 'block', margin: '0.25rem auto 0', border: 'none', background: 'none', color: '#a16207', fontSize: '0.72rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', textDecoration: 'underline' }}
+                        >
+                          고객 직접 납부(청구 취소)
+                        </button>
+                      )}
+                      {!x.issued && x.noticeStatus === '청구취소' && (
+                        <button
+                          type="button"
+                          onClick={() => rebill(x)}
+                          disabled={busy === id}
+                          title="고객이 기한까지 안 냈으면 다시 청구액에 넣습니다"
+                          style={{ display: 'block', margin: '0.25rem auto 0', border: 'none', background: 'none', color: 'var(--primary)', fontSize: '0.72rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', textDecoration: 'underline' }}
+                        >
+                          다시 청구
+                        </button>
+                      )}
                     </td>
-                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                    <td style={{ ...tdStyle, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => openFix(x)}
+                        disabled={x.issued || busy === id}
+                        title={x.issued ? '이미 청구서를 발행한 회차라 고칠 수 없습니다' : '금액·납부기한·위반일 등을 고칩니다'}
+                        style={{
+                          border: 'none', background: 'none', padding: '0.2rem',
+                          color: x.issued ? 'var(--text-muted)' : 'var(--primary)',
+                          cursor: (x.issued || busy === id) ? 'not-allowed' : 'pointer',
+                          opacity: (x.issued || busy === id) ? 0.4 : 1
+                        }}
+                      >
+                        <Pencil size={15} />
+                      </button>
                       <button
                         type="button"
                         onClick={() => removeOne(x)}
@@ -919,6 +1010,43 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
             </tbody>
           </table>
         </div>
+      {fixing && (
+        <div onClick={() => setFixing(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div onClick={(ev) => ev.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', width: '100%', maxWidth: '440px', maxHeight: '90vh', overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 800 }}>고지서 고치기</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{fixing.row.partyName} · {fixing.row.roundNo}회차에 붙음</div>
+              </div>
+              <button type="button" onClick={() => setFixing(null)} aria-label="닫기" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={20} /></button>
+            </div>
+            {[
+              ['kind', '종류 (범칙금·과태료·통행료 등)', 'text'],
+              ['plateNo', '차량번호', 'text'],
+              ['noticeNo', '고지번호', 'text'],
+              ['occurredAt', '위반일', 'date'],
+              ['noticeDueDate', '납부기한', 'date']
+            ].map(([k, label, type]) => (
+              <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)' }}>
+                {label}
+                <input type={type} value={fixing[k]} onChange={(ev) => setFixing((f) => ({ ...f, [k]: ev.target.value }))}
+                  style={{ padding: '0.45rem 0.55rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.88rem', color: 'var(--text-bright)' }} />
+              </label>
+            ))}
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)' }}>
+              금액 (청구액에 들어가는 금액)
+              <MoneyInput value={fixing.amount} onChange={(ev) => setFixing((f) => ({ ...f, amount: ev.target.value }))}
+                style={{ padding: '0.45rem 0.55rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.88rem', textAlign: 'right' }} />
+            </label>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>저장하면 {fixing.row.roundNo}회차 청구액과 캘린더 납부기한이 새 값으로 바뀝니다.</div>
+            <div style={{ display: 'flex', gap: '0.4rem' }}>
+              <button type="button" onClick={saveFix} disabled={Boolean(busy)} style={{ flex: 1, padding: '0.6rem', borderRadius: '8px', border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 800, cursor: 'pointer' }}>저장</button>
+              <button type="button" onClick={() => setFixing(null)} style={{ flex: 1, padding: '0.6rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: '#fff', fontWeight: 700, cursor: 'pointer' }}>취소</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       </div>
 
       <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>

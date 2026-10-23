@@ -532,6 +532,53 @@ const quotePlanOf = (quote) => {
 const NOT_OPERATING = new Set(['계약금', '차량가', '등록비용', '할부이자', '할부금', '대출금', '보험', '자동차세', '검사비', '제세공과', '수리·사고', '정기점검', '차량작업']);
 
 /**
+ * 보험료 정산(대표님 2026-10-23). 보험료 = 보험 + 공제조합 보험료 − 보험료 환급(고객입금 열의 '삼성보험료 환급'·'자차보험 환급' 등).
+ * 공제조합 출자금은 나중에 돌려받는 돈이라 보험료가 아니다. 수리비는 보험료와 따로 본다(자차보험료로 막는 돈).
+ */
+const isCoopShare = (e) => e.category === '공제조합' && /출자/.test(e.label || '');
+const isInsurancePremium = (e) => e.side === '지출' && (e.category === '보험' || (e.category === '공제조합' && !isCoopShare(e)));
+const isInsuranceRefund = (e) => e.side === '입금' && /환급/.test(`${e.category || ''} ${e.label || ''}`) && /보험|공제|자차/.test(e.label || '');
+
+/**
+ * 회사가 먼저 낸 과태료·통행료를 고객에게서 돌려받았는지 한 건씩 맞춘다.
+ *
+ * 과태료는 다음 달 렌트료에 얹어 함께 빠져나간다(대표님 2026-10-23). 그래서 과태료를 낸 날 뒤
+ * 100일 안의 렌트료 입금 중(청구가 한두 달 늦은 경우가 있다: Benz-003 2023-09-04 과태료 → 11/30 24회차) 월 렌트료보다 더 들어온 돈(차액)이 과태료만큼 남아 있으면 그 입금으로 돌려받은 것으로 본다.
+ * 청구서로 받는 계약은 원장 렌트료 줄에 렌트료만 적기도 해서, 청구서 회차의 범칙금(입금완료)도 함께 본다.
+ * 예전에는 렌트료 차액을 통째로 더해 보았는데, 1회차 일할 정산처럼 큰 차액이 과태료를 전부 덮어 '회수'로 보였다.
+ *
+ * @returns {Array<{entry, via: string|null, date: string}>} 과태료 줄마다 돌려받은 곳(없으면 null)
+ */
+const RECOVER_WINDOW_DAYS = 100;
+const matchFineRecovery = (entries, rentBySeq, billingRounds = []) => {
+  const dayOf = (d) => Math.floor(new Date(String(d).slice(0, 10)).getTime() / 864e5);
+  const fines = entries.filter((e) => e.side === '지출' && e.category === '과태료·통행료' && Number(e.amount) > 0 && e.date)
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const rents = entries.filter((e) => e.side === '입금' && (rentRoundOf(e) || e.category === '렌트료') && e.date)
+    .map((e) => ({ e, left: (Number(e.amount) || 0) - (rentBySeq[e.periodSeq || 1] || 0) }))
+    .filter((r) => r.left > 0)
+    .sort((a, b) => String(a.e.date).localeCompare(String(b.e.date)));
+  const billed = billingRounds.filter((r) => Number(r.fine) > 0 && r.status === '입금완료' && (r.paidAt || r.dueDate))
+    .map((r) => ({ r, day: String(r.paidAt || r.dueDate).slice(0, 10), left: Number(r.fine) }))
+    .sort((a, b) => a.day.localeCompare(b.day));
+  return fines.map((f) => {
+    const amount = Number(f.amount);
+    const within = (d) => dayOf(d) > dayOf(f.date) && dayOf(d) - dayOf(f.date) <= RECOVER_WINDOW_DAYS;
+    const rent = rents.find((x) => within(x.e.date) && x.left >= amount);
+    if (rent) {
+      rent.left -= amount;
+      return { entry: f, via: `${String(rent.e.date).slice(0, 10)} ${rent.e.label || '렌트료'}에 얹어 받음`, date: String(rent.e.date).slice(0, 10) };
+    }
+    const bill = billed.find((x) => within(x.day) && x.left >= amount);
+    if (bill) {
+      bill.left -= amount;
+      return { entry: f, via: `${bill.day} 청구서 ${bill.r.no}회 범칙금으로 받음`, date: bill.day };
+    }
+    return { entry: f, via: null, date: '' };
+  });
+};
+
+/**
  * 원장 출금 줄을 견적의 정비 항목에 맞춘다. 이름(자유 입력)으로 판정하므로 위에서부터 먼저 맞는 것을 쓴다.
  * "브레이크 오일"은 브레이크 패드가 아니라 오일류라 먼저 본다. 브레이크 앞·뒤는 원장에서 구분이 안 돼 한 줄로 본다.
  * 정비 항목인데 분류가 '기타'라 운영비(판관비)로 잡히던 줄(배터리 교체 등)도 여기서 정비로 옮긴다.
@@ -628,7 +675,7 @@ const BUDGET_BUCKETS = [
   { key: 'operating', name: '운영비 (판관비)', desc: '탁송·과태료(미회수)·기타' },
   { key: 'vehicleWork', name: '차량작업', desc: '썬팅·블랙박스 등. 판매 수수료로 충당' },
   { key: 'loan', name: '대출 원금 상환', desc: '빌린 돈을 갚는 것이라 예산 비교에서 뺌' },
-  { key: 'deposit', name: '보증금', desc: '돌려줄 돈이라 예산 비교에서 뺌' }
+  { key: 'deposit', name: '보증금 · 출자금', desc: '돌려주거나 돌려받을 돈이라 예산 비교에서 뺌' }
 ];
 
 /**
@@ -641,7 +688,7 @@ const isExciseTax = (e) => e.side === '지출' && /개별\s*소비세|개소세/
 const bucketOf = (e) => {
   const cat = e.category || '기타';
   if (isExciseTax(e)) return 'purchase';
-  if (cat === '보증금') return 'deposit';
+  if (cat === '보증금' || isCoopShare(e)) return 'deposit';
   if (cat === '할부금' || cat === '대출금') return 'loan';
   if (cat === '차량가' || cat === '계약금') return 'purchase';
   if (['등록비용', '제세공과', '자동차세', '검사비'].includes(cat)) return 'registration';
@@ -669,13 +716,15 @@ function BudgetBoard({ plan, entries, income, internalRate, salesCommission }) {
   const sum = (key) => groups[key].reduce((s, e) => s + (Number(e.amount) || 0), 0);
   // 보험료 환급(입금)은 보험·수리에서 쓴 돈을 줄인다. 보험사를 바꾸며 돌려받은 보험료 등.
   const insuranceRefund = entries
-    .filter((e) => e.side === '입금' && e.category === '환급' && /보험|공제/.test(e.label || ''))
+    .filter(isInsuranceRefund)
     .reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
+  // 보험료는 해마다 나간다. 견적이 계약 전체보다 짧으면(연장한 차, 견적이 지금 계약 1년만 본 경우) 연 보험료로 전체 기간을 채운다
+  const insuranceScale = plan.months > 0 && income.months > plan.months ? income.months / plan.months : 1;
   const budget = {
     purchase: plan.netVehiclePrice || 0,
     registration: (plan.registrationCost || 0) + (plan.carTaxTotal || 0),
-    insurance: (plan.baseInsurance || 0) + (plan.ownCarInsurance || 0),
+    insurance: ((plan.baseInsurance || 0) + (plan.ownCarInsurance || 0)) * insuranceScale,
     maintenance: plan.maintenanceOn ? (plan.maintenanceFee || 0) + (plan.tireFee || 0) : 0,
     finance: Math.max(0, plan.fundingInterest || 0),
     operating: plan.pandanbi || 0,
@@ -971,7 +1020,7 @@ function PurchaseCheck({ plan, actual }) {
  * 견적이 맞았는지, 어디서 새고 있는지를 차 한 대 단위로 보려는 칸이다.
  * 계약 구간을 골라 봐도 이 칸은 차 1대 전체 기준이다. 견적이 차 1대 전체 기간을 놓고 계산한 값이기 때문이다.
  */
-function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, maturityPlan, canEdit, onMemoChange, onMaturityChange }) {
+function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRounds, memo, maturityPlan, canEdit, onMemoChange, onMaturityChange }) {
   const [state, setState] = useState({ loading: true, quote: null, estimate: null, reason: '' });
   // 회사 내부 금리. 회사 돈으로 산 차의 이자를 매길 때 쓴다(관리 > 회사 자금·내부 금리)
   const [internalRate, setInternalRate] = useState(DEFAULT_INTERNAL_RATE);
@@ -997,7 +1046,8 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
 
   const actual = useMemo(() => {
     const out = {
-      insurance: 0, repair: 0, maintenance: 0, tire: 0, operating: 0, operatingByCat: {}, rentReceived: 0, salesCommission: 0, vehicleWork: 0, fines: 0, rentExtra: 0,
+      insurance: 0, insuranceRefund: 0, firstPremiumDate: '', coopShare: 0,
+      repair: 0, maintenance: 0, tire: 0, operating: 0, operatingByCat: {}, rentReceived: 0, salesCommission: 0, vehicleWork: 0, fines: 0,
       // 정비 항목별 실제 지출(건수·금액)과 차 구입·등록·금융·세금 실제 출금
       maintByKey: {}, vehiclePurchase: 0, vehiclePrice: 0, vehicleDeposit: 0, vehicleExcise: 0, registration: 0, loanInterest: 0, loanRepayment: 0, carTax: 0
     };
@@ -1005,12 +1055,9 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
       const amount = Number(e.amount) || 0;
       if (!amount) return;
       if (e.side === '입금') {
-        if (rentRoundOf(e) || e.category === '렌트료') {
-          out.rentReceived += amount;
-          // 월 렌트료보다 더 받은 금액. 과태료·미납통행료를 다음 렌트료에 얹어 받은 돈이다.
-          const monthly = rentBySeq[e.periodSeq || 1] || 0;
-          if (monthly && amount > monthly) out.rentExtra += amount - monthly;
-        } else if (isSalesCommission(e)) out.salesCommission += amount;
+        if (rentRoundOf(e) || e.category === '렌트료') out.rentReceived += amount;
+        else if (isSalesCommission(e)) out.salesCommission += amount;
+        else if (isInsuranceRefund(e)) out.insuranceRefund += amount;
         return;
       }
       const cat = e.category || '기타';
@@ -1034,8 +1081,13 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
       }
       if (cat === '과태료·통행료') out.fines += amount;
       else if (cat === '차량작업') out.vehicleWork += amount;
-      // 공제조합(렌터카공제 보험·출자금)은 보험이다. 예산 현황(보험·수리)과 같게 센다 — 예전에는 판관비로 잡혀 '판관비 초과'가 떴다(Benz-003)
-      else if (cat === '보험' || cat === '공제조합') out.insurance += amount;
+      // 공제조합 보험료는 보험이다(예전에는 판관비로 잡혀 '판관비 초과'가 떴다, Benz-003). 출자금은 돌려받을 돈이라 따로 둔다
+      else if (isCoopShare(e)) out.coopShare += amount;
+      else if (isInsurancePremium(e)) {
+        out.insurance += amount;
+        const d = String(e.date || '').slice(0, 10);
+        if (d && (!out.firstPremiumDate || d < out.firstPremiumDate)) out.firstPremiumDate = d;
+      }
       else if (cat === '수리·사고') out.repair += amount;
       else if (cat === '정기점검') out.maintenance += amount;
       else if (!NOT_OPERATING.has(cat)) {
@@ -1045,18 +1097,19 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
     });
 
     /**
-     * 과태료·미납통행료는 회사가 먼저 내고 다음 달 렌트료에 얹어 받는다.
-     * 렌트료로 더 받은 만큼은 돌려받은 돈이라 운영비가 아니다. 덜 받은 나머지만 운영비로 남긴다.
-     * 더 받은 돈이 과태료보다 많아도(연체 이자 등) 과태료 금액까지만 회수로 본다.
+     * 과태료·미납통행료는 회사가 먼저 내고 다음 달 렌트료에 얹어 받는다. 한 건씩 돌려받은 곳을 맞추고(matchFineRecovery)
+     * 돌려받은 것은 운영비가 아니다. 못 찾은 것만 운영비(미회수)로 남긴다.
      */
-    out.finesRecovered = Math.min(out.fines, out.rentExtra);
+    out.fineMatches = matchFineRecovery(entries, rentBySeq, billingRounds);
+    out.finesRecovered = out.fineMatches.filter((m) => m.via).reduce((s, m) => s + Number(m.entry.amount), 0);
     const finesLeft = out.fines - out.finesRecovered;
     if (finesLeft > 0) {
       out.operating += finesLeft;
       out.operatingByCat['과태료·통행료 (미회수)'] = finesLeft;
     }
+    out.insuranceNet = out.insurance - out.insuranceRefund;
     return out;
-  }, [entries, rentBySeq]);
+  }, [entries, rentBySeq, billingRounds]);
 
   let body;
   if (state.loading) {
@@ -1070,8 +1123,11 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
       </div>
     );
   } else {
-    const insuranceBudget = plan.baseInsurance + plan.ownCarInsurance;
-    const ownLeft = plan.ownCarInsurance - actual.repair;
+    // 견적 보험료를 1년치로 바꿔 둔다. 실제 보험료와는 해마다 얼마인지로 비교한다(아래)
+    const yearFactor = plan.months > 0 ? 12 / plan.months : 0;
+    const baseInsuranceYear = plan.baseInsurance * yearFactor;
+    const ownCarInsuranceYear = plan.ownCarInsurance * yearFactor;
+    const insuranceYear = baseInsuranceYear + ownCarInsuranceYear;
     const pandanbiLeft = plan.pandanbi - actual.operating;
     const opCats = Object.entries(actual.operatingByCat).sort((a, b) => b[1] - a[1]);
     const commissionNet = actual.salesCommission - actual.vehicleWork;
@@ -1103,6 +1159,22 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
       : Number(terms?.advancePayment) || plan.advancePayment || 0;
     const totalMonths = rentLines.reduce((sum, l) => sum + l.months, 0);
     const rentTotal = rentLines.reduce((sum, l) => sum + l.total, 0);
+
+    /**
+     * 보험료 정산(대표님 2026-10-23). 견적은 계약 기간(연장한 차는 지금 계약 1년만 본 추정치일 수 있다) 기준이라
+     * 연 보험료로 바꿔 계약 전체 기간을 채우고, 실제는 (보험 + 공제조합 보험료 − 보험료 환급)을 낸 햇수로 나눠 해마다 얼마인지 본다.
+     * 예전에는 5년치 실제 보험료를 1년치 견적과 비교해 763%가 나왔다(Benz-003).
+     */
+    const contractYears = Math.max(totalMonths, plan.months) / 12;
+    const insuranceBudget = insuranceYear * contractYears;
+    const ownCarBudget = ownCarInsuranceYear * contractYears;
+    const ownLeft = ownCarBudget - actual.repair;
+    const monthsSincePremium = actual.firstPremiumDate
+      ? (new Date().getFullYear() - Number(actual.firstPremiumDate.slice(0, 4))) * 12 + (new Date().getMonth() + 1 - Number(actual.firstPremiumDate.slice(5, 7)))
+      : 0;
+    // 보험은 1년치를 먼저 내므로 시작한 해도 1년으로 센다
+    const premiumYears = actual.firstPremiumDate ? Math.min(Math.max(1, Math.floor(monthsSincePremium / 12) + 1), Math.ceil(contractYears)) : 0;
+    const premiumPerYear = premiumYears ? actual.insuranceNet / premiumYears : 0;
     const returned = maturityPlan === '반납';
     // 반납이면 인수가가 들어오지 않는다. 대신 차를 중고차로 팔아 메워야 한다(아래 목표 매각가).
     const revenue = rentTotal + (returned ? 0 : takeover) + advance;
@@ -1114,7 +1186,8 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
 
     // 지금까지 실제 비용이 예상을 넘은 만큼은 이익에서 깎인다. 정비 미포함 고객의 정비비는 전부 예상 밖 비용이다.
     const maintenanceSpent = actual.maintenance + actual.tire;
-    const overrun = Math.max(0, actual.insurance + actual.repair - insuranceBudget)
+    // 보험은 지금까지 낸 햇수만큼의 견적과 비교한다(남은 해의 보험료는 아직 안 나갔다)
+    const overrun = Math.max(0, actual.insuranceNet + actual.repair - insuranceYear * Math.max(premiumYears, 1))
       + Math.max(0, actual.operating - plan.pandanbi)
       + (plan.maintenanceOn ? Math.max(0, maintenanceSpent - (plan.maintenanceFee + plan.tireFee)) : maintenanceSpent);
     // 판매 수수료와 차량작업비는 견적에 없는 돈이다. 수수료에서 작업비를 뺀 나머지가 이익에 더해진다.
@@ -1225,15 +1298,20 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
         />
 
         <Section no={1} title="보험료 · 자차보험료">
-          <Row label="견적 보험료 (대인·대물 등)" value={won(plan.baseInsurance)} muted />
-          <Row label="견적 자차보험료" value={won(plan.ownCarInsurance)} muted />
-          <Row label="견적 보험료 합계" value={won(insuranceBudget)} strong />
-          <Row label="실제 보험 납부" value={won(actual.insurance)} />
-          <Meter used={actual.insurance} budget={insuranceBudget} />
+          <Row label="견적 보험료 (대인·대물 등, 1년)" value={won(baseInsuranceYear)} muted />
+          <Row label="견적 자차보험료 (1년)" value={won(ownCarInsuranceYear)} muted />
+          <Row label={`견적 보험료 합계 (1년 · 계약 ${Math.round(contractYears * 10) / 10}년이면 ${toCommaString(Math.round(insuranceBudget))})`} value={won(insuranceYear)} strong />
+          <Divider />
+          <Row label="보험 납부 (보험 + 공제조합 보험료)" value={won(actual.insurance)} muted />
+          {actual.insuranceRefund > 0 && <Row label="· 보험료 환급 (고객입금 열)" value={`- ${won(actual.insuranceRefund)}`} muted color="#2f6f4e" />}
+          <Row label={`실제 보험료${premiumYears ? ` (${premiumYears}년치)` : ''}`} value={won(actual.insuranceNet)} />
+          <Row label="1년 평균 보험료" value={won(Math.round(premiumPerYear))} strong />
+          <Meter used={premiumPerYear} budget={insuranceYear} />
+          {actual.coopShare > 0 && <Row label="· 공제조합 출자금 (돌려받을 돈, 보험료에서 뺌)" value={won(actual.coopShare)} muted />}
           <Divider />
           <Row label="수리 · 사고 비용" value={won(actual.repair)} />
-          <Row label="자차보험료에서 쓴 금액" value={won(Math.min(actual.repair, plan.ownCarInsurance))} />
-          <Meter used={actual.repair} budget={plan.ownCarInsurance} />
+          <Row label="자차보험료에서 쓴 금액" value={won(Math.min(actual.repair, ownCarBudget))} />
+          <Meter used={actual.repair} budget={ownCarBudget} />
           <Row label={ownLeft >= 0 ? '자차보험료 남은 금액' : '자차보험료 초과'} value={won(Math.abs(ownLeft))} strong color={ownLeft >= 0 ? '#2f6f4e' : '#d9534f'} />
         </Section>
 
@@ -1256,7 +1334,19 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
           {actual.fines > 0 && (
             <>
               <Row label="과태료 · 미납통행료 (회사 대납)" value={won(actual.fines)} muted />
-              <Row label="· 렌트료에 얹어 회수" value={`- ${won(actual.finesRecovered)}`} muted color="#2f6f4e" />
+              <Row label="· 다음 렌트료·청구서로 돌려받음" value={`- ${won(actual.finesRecovered)}`} muted color="#2f6f4e" />
+              {/* 한 건씩: 낸 날 → 돌려받은 곳. 못 찾은 건은 빨갛게. 건수가 많아 접어 둔다 */}
+              <details style={{ margin: '0.2rem 0 0.3rem', padding: '0.3rem 0.45rem', background: 'var(--bg-main)', borderRadius: '6px', fontSize: '0.7rem', lineHeight: 1.55 }}>
+                <summary style={{ cursor: 'pointer', fontWeight: '700', color: actual.fineMatches.some((m) => !m.via) ? '#d9534f' : 'var(--text-muted)' }}>
+                  건별로 보기 · {actual.fineMatches.length}건 중 돌려받은 곳 못 찾음 {actual.fineMatches.filter((m) => !m.via).length}건
+                </summary>
+                {actual.fineMatches.map((m) => (
+                  <div key={m.entry._id || `${m.entry.date}-${m.entry.amount}`} style={{ color: m.via ? 'var(--text-muted)' : '#d9534f' }}>
+                    {String(m.entry.date).slice(0, 10)} {m.entry.label} {toCommaString(m.entry.amount)}
+                    {' → '}{m.via || '돌려받은 곳을 못 찾음'}
+                  </div>
+                ))}
+              </details>
             </>
           )}
           <Row label="운영하며 들어간 비용" value={won(actual.operating)} />
@@ -1416,6 +1506,8 @@ function LedgerView({ showToast, currentUser }) {
       .then((pairs) => { if (alive) setScheduleRounds(Object.fromEntries(pairs.filter(([, v]) => v))); });
     return () => { alive = false; };
   }, [periods, contractIdOfPeriod]);
+  // 과태료를 청구서 범칙금으로 돌려받았는지 볼 때 쓴다(수익성 검토)
+  const billingRounds = useMemo(() => Object.values(scheduleRounds).flat(), [scheduleRounds]);
 
   // 구간별 월 렌트료. 렌트료 줄이 이보다 크면 과태료 등을 얹어 받은 것으로 본다(수익성 검토).
   const rentBySeq = useMemo(() => Object.fromEntries(periods.map((p) => [
@@ -2703,6 +2795,7 @@ function LedgerView({ showToast, currentUser }) {
         terms={ledger.terms}
         periods={periods}
         rentBySeq={rentBySeq}
+        billingRounds={billingRounds}
         memo={ledger.profitReport}
         canEdit={canEdit}
         onMemoChange={(v) => { setLedger((prev) => ({ ...prev, profitReport: v })); setDirty(true); }}

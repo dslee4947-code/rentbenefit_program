@@ -332,13 +332,49 @@ function TemplatesPanel({ showToast, isAdmin, onOpenTerms }) {
 
 /**
  * 약관 원문.
- *  - 조항별: 엑셀 폭에 맞춰 끊긴 줄을 이어 붙인 읽기 쉬운 본(글자는 그대로, 줄바꿈만 정리)
+ *  - 조항별: 엑셀 폭에 맞춰 끊긴 줄을 이어 붙인 읽기 쉬운 본(글자는 그대로, 줄바꿈만 정리).
+ *    왼쪽 목차로 조항을 오가고, 낱말 찾기로 걸러 본다.
  *  - 장별 전체: 엑셀이 만든 계약서 원본 PDF(값 칸 비움, A4 12쪽). 인쇄·저장은 PDF 보기 화면에서 한다
- *  - 원문 그대로: 엑셀 줄바꿈까지 그대로(대조용)
+ * 엑셀 줄바꿈까지 그대로인 원문은 DB(template.pages)에 남겨 두고 화면에는 보이지 않는다(약관 분석·대조용).
  */
+const TERMS_FONT = "'Pretendard', 'Malgun Gothic', sans-serif";
+
+/** 찾는 말을 노란색으로 */
+function Mark({ text, q }) {
+  if (!q) return text;
+  const parts = String(text).split(new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
+  return parts.map((p, i) => (i % 2 ? <mark key={i} style={{ background: '#fde68a', padding: 0 }}>{p}</mark> : p));
+}
+
+function ClauseBody({ items, q }) {
+  return items.map((it, j) => {
+    if (it.kind === 'box') {
+      return (
+        <div key={j} style={{ border: '1px solid #cbd5e1', borderLeft: '4px solid #94a3b8', borderRadius: 6, padding: '0.6rem 0.9rem', margin: '0.6rem 0', fontSize: '0.92rem', lineHeight: 1.75, background: '#f8fafc' }}>
+          {it.lines.map((l, k) => <div key={k}><Mark text={l} q={q} /></div>)}
+        </div>
+      );
+    }
+    const level = it.level || 0;
+    // 항목 번호(①, 1., 가., A.)는 내어쓰기: 번호는 왼쪽에 걸고 글은 번호 뒤에 가지런히
+    return (
+      <p key={j} style={{
+        margin: level === 1 ? '0.7rem 0 0.35rem' : '0 0 0.35rem',
+        fontSize: '1rem', lineHeight: 1.85, color: '#1e293b', wordBreak: 'keep-all',
+        fontWeight: it.bold ? 700 : 400,
+        ...(level ? { paddingLeft: `${(level - 1) * 1.3 + 1.6}em`, textIndent: '-1.6em' } : {})
+      }}
+      >
+        <Mark text={it.text} q={q} />
+      </p>
+    );
+  });
+}
+
 function TermsPanel({ templateId, showToast }) {
   const [template, setTemplate] = useState(null);
   const [mode, setMode] = useState('clauses');
+  const [query, setQuery] = useState('');
   const [pdf, setPdf] = useState({ url: '', error: '' });
   useEffect(() => {
     if (!templateId) return;
@@ -364,75 +400,101 @@ function TermsPanel({ templateId, showToast }) {
   if (!templateId) return <div style={{ padding: '1.5rem', ...small }}>양식 관리에서 [약관 원문]을 눌러 주세요.</div>;
   if (!template || !readable) return <div style={{ padding: '1.5rem', ...small }}>불러오는 중...</div>;
 
-  const saveText = (kind) => {
-    const body = kind === 'raw'
-      ? template.pages.map((p) => `######## ${p.sheet}\n${p.text}`).join('\n\n')
-      : readableTermsText(readable);
+  const saveText = () => {
     const text = [
       `${template.name} (버전 ${template.version}) · ${template.fileName}`,
       `원본 확인값(SHA-256): ${template.sha256}`,
-      kind === 'raw' ? '원문 그대로(엑셀 줄바꿈 포함)' : '읽기 쉬운 본(엑셀 폭에 맞춘 줄바꿈만 이어 붙임, 글자는 원문 그대로)',
+      '읽기 쉬운 본(엑셀 폭에 맞춘 줄바꿈만 이어 붙임, 글자는 원문 그대로)',
       '',
-      body
+      readableTermsText(readable)
     ].join('\n');
     const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `계약서_약관${kind === 'raw' ? '원문' : ''}_v${template.version}.txt`;
+    a.download = `계약서_약관_v${template.version}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
+  const q = query.trim();
+  const hit = (c) => !q || [c.heading, ...c.items.map((it) => it.text || (it.lines || []).join(' '))].some((t) => String(t).toLowerCase().includes(q.toLowerCase()));
+  const clauses = readable.clauses.map((c, i) => ({ ...c, id: `clause-${i}` }));
+  const shown = clauses.filter(hit);
+  const parts = [...new Set(clauses.map((c) => c.part))];
+  const jump = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   const modeBtn = (id, label) => (
     <button type="button" onClick={() => setMode(id)} style={btn(mode === id ? '#2563eb' : '#334155', mode === id)}>{label}</button>
   );
 
   return (
-    <div className="terms-panel" style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
-      <div className="no-print" style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+      <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <strong>{template.name}</strong><span style={small}>버전 {template.version} · 약관 {readable.clauses.length}개 조항</span>
         {modeBtn('clauses', '조항별')}
-        {modeBtn('pages', '장별 전체 (A4)')}
-        {modeBtn('raw', '원문 그대로')}
+        {modeBtn('pages', '장별 전체 (원본 PDF)')}
         <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem' }}>
-          <button type="button" onClick={() => saveText('readable')} style={btn()}><Download size={12} /> 읽기 쉬운 본 .txt</button>
-          <button type="button" onClick={() => saveText('raw')} style={btn()}><Download size={12} /> 원문 .txt</button>
+          <button type="button" onClick={saveText} style={btn()}><Download size={12} /> 약관 .txt 받기</button>
         </span>
       </div>
-      <div className="no-print" style={{ ...small, lineHeight: 1.5 }}>
-        {mode === 'raw'
-          ? '엑셀의 셀 글과 글상자 글을 줄바꿈까지 원문 그대로 모았습니다. 계약자 정보가 들어가는 칸은 [항목 이름]으로 표시했습니다.'
-          : mode === 'pages'
-            ? '엑셀이 만든 계약서 원본 PDF입니다(값 칸은 비어 있음). 인쇄·저장은 PDF 화면 위쪽 단추로 합니다. 계약마다 값이 들어간 PDF는 [계약서] 탭에서 봅니다.'
-            : '엑셀 칸 폭에 맞추려고 문장 중간에서 바꾼 줄을 이어 붙였습니다. 글자는 원문 그대로이고, ①·1.·가.·A. 같은 항목은 새 문단으로 둡니다. 서명란·동의 상자·계산식(글상자)은 줄을 그대로 둡니다.'}
-      </div>
 
-      {mode === 'clauses' && readable.clauses.map((c, i) => (
-        <div key={`${c.part}-${c.no}-${i}`} style={{ border: '1px solid var(--border-color)', borderRadius: 8, background: '#fff', padding: '0.8rem 1rem' }}>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
-            <strong style={{ color: 'var(--text-bright)', fontSize: '0.95rem' }}>{c.heading}</strong>
-            <span style={small}>{c.part} · {c.page}</span>
-          </div>
-          <div style={{ marginTop: '0.5rem', maxWidth: 820 }}>
-            {c.items.map((it, j) => (it.kind === 'box' ? (
-              <div key={j} style={{ border: '1px solid var(--border-color)', borderRadius: 6, padding: '0.4rem 0.6rem', margin: '0.35rem 0', fontSize: '0.82rem', lineHeight: 1.6, background: '#f8fafc' }}>
-                {it.lines.map((l, k) => <div key={k}>{l}</div>)}
+      {mode === 'clauses' && (
+        // 목차와 본문을 화면 높이 안에서 각자 스크롤한다(대시보드는 창 전체가 스크롤돼 sticky가 듣지 않는다)
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'stretch', height: 'calc(100vh - 230px)', minHeight: 420 }}>
+          {/* 목차: 누르면 그 조항으로 간다 */}
+          <nav className="terms-toc" style={{ width: 240, flexShrink: 0, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 8, background: '#fff', padding: '0.6rem' }}>
+            <div style={{ position: 'relative', marginBottom: '0.5rem' }}>
+              <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="낱말 찾기 (예: 위약금, 반납)" style={{ ...input, paddingLeft: '1.7rem' }} />
+            </div>
+            {q && <div style={{ ...small, marginBottom: '0.4rem' }}>{shown.length}개 조항에 있음</div>}
+            {parts.map((part) => (
+              <div key={part} style={{ marginBottom: '0.6rem' }}>
+                <div style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)', margin: '0.2rem 0 0.25rem' }}>{part}</div>
+                {clauses.filter((c) => c.part === part).map((c) => {
+                  const on = shown.includes(c);
+                  return (
+                    <button key={c.id} type="button" onClick={() => jump(c.id)} disabled={!on}
+                      style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', background: 'none', padding: '0.28rem 0.35rem', borderRadius: 5, fontSize: '0.83rem', color: on ? 'var(--text-bright)' : '#cbd5e1', cursor: on ? 'pointer' : 'default', fontFamily: TERMS_FONT }}
+                    >
+                      <b style={{ color: on ? '#2563eb' : '#cbd5e1', marginRight: 4 }}>제{c.no}조</b>{c.title}
+                    </button>
+                  );
+                })}
               </div>
-            ) : (
-              <p key={j} style={{
-                margin: '0 0 0.35rem', fontSize: '0.88rem', lineHeight: 1.75, color: 'var(--text-bright)', wordBreak: 'keep-all',
-                ...(it.level ? { paddingLeft: it.level * 14 + 16, textIndent: -16 } : {})
-              }}
-              >
-                {it.text}
-              </p>
-            )))}
+            ))}
+          </nav>
+
+          {/* 본문: 읽기 좋은 폭(약 42자)·큰 글자·넉넉한 줄 간격 */}
+          <div className="terms-reader" style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: '#fff', border: '1px solid var(--border-color)', borderRadius: 8, padding: '1.5rem 2rem 3rem' }}>
+            <div style={{ maxWidth: 760, margin: '0 auto', fontFamily: TERMS_FONT }}>
+              {parts.map((part) => {
+                const list = shown.filter((c) => c.part === part);
+                if (!list.length) return null;
+                return (
+                  <section key={part} style={{ marginBottom: '2rem' }}>
+                    <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', borderBottom: '2px solid #0f172a', paddingBottom: '0.4rem', margin: '0 0 1rem' }}>{part}</h2>
+                    {list.map((c) => (
+                      <article key={c.id} id={c.id} style={{ scrollMarginTop: 12, padding: '0.4rem 0 1.4rem', borderBottom: '1px solid #e2e8f0', marginBottom: '1.2rem' }}>
+                        <h3 style={{ fontSize: '1.08rem', fontWeight: 800, color: '#0f172a', margin: '0 0 0.6rem', display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+                          <span style={{ background: '#1e3a8a', color: '#fff', borderRadius: 4, padding: '0.05rem 0.45rem', fontSize: '0.9rem' }}>제{c.no}조</span>
+                          <Mark text={c.title} q={q} />
+                          <span style={{ ...small, fontWeight: 400, marginLeft: 'auto' }}>{c.page}</span>
+                        </h3>
+                        <ClauseBody items={c.items} q={q} />
+                      </article>
+                    ))}
+                  </section>
+                );
+              })}
+              {!shown.length && <div style={{ ...small, padding: '2rem 0', textAlign: 'center' }}>"{q}"이(가) 들어간 조항이 없습니다.</div>}
+            </div>
           </div>
         </div>
-      ))}
+      )}
 
       {mode === 'pages' && (
         <div style={{ background: '#f1f5f9', borderRadius: 8, padding: '0.6rem' }}>
+          <div style={{ ...small, marginBottom: '0.4rem' }}>엑셀이 만든 계약서 원본 PDF입니다(값 칸은 비어 있음). 인쇄·저장은 PDF 화면 위쪽 단추로 합니다. 계약마다 값이 들어간 PDF는 [계약서] 탭에서 봅니다.</div>
           {pdf.error ? (
             <div style={{ padding: '2rem', color: '#b91c1c', background: '#fff', borderRadius: 6 }}>{pdf.error}</div>
           ) : pdf.url ? (
@@ -442,14 +504,6 @@ function TermsPanel({ templateId, showToast }) {
           )}
         </div>
       )}
-
-      {mode === 'raw' && template.pages.map((p) => (
-        <div key={p.sheet} style={{ border: '1px solid var(--border-color)', borderRadius: 8, background: '#fff', padding: '0.7rem 0.9rem' }}>
-          <strong>{p.sheet}</strong>{p.twoColumn && <span style={small}> · 두 단</span>}
-          <div style={{ whiteSpace: 'pre-wrap', fontSize: '0.8rem', lineHeight: 1.6, marginTop: '0.4rem' }}>{p.text}</div>
-        </div>
-      ))}
-
     </div>
   );
 }

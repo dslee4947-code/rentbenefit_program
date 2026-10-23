@@ -59,6 +59,43 @@ const isCovered = (type, old, item) => {
 };
 
 /**
+ * 차마다 정비·검사 기록을 모은다. 같은 번호판의 기록을 모두 합친다.
+ *
+ * 계약이 끝나고 같은 차로 새 계약을 하면 차량 문서가 하나 더 생긴다(G90-001과 G90-001_1).
+ * 검사·점검은 실제 차를 따라가므로, 예전 문서에 붙은 기록(원장 이관 등)도 지금 차의 기록으로 센다.
+ *
+ * @param {object[]} vehicles _id, plateNo가 있어야 한다
+ * @param {string} [select] 고를 칸. 없으면 전부
+ * @returns {Promise<Map<string, object[]>>} 차량 id → 기록(날짜 내림차순)
+ */
+export const loadServiceRecords = async (vehicles, select) => {
+  const plateKey = (p) => String(p || '').replace(/\s+/g, '');
+  const plates = [...new Set(vehicles.map((v) => v.plateNo).filter(Boolean))];
+  let query = VehicleService.find({ $or: [{ vehicle: { $in: vehicles.map((v) => v._id) } }, { plateNo: { $in: plates } }] })
+    .sort({ date: -1, createdAt: -1 });
+  if (select) query = query.select(`${select} plateNo`);
+  const records = await query.lean();
+  const byVehicle = new Map();
+  const byPlate = new Map();
+  for (const r of records) {
+    for (const [map, k] of [[byVehicle, String(r.vehicle)], [byPlate, plateKey(r.plateNo)]]) {
+      if (!k) continue;
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push(r);
+    }
+  }
+  const out = new Map();
+  for (const v of vehicles) {
+    const seen = new Set();
+    const list = [...(byVehicle.get(String(v._id)) || []), ...(v.plateNo ? byPlate.get(plateKey(v.plateNo)) || [] : [])]
+      .filter((r) => (seen.has(String(r._id)) ? false : seen.add(String(r._id))));
+    list.sort((a, b) => new Date(b.date) - new Date(a.date));
+    out.set(String(v._id), list);
+  }
+  return out;
+};
+
+/**
  * 차마다 다음 자동차검사·정기점검을 캘린더(Schedule)에 하나씩 맞춰 둔다.
  *
  * 계약을 등록할 때 몇 년 치를 한꺼번에 넣으면 기록이 쌓여도 날짜가 따라오지 않는다.
@@ -81,18 +118,11 @@ export const syncVehicleServiceSchedules = async ({ dryRun = false } = {}) => {
     .populate('contract', 'leaseCompany')
     .populate('company', 'name')
     .lean();
-  const records = await VehicleService.find({ vehicle: { $in: vehicles.map((v) => v._id) } })
-    .select('vehicle kind date mileage amount description')
-    .lean();
-  const recordsByVehicle = new Map();
-  for (const r of records) {
-    const k = String(r.vehicle);
-    if (!recordsByVehicle.has(k)) recordsByVehicle.set(k, []);
-    recordsByVehicle.get(k).push(r);
-  }
+  const recordsByVehicle = await loadServiceRecords(vehicles, 'vehicle kind date mileage amount description status');
 
   const existing = await Schedule.find({ 'source.key': { $regex: '^svc:' } }).lean();
   const existingByKey = new Map(existing.map((s) => [s.source.key, s]));
+  const existingKeys = new Set(existing.map((s) => s.source.key));
   const keep = new Set();
 
   let created = 0;
@@ -116,9 +146,13 @@ export const syncVehicleServiceSchedules = async ({ dryRun = false } = {}) => {
       if (old && old.dueDate.getTime() !== dueDate.getTime() && dueDate > old.dueDate && isCovered(type, old, item)) {
         // 받은 일정은 열쇠를 바꿔 '완료'로 남긴다. 열쇠를 비우면 다음 날 또 새로 만들게 된다.
         const oldYmd = new Date(old.dueDate.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+        const closedKey = `${key}:${oldYmd}`;
         if (!dryRun) {
-          await Schedule.updateOne({ _id: old._id }, { $set: { status: '완료', 'source.key': `${key}:${oldYmd}` } });
+          // 같은 날짜의 '완료' 일정이 이미 있으면(기록을 지우고 다시 넣은 경우 등) 겹치는 이 일정은 지운다
+          if (existingKeys.has(closedKey)) await Schedule.deleteOne({ _id: old._id });
+          else await Schedule.updateOne({ _id: old._id }, { $set: { status: '완료', 'source.key': closedKey } });
         }
+        existingKeys.add(closedKey);
         closed += 1;
         existingByKey.delete(key);
       }

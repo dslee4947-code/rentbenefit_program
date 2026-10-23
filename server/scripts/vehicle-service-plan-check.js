@@ -21,8 +21,8 @@ check('말일 + 1개월은 다음 달 말일', () => {
 check('검사: 기록이 없으면 등록 2년 뒤가 첫 검사', () => {
   const r = nextInspection({ registrationDate: '2025-12-03' }, [], TODAY);
   assert.equal(r.date, '2027-12-03');
-  assert.equal(r.windowStart, '2027-11-02');
-  assert.equal(r.windowEnd, '2028-01-03');
+  assert.equal(r.windowStart, '2027-10-03'); // 검사일 2개월 전
+  assert.equal(r.windowEnd, '2028-01-03'); // 검사일 1개월 뒤
   assert.equal(r.status, '예정');
 });
 
@@ -37,7 +37,7 @@ check('검사: 기간보다 며칠 앞선 납부일도 그 회차로 친다', ()
   assert.equal(r.date, '2026-12-15');
 });
 
-check('검사: 기간 끝(검사일 + 31일)이 지나면 지남', () => {
+check('검사: 기간 끝(검사일 + 1개월)이 지나면 지남', () => {
   const r = nextInspection({ registrationDate: '2021-10-24' }, [{ kind: '자동차검사', date: '2024-10-30' }], TODAY);
   assert.equal(r.date, '2025-10-24');
   assert.equal(r.status, '지남');
@@ -46,6 +46,13 @@ check('검사: 기간 끝(검사일 + 31일)이 지나면 지남', () => {
 check('검사: 검사일은 지났어도 기간 안이면 30일 이내', () => {
   const r = nextInspection({ registrationDate: '2024-09-20' }, [], TODAY);
   assert.equal(r.date, '2026-09-20');
+  assert.equal(r.status, '30일 이내');
+});
+
+check('검사: 기록이 한 건도 없으면 지난 회차는 받은 것으로 보고 이번 회차를 확인 필요로 보여 준다', () => {
+  const r = nextInspection({ registrationDate: '2021-10-24' }, [], TODAY);
+  assert.equal(r.date, '2026-10-24');
+  assert.equal(r.unverified, true);
   assert.equal(r.status, '30일 이내');
 });
 

@@ -75,6 +75,16 @@ const main = async () => {
   const already = new Set((await VehicleService.find({ ledgerEntryId: { $ne: null } }).select('ledgerEntryId').lean())
     .map((r) => String(r.ledgerEntryId)));
 
+  // 같은 검사·점검이 캘린더 이관 기록이나 앞서 고른 원장 줄(본 금액·부가세 두 줄)에 이미 있으면 건너뛴다.
+  // 원장은 돈을 낸 날이라 실제 날짜와 며칠 어긋나므로 10일 안이면 같은 건으로 본다.
+  // 두 번 세면 정기점검 횟수가 부풀고 회차가 어긋난다.
+  const SAME_WITHIN_DAYS = 10;
+  const DEDUPE_KINDS = ['자동차검사', '정기점검'];
+  const seen = (await VehicleService.find({ kind: { $in: DEDUPE_KINDS } }).select('vehicle kind date').lean())
+    .map((r) => ({ vehicle: String(r.vehicle), kind: r.kind, t: new Date(r.date).getTime() }));
+  const isDuplicate = (vehicleId, kind, date) => DEDUPE_KINDS.includes(kind) && seen.some((s) => s.vehicle === String(vehicleId)
+    && s.kind === kind && Math.abs(s.t - new Date(date).getTime()) <= SAME_WITHIN_DAYS * 864e5);
+
   const toCreate = [];
   const skipped = {};
   const noVehicle = new Set();
@@ -95,6 +105,8 @@ const main = async () => {
       if (!vehicle) { noVehicle.add(`${ledger.ledgerNo} ${ledger.header?.plateNo || '(차량번호 없음)'}`); skipped['차량 못 찾음'] = (skipped['차량 못 찾음'] || 0) + 1; continue; }
       const svc = toService(entry);
       if (svc.skip) { skipped[svc.skip] = (skipped[svc.skip] || 0) + 1; continue; }
+      if (isDuplicate(vehicle._id, svc.kind, svc.date)) { skipped['이미 있는 같은 검사·점검(10일 안)'] = (skipped['이미 있는 같은 검사·점검(10일 안)'] || 0) + 1; continue; }
+      seen.push({ vehicle: String(vehicle._id), kind: svc.kind, t: new Date(svc.date).getTime() });
       toCreate.push({
         vehicle: vehicle._id,
         plateNo: vehicle.plateNo || '',

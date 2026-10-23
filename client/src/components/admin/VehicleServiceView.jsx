@@ -1,49 +1,104 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, X, ExternalLink, Trash2, Pencil, Search } from 'lucide-react';
-import MoneyInput from './MoneyInput.jsx';
+import VehicleServiceForm from './VehicleServiceForm.jsx';
+import CarDamageMap from './CarDamageMap.jsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
 const won = (n) => `${Number(n || 0).toLocaleString()}원`;
-const ymd = (d) => (d ? String(d).slice(0, 10) : '');
-const todayYmd = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+// DB 날짜는 한국 자정(전날 15:00Z)으로 저장된다. 그대로 자르면 하루 앞 날짜가 나와서 한국 시간으로 바꿔 자른다.
+const ymd = (d) => {
+  if (!d) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(d))) return String(d);
+  const t = new Date(d).getTime();
+  return Number.isNaN(t) ? String(d).slice(0, 10) : new Date(t + 9 * 3600e3).toISOString().slice(0, 10);
 };
 
-// 서버(utils/vehicleServicePlan.js)와 같은 값이라야 한다
-const KINDS = ['자동차검사', '정기점검', '고장수리', '사고수리', '소모품교환', '기타'];
+/** 입고·출고 시각과 주행거리, 수리 기간을 한 줄로 */
+const periodText = (r) => {
+  const km = (n) => (n ? ` (${Number(n).toLocaleString()}km)` : '');
+  const days = r.inAt && r.outAt ? Math.max(0, Math.round((new Date(r.outAt) - new Date(r.inAt)) / 86400000)) : null;
+  return [
+    r.inAt ? `입고 ${ymd(r.inAt)}${km(r.mileageIn)}` : '',
+    r.outAt ? `출고 ${ymd(r.outAt)}${km(r.mileageOut)}` : '',
+    days !== null ? `${days}일` : ''
+  ].filter(Boolean).join(' → ');
+};
 
-const STATUS_COLOR = { 지남: 'var(--error)', '30일 이내': '#d97706', 예정: 'var(--text-muted)' };
+const transportFeeOf = (r) => (r.transport?.in?.fee || 0) + (r.transport?.out?.fee || 0);
 
 const ddayText = (dday) => {
   if (dday === null || dday === undefined) return '';
   if (dday > 0) return `D-${dday}`;
-  return dday === 0 ? '오늘' : `${-dday}일 지남`;
+  return dday === 0 ? 'D-day' : `D+${-dday}`;
 };
 
-// 위 칩을 누르면 그 상태의 차만 남긴다. 아침에 "오늘 챙길 차"만 보려는 용도다.
-const FILTERS = [
-  { id: 'insp-over', label: '검사 지남', test: (r) => r.inspection?.status === '지남' },
-  { id: 'insp-soon', label: '검사 30일 이내', test: (r) => r.inspection?.status === '30일 이내' },
-  { id: 'maint-over', label: '점검 지남', test: (r) => r.maintenance?.status === '지남' },
-  { id: 'maint-soon', label: '점검 30일 이내', test: (r) => r.maintenance?.status === '30일 이내' }
-];
+const todayYmd = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
 
-/** 다음 날짜 한 칸: 날짜 + D-day + 상태 */
-function Due({ item }) {
+/**
+ * 자동차검사 긴급도.
+ * 검사 기간은 검사일 2개월 전부터 1개월 뒤까지인데, 회사 방침은 검사일 전에 끝내는 것이다.
+ * 그래서 2개월 안으로 들어오면 표시하고, 검사일을 넘기면(유예 1개월) 더 진하게, 기간까지 넘기면 빨갛게 한다.
+ * 정비 포함 여부와 상관없이 검사는 받아야 하므로 이 차들은 목록 맨 위로 올린다.
+ */
+const INSPECTION_LEVEL = {
+  over: { rank: 0, label: '기간 지남', bg: '#fee2e2', fg: '#b91c1c' },
+  grace: { rank: 1, label: '검사일 지남', bg: '#ffedd5', fg: '#c2410c' },
+  due: { rank: 2, label: '2개월 이내', bg: '#fef9c3', fg: '#a16207' }
+};
+const inspectionLevelOf = (r, today = todayYmd()) => {
+  const i = r.inspection;
+  if (!i) return null;
+  if (i.windowEnd < today) return 'over';
+  if (i.date < today) return 'grace';
+  if (i.windowStart <= today) return 'due';
+  return null;
+};
+const MAINT_COLOR = { 지남: 'var(--error)', '30일 이내': '#d97706' };
+
+/** 상세 패널의 날짜 한 칸: 날짜 + D-day */
+function Due({ item, color }) {
   return (
-    <>
-      <div style={{ fontWeight: 700, color: 'var(--text-bright)' }}>
-        {item.date}{' '}
-        <span style={{ fontSize: '0.72rem', fontWeight: 800, color: STATUS_COLOR[item.status] }}>{ddayText(item.dday)}</span>
-      </div>
-      <div style={{ fontSize: '0.72rem', color: STATUS_COLOR[item.status], fontWeight: item.status === '예정' ? 400 : 700 }}>{item.status}</div>
-    </>
+    <div style={{ fontWeight: 800, color: 'var(--text-bright)' }}>
+      {item.date}{' '}
+      <span style={{ fontSize: '0.78rem', color: color || 'var(--text-muted)' }}>{ddayText(item.dday)}</span>
+    </div>
   );
 }
 
-const EMPTY_FORM = { kind: '정기점검', date: '', mileage: '', amount: '', shop: '', description: '', memo: '' };
+// 위 칩을 누르면 그 상태의 차만 남긴다. 아침에 "오늘 챙길 차"만 보려는 용도다.
+const FILTERS = [
+  { id: 'insp-over', label: '검사일 지남', color: '#b91c1c', test: (r) => ['over', 'grace'].includes(inspectionLevelOf(r)) },
+  { id: 'insp-due', label: '검사 2개월 이내', color: '#a16207', test: (r) => inspectionLevelOf(r) === 'due' },
+  { id: 'maint-over', label: '점검 지남', color: 'var(--error)', test: (r) => r.maintenance?.status === '지남' },
+  { id: 'maint-soon', label: '점검 30일 이내', color: '#d97706', test: (r) => r.maintenance?.status === '30일 이내' },
+  { id: 'insp-unverified', label: '검사 기록 없음', color: '#6d28d9', test: (r) => Boolean(r.inspection?.unverified) }
+];
+
+// 정비 포함 장기렌트와 단기렌트(사고대차 포함)는 회사가 정비를 챙기는 차라 먼저 본다
+const isCareGroup = (r) => r.generalMaintenance === '가입' || r.status === '단기렌트' || r.status === '사고대차';
+const groupText = (r) => (r.status === '장기렌트' ? (r.generalMaintenance === '가입' ? '장기 · 정비' : '장기') : '단기');
+
+/**
+ * 목록 순서.
+ * 1) 자동차검사가 급한 차 (기간 지남 → 검사일 지남 → 2개월 이내), 정비 포함 여부와 상관없이
+ * 2) 정비 포함·단기렌트 차 중 정기점검이 지났거나 30일 안인 차
+ * 3) 나머지 정비 포함·단기렌트 차
+ * 4) 정비 미포함 차
+ * 같은 묶음 안에서는 정비 포함 차가 먼저, 그다음 날짜가 이른 차가 먼저다.
+ */
+const rankOf = (r) => {
+  const level = inspectionLevelOf(r);
+  if (level) return INSPECTION_LEVEL[level].rank;
+  if (!isCareGroup(r)) return 6;
+  if (r.maintenance?.status === '지남') return 3;
+  if (r.maintenance?.status === '30일 이내') return 4;
+  return 5;
+};
+const urgencyDday = (r) => {
+  if (inspectionLevelOf(r)) return r.inspection.dday;
+  return Math.min(r.inspection?.dday ?? 99999, isCareGroup(r) ? (r.maintenance?.dday ?? 99999) : 99999);
+};
 
 /**
  * 차량 정비·검사 관리.
@@ -62,10 +117,9 @@ function VehicleServiceView({ showToast, currentUser }) {
   const [filter, setFilter] = useState('');
   const [selectedId, setSelectedId] = useState(null);
   const [detail, setDetail] = useState(null); // { row, records }
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [file, setFile] = useState(null);
-  const [editingId, setEditingId] = useState(null); // 고치는 중인 기록. 없으면 새로 적는다
-  const [saving, setSaving] = useState(false);
+  // 상세 입력 양식(테스트판). { record: null }이면 새 기록, record가 있으면 고치기
+  const [formOpen, setFormOpen] = useState(null);
+  const [transportRates, setTransportRates] = useState([]);
 
   const canWrite = currentUser?.role !== 'viewer';
 
@@ -84,7 +138,12 @@ function VehicleServiceView({ showToast, currentUser }) {
     try {
       const res = await fetch(`${API_HOST}/api/vehicle-services/vehicle/${vehicleId}`, { cache: 'no-store' });
       const data = await res.json();
-      if (data.success) setDetail({ row: data.row, records: data.records || [] });
+      if (data.success) {
+        setDetail({ row: data.row, records: data.records || [] });
+        // 목록의 그 줄도 같이 맞춘다. 목록을 열어 둔 사이 기록이 바뀌면 상세와 목록이 달라 보였다.
+        setRows((prev) => prev.map((r) => (r.vehicleId === data.row?.vehicleId ? data.row : r)));
+        setTransportRates(data.transportRates || []);
+      }
       else showToast?.(data.message || '차량 기록을 불러오지 못했습니다.', 'error');
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
@@ -92,14 +151,18 @@ function VehicleServiceView({ showToast, currentUser }) {
   };
 
   useEffect(() => { load(); }, [load]);
+  // 다른 창(캘린더 등)에 갔다 돌아오면 목록을 다시 불러온다
+  useEffect(() => {
+    const onFocus = () => load();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [load]);
 
   const openVehicle = (vehicleId) => {
     setDetail(null);
     setSelectedId(vehicleId);
     loadDetail(vehicleId);
-    setForm({ ...EMPTY_FORM, date: todayYmd() });
-    setFile(null);
-    setEditingId(null);
+    setFormOpen(null);
   };
 
   const closePanel = () => {
@@ -107,61 +170,12 @@ function VehicleServiceView({ showToast, currentUser }) {
     setDetail(null);
   };
 
-  const startEdit = (r) => {
-    setEditingId(r._id);
-    setFile(null);
-    setForm({
-      kind: r.kind,
-      date: ymd(r.date),
-      mileage: r.mileage ?? '',
-      amount: r.amount ?? '',
-      shop: r.shop || '',
-      description: r.description || '',
-      memo: r.memo || ''
-    });
-  };
+  const startEdit = (r) => setFormOpen({ record: r });
 
-  const resetForm = () => {
-    setEditingId(null);
-    setFile(null);
-    setForm({ ...EMPTY_FORM, date: todayYmd() });
-  };
-
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!canWrite) { showToast?.('권한이 없습니다. 관리자에게 문의하세요.', 'error'); return; }
-    if (!form.date) { showToast?.('날짜를 적어 주세요.', 'error'); return; }
-    setSaving(true);
-    try {
-      let res;
-      if (editingId) {
-        res = await fetch(`${API_HOST}/api/vehicle-services/${editingId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(form)
-        });
-      } else {
-        // 영수증 파일을 함께 보낼 수 있어 FormData로 보낸다
-        const fd = new FormData();
-        fd.append('vehicleId', selectedId);
-        Object.entries(form).forEach(([k, v]) => fd.append(k, v ?? ''));
-        if (file) fd.append('file', file);
-        res = await fetch(`${API_HOST}/api/vehicle-services`, { method: 'POST', body: fd });
-      }
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) {
-        showToast?.(data.message || '저장하지 못했습니다.', 'error');
-        return;
-      }
-      showToast?.(data.message || '저장했습니다.', 'success');
-      resetForm();
-      loadDetail(selectedId);
-      load();
-    } catch {
-      showToast?.('서버 통신 오류가 발생했습니다.', 'error');
-    } finally {
-      setSaving(false);
-    }
+  const afterSave = () => {
+    setFormOpen(null);
+    loadDetail(selectedId);
+    load();
   };
 
   const remove = async (r) => {
@@ -169,16 +183,16 @@ function VehicleServiceView({ showToast, currentUser }) {
     const res = await fetch(`${API_HOST}/api/vehicle-services/${r._id}`, { method: 'DELETE' });
     const data = await res.json().catch(() => ({}));
     showToast?.(data.message || '처리했습니다.', data.success ? 'success' : 'error');
-    if (editingId === r._id) resetForm();
     loadDetail(selectedId);
     load();
   };
 
   // 창을 먼저 열어 두지 않으면 팝업 차단에 걸린다
-  const openFile = async (r) => {
+  // i: 상세 양식의 첨부 여러 장 중 몇 번째인지. 없으면 예전 영수증 한 장
+  const openFile = async (r, i) => {
     const win = window.open('', '_blank');
     try {
-      const res = await fetch(`${API_HOST}/api/vehicle-services/${r._id}/file`);
+      const res = await fetch(`${API_HOST}/api/vehicle-services/${r._id}/file${i !== undefined ? `?i=${i}` : ''}`);
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         win?.close();
@@ -198,19 +212,20 @@ function VehicleServiceView({ showToast, currentUser }) {
   const visible = rows
     .filter((r) => !q || [r.plateNo, r.carModel, r.partyName].some((x) => String(x || '').replace(/\s+/g, '').toLowerCase().includes(q)))
     .filter((r) => !activeFilter || activeFilter.test(r))
-    // 급한 차부터: 검사·점검 중 더 이른 날짜 순
-    .sort((a, b) => {
-      const da = Math.min(a.inspection?.dday ?? 99999, a.maintenance?.dday ?? 99999);
-      const db = Math.min(b.inspection?.dday ?? 99999, b.maintenance?.dday ?? 99999);
-      return da - db;
-    });
+    // 급한 차부터 (rankOf 설명 참고)
+    .sort((a, b) => rankOf(a) - rankOf(b)
+      || Number(isCareGroup(b)) - Number(isCareGroup(a))
+      || urgencyDday(a) - urgencyDday(b));
 
-  const cell = { padding: '0.45rem 0.5rem', verticalAlign: 'top', borderBottom: '1px solid var(--border-color)' };
+  const cell = { padding: '0.45rem 0.6rem', verticalAlign: 'middle', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' };
+  const clip = { overflow: 'hidden', textOverflow: 'ellipsis' };
   const input = { width: '100%', padding: '0.35rem 0.45rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-bright)', fontSize: '0.8rem', boxSizing: 'border-box' };
-  const label = { display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700 };
   const small = { fontSize: '0.72rem', color: 'var(--text-muted)' };
 
   const selectedRow = detail?.row || rows.find((r) => r.vehicleId === selectedId);
+  // 지금까지 고친 부위를 부위마다 센다(차량 그림에 겹쳐 보여 준다)
+  const damageCounts = {};
+  (detail?.records || []).flatMap((r) => r.parts || []).forEach((p) => { damageCounts[p.zone] = (damageCounts[p.zone] || 0) + 1; });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
@@ -218,7 +233,7 @@ function VehicleServiceView({ showToast, currentUser }) {
         {FILTERS.map((f) => {
           const count = rows.filter(f.test).length;
           const on = filter === f.id;
-          const color = f.id.endsWith('over') ? 'var(--error)' : '#d97706';
+          const { color } = f;
           return (
             <button
               key={f.id}
@@ -240,11 +255,11 @@ function VehicleServiceView({ showToast, currentUser }) {
       </div>
 
       <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px', background: '#fff' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', minWidth: '980px' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
           <thead style={{ background: 'var(--bg-main)', color: 'var(--text-muted)' }}>
             <tr>
-              {['차량번호', '차종', '계약자', '다음 자동차검사', '다음 정기점검', '최근 정비·수리', '누적 수리비'].map((h) => (
-                <th key={h} style={{ ...cell, textAlign: 'left', fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</th>
+              {['차량번호', '구분', '차종', '계약자', '자동차검사', '정기점검', '최근 기록'].map((h) => (
+                <th key={h} style={{ ...cell, textAlign: 'left', fontWeight: 700 }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -253,53 +268,54 @@ function VehicleServiceView({ showToast, currentUser }) {
               <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>
                 {loading ? '불러오는 중...' : '해당하는 차량이 없습니다.'}
               </td></tr>
-            ) : visible.map((r) => (
-              <tr
-                key={r.vehicleId}
-                onClick={() => openVehicle(r.vehicleId)}
-                style={{ cursor: 'pointer', background: selectedId === r.vehicleId ? 'var(--bg-main)' : undefined }}
-              >
-                <td style={cell}>
-                  <div style={{ fontWeight: 800, color: 'var(--text-bright)' }}>{r.plateNo || '-'}</div>
-                  <div style={small}>{r.status}</div>
-                </td>
-                <td style={cell}>{r.carModel}</td>
-                <td style={cell}>{r.partyName || '-'}</td>
-                <td style={{ ...cell, whiteSpace: 'nowrap' }}>
-                  {r.inspection ? (
-                    <>
-                      <Due item={r.inspection} />
-                      <div style={small}>기간 {r.inspection.windowStart} ~ {r.inspection.windowEnd}</div>
-                    </>
-                  ) : <span style={small}>최초등록일 없음</span>}
-                </td>
-                <td style={{ ...cell, whiteSpace: 'nowrap' }}>
-                  {r.maintenance ? (
-                    <>
-                      <Due item={r.maintenance} />
-                      <div style={small} title={r.maintenance.basis}>{r.maintenance.intervalMonths}개월 주기{r.maintenance.kmPerMonth ? ' · 실주행' : ''}</div>
-                    </>
-                  ) : <span style={small}>미가입</span>}
-                </td>
-                <td style={cell}>
-                  {r.lastRecord ? (
-                    <>
-                      <div>{r.lastRecord.date} {r.lastRecord.kind}</div>
-                      {r.lastRecord.description && <div style={small}>{r.lastRecord.description}</div>}
-                    </>
-                  ) : <span style={small}>기록 없음</span>}
-                </td>
-                <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap' }}>{r.repairTotal ? won(r.repairTotal) : '-'}</td>
-              </tr>
-            ))}
+            ) : visible.map((r) => {
+              const level = inspectionLevelOf(r);
+              const urgent = level ? INSPECTION_LEVEL[level] : null;
+              const insp = r.inspection;
+              const maint = r.maintenance;
+              return (
+                <tr
+                  key={r.vehicleId}
+                  onClick={() => openVehicle(r.vehicleId)}
+                  style={{ cursor: 'pointer', background: selectedId === r.vehicleId ? 'var(--bg-main)' : urgent?.bg }}
+                >
+                  <td style={{ ...cell, fontWeight: 800, color: urgent?.fg || 'var(--text-bright)', borderLeft: `4px solid ${urgent?.fg || 'transparent'}` }}>{r.plateNo || '-'}</td>
+                  <td style={{ ...cell, color: 'var(--text-muted)' }}>{groupText(r)}</td>
+                  <td style={{ ...cell, ...clip, maxWidth: '200px' }} title={r.carModel}>{r.carModel}</td>
+                  <td style={{ ...cell, ...clip, maxWidth: '170px' }} title={r.partyName}>{r.partyName || '-'}</td>
+                  <td style={cell}>
+                    {insp ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <span>{insp.date}</span>
+                        {urgent && <b style={{ color: urgent.fg }}>{ddayText(insp.dday)} {urgent.label}</b>}
+                        {/* 검사를 받은 차는 다음 검사일이 내년으로 넘어가 음영이 없어진다. 따로 '완료' 표시는 두지 않는다 */}
+                        {level === 'grace' && <span style={small}>(마감 {insp.windowEnd})</span>}
+                        {insp.unverified && <span title="검사 기록이 없어 지난 검사는 받은 것으로 보고 이번 차례를 보여 줍니다. 사이버검사소에서 확인 후 차를 눌러 검사 기록을 남겨 주세요." style={{ fontSize: '0.7rem', fontWeight: 700, color: '#6d28d9' }}>기록 없음</span>}
+                      </span>
+                    ) : <span style={small}>등록일 없음</span>}
+                  </td>
+                  <td style={cell}>
+                    {maint ? (
+                      <span title={maint.basis}>
+                        {maint.date}{' '}
+                        {MAINT_COLOR[maint.status] && <b style={{ color: MAINT_COLOR[maint.status] }}>{ddayText(maint.dday)}</b>}
+                      </span>
+                    ) : <span style={small}>-</span>}
+                  </td>
+                  <td style={{ ...cell, color: 'var(--text-muted)' }}>{r.lastRecord ? `${r.lastRecord.date} ${r.lastRecord.kind}` : '-'}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
 
       <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-        <strong>자동차검사</strong> 최초등록일 2년 뒤, 그 뒤 1년마다. 검사일 앞뒤 31일 안에 받아야 합니다 (기간이 지나면 '지남') ·{' '}
-        <strong>정기점검</strong> 일반정비 가입 차만, 1만 km마다 (약정 주행거리로 주기를 정하고, 주행거리 기록이 쌓이면 실제 주행도 봅니다).
-        차를 눌러 기록을 남기면 다음 날짜와 캘린더가 바로 바뀝니다.
+        {Object.values(INSPECTION_LEVEL).map((l) => (
+          <span key={l.label} style={{ background: l.bg, color: l.fg, fontWeight: 800, padding: '0 0.35rem', borderRadius: '4px', marginRight: '0.3rem' }}>{l.label}</span>
+        ))}
+        자동차검사는 검사일 2개월 전부터 1개월 뒤까지 받을 수 있고, 검사일 전에 끝내는 것을 목표로 합니다.
+        순서: 검사 급한 차 → 정비 포함·단기렌트 중 점검 급한 차 → 나머지 정비 포함·단기렌트 → 정비 미포함.
       </div>
 
       {selectedId && (
@@ -324,8 +340,9 @@ function VehicleServiceView({ showToast, currentUser }) {
                 <div style={{ ...small, fontWeight: 800 }}>다음 자동차검사</div>
                 {selectedRow?.inspection ? (
                   <>
-                    <Due item={selectedRow.inspection} />
-                    <div style={small}>검사 기간 {selectedRow.inspection.windowStart} ~ {selectedRow.inspection.windowEnd}</div>
+                    <Due item={selectedRow.inspection} color={INSPECTION_LEVEL[inspectionLevelOf(selectedRow)]?.fg} />
+                    <div style={small}>받을 수 있는 기간 {selectedRow.inspection.windowStart} ~ {selectedRow.inspection.windowEnd} (목표: 검사일 전)</div>
+                    {selectedRow.inspection.unverified && <div style={{ ...small, color: '#6d28d9' }}>검사 기록이 없어 지난 검사는 받은 것으로 보았습니다. 사이버검사소에서 확인해 주세요.</div>}
                     <div style={small}>{selectedRow.inspection.round}회차{selectedRow.inspection.lastDone ? ` · 지난 검사 ${selectedRow.inspection.lastDone}` : ''}</div>
                     {selectedRow.inspection.missed > 0 && (
                       <div style={{ ...small, color: 'var(--error)' }}>그 뒤 {selectedRow.inspection.missed}회차도 기간이 지났습니다. 검사 기록이 빠졌는지 확인하세요.</div>
@@ -337,57 +354,44 @@ function VehicleServiceView({ showToast, currentUser }) {
                 <div style={{ ...small, fontWeight: 800 }}>다음 정기점검</div>
                 {selectedRow?.maintenance ? (
                   <>
-                    <Due item={selectedRow.maintenance} />
+                    <Due item={selectedRow.maintenance} color={MAINT_COLOR[selectedRow.maintenance.status]} />
                     <div style={small}>{selectedRow.maintenance.basis}</div>
                   </>
                 ) : <div style={small}>일반정비 미가입 차량입니다.</div>}
               </div>
             </div>
 
+            {/* 정기점검 횟수 · 계약 대비 주행 · 지금까지 고친 부위 */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.6rem' }}>
+                <div style={{ ...small, fontWeight: 800 }}>정기점검 횟수</div>
+                <div style={{ fontWeight: 800, color: 'var(--text-bright)' }}>
+                  {selectedRow?.checks?.done ?? 0}회 받음
+                  {selectedRow?.checks?.expected
+                    ? <span style={{ ...small, fontWeight: 600 }}> / 계약 중 {selectedRow.checks.expected}회{selectedRow.checks.remaining !== null ? ` · 계약 끝(${selectedRow.checks.contractEnd})까지 ${selectedRow.checks.remaining}회 더` : ''}</span>
+                    : null}
+                </div>
+                <div style={small}>{selectedRow?.checks?.last ? `마지막 ${selectedRow.checks.last}` : '정기점검 기록 없음'}</div>
+                <div style={{ ...small, fontWeight: 800, marginTop: '0.5rem' }}>계약 대비 주행</div>
+                <div style={small}>
+                  {selectedRow?.usage?.annualizedKm
+                    ? <>연 환산 <b style={{ color: 'var(--text-bright)' }}>{selectedRow.usage.annualizedKm.toLocaleString()}km</b>{selectedRow.usage.ratio ? ` (약정의 ${selectedRow.usage.ratio}%)` : ''}</>
+                    : '주행거리 기록이 쌓이면 계산합니다'}
+                </div>
+                {(selectedRow?.notices || []).map((n) => (
+                  <div key={n.type} style={{ ...small, color: '#b45309', marginTop: '0.3rem' }}>⚠ {n.text}</div>
+                ))}
+              </div>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.4rem' }}>
+                <div style={{ ...small, fontWeight: 800, textAlign: 'center' }}>지금까지 고친 부위</div>
+                <CarDamageMap width={130} counts={damageCounts} />
+              </div>
+            </div>
+
             {canWrite && (
-              <form onSubmit={submit} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.75rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                <div style={{ gridColumn: '1 / -1', fontWeight: 800, fontSize: '0.85rem', color: 'var(--text-bright)' }}>
-                  {editingId ? '기록 고치기' : '기록 남기기'}
-                </div>
-                <label style={label}>종류
-                  <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })} style={input}>
-                    {KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
-                  </select>
-                </label>
-                <label style={label}>날짜
-                  <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} style={input} required />
-                </label>
-                <label style={label}>주행거리(km)
-                  <MoneyInput value={form.mileage} onChange={(e) => setForm({ ...form, mileage: e.target.value })} placeholder="계기판 숫자" style={input} />
-                </label>
-                <label style={label}>금액
-                  <MoneyInput value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="0" style={input} />
-                </label>
-                <label style={{ ...label, gridColumn: '1 / -1' }}>정비소·검사소
-                  <input value={form.shop} onChange={(e) => setForm({ ...form, shop: e.target.value })} style={input} />
-                </label>
-                <label style={{ ...label, gridColumn: '1 / -1' }}>내용
-                  <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="엔진오일·필터 교환, 브레이크패드 등" style={input} />
-                </label>
-                <label style={{ ...label, gridColumn: '1 / -1' }}>메모
-                  <input value={form.memo} onChange={(e) => setForm({ ...form, memo: e.target.value })} style={input} />
-                </label>
-                {!editingId && (
-                  <label style={{ ...label, gridColumn: '1 / -1' }}>영수증·검사증 (선택)
-                    <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ fontSize: '0.78rem' }} />
-                  </label>
-                )}
-                <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.4rem', justifyContent: 'flex-end' }}>
-                  {editingId && (
-                    <button type="button" onClick={resetForm} style={{ border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-muted)', padding: '0.4rem 0.8rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}>
-                      취소
-                    </button>
-                  )}
-                  <button type="submit" disabled={saving} style={{ border: 'none', background: 'var(--primary)', color: '#fff', padding: '0.4rem 0.9rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 800, cursor: saving ? 'wait' : 'pointer' }}>
-                    {saving ? '저장 중...' : (editingId ? '고친 내용 저장' : '기록 저장')}
-                  </button>
-                </div>
-              </form>
+              <button type="button" onClick={() => setFormOpen({ record: null })} style={{ border: 'none', background: 'var(--primary)', color: '#fff', padding: '0.55rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 800, cursor: 'pointer' }}>
+                + 정비·수리 기록 남기기 (상세 양식)
+              </button>
             )}
 
             <div>
@@ -401,11 +405,12 @@ function VehicleServiceView({ showToast, currentUser }) {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', borderLeft: '2px solid var(--border-color)', marginLeft: '0.3rem' }}>
                   {detail.records.map((r) => (
-                    <div key={r._id} style={{ padding: '0.4rem 0 0.6rem 0.8rem', position: 'relative', background: editingId === r._id ? 'var(--bg-main)' : undefined }}>
+                    <div key={r._id} style={{ padding: '0.4rem 0 0.6rem 0.8rem', position: 'relative' }}>
                       <div style={{ position: 'absolute', left: '-5px', top: '0.65rem', width: '8px', height: '8px', borderRadius: '50%', background: r.kind === '사고수리' ? 'var(--error)' : 'var(--primary)' }} />
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem' }}>
                         <strong style={{ color: 'var(--text-bright)' }}>{ymd(r.date)}</strong>
-                        <span style={{ fontWeight: 700 }}>{r.kind}</span>
+                        <span style={{ fontWeight: 700 }}>{r.kind}{r.checkRound ? ` ${r.checkRound}회차` : ''}</span>
+                        {r.status && r.status !== '완료' && <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#d97706' }}>{r.status}</span>}
                         {r.amount > 0 && <span style={{ color: 'var(--text-muted)' }}>{won(r.amount)}</span>}
                         <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.2rem' }}>
                           {r.fileName && (
@@ -428,6 +433,23 @@ function VehicleServiceView({ showToast, currentUser }) {
                       <div style={small}>
                         {[r.mileage ? `${Number(r.mileage).toLocaleString()}km` : '', r.shop, r.description].filter(Boolean).join(' · ')}
                       </div>
+                      {(r.inAt || r.outAt) && <div style={small}>{periodText(r)}</div>}
+                      {(r.payer || transportFeeOf(r) > 0) && (
+                        <div style={small}>
+                          {[r.payer ? [r.payer, r.insurer, r.claimNo].filter(Boolean).join(' ') : '', transportFeeOf(r) ? `탁송 ${won(transportFeeOf(r))}` : ''].filter(Boolean).join(' · ')}
+                        </div>
+                      )}
+                      {(r.parts || []).length > 0 && <div style={small}>수리 부위: {r.parts.map((p) => `${p.zone}(${p.action})`).join(', ')}</div>}
+                      {(r.consumables || []).length > 0 && <div style={small}>소모품: {r.consumables.join(', ')}</div>}
+                      {(r.attachments || []).length > 1 && (
+                        <div style={{ ...small, display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                          {r.attachments.map((a, i) => (
+                            <button key={a.savedPath || i} type="button" onClick={() => openFile(r, i)} style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 0, fontSize: '0.72rem' }}>
+                              📎 {a.label || a.fileName}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       {r.memo && <div style={small}>{r.memo}</div>}
                     </div>
                   ))}
@@ -436,6 +458,17 @@ function VehicleServiceView({ showToast, currentUser }) {
             </div>
           </div>
         </div>
+      )}
+
+      {formOpen && selectedRow && (
+        <VehicleServiceForm
+          row={selectedRow}
+          record={formOpen.record}
+          transportRates={transportRates}
+          onClose={() => setFormOpen(null)}
+          onSaved={afterSave}
+          showToast={showToast}
+        />
       )}
     </div>
   );

@@ -12,15 +12,16 @@
  * 법정 자동차검사 주기 (사업용 대여 승용차 기준).
  *
  * 대표님 결정(2026-10): 최초등록일부터 2년 뒤 첫 검사, 그 뒤로 1년마다.
- * 검사 기간은 검사일(유효기간 만료일) 앞뒤 31일이다.
+ * 검사 기간은 검사일(유효기간 만료일) 2개월 전부터 1개월 뒤까지 석 달이다(대표님 2026-10-19).
+ * 회사 방침은 검사일 전에 끝내는 것이다. 검사일이 지나면 남은 1개월은 유예로 보고 따로 알린다.
  * 법 조항(자동차관리법 시행규칙 별표15의2)으로 한 번 더 확인해야 하는 값이라 숫자를 여기에만 둔다.
  * 승합·화물·경차 등 차종에 따라 달라지면 이 묶음만 고치면 된다.
  */
 export const INSPECTION_RULE = Object.freeze({
   firstAfterMonths: 24, // 최초등록일부터 첫 검사까지
   everyMonths: 12, // 그 뒤 검사 주기
-  windowBeforeDays: 31, // 검사 기간: 검사일 전
-  windowAfterDays: 31 // 검사 기간: 검사일 후. 이 날이 지나면 과태료 대상이다
+  windowBeforeMonths: 2, // 검사 기간: 검사일 전
+  windowAfterMonths: 1 // 검사 기간: 검사일 후. 이 날이 지나면 과태료 대상이다
 });
 
 /**
@@ -120,7 +121,7 @@ export const nextInspection = (vehicle, records, today = new Date()) => {
   const done = sortedDates(records, '자동차검사');
 
   const dueOf = (round) => addMonths(reg, R.firstAfterMonths + (round - 1) * R.everyMonths);
-  const startOf = (round) => addDays(dueOf(round), -R.windowBeforeDays);
+  const startOf = (round) => addMonths(dueOf(round), -R.windowBeforeMonths);
   const halfCycle = Math.round((R.everyMonths * 30.44) / 2);
 
   // 기록이 덮는 가장 늦은 회차. 기록이 없으면 0회차(아직 한 번도 안 받음).
@@ -137,15 +138,23 @@ export const nextInspection = (vehicle, records, today = new Date()) => {
     }
   }
 
-  const round = covered + 1;
+  // 검사 기록이 한 건도 없는 차는 첫 회차부터 '지남'으로 잡으면 전부 빨갛게 떠서 진짜 급한 차가 묻힌다.
+  // 이 경우는 지난 회차를 받았다고 보고 올해 회차(기간이 아직 안 끝난 첫 회차)를 보여 주되,
+  // unverified로 표시해 사이트에서 확인하게 한다. 기록이 있는데 다음 회차를 넘긴 차는 그대로 '지남'이다.
+  let round = covered + 1;
+  let unverified = false;
+  if (covered === 0 && addMonths(dueOf(round), R.windowAfterMonths) < todayYmd) {
+    while (addMonths(dueOf(round), R.windowAfterMonths) < todayYmd) round += 1;
+    unverified = true;
+  }
   const date = dueOf(round);
   const windowStart = startOf(round);
-  const windowEnd = addDays(date, R.windowAfterDays);
+  const windowEnd = addMonths(date, R.windowAfterMonths);
   const dday = ddayOf(date, todayYmd);
 
   // 기간이 이미 지났는데 그 뒤 회차의 기간도 지나 있으면, 기록이 몇 번 빠졌는지 함께 알린다
   let missed = 0;
-  while (addDays(dueOf(round + missed + 1), R.windowAfterDays) < todayYmd) missed += 1;
+  while (addMonths(dueOf(round + missed + 1), R.windowAfterMonths) < todayYmd) missed += 1;
 
   return {
     date,
@@ -155,7 +164,8 @@ export const nextInspection = (vehicle, records, today = new Date()) => {
     windowEnd,
     round, // 몇 번째 검사인지 (1 = 등록 2년 뒤 첫 검사)
     missed, // 이 회차 뒤로도 기간이 지나 버린 회차 수
-    lastDone: last || ''
+    lastDone: last || '',
+    unverified // 검사 기록이 없어 지난 회차는 받은 것으로 본 경우. 사이트·영수증으로 확인이 필요하다
   };
 };
 
@@ -258,7 +268,10 @@ export const nextMaintenance = (vehicle, records, today = new Date()) => {
  * @returns {{inspection: object|null, maintenance: object|null, lastRecord: object|null, repairTotal: number}}
  */
 export const planVehicle = (vehicle, records, today = new Date()) => {
-  const sorted = [...(records || [])].sort((a, b) => (kstYmd(a.date) < kstYmd(b.date) ? 1 : -1));
+  // 다음 날짜는 실제로 끝난 기록으로만 센다. '예정'·'입고'·'수리 중'을 받은 것으로 치면 아직 안 받은 검사의 색이 빠진다.
+  // 예전 기록에는 status가 없다(모두 끝난 건).
+  records = (records || []).filter((r) => !r.status || r.status === '완료');
+  const sorted = [...records].sort((a, b) => (kstYmd(a.date) < kstYmd(b.date) ? 1 : -1));
   const last = sorted[0];
   return {
     inspection: nextInspection(vehicle, records, today),

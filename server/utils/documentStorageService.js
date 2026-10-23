@@ -2,7 +2,6 @@ import fs from 'fs';
 import * as oneDriveStorage from './oneDriveStorage.js';
 import * as localDocumentStorage from './localDocumentStorage.js';
 import {
-  DOC_KINDS,
   buildDocumentPath,
   buildContractFolderName,
   getDocumentSettings,
@@ -46,14 +45,19 @@ export const sanitizePathSegment = sanitizeSegment;
  * @param {string} partyName 계약자명 (법인이면 법인명)
  * @returns {Promise<{root: string, created: boolean}>}
  */
+// 계약 등록 때 미리 만들어 두는 문서 폴더
+const PRECREATED_KINDS = ['company', 'contract', 'invoice'];
+
 export const ensureCustomerFolders = async (partyName) => {
   const settings = await getDocumentSettings();
   const root = contractPartyRoot(settings, partyName);
   const created = await ensureFolder(root);
 
-  // 계약 단계 서류만 만든다. 견적서는 계약 전 단계라 고객 이름 폴더에 따로 담긴다.
-  for (const kind of DOC_KINDS.filter((k) => k.stage === 'contract')) {
-    await ensureFolder([...root, sanitizeSegment(folderNameOf(settings, kind.code))]);
+  // 계약을 등록할 때 바로 쓰는 폴더만 미리 만든다(법인서류·계약서·청구서).
+  // 예전에는 문서 종류 15개를 다 만들어, 한 번도 안 쓰는 빈 폴더가 법인마다 11개씩 쌓였다
+  // (2026-10-19 빈 폴더 814개 정리). 나머지(정비·검사·고지서 등)는 파일을 저장할 때 saveDocument가 만든다.
+  for (const code of PRECREATED_KINDS) {
+    await ensureFolder([...root, sanitizeSegment(folderNameOf(settings, code))]);
   }
   return { root: root.join('/'), created };
 };

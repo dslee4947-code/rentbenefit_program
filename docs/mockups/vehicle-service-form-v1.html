@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>정비·수리 기록 입력 양식 시안 v1</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css" />
+<style>
+  /* 정비·수리 한 건을 적는 양식 시안. 예시: 2026-03 E450 142호2282 사고수리 (구글 캘린더 기록) */
+  :root { --primary:#2f6fed; --soft:#eef3fe; --navy:#111e38; --line:#e3e6eb; --muted:#8a94a6; --text:#1f2937; --bg:#f5f7fa; --warn:#d97706; --warn-soft:#fff7e6; --bad:#dc2626; --good:#0f9d6b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); font-family:'Pretendard Variable',Pretendard,'Malgun Gothic',sans-serif; color:var(--text); font-size:13px; font-variant-numeric:tabular-nums; }
+  .page { width:1180px; margin:0 auto; padding:20px; }
+  .top { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+  .top h1 { margin:0; font-size:19px; color:var(--navy); }
+  .top .btns button { margin-left:6px; }
+  button { font:inherit; border-radius:7px; padding:8px 14px; border:1px solid var(--line); background:#fff; font-weight:700; cursor:pointer; }
+  button.pri { background:var(--primary); color:#fff; border-color:var(--primary); }
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  .card h2 { margin:0 0 10px; font-size:14px; color:var(--navy); display:flex; align-items:center; gap:7px; }
+  .card h2 .no { background:var(--navy); color:#fff; font-size:11px; border-radius:50%; width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; }
+  .card h2 .tag { margin-left:auto; font-size:11px; font-weight:600; color:var(--muted); }
+  .row { display:grid; grid-template-columns: 96px 1fr; gap:8px; align-items:center; margin-bottom:8px; }
+  .row > label { font-size:12px; color:#4b5563; font-weight:600; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:6px; } .three { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
+  input, select, textarea { width:100%; font:inherit; font-size:12.5px; border:1px solid #d5dae2; border-radius:6px; padding:6px 8px; background:#fff; color:var(--text); }
+  textarea { resize:vertical; min-height:52px; line-height:1.5; }
+  .num { text-align:right; }
+  .seg { display:flex; flex-wrap:wrap; gap:5px; }
+  .seg span { border:1px solid #d5dae2; border-radius:16px; padding:4px 10px; font-size:12px; color:#4b5563; background:#fff; }
+  .seg span.on { background:var(--primary); border-color:var(--primary); color:#fff; font-weight:700; }
+  .auto { background:var(--bg); border-radius:6px; padding:6px 9px; font-size:12px; color:#374151; }
+  .auto b { color:var(--navy); }
+  .hint { font-size:11px; color:var(--muted); margin-top:2px; }
+  .badge { display:inline-block; font-size:11px; font-weight:700; padding:1px 7px; border-radius:10px; }
+  .b-warn { background:var(--warn-soft); color:var(--warn); } .b-good { background:#e7f8f1; color:var(--good); } .b-blue { background:var(--soft); color:var(--primary); }
+  .alert { border-left:3px solid var(--warn); background:var(--warn-soft); border-radius:6px; padding:8px 10px; font-size:12px; line-height:1.55; margin-top:6px; }
+  .alert b { color:#92400e; }
+  .chk { display:grid; grid-template-columns: repeat(3, 1fr); gap:5px 10px; font-size:12px; }
+  .chk label { display:flex; gap:5px; align-items:center; color:#374151; }
+  .chk .next { color:var(--muted); font-size:10.5px; margin-left:auto; }
+  .car { display:grid; grid-template-columns: 260px 1fr; gap:14px; align-items:start; }
+  .legend { display:flex; gap:10px; font-size:11px; color:#4b5563; margin-top:6px; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:3px; vertical-align:-1px; }
+  table.parts { width:100%; border-collapse:collapse; font-size:12px; }
+  table.parts th { text-align:left; color:var(--muted); font-weight:600; padding:4px 6px; border-bottom:1px solid var(--line); }
+  table.parts td { padding:5px 6px; border-bottom:1px solid var(--line); }
+  .upload { border:1.5px dashed #b9c3d3; border-radius:10px; padding:10px 12px; background:#fbfcfe; }
+  .file { display:flex; align-items:center; gap:8px; font-size:12px; padding:6px 8px; background:#fff; border:1px solid var(--line); border-radius:7px; margin-top:6px; }
+  .file .x { margin-left:auto; color:var(--muted); }
+  .ocr { margin-top:8px; }
+  .ocr table { width:100%; border-collapse:collapse; font-size:12px; }
+  .ocr th, .ocr td { padding:4px 6px; border-bottom:1px solid var(--line); text-align:left; }
+  .ocr td.n, .ocr th.n { text-align:right; }
+  .ocr tfoot td { font-weight:800; color:var(--navy); }
+  .span2 { grid-column: 1 / -1; }
+  .money { display:grid; grid-template-columns: repeat(5, 1fr); gap:8px; }
+  .money .m { background:var(--bg); border-radius:8px; padding:7px 9px; }
+  .money .m span { font-size:11px; color:var(--muted); display:block; }
+  .money .m b { font-size:15px; color:var(--navy); }
+  .money .m.total { background:var(--navy); } .money .m.total span { color:#c9d2e3; } .money .m.total b { color:#fff; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="top">
+    <h1>정비·수리 기록 입력 <span class="badge b-blue" style="vertical-align:3px">시안</span></h1>
+    <div class="btns"><button>임시저장</button><button class="pri">저장하고 원장에 반영</button></div>
+  </div>
+
+  <div class="grid">
+    <!-- 1. 기본 -->
+    <div class="card">
+      <h2><span class="no">1</span>기본 정보</h2>
+      <div class="row"><label>차량</label><select><option>142호2282 · Benz-021 · E450 4M EX</option></select></div>
+      <div class="row"><label></label><div class="auto">계약자 <b>렌트베네핏 대차(단기)</b> · 이용 고객 박○○ · 인도일 2025-03-20 · 약정 <b>20,000km/년</b></div></div>
+      <div class="row"><label>종류</label><div class="seg"><span>자동차검사</span><span>정기점검</span><span>소모품교환</span><span>고장수리</span><span class="on">사고수리</span><span>기타</span></div></div>
+      <div class="row"><label>진행 상태</label><div class="seg"><span>예정</span><span>입고</span><span class="on">수리 중</span><span>완료</span></div></div>
+      <div class="row"><label>담당 직원</label><select><option>영범</option></select></div>
+      <div class="row"><label>정기점검 횟수</label><div>
+        <div class="auto">이번 기록은 정기점검이 아니라 횟수에 넣지 않습니다 · 지금까지 <b>2회</b> (2025-09-20 · 2026-01-15)</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:6px">
+          <div class="auto" style="text-align:center">계약 중 예정<br><b style="font-size:15px">6회</b></div>
+          <div class="auto" style="text-align:center">받은 횟수<br><b style="font-size:15px">2회</b></div>
+          <div class="auto" style="text-align:center">남은 횟수<br><b style="font-size:15px">4회</b></div>
+          <div class="auto" style="text-align:center;background:var(--warn-soft)">다음 점검<br><b style="font-size:13px;color:var(--warn)">2026-05-15</b></div>
+        </div>
+        <div class="hint">정기점검으로 저장하면 자동으로 "3회차"가 붙습니다. 센터 무상점검 쿠폰(예: 홈투홈 4회)도 남은 횟수로 함께 셉니다.</div>
+      </div></div>
+    </div>
+
+    <!-- 2. 기간·주행거리 -->
+    <div class="card">
+      <h2><span class="no">2</span>수리 기간 · 주행거리<span class="tag">문제가 생겼을 때 증거자료</span></h2>
+      <div class="row"><label>입고</label><div class="three"><input value="2026-02-26 14:40" /><input class="num" value="25,962 km" /><select><option>연료 1/2</option></select></div></div>
+      <div class="row"><label>출고</label><div class="three"><input value="2026-03-05 10:50" /><input class="num" value="25,981 km" /><select><option>연료 1/2</option></select></div></div>
+      <div class="row"><label></label><div class="auto">수리 기간 <b>7일</b> (2/26 ~ 3/5) · 이동 중 주행 <b>19km</b></div></div>
+      <div class="row"><label>계약 대비</label><div>
+        <div class="auto">인도 후 11.5개월 · 주행 25,981km → 연 환산 <b>27,110km</b> <span class="badge b-warn">약정 20,000km의 136%</span></div>
+        <div class="alert"><b>약정 주행거리 초과</b> · 정기점검 주기를 6개월 → 4개월로 당깁니다. 고객 안내 필요: 초과 주행 요금 기준과 다음 점검일(2026-07-05) 안내 <button style="padding:3px 9px;font-size:11px;margin-left:6px">안내 문자 만들기</button></div>
+      </div></div>
+    </div>
+
+    <!-- 3. 이동·탁송 -->
+    <div class="card">
+      <h2><span class="no">3</span>이동 · 탁송<span class="tag">외주면 탁송료 → 원장 자동 기록</span></h2>
+      <div class="row"><label>입고 이동</label><div class="seg"><span class="on">직원</span><span>외주 탁송</span><span>센터 픽업·딜리버리</span><span>고객 직접</span></div></div>
+      <div class="row"><label>픽업지</label><input value="서울 서초구 서초중앙로24길 11 (고객 근무처)" /></div>
+      <div class="row"><label>입고 센터</label><div class="two"><select><option>한성자동차 성동서비스센터</option></select><input value="서울 성동구 아차산로 (자동)" /></div></div>
+      <div class="row"><label></label><div class="auto">거리 <b>12.4km</b> (지도 API로 자동 계산) · 직원 이동 → 탁송료 <b>0원</b></div></div>
+      <div class="row"><label>출고 이동</label><div class="seg"><span>직원</span><span class="on">외주 탁송</span><span>센터 픽업·딜리버리</span><span>고객 직접</span></div></div>
+      <div class="row"><label>탁송 업체·비용</label><div class="two"><select><option>○○탁송 (거래처)</option></select><input class="num" value="50,000 원" /></div></div>
+      <div class="row"><label></label><div class="auto">예상 탁송료 <b>45,000원</b> (작년 단가 km당 3,600원 × 12.4km) · 실제 50,000원 <span class="badge b-warn">+11%</span><div class="hint">연도별 km당 탁송료가 쌓여 매년 얼마나 올랐는지 볼 수 있습니다.</div></div></div>
+    </div>
+
+    <!-- 4. 보험·비용 처리 -->
+    <div class="card">
+      <h2><span class="no">4</span>보험 · 비용 처리</h2>
+      <div class="row"><label>처리 구분</label><div class="seg"><span>자차 보험</span><span class="on">상대방 보험</span><span>보증·리콜(무상)</span><span>회사 부담</span><span>고객 부담</span></div></div>
+      <div class="row"><label>보험사·접수</label><div class="two"><select><option>현대해상</option></select><input value="26-02-045541" /></div></div>
+      <div class="row"><label>과실·자기부담</label><div class="two"><input value="상대 100 : 0" /><input class="num" value="0 원" /></div></div>
+      <div class="row"><label>대차 제공</label><select><option>렌트베네핏 아반떼 125호5281 (2/26 ~ 3/5) - 상대 보험 청구</option></select></div>
+      <div class="money" style="margin-top:10px">
+        <div class="m"><span>수리비</span><b>2,636,364</b></div>
+        <div class="m"><span>부가세</span><b>263,636</b></div>
+        <div class="m"><span>탁송료</span><b>50,000</b></div>
+        <div class="m"><span>보험 처리</span><b>−2,900,000</b></div>
+        <div class="m total"><span>회사 실부담</span><b>50,000</b></div>
+      </div>
+      <div class="hint">저장하면 차량 손익 원장에 "사고수리 2,900,000 / 보험 입금 2,900,000 / 탁송 50,000" 줄이 함께 남습니다.</div>
+    </div>
+
+    <!-- 5. 작업 내용 + 수리 부위 -->
+    <div class="card span2">
+      <h2><span class="no">5</span>요청 · 작업 내용 · 수리 부위<span class="tag">그림을 누르면 부위가 표시되고, 차량 카드에 누적됩니다</span></h2>
+      <div class="car">
+        <div>
+          <svg viewBox="0 0 240 380" width="240" height="380" style="display:block;margin:auto">
+            <!-- 위에서 본 차 (위쪽이 앞) -->
+            <rect x="50" y="10" width="140" height="360" rx="44" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+            <!-- 앞범퍼 / 본넷 -->
+            <path d="M60 30 Q120 4 180 30 L182 52 L58 52 Z" fill="#e2e8f0" stroke="#94a3b8"/>
+            <rect x="62" y="54" width="116" height="62" rx="8" fill="#e2e8f0" stroke="#94a3b8"/>
+            <text x="120" y="88" font-size="11" text-anchor="middle" fill="#475569">본넷</text>
+            <text x="120" y="44" font-size="10" text-anchor="middle" fill="#475569">앞범퍼</text>
+            <!-- 앞유리 / 루프 / 뒷유리 -->
+            <path d="M66 120 L174 120 L164 150 L76 150 Z" fill="#dbeafe" stroke="#94a3b8"/>
+            <rect x="76" y="152" width="88" height="96" rx="6" fill="#eef2f7" stroke="#94a3b8"/>
+            <text x="120" y="204" font-size="11" text-anchor="middle" fill="#475569">루프</text>
+            <path d="M76 250 L164 250 L172 278 L68 278 Z" fill="#dbeafe" stroke="#94a3b8"/>
+            <!-- 트렁크 / 뒤범퍼 -->
+            <rect x="62" y="282" width="116" height="52" rx="8" fill="#e2e8f0" stroke="#94a3b8"/>
+            <text x="120" y="312" font-size="11" text-anchor="middle" fill="#475569">트렁크</text>
+            <path d="M58 336 L182 336 L180 352 Q120 380 60 352 Z" fill="#e2e8f0" stroke="#94a3b8"/>
+            <text x="120" y="356" font-size="10" text-anchor="middle" fill="#475569">뒤범퍼</text>
+            <!-- 왼쪽(운전석) -->
+            <rect x="34" y="60" width="22" height="58" rx="5" fill="#e2e8f0" stroke="#94a3b8"/>
+            <rect x="34" y="124" width="22" height="66" rx="4" fill="#e2e8f0" stroke="#94a3b8"/>
+            <rect x="34" y="194" width="22" height="66" rx="4" fill="#e2e8f0" stroke="#94a3b8"/>
+            <rect x="34" y="266" width="22" height="58" rx="5" fill="#e2e8f0" stroke="#94a3b8"/>
+            <!-- 오른쪽(조수석) : 앞문·뒷문 판금도색, 뒤휀더 판금도색 -->
+            <rect x="184" y="60" width="22" height="58" rx="5" fill="#e2e8f0" stroke="#94a3b8"/>
+            <rect x="184" y="124" width="22" height="66" rx="4" fill="#fbbf24" stroke="#b45309" stroke-width="2"/>
+            <rect x="184" y="194" width="22" height="66" rx="4" fill="#fbbf24" stroke="#b45309" stroke-width="2"/>
+            <rect x="184" y="266" width="22" height="58" rx="5" fill="#fbbf24" stroke="#b45309" stroke-width="2"/>
+            <!-- 바퀴 -->
+            <rect x="24" y="72" width="10" height="34" rx="3" fill="#334155"/><rect x="206" y="72" width="10" height="34" rx="3" fill="#334155"/>
+            <rect x="24" y="276" width="10" height="34" rx="3" fill="#334155"/><rect x="206" y="276" width="10" height="34" rx="3" fill="#334155"/>
+            <text x="10" y="200" font-size="10" fill="#64748b" transform="rotate(-90 10 200)">운전석</text>
+            <text x="232" y="170" font-size="10" fill="#64748b" transform="rotate(90 232 170)">조수석</text>
+            <!-- 번호 -->
+            <circle cx="214" cy="157" r="8" fill="#b45309"/><text x="214" y="161" font-size="10" fill="#fff" text-anchor="middle">1</text>
+            <circle cx="214" cy="227" r="8" fill="#b45309"/><text x="214" y="231" font-size="10" fill="#fff" text-anchor="middle">2</text>
+            <circle cx="214" cy="295" r="8" fill="#b45309"/><text x="214" y="299" font-size="10" fill="#fff" text-anchor="middle">3</text>
+          </svg>
+          <div class="legend"><span><i style="background:#ef4444"></i>교환</span><span><i style="background:#fbbf24"></i>판금·도색</span><span><i style="background:#60a5fa"></i>수리·점검</span></div>
+        </div>
+        <div>
+          <div class="row"><label>고객 요청</label><textarea>상대방이 조수석 쪽을 긁고 감. 조수석 앞·뒤 문짝, 뒤 휀더 손상. 상대방 현대해상 접수.</textarea></div>
+          <div class="row"><label>작업 내용</label><textarea>조수석 앞·뒤 문짝, 뒤 휀더 판금·도색. 수리비 약 290만원 (상대 보험 처리).</textarea></div>
+          <table class="parts">
+            <tr><th style="width:30px">#</th><th>부위</th><th>작업</th><th>메모</th></tr>
+            <tr><td>1</td><td>조수석 앞문</td><td><span class="badge b-warn">판금·도색</span></td><td>긁힘</td></tr>
+            <tr><td>2</td><td>조수석 뒷문</td><td><span class="badge b-warn">판금·도색</span></td><td>긁힘·찍힘</td></tr>
+            <tr><td>3</td><td>조수석 뒤 휀더</td><td><span class="badge b-warn">판금·도색</span></td><td></td></tr>
+          </table>
+          <div style="margin-top:10px">
+            <div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:5px">소모품 (바꾼 것만 체크 → 다음 교체 시기 자동 계산)</div>
+            <div class="chk">
+              <label><input type="checkbox" style="width:auto"/>엔진오일·필터<span class="next">다음 32,000km</span></label>
+              <label><input type="checkbox" style="width:auto"/>에어·에어컨 필터<span class="next">다음 2026-09</span></label>
+              <label><input type="checkbox" style="width:auto"/>브레이크 패드(앞)<span class="next">다음 50,000km</span></label>
+              <label><input type="checkbox" style="width:auto"/>브레이크 오일<span class="next">다음 2027-03</span></label>
+              <label><input type="checkbox" style="width:auto"/>타이어 (위치 선택)<span class="next">마모 점검</span></label>
+              <label><input type="checkbox" style="width:auto"/>와이퍼·배터리<span class="next">-</span></label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6. 증빙 -->
+    <div class="card span2">
+      <h2><span class="no">6</span>수리 내역서 · 사진<span class="tag">올리면 글자를 읽어 아래 표를 자동으로 채웁니다(확인 후 저장)</span></h2>
+      <div class="grid" style="grid-template-columns: 1fr 1.4fr">
+        <div class="upload">
+          <div style="font-size:12px;color:#4b5563">여기에 수리 내역서·견적서(PDF·사진)와 수리 전후 사진을 끌어다 놓으세요</div>
+          <div class="file">📄 한성성동_수리내역서_142호2282.pdf <span class="badge b-good">글자 읽음</span><span class="x">✕</span></div>
+          <div class="file">🖼 수리전_조수석_1.jpg · 수리후_조수석_1.jpg 외 4장 <span class="x">✕</span></div>
+          <div class="hint">파일은 OneDrive 차량 폴더(…/142호2282/정비)에 날짜별로 저장됩니다.</div>
+        </div>
+        <div class="ocr">
+          <table>
+            <thead><tr><th>구분</th><th>항목 (내역서에서 읽음)</th><th class="n">수량</th><th class="n">금액</th></tr></thead>
+            <tbody>
+              <tr><td>부품</td><td>프론트 도어 몰딩 RH</td><td class="n">1</td><td class="n">184,000</td></tr>
+              <tr><td>공임</td><td>프론트 도어 RH 판금·도색</td><td class="n">1</td><td class="n">880,000</td></tr>
+              <tr><td>공임</td><td>리어 도어 RH 판금·도색</td><td class="n">1</td><td class="n">820,000</td></tr>
+              <tr><td>공임</td><td>리어 휀더 RH 판금·도색</td><td class="n">1</td><td class="n">752,364</td></tr>
+            </tbody>
+            <tfoot><tr><td colspan="3">합계 (부가세 별도) · 내역서 합계와 일치 ✓</td><td class="n">2,636,364</td></tr></tfoot>
+          </table>
+          <div class="hint">부위 이름(도어 RH, 휀더 RH)을 읽어 5번 그림에도 자동으로 표시합니다. 틀린 칸은 직접 고칩니다.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

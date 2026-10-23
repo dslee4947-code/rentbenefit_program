@@ -562,7 +562,7 @@ export const parseContractTemplate = (buffer, fileName = '') => {
   const pages = sheets.filter((s) => s.name !== INPUT_SHEET).map((s) => {
     const items = [
       ...s.cells.filter((x) => x.t !== undefined || x.bind).map((x) => ({
-        r: x.r, c: x.c, text: x.bind ? bindingLabel(x.bind) : x.t, from: x.bind ? 'field' : 'cell', at: x.a
+        r: x.r, c: x.c, text: x.bind ? bindingLabel(x.bind) : x.t, from: x.bind ? 'field' : 'cell', at: x.a, s: x.s
       })),
       ...s.shapes.filter((sh) => sh.paragraphs.length).map((sh, i) => ({
         r: sh.from.r, c: sh.from.c, text: sh.paragraphs.map((p) => p.text).join('\n'), from: 'shape', at: `도형${i + 1}`
@@ -609,7 +609,14 @@ export const parseContractTemplate = (buffer, fileName = '') => {
     sheets,
     styles: styleTable,
     fields,
-    pages: pages.map(({ sheet, twoColumn, text }) => ({ sheet, twoColumn, text })),
+    // blocks: 셀·글상자 하나가 한 덩어리. 덩어리 안의 줄바꿈은 엑셀 폭에 맞추려고 넣은 것이 많아
+    // 읽기 쉬운 본(화면 '약관 원문')은 덩어리 안에서만 줄을 이어 붙인다. text는 원문 그대로 둔다.
+    pages: pages.map(({ sheet, twoColumn, text, items }) => ({
+      sheet,
+      twoColumn,
+      text,
+      blocks: items.map((x) => ({ r: x.r, c: x.c, from: x.from, text: x.text, ...(x.s !== undefined ? { s: x.s } : {}) }))
+    })),
     clauses,
     media: [...media],
     stats: {

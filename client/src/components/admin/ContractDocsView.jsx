@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { FileSignature, Upload, RefreshCw, Printer, Save, CheckCircle2, Unlock, Search, Download, ArrowLeft, BookOpen } from 'lucide-react';
 import ContractSheetPage from './ContractSheetPage.jsx';
-import { buildSheetContext, FIELD_GROUPS, SOURCE_LABEL } from './contractSheetUtils.js';
+import ContractTermsDocument from './ContractTermsDocument.jsx';
+import { buildSheetContext, buildReadableTerms, readableTermsText, FIELD_GROUPS, SOURCE_LABEL } from './contractSheetUtils.js';
 import { printFitted } from '../../utils/printFit.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -343,58 +344,119 @@ function TemplatesPanel({ showToast, isAdmin, onOpenTerms }) {
   );
 }
 
-/** 약관 원문: 조항별 + 장별 전체 글. 원문 그대로(줄바꿈 포함) 보여 주고 .txt로도 받는다 */
+/**
+ * 약관 원문.
+ *  - 조항별: 엑셀 폭에 맞춰 끊긴 줄을 이어 붙인 읽기 쉬운 본(글자는 그대로, 줄바꿈만 정리)
+ *  - 장별 전체: A4 문서(인쇄·PDF). 약관은 엑셀처럼 두 단·회색 조항 제목, 표로 된 장은 엑셀 화면 그대로
+ *  - 원문 그대로: 엑셀 줄바꿈까지 그대로(대조용)
+ */
 function TermsPanel({ templateId, showToast }) {
   const [template, setTemplate] = useState(null);
   const [mode, setMode] = useState('clauses');
+  const docRef = useRef(null);
   useEffect(() => {
     if (!templateId) return;
     fetchTemplate(templateId).then(setTemplate).catch((e) => showToast?.(e.message, 'error'));
   }, [templateId, showToast]);
+  const readable = useMemo(() => (template ? buildReadableTerms(template) : null), [template]);
+  const media = useTemplateMedia(mode === 'pages' ? template : null);
 
   if (!templateId) return <div style={{ padding: '1.5rem', ...small }}>양식 관리에서 [약관 원문]을 눌러 주세요.</div>;
-  if (!template) return <div style={{ padding: '1.5rem', ...small }}>불러오는 중...</div>;
+  if (!template || !readable) return <div style={{ padding: '1.5rem', ...small }}>불러오는 중...</div>;
 
-  const saveText = () => {
+  const saveText = (kind) => {
+    const body = kind === 'raw'
+      ? template.pages.map((p) => `######## ${p.sheet}\n${p.text}`).join('\n\n')
+      : readableTermsText(readable);
     const text = [
       `${template.name} (버전 ${template.version}) · ${template.fileName}`,
       `원본 확인값(SHA-256): ${template.sha256}`,
+      kind === 'raw' ? '원문 그대로(엑셀 줄바꿈 포함)' : '읽기 쉬운 본(엑셀 폭에 맞춘 줄바꿈만 이어 붙임, 글자는 원문 그대로)',
       '',
-      ...template.pages.map((p) => `######## ${p.sheet}\n${p.text}`)
+      body
     ].join('\n');
     const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `계약서_약관원문_v${template.version}.txt`;
+    a.download = `계약서_약관${kind === 'raw' ? '원문' : ''}_v${template.version}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };
+  const print = () => printFitted(docRef.current, { onePage: false, marginMm: 10, title: `계약서_약관_v${template.version}` });
+
+  const modeBtn = (id, label) => (
+    <button type="button" onClick={() => setMode(id)} style={btn(mode === id ? '#2563eb' : '#334155', mode === id)}>{label}</button>
+  );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
-      <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <strong>{template.name}</strong><span style={small}>버전 {template.version} · 약관 {template.clauses.length}개 조항</span>
-        <button type="button" onClick={() => setMode('clauses')} style={btn(mode === 'clauses' ? '#2563eb' : '#334155', mode === 'clauses')}>조항별</button>
-        <button type="button" onClick={() => setMode('pages')} style={btn(mode === 'pages' ? '#2563eb' : '#334155', mode === 'pages')}>장별 전체</button>
-        <button type="button" onClick={saveText} style={{ ...btn(), marginLeft: 'auto' }}><Download size={12} /> 원문 .txt 받기</button>
+    <div className="terms-panel" style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+      <div className="no-print" style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <strong>{template.name}</strong><span style={small}>버전 {template.version} · 약관 {readable.clauses.length}개 조항</span>
+        {modeBtn('clauses', '조항별')}
+        {modeBtn('pages', '장별 전체 (A4)')}
+        {modeBtn('raw', '원문 그대로')}
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem' }}>
+          {mode === 'pages' && <button type="button" onClick={print} style={btn('#0f172a', true)}><Printer size={12} /> 인쇄 / PDF</button>}
+          <button type="button" onClick={() => saveText('readable')} style={btn()}><Download size={12} /> 읽기 쉬운 본 .txt</button>
+          <button type="button" onClick={() => saveText('raw')} style={btn()}><Download size={12} /> 원문 .txt</button>
+        </span>
       </div>
-      <div style={{ ...small, lineHeight: 1.5 }}>
-        엑셀의 셀 글과 글상자(조항 제목·계산식·동의 상자) 글을 원문 그대로 모았습니다. 두 단으로 된 약관 장은 왼쪽 단을 끝까지 읽은 뒤 오른쪽 단을 읽습니다. 계약자 정보가 들어가는 칸은 [항목 이름]으로 표시했습니다.
+      <div className="no-print" style={{ ...small, lineHeight: 1.5 }}>
+        {mode === 'raw'
+          ? '엑셀의 셀 글과 글상자 글을 줄바꿈까지 원문 그대로 모았습니다. 계약자 정보가 들어가는 칸은 [항목 이름]으로 표시했습니다.'
+          : '엑셀 칸 폭에 맞추려고 문장 중간에서 바꾼 줄을 이어 붙였습니다. 글자는 원문 그대로이고, ①·1.·가.·A. 같은 항목은 새 문단으로 둡니다. 서명란·동의 상자·계산식(글상자)은 줄을 그대로 둡니다.'}
       </div>
-      {mode === 'clauses' ? template.clauses.map((c, i) => (
-        <div key={`${c.part}-${c.no}-${i}`} style={{ border: '1px solid var(--border-color)', borderRadius: 8, background: '#fff', padding: '0.7rem 0.9rem' }}>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'baseline' }}>
-            <strong style={{ color: 'var(--text-bright)' }}>{c.heading}</strong>
-            <span style={small}>{c.part} · {c.page} · {c.text.length.toLocaleString()}자</span>
+
+      {mode === 'clauses' && readable.clauses.map((c, i) => (
+        <div key={`${c.part}-${c.no}-${i}`} style={{ border: '1px solid var(--border-color)', borderRadius: 8, background: '#fff', padding: '0.8rem 1rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
+            <strong style={{ color: 'var(--text-bright)', fontSize: '0.95rem' }}>{c.heading}</strong>
+            <span style={small}>{c.part} · {c.page}</span>
           </div>
-          <div style={{ whiteSpace: 'pre-wrap', fontSize: '0.8rem', lineHeight: 1.6, marginTop: '0.4rem', color: 'var(--text-bright)' }}>{c.text}</div>
+          <div style={{ marginTop: '0.5rem', maxWidth: 820 }}>
+            {c.items.map((it, j) => (it.kind === 'box' ? (
+              <div key={j} style={{ border: '1px solid var(--border-color)', borderRadius: 6, padding: '0.4rem 0.6rem', margin: '0.35rem 0', fontSize: '0.82rem', lineHeight: 1.6, background: '#f8fafc' }}>
+                {it.lines.map((l, k) => <div key={k}>{l}</div>)}
+              </div>
+            ) : (
+              <p key={j} style={{
+                margin: '0 0 0.35rem', fontSize: '0.88rem', lineHeight: 1.75, color: 'var(--text-bright)', wordBreak: 'keep-all',
+                ...(it.level ? { paddingLeft: it.level * 14 + 16, textIndent: -16 } : {})
+              }}
+              >
+                {it.text}
+              </p>
+            )))}
+          </div>
         </div>
-      )) : template.pages.map((p) => (
+      ))}
+
+      {mode === 'pages' && (
+        <div className="terms-a4-scroll print-fit-scroll" style={{ overflowX: 'auto', background: '#f1f5f9', borderRadius: 8, padding: '0.8rem' }}>
+          <ContractTermsDocument template={template} readable={readable} mediaUrl={(p) => media[p] || ''} docRef={docRef} />
+        </div>
+      )}
+
+      {mode === 'raw' && template.pages.map((p) => (
         <div key={p.sheet} style={{ border: '1px solid var(--border-color)', borderRadius: 8, background: '#fff', padding: '0.7rem 0.9rem' }}>
           <strong>{p.sheet}</strong>{p.twoColumn && <span style={small}> · 두 단</span>}
           <div style={{ whiteSpace: 'pre-wrap', fontSize: '0.8rem', lineHeight: 1.6, marginTop: '0.4rem' }}>{p.text}</div>
         </div>
       ))}
+
+      <style>{`
+        @media print {
+          @page { size: A4 portrait; margin: 0 !important; }
+          body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
+          aside, header, nav, footer, button, .no-print, body .desktop-sidebar, body .mobile-header { display: none !important; }
+          main, body .main-content, body .admin-container { padding: 0 !important; margin: 0 !important; overflow: visible !important; background: #fff !important; }
+          .terms-panel { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; }
+          .terms-a4-scroll { padding: 0 !important; background: #fff !important; overflow: visible !important; }
+          .terms-a4-page { box-shadow: none !important; margin: 0 !important; min-height: 0 !important; break-before: page; page-break-before: always; }
+          .terms-a4-page:first-child { break-before: auto; page-break-before: auto; }
+          .terms-heading { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+      `}</style>
     </div>
   );
 }

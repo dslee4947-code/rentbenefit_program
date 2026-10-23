@@ -72,8 +72,11 @@ export function matchRentToRounds(rounds, deposits, now = new Date()) {
       const p = rows[j];
       if (p.kind || !(p.own > 0)) continue;
       take(p, d, '미납→합산', `${row.no}회차 때 함께 입금`);
+      p.combinedInto = row.no;
+      row.combinedFrom = [...(row.combinedFrom || []), p.no];
       k -= 1;
     }
+    if (row.combinedFrom) row.note = `${row.combinedFrom.length + 1}회분 · ${row.combinedFrom.sort((a, b) => a - b).join('·')}회 몫 포함`;
   }
   for (const row of rows) {
     if (row.kind || !(row.own > 0)) continue;
@@ -108,8 +111,9 @@ export function matchRentToRounds(rounds, deposits, now = new Date()) {
         kind: r.kind,
         note: r.note,
         entryIds: r.deps.map((d) => d._id),
-        // 한꺼번에 들어온 돈은 회차 몫만큼만 이 회차에 보인다
-        paidAmount: r.deps.reduce((a, d) => a + (d.used.length > 1 ? Math.round(d.amount / d.used.length) : d.amount), 0),
+        // 몰아서 들어온 돈은 실제로 들어온 회차에 받은 금액 그대로 보이고, 앞의 빈 회차는 금액 없이 '함께 입금'으로만(대표님 2026-10-23)
+        paidAmount: r.combinedInto ? 0 : r.deps.reduce((a, d) => a + d.amount, 0),
+        combinedInto: r.combinedInto || null,
         paidDate: dates[dates.length - 1] || '',
         overdue: r.kind === '미입금' && today - dayNo(r.dueDate) > 7
       };

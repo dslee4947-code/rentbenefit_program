@@ -329,14 +329,17 @@ function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount,
                             placeholder="금액"
                             style={editCell}
                           />
-                        ) : (r.free && !r.paid ? <span style={{ color: 'var(--text-muted)' }}>0 · 쉼</span>
+                        ) : (r.combinedInto || (r.overdue && !r.paid) ? ''
+                          : r.free && !r.paid ? <span style={{ color: 'var(--text-muted)' }}>0 · 쉼</span>
                           : (r.paid ? toCommaString(r.paidAmount) : ((r.expected ?? b.defaultAmount) ? toCommaString(r.expected ?? b.defaultAmount) : '-')))}
                         {r.note && !isPaying && (
                           <div style={{ fontSize: '0.66rem', color: r.noteColor || 'var(--text-muted)', whiteSpace: 'normal' }} title={r.noteTitle || '자동이체 수수료를 떼고 들어온 회차입니다'}>{r.note}</div>
                         )}
                       </td>
                       <td style={{ ...cellPad, whiteSpace: 'nowrap' }}>
-                        {r.paid && isFixing ? (
+                        {r.combinedInto ? (
+                          <span style={{ display: 'block', textAlign: 'center', fontSize: '0.72rem', fontWeight: 700, color: '#15803d' }} title="몰아서 들어온 돈입니다. 금액은 들어온 회차에 있습니다.">→ {r.combinedInto}회 때 함께 입금</span>
+                        ) : r.paid && isFixing ? (
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
                             <input
                               value={fixing.date}
@@ -1675,9 +1678,10 @@ function LedgerView({ showToast, currentUser }) {
         paid: r.entryIds.length > 0,
         paidAmount: r.paidAmount,
         paidDate: r.paidDate,
-        entryIds: r.entryIds,
+        entryIds: r.combinedInto ? [] : r.entryIds,
+        combinedInto: r.combinedInto,
         overdue: r.overdue,
-        note: ['정상', '청구 없음', '예정', '미입금'].includes(r.kind) ? (r.note || '') : `${r.kind}${r.note ? ` · ${r.note}` : ''}`,
+        note: ['정상', '청구 없음', '예정', '미입금', '미납→합산'].includes(r.kind) ? (r.kind === '미납→합산' ? '' : (r.note || '')) : `${r.kind}${r.note ? ` · ${r.note}` : ''}`,
         noteColor: KIND_COLOR[r.kind],
         noteTitle: r.kind
       }));

@@ -203,8 +203,31 @@ const splitByPeriods = (entries, periods) => {
   const sorted = [...periods].sort((a, b) => a.seq - b.seq);
   if (sorted.length < 2) return 0;
   let moved = 0;
+
+  // 연장할 때 회차 번호를 1부터 다시 붙인 갑지(예: Benz-003 화우 1~36 → 1~12 → 1~10, 대표님 2026-10-23)는
+  // 번호로는 구간을 못 가른다. 날짜 순으로 보다가 1회차가 다시 나오는 곳에서 끊어 앞 구간부터 차례로 넣는다.
+  const rents = entries.filter((e) => e.category === '렌트료' && e.round && e.date)
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+  const blocks = [];
+  rents.forEach((e) => {
+    if (!blocks.length || (e.round === 1 && blocks[blocks.length - 1].length)) blocks.push([]);
+    blocks[blocks.length - 1].push(e);
+  });
+  const restarted = blocks.length > 1 && blocks.length <= sorted.length;
+  if (restarted) {
+    blocks.forEach((block, i) => block.forEach((e) => {
+      const p = sorted[i];
+      e.periodSeq = p.seq;
+      if (p.seq !== 1) {
+        e.label = `렌트료 ${e.round}회차 (${p.seq - 1}차 연장)`;
+        moved += 1;
+      }
+    }));
+  }
+
   entries.forEach((e) => {
     if (e.category === '렌트료' && e.round) {
+      if (restarted) return;
       let offset = 0;
       for (const p of sorted) {
         const term = Number(p.termMonths) || 0;
@@ -221,6 +244,14 @@ const splitByPeriods = (entries, periods) => {
       }
       return;
     }
+    // 인수가는 차를 넘길 때 마지막 구간에서 들어온다. 최초 계약에 남으면 동기화가 마지막 구간에 한 줄 더 만든다
+    if (e.category === '인수가') {
+      e.periodSeq = sorted[sorted.length - 1].seq;
+      moved += 1;
+      return;
+    }
+    // 할부금은 차를 살 때 낸 대출 상환이라 연장 뒤에 나가도 최초 계약 몫
+    if (e.category === '할부금') return;
     if (!e.date) return;
     const later = sorted.filter((p) => p.seq > 1 && p.startDate && e.date >= new Date(p.startDate));
     if (later.length) {

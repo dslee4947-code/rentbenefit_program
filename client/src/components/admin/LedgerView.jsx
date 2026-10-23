@@ -540,41 +540,79 @@ const isInsurancePremium = (e) => e.side === '지출' && (e.category === '보험
 const isInsuranceRefund = (e) => e.side === '입금' && /환급/.test(`${e.category || ''} ${e.label || ''}`) && /보험|공제|자차/.test(e.label || '');
 
 /**
- * 회사가 먼저 낸 과태료·통행료를 고객에게서 돌려받았는지 한 건씩 맞춘다.
+ * 회사가 먼저 낸 돈을 고객에게서 돌려받았는지 한 건씩 맞춘다(대표님 2026-10-23).
+ *   과태료·통행료: 언제나 고객 몫이다.
+ *   정비(정기점검·타이어 등): 정비 미포함 고객이면 고객 몫이다. 회사가 내더라도 렌트료에 얹어 받거나 고객이 통장으로 넣어 준다.
  *
- * 과태료는 다음 달 렌트료에 얹어 함께 빠져나간다(대표님 2026-10-23). 그래서 과태료를 낸 날 뒤
- * 100일 안의 렌트료 입금 중(청구가 한두 달 늦은 경우가 있다: Benz-003 2023-09-04 과태료 → 11/30 24회차) 월 렌트료보다 더 들어온 돈(차액)이 과태료만큼 남아 있으면 그 입금으로 돌려받은 것으로 본다.
- * 청구서로 받는 계약은 원장 렌트료 줄에 렌트료만 적기도 해서, 청구서 회차의 범칙금(입금완료)도 함께 본다.
+ * 돌려받은 곳은 이 순서로 찾는다.
+ *   1) 같은 종류의 마이너스 출금 줄(상계) — 화우 정기점검 717,745 → -717,745처럼 받은 돈을 출금 취소로 적은 경우
+ *   2) 고객이 따로 넣은 입금 줄(이름에 정비·점검·과태료 등)
+ *   3) 낸 날 뒤 100일 안의 렌트료 입금 중 월 렌트료보다 더 들어온 돈(차액). 과태료는 다음 달 렌트료에 얹어 빠져나간다.
+ *      청구가 한두 달 늦은 경우가 있어 100일로 본다(Benz-003 2023-09-04 과태료 → 11/30 24회차)
+ *   4) 청구서 회차의 범칙금·정비 금액(입금완료). 청구서로 받는 계약은 원장 렌트료 줄에 렌트료만 적기도 한다.
+ * 금액은 95%까지 맞으면 같은 건으로 보고, 차이가 나면 적어 준다(화우 정비: 원장 717,745 / 청구 712,745).
  * 예전에는 렌트료 차액을 통째로 더해 보았는데, 1회차 일할 정산처럼 큰 차액이 과태료를 전부 덮어 '회수'로 보였다.
  *
- * @returns {Array<{entry, via: string|null, date: string}>} 과태료 줄마다 돌려받은 곳(없으면 null)
+ * @returns {Array<{entry, kind: 'fine'|'maint', via: string|null, got: number}>} 줄마다 돌려받은 곳(없으면 null)과 받은 금액
  */
 const RECOVER_WINDOW_DAYS = 100;
-const matchFineRecovery = (entries, rentBySeq, billingRounds = []) => {
+const OFFSET_WINDOW_DAYS = 365;
+const RECOVER_LABEL = { fine: /과태료|통행료|범칙금|주차/, maint: /정비|점검|타이어|오일|정기/ };
+const recoverKindOf = (e) => {
+  if (e.category === '과태료·통행료') return 'fine';
+  if (e.category === '정기점검' || matchMaintenance(e)) return 'maint';
+  return null;
+};
+const matchRecoveries = (entries, rentBySeq, billingRounds = [], { maintenance = false } = {}) => {
   const dayOf = (d) => Math.floor(new Date(String(d).slice(0, 10)).getTime() / 864e5);
-  const fines = entries.filter((e) => e.side === '지출' && e.category === '과태료·통행료' && Number(e.amount) > 0 && e.date)
-    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const ymd = (d) => String(d).slice(0, 10);
+  const byDate = (a, b) => String(a.date).localeCompare(String(b.date));
+  const targets = entries
+    .filter((e) => e.side === '지출' && Number(e.amount) > 0 && e.date)
+    .map((e) => ({ e, kind: recoverKindOf(e) }))
+    .filter((t) => t.kind === 'fine' || (maintenance && t.kind === 'maint'))
+    .sort((a, b) => byDate(a.e, b.e));
+  const offsets = entries.filter((e) => e.side === '지출' && Number(e.amount) < 0 && e.date)
+    .map((e) => ({ e, kind: recoverKindOf(e), left: -Number(e.amount) }));
+  const deposits = entries.filter((e) => e.side === '입금' && e.date && !(rentRoundOf(e) || e.category === '렌트료')
+    && !['보증금', '인수가', '선납금', '대출금'].includes(e.category) && !isInsuranceRefund(e))
+    .map((e) => ({ e, left: Number(e.amount) || 0 }));
   const rents = entries.filter((e) => e.side === '입금' && (rentRoundOf(e) || e.category === '렌트료') && e.date)
     .map((e) => ({ e, left: (Number(e.amount) || 0) - (rentBySeq[e.periodSeq || 1] || 0) }))
     .filter((r) => r.left > 0)
-    .sort((a, b) => String(a.e.date).localeCompare(String(b.e.date)));
-  const billed = billingRounds.filter((r) => Number(r.fine) > 0 && r.status === '입금완료' && (r.paidAt || r.dueDate))
-    .map((r) => ({ r, day: String(r.paidAt || r.dueDate).slice(0, 10), left: Number(r.fine) }))
+    .sort((a, b) => byDate(a.e, b.e));
+  const billed = billingRounds.filter((r) => r.status === '입금완료' && (r.paidAt || r.dueDate))
+    .map((r) => ({ r, day: ymd(r.paidAt || r.dueDate), left: { fine: Number(r.fine) || 0, maint: Number(r.maintenance) || 0 } }))
     .sort((a, b) => a.day.localeCompare(b.day));
-  return fines.map((f) => {
-    const amount = Number(f.amount);
-    const within = (d) => dayOf(d) > dayOf(f.date) && dayOf(d) - dayOf(f.date) <= RECOVER_WINDOW_DAYS;
-    const rent = rents.find((x) => within(x.e.date) && x.left >= amount);
+
+  const enough = (left, amount) => left >= amount * 0.95;
+  const diffNote = (got, amount) => (got !== amount ? ` (차이 ${toCommaString(amount - got)})` : '');
+  return targets.map(({ e, kind }) => {
+    const amount = Number(e.amount);
+    const after = (d, days) => dayOf(d) >= dayOf(e.date) && dayOf(d) - dayOf(e.date) <= days;
+    const take = (left) => Math.min(left, amount);
+
+    const off = offsets.find((x) => x.kind === kind && after(x.e.date, OFFSET_WINDOW_DAYS) && enough(x.left, amount));
+    if (off) {
+      const got = take(off.left); off.left -= got;
+      return { entry: e, kind, got, via: `${ymd(off.e.date)} ${off.e.label} ${toCommaString(off.e.amount)}로 상계(돌려받음)${diffNote(got, amount)}` };
+    }
+    const dep = deposits.find((x) => RECOVER_LABEL[kind].test(x.e.label || '') && after(x.e.date, RECOVER_WINDOW_DAYS) && enough(x.left, amount));
+    if (dep) {
+      const got = take(dep.left); dep.left -= got;
+      return { entry: e, kind, got, via: `${ymd(dep.e.date)} 고객 입금 '${dep.e.label}'${diffNote(got, amount)}` };
+    }
+    const rent = rents.find((x) => dayOf(x.e.date) > dayOf(e.date) && after(x.e.date, RECOVER_WINDOW_DAYS) && enough(x.left, amount));
     if (rent) {
-      rent.left -= amount;
-      return { entry: f, via: `${String(rent.e.date).slice(0, 10)} ${rent.e.label || '렌트료'}에 얹어 받음`, date: String(rent.e.date).slice(0, 10) };
+      const got = take(rent.left); rent.left -= got;
+      return { entry: e, kind, got, via: `${ymd(rent.e.date)} ${rent.e.label || '렌트료'}에 얹어 받음${diffNote(got, amount)}` };
     }
-    const bill = billed.find((x) => within(x.day) && x.left >= amount);
+    const bill = billed.find((x) => after(x.day, RECOVER_WINDOW_DAYS) && enough(x.left[kind], amount));
     if (bill) {
-      bill.left -= amount;
-      return { entry: f, via: `${bill.day} 청구서 ${bill.r.no}회 범칙금으로 받음`, date: bill.day };
+      const got = take(bill.left[kind]); bill.left[kind] -= got;
+      return { entry: e, kind, got, via: `${bill.day} 청구서 ${bill.r.no}회 ${kind === 'fine' ? '범칙금' : '정비비'}로 받음${diffNote(got, amount)}` };
     }
-    return { entry: f, via: null, date: '' };
+    return { entry: e, kind, got: 0, via: null };
   });
 };
 
@@ -620,6 +658,25 @@ const isSalesCommission = (e) => e.side === '입금' && e.category === '수수�
   && ((e.bank || '').trim() === 'SC' || /판매/.test(e.label || ''));
 
 const won = (n) => `${toCommaString(n)} 원`;
+
+/** 고객 몫으로 낸 돈 건별: 낸 날 → 돌려받은 곳. 못 찾은 건은 빨갛게. 건수가 많아 접어 둔다 */
+function RecoveryList({ matches }) {
+  if (!matches.length) return null;
+  const missing = matches.filter((m) => !m.via).length;
+  return (
+    <details style={{ margin: '0.2rem 0 0.3rem', padding: '0.3rem 0.45rem', background: 'var(--bg-main)', borderRadius: '6px', fontSize: '0.7rem', lineHeight: 1.55 }}>
+      <summary style={{ cursor: 'pointer', fontWeight: '700', color: missing ? '#d9534f' : 'var(--text-muted)' }}>
+        건별로 보기 · {matches.length}건 중 돌려받은 곳 못 찾음 {missing}건
+      </summary>
+      {matches.map((m) => (
+        <div key={m.entry._id || `${m.entry.date}-${m.entry.amount}-${m.entry.label}`} style={{ color: m.via ? 'var(--text-muted)' : '#d9534f' }}>
+          {String(m.entry.date).slice(0, 10)} {m.entry.label} {toCommaString(m.entry.amount)}
+          {' → '}{m.via || '돌려받은 곳을 못 찾음'}
+        </div>
+      ))}
+    </details>
+  );
+}
 
 // 예산 대비 사용 막대. 80%를 넘으면 주황, 넘치면 빨강
 // limit(%)을 주면 그 선을 기준으로 색을 정한다. 화면에 선은 드러내지 않고 색으로만 알린다.
@@ -699,7 +756,7 @@ const bucketOf = (e) => {
   return 'operating';
 };
 
-function BudgetBoard({ plan, entries, income, internalRate, salesCommission }) {
+function BudgetBoard({ plan, entries, income, internalRate, salesCommission, recovered = {} }) {
   const [open, setOpen] = useState(null);
   const ownLoan = hasOwnLoan(entries);
   const internal = useMemo(() => internalInterestFor(entries, internalRate), [entries, internalRate]);
@@ -734,10 +791,11 @@ function BudgetBoard({ plan, entries, income, internalRate, salesCommission }) {
     purchase: sum('purchase'),
     registration: sum('registration'),
     insurance: sum('insurance') - insuranceRefund,
-    maintenance: sum('maintenance'),
+    // 고객에게서 돌려받은 과태료·정비비(정비 미포함 고객)는 회사가 쓴 돈이 아니다(matchRecoveries)
+    maintenance: sum('maintenance') - (plan.maintenanceOn ? 0 : recovered.maintenance || 0),
     // 회사 돈으로 산 차는 원장에 이자 줄이 없으므로 내부 금리로 매긴 이자를 쓴다
     finance: ownLoan ? sum('finance') : internal.interest,
-    operating: sum('operating'),
+    operating: sum('operating') - (recovered.fines || 0),
     vehicleWork: sum('vehicleWork')
   };
   const budgeted = BUDGET_BUCKETS.filter((b) => b.key in budget && b.key !== 'vehicleWork');
@@ -1097,19 +1155,27 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
     });
 
     /**
-     * 과태료·미납통행료는 회사가 먼저 내고 다음 달 렌트료에 얹어 받는다. 한 건씩 돌려받은 곳을 맞추고(matchFineRecovery)
-     * 돌려받은 것은 운영비가 아니다. 못 찾은 것만 운영비(미회수)로 남긴다.
+     * 과태료·미납통행료(언제나)와 정비비(정비 미포함 고객)는 고객 몫이다. 한 건씩 돌려받은 곳을 맞추고(matchRecoveries)
+     * 돌려받은 것은 회사 비용이 아니다. 못 받은 것만 비용으로 남긴다(과태료는 운영비, 정비는 정비 초과).
      */
-    out.fineMatches = matchFineRecovery(entries, rentBySeq, billingRounds);
-    out.finesRecovered = out.fineMatches.filter((m) => m.via).reduce((s, m) => s + Number(m.entry.amount), 0);
-    const finesLeft = out.fines - out.finesRecovered;
+    const maintenanceOn = Boolean(plan?.maintenanceOn);
+    const matches = matchRecoveries(entries, rentBySeq, billingRounds, { maintenance: !maintenanceOn });
+    const sumOf = (list, f) => list.reduce((s, m) => s + f(m), 0);
+    out.fineMatches = matches.filter((m) => m.kind === 'fine');
+    out.finesPaid = sumOf(out.fineMatches, (m) => Number(m.entry.amount));
+    out.finesRecovered = sumOf(out.fineMatches, (m) => m.got);
+    out.maintMatches = matches.filter((m) => m.kind === 'maint');
+    out.maintPaid = sumOf(out.maintMatches, (m) => Number(m.entry.amount));
+    out.maintRecovered = sumOf(out.maintMatches, (m) => m.got);
+    out.maintUnrecovered = out.maintPaid - out.maintRecovered;
+    const finesLeft = out.finesPaid - out.finesRecovered;
     if (finesLeft > 0) {
       out.operating += finesLeft;
       out.operatingByCat['과태료·통행료 (미회수)'] = finesLeft;
     }
     out.insuranceNet = out.insurance - out.insuranceRefund;
     return out;
-  }, [entries, rentBySeq, billingRounds]);
+  }, [entries, rentBySeq, billingRounds, plan?.maintenanceOn]);
 
   let body;
   if (state.loading) {
@@ -1189,7 +1255,8 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
     // 보험은 지금까지 낸 햇수만큼의 견적과 비교한다(남은 해의 보험료는 아직 안 나갔다)
     const overrun = Math.max(0, actual.insuranceNet + actual.repair - insuranceYear * Math.max(premiumYears, 1))
       + Math.max(0, actual.operating - plan.pandanbi)
-      + (plan.maintenanceOn ? Math.max(0, maintenanceSpent - (plan.maintenanceFee + plan.tireFee)) : maintenanceSpent);
+      // 정비 미포함 고객의 정비비는 고객에게서 돌려받아야 한다. 못 받은 것만 회사 비용(예상 밖)이다
+      + (plan.maintenanceOn ? Math.max(0, maintenanceSpent - (plan.maintenanceFee + plan.tireFee)) : actual.maintUnrecovered);
     // 판매 수수료와 차량작업비는 견적에 없는 돈이다. 수수료에서 작업비를 뺀 나머지가 이익에 더해진다.
     const adjusted = expected - overrun + commissionNet;
 
@@ -1295,6 +1362,7 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
           income={{ rentTotal, takeover: returned ? 0 : takeover, advance, rentReceived: actual.rentReceived, months: totalMonths, cms: cmsTotal }}
           internalRate={internalRate}
           salesCommission={actual.salesCommission}
+          recovered={{ fines: actual.finesRecovered, maintenance: actual.maintRecovered }}
         />
 
         <Section no={1} title="보험료 · 자차보험료">
@@ -1331,22 +1399,11 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
             <Row label="판매 수수료 입금이 아직 없습니다" value="" muted />
           )}
           <Divider />
-          {actual.fines > 0 && (
+          {actual.finesPaid > 0 && (
             <>
-              <Row label="과태료 · 미납통행료 (회사 대납)" value={won(actual.fines)} muted />
-              <Row label="· 다음 렌트료·청구서로 돌려받음" value={`- ${won(actual.finesRecovered)}`} muted color="#2f6f4e" />
-              {/* 한 건씩: 낸 날 → 돌려받은 곳. 못 찾은 건은 빨갛게. 건수가 많아 접어 둔다 */}
-              <details style={{ margin: '0.2rem 0 0.3rem', padding: '0.3rem 0.45rem', background: 'var(--bg-main)', borderRadius: '6px', fontSize: '0.7rem', lineHeight: 1.55 }}>
-                <summary style={{ cursor: 'pointer', fontWeight: '700', color: actual.fineMatches.some((m) => !m.via) ? '#d9534f' : 'var(--text-muted)' }}>
-                  건별로 보기 · {actual.fineMatches.length}건 중 돌려받은 곳 못 찾음 {actual.fineMatches.filter((m) => !m.via).length}건
-                </summary>
-                {actual.fineMatches.map((m) => (
-                  <div key={m.entry._id || `${m.entry.date}-${m.entry.amount}`} style={{ color: m.via ? 'var(--text-muted)' : '#d9534f' }}>
-                    {String(m.entry.date).slice(0, 10)} {m.entry.label} {toCommaString(m.entry.amount)}
-                    {' → '}{m.via || '돌려받은 곳을 못 찾음'}
-                  </div>
-                ))}
-              </details>
+              <Row label="과태료 · 미납통행료 (회사 대납)" value={won(actual.finesPaid)} muted />
+              <Row label="· 돌려받음 (상계·고객 입금·렌트료·청구서)" value={`- ${won(actual.finesRecovered)}`} muted color="#2f6f4e" />
+              <RecoveryList matches={actual.fineMatches} />
             </>
           )}
           <Row label="운영하며 들어간 비용" value={won(actual.operating)} />
@@ -1379,11 +1436,19 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
             </>
           ) : (
             <>
+              {/* 정비 미포함 고객의 정비비는 고객 몫이다. 회사가 냈으면 렌트료에 얹어 받거나 고객이 통장으로 넣어 줘야 한다(대표님 2026-10-23) */}
               <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>
-                견적에 정비가 들어 있지 않은 고객입니다. 아래 금액은 회사가 대신 낸 정비 비용입니다.
+                견적에 정비가 들어 있지 않은 고객입니다. 회사가 정비비를 냈으면 렌트료에 얹어 받거나 고객이 따로 입금해 줘야 합니다.
               </div>
-              <Row label="정기점검" value={won(actual.maintenance)} />
-              <Row label="타이어" value={won(actual.tire)} />
+              <Row label="회사가 낸 정비비 (정기점검·타이어 등)" value={won(actual.maintPaid)} muted />
+              <Row label="· 돌려받음 (상계·고객 입금·렌트료·청구서)" value={`- ${won(actual.maintRecovered)}`} muted color="#2f6f4e" />
+              <RecoveryList matches={actual.maintMatches} />
+              <Row
+                label={actual.maintUnrecovered > 0 ? '못 받은 정비비 (회사 부담)' : '못 받은 정비비'}
+                value={won(actual.maintUnrecovered)}
+                strong
+                color={actual.maintUnrecovered > 0 ? '#d9534f' : '#2f6f4e'}
+              />
             </>
           )}
         </Section>
@@ -2826,7 +2891,7 @@ function LedgerView({ showToast, currentUser }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', minWidth: '1080px' }}>
             <thead>
               <tr style={{ background: 'var(--bg-main)' }}>
-                {['구간', '계약번호', '시작일', '종료일', '기간(개월)', '월 렌트료', '보증금', '선납금', '인수가', '1회차 출금일', '구간 정산금액'].map((h, i) => (
+                {['구간', '계약번호', '시작일', '종료일', '기간(개월)', '월 렌트료', '보증금', '선납금', '인수가', '1회차 출금일', '구간 정산금액 (보증금 제외)'].map((h, i) => (
                   <th key={h} style={{ ...th, textAlign: i >= 4 && i !== 9 ? 'right' : 'left', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -2840,8 +2905,12 @@ function LedgerView({ showToast, currentUser }) {
                   if (key === 'endDate') return ledger.header?.contractEndAt;
                   return t[key];
                 };
-                const rows = entries.filter((e) => (e.periodSeq || 1) === p.seq);
+                // 구간 정산금액 = 그 구간 원장 줄의 입금 − 출금. 보증금은 돌려줄 돈이라 갑지 정산금액처럼 뺀다
+                const rows = entries.filter((e) => (e.periodSeq || 1) === p.seq && e.category !== '보증금');
                 const bal = rows.reduce((sum, e) => sum + (e.side === '입금' ? 1 : -1) * (Number(e.amount) || 0), 0);
+                // 아직 안 받은 인수가 줄(날짜 없음)이 들어 있으면 '인수가를 받았을 때' 금액이라고 밝힌다
+                const takeoverPending = rows.filter((e) => e.category === '인수가' && e.side === '입금' && !e.date)
+                  .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
                 const isLast = idx === periods.length - 1;
                 const cellInput = { width: '100%', padding: '0.3rem 0.35rem', border: '1px solid var(--border-color)', borderRadius: '5px', fontSize: '0.78rem', boxSizing: 'border-box', background: '#fff' };
                 // 0원이면 비워 두고 안내 글(승계·-)이 보이게 한다
@@ -2872,10 +2941,23 @@ function LedgerView({ showToast, currentUser }) {
                     <td style={{ ...td, minWidth: '100px' }}>{money('deposit', p.seq > 1 ? '승계' : '')}</td>
                     <td style={{ ...td, minWidth: '90px' }}>{money('advancePayment')}</td>
                     {/* 인수가는 차를 넘길 때 한 번 받는다. 계산에는 마지막 구간 것만 쓴다 */}
-                    <td style={{ ...td, minWidth: '100px' }}>{money('takeoverPrice', isLast ? '' : '-')}</td>
+                    <td style={{ ...td, minWidth: '100px' }}>
+                      {money('takeoverPrice', isLast ? '' : '-')}
+                      {/* 인수할 때 보증금을 인수가에서 빼고 나머지만 받는다(화우: 22,105,860 − 12,360,000 = 9,745,860) */}
+                      {isLast && Number(valueOf('takeoverPrice')) > 0 && Number(t.deposit) > 0 && (
+                        <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', textAlign: 'right', marginTop: '0.15rem', whiteSpace: 'nowrap' }}>
+                          보증금 빼고 받을 돈 {toCommaString(Number(valueOf('takeoverPrice')) - Number(t.deposit))}
+                        </div>
+                      )}
+                    </td>
                     <td style={{ ...td, minWidth: '118px' }}>{date('rentStartDate')}</td>
                     <td style={{ ...td, textAlign: 'right', fontWeight: '700', whiteSpace: 'nowrap', color: bal < 0 ? '#d9534f' : '#2f6f4e' }}>
                       {signed(bal)}
+                      {takeoverPending > 0 && (
+                        <div style={{ fontSize: '0.66rem', fontWeight: '400', color: 'var(--text-muted)' }}>
+                          아직 안 받은 인수가 {toCommaString(takeoverPending)} 포함
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );

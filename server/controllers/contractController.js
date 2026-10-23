@@ -13,6 +13,17 @@ import { mergeCarModel } from '../utils/carModel.js';
 import { normalizeMaintenance } from '../utils/maintenance.js';
 import { computeSupplyPrice } from '../utils/vehiclePricing.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
+import { ensureContractDocument, refreshContractDocumentFor } from '../utils/contractDocumentValues.js';
+
+// 견적에서 넘어온 계약이면 전자계약서를 바로 만들어 둔다(견적 내용으로 빈칸이 채워진다).
+// 계약서 양식이 아직 없거나 만들다 실패해도 계약 저장은 그대로 끝나야 하므로 오류는 로그만 남긴다.
+const createDocumentFromQuote = async (contractId, req) => {
+  try {
+    await ensureContractDocument(contractId, { user: req.user });
+  } catch (err) {
+    console.error('[전자계약서] 자동 생성 실패:', err.message);
+  }
+};
 
 // 차종명으로 차량 코드를 자동 채번한다 (예: "그랜저 하이브리드" -> "그랜저-003").
 // createContract(신규 등록)와 updateContract의 임시저장 확정(finalize) 양쪽에서 공유한다.
@@ -498,6 +509,7 @@ export const createContract = async (req, res) => {
     // 5. If quoteId is provided, mark quote status as converted
     if (quoteId) {
       await Quote.findByIdAndUpdate(quoteId, { status: '계약전환' });
+      await createDocumentFromQuote(savedContract._id, req);
     }
 
     const populatedContract = await Contract.findById(savedContract._id)
@@ -566,6 +578,7 @@ export const createDraftContract = async (req, res) => {
     // 견적에서 넘어온 임시저장이면 그 견적은 계약으로 전환된 것으로 표시한다
     if (req.body.quoteId) {
       await Quote.findByIdAndUpdate(req.body.quoteId, { status: '계약전환' });
+      await createDocumentFromQuote(contract._id, req);
     }
 
     const populated = await Contract.findById(contract._id)
@@ -678,6 +691,8 @@ export const updateContract = async (req, res) => {
       if (updatedContract.quote) {
         await Quote.findByIdAndUpdate(updatedContract.quote, { status: '계약전환' });
       }
+      // 차량이 생겼으니 전자계약서의 차량 코드·보험·정비 칸을 다시 채운다(고친 칸은 그대로)
+      await refreshContractDocumentFor(updatedContract._id);
 
       const populated = await Contract.findById(updatedContract._id)
         .populate('customer')

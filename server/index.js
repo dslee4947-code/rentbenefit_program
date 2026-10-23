@@ -27,6 +27,7 @@ import shortTermRateRoutes from './routes/shortTermRateRoutes.js';
 import inquiryRoutes from './routes/inquiryRoutes.js';
 import vehicleServiceRoutes from './routes/vehicleServiceRoutes.js';
 import excelSyncRoutes from './routes/excelSyncRoutes.js';
+import { templateRouter as contractTemplateRoutes, documentRouter as contractDocumentRoutes } from './routes/contractDocumentRoutes.js';
 import { runExcelAutoSync, isExcelAutoSyncEnabled } from './utils/excelAutoSync.js';
 
 // Load environment variables
@@ -231,6 +232,8 @@ app.use('/api/company-book', protect, companyBookRoutes);
 app.use('/api/short-term-rates', protect, shortTermRateRoutes);
 app.use('/api/vehicle-services', protect, vehicleServiceRoutes);
 app.use('/api/excel-sync', protect, excelSyncRoutes);
+app.use('/api/contract-templates', protect, contractTemplateRoutes);
+app.use('/api/contract-documents', protect, contractDocumentRoutes);
 
 // Client-side routing: any non-/api request falls through to the SPA entry point
 if (serveClient) {

@@ -14,6 +14,7 @@ export const ACTIONS = Object.freeze({
   CONTRACT_RETURN: '차량 반납',
   CONTRACT_TAKEOVER: '차량 인수',
   CONTRACT_RERENT: '재렌트 계약',
+  CONTRACT_TEMPLATE: '전자계약서',
   VEHICLE_CREATE: '차량 등록',
   VEHICLE_STATUS_CHANGE: '차량 상태 변경',
   INVOICE_ISSUE: '청구서 발행',

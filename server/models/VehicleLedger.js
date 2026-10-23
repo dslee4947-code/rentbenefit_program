@@ -248,6 +248,8 @@ const VehicleLedgerSchema = new Schema({
     contractNo: String, // 계약이 지워져도 어느 계약이었는지 남긴다
     startDate: Date,
     endDate: Date,
+    // 1회차 출금일. 청구서가 없는 구간(계약서가 프로그램에 없는 예전 계약)의 회차 날짜를 이 날로 센다
+    rentStartDate: Date,
     termMonths: Number,
     monthlyRent: Number, // 구간마다 다르다. 연장하면서 렌트료가 바뀐다
     deposit: Number,

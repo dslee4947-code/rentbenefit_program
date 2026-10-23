@@ -1765,7 +1765,7 @@ function LedgerView({ showToast, currentUser }) {
         const seq = p.seq || 1;
         const monthlyRent = Number(p.monthlyRent) || (seq === 1 ? Number(terms.monthlyRent) || 0 : 0);
         const termMonths = Number(p.termMonths) || (seq === 1 ? Number(terms.termMonths) || 0 : 0);
-        const start = seq === 1 ? (terms.rentStartDate || p.startDate) : p.startDate;
+        const start = p.rentStartDate || (seq === 1 ? terms.rentStartDate : null) || p.startDate;
 
         const byRound = new Map();
         entries.forEach((e) => {

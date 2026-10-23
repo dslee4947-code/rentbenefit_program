@@ -148,6 +148,22 @@ export const getTemplateMedia = async (req, res) => {
   }
 };
 
+/**
+ * 양식의 빈 계약서 PDF(엑셀이 만든 원본 모양, 값 칸 비움). 약관 원문 '장별 전체'에서 보여 준다.
+ * @route GET /api/contract-templates/:id/pdf
+ */
+export const getTemplatePdf = async (req, res) => {
+  try {
+    const base = await ContractTemplatePdf.findOne({ template: req.params.id }).select('blank').lean();
+    if (!base) return res.status(404).json({ success: false, message: '이 양식의 PDF가 아직 없습니다. 엑셀이 있는 PC에서 server/scripts/build-contract-pdf-base.js를 실행해 주세요.' });
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent('자동차임대차계약서_양식.pdf')}`);
+    res.send(Buffer.from(base.blank.buffer || base.blank));
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 /** 엑셀 원본 내려받기. @route GET /api/contract-templates/:id/file */
 export const downloadTemplateFile = async (req, res) => {
   try {

@@ -7,6 +7,7 @@ import {
   activateTemplate,
   getTemplateMedia,
   downloadTemplateFile,
+  getTemplatePdf,
   listDocuments,
   getDocument,
   createDocument,
@@ -25,6 +26,7 @@ templateRouter.get('/', listTemplates);
 templateRouter.get('/:id', getTemplate);
 templateRouter.get('/:id/media', getTemplateMedia);
 templateRouter.get('/:id/file', downloadTemplateFile);
+templateRouter.get('/:id/pdf', getTemplatePdf);
 templateRouter.post('/', checkAdminPermission, upload.single('file'), uploadTemplate);
 templateRouter.patch('/:id/activate', checkAdminPermission, activateTemplate);
 

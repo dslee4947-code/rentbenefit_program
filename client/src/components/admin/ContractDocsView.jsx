@@ -1,8 +1,6 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { FileSignature, Upload, RefreshCw, Printer, Save, CheckCircle2, Unlock, Search, Download, ArrowLeft, BookOpen } from 'lucide-react';
-import ContractTermsDocument from './ContractTermsDocument.jsx';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { FileSignature, Upload, RefreshCw, Save, CheckCircle2, Unlock, Search, Download, ArrowLeft, BookOpen } from 'lucide-react';
 import { buildReadableTerms, readableTermsText, FIELD_GROUPS, SOURCE_LABEL } from './contractSheetUtils.js';
-import { printFitted } from '../../utils/printFit.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -32,31 +30,6 @@ const tabBtn = (on) => ({
 });
 const small = { fontSize: '0.72rem', color: 'var(--text-muted)' };
 const input = { width: '100%', padding: '0.35rem 0.45rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-bright)', fontSize: '0.8rem', boxSizing: 'border-box' };
-
-/**
- * 계약서 미리보기. 장(시트)마다 A4 한 장 크기의 상자에 넣는다.
- * 모든 상자를 가장 넓은 장의 폭과 A4 비율 높이로 맞추고, 장이 상자보다 크면 그 장만 줄인다.
- * 그래서 printFitted가 폭에 맞춰 한 번 줄이면 상자 하나가 종이 한 장이 된다.
- */
-// 그림은 로그인 토큰이 있어야 받을 수 있어 <img src>로 바로 걸 수 없다. 받아서 blob 주소로 바꿔 둔다.
-const mediaCache = new Map();
-const useTemplateMedia = (template) => {
-  const [urls, setUrls] = useState({});
-  useEffect(() => {
-    if (!template?._id) return undefined;
-    let alive = true;
-    Promise.all((template.media || []).map(async (path) => {
-      const key = `${template._id}:${path}`;
-      if (!mediaCache.has(key)) {
-        mediaCache.set(key, fetch(`${API_HOST}/api/contract-templates/${template._id}/media?path=${encodeURIComponent(path)}`)
-          .then((r) => (r.ok ? r.blob() : null)).then((b) => (b ? URL.createObjectURL(b) : '')).catch(() => ''));
-      }
-      return [path, await mediaCache.get(key)];
-    })).then((pairs) => { if (alive) setUrls(Object.fromEntries(pairs)); });
-    return () => { alive = false; };
-  }, [template]);
-  return urls;
-};
 
 // 계약서 체크 칸(엑셀 입력 칸 밖). 서버 utils/contractPdf.js가 이 값으로 V를 찍는다.
 const CHECK_FIELDS = [
@@ -360,19 +333,33 @@ function TemplatesPanel({ showToast, isAdmin, onOpenTerms }) {
 /**
  * 약관 원문.
  *  - 조항별: 엑셀 폭에 맞춰 끊긴 줄을 이어 붙인 읽기 쉬운 본(글자는 그대로, 줄바꿈만 정리)
- *  - 장별 전체: A4 문서(인쇄·PDF). 약관은 엑셀처럼 두 단·회색 조항 제목, 표로 된 장은 엑셀 화면 그대로
+ *  - 장별 전체: 엑셀이 만든 계약서 원본 PDF(값 칸 비움, A4 12쪽). 인쇄·저장은 PDF 보기 화면에서 한다
  *  - 원문 그대로: 엑셀 줄바꿈까지 그대로(대조용)
  */
 function TermsPanel({ templateId, showToast }) {
   const [template, setTemplate] = useState(null);
   const [mode, setMode] = useState('clauses');
-  const docRef = useRef(null);
+  const [pdf, setPdf] = useState({ url: '', error: '' });
   useEffect(() => {
     if (!templateId) return;
     fetchTemplate(templateId).then(setTemplate).catch((e) => showToast?.(e.message, 'error'));
   }, [templateId, showToast]);
   const readable = useMemo(() => (template ? buildReadableTerms(template) : null), [template]);
-  const media = useTemplateMedia(mode === 'pages' ? template : null);
+
+  // 장별 전체: 서버에 보관한 빈 계약서 PDF(엑셀이 만든 것)를 받아 보여 준다
+  useEffect(() => {
+    if (mode !== 'pages' || !templateId) return undefined;
+    let alive = true;
+    let url = '';
+    fetch(`${API_HOST}/api/contract-templates/${templateId}/pdf`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || '양식 PDF를 받지 못했습니다.');
+        return r.blob();
+      })
+      .then((blob) => { url = URL.createObjectURL(blob); if (alive) setPdf({ url, error: '' }); })
+      .catch((e) => { if (alive) setPdf({ url: '', error: e.message }); });
+    return () => { alive = false; if (url) URL.revokeObjectURL(url); };
+  }, [mode, templateId]);
 
   if (!templateId) return <div style={{ padding: '1.5rem', ...small }}>양식 관리에서 [약관 원문]을 눌러 주세요.</div>;
   if (!template || !readable) return <div style={{ padding: '1.5rem', ...small }}>불러오는 중...</div>;
@@ -395,7 +382,6 @@ function TermsPanel({ templateId, showToast }) {
     a.click();
     URL.revokeObjectURL(url);
   };
-  const print = () => printFitted(docRef.current, { onePage: false, marginMm: 10, title: `계약서_약관_v${template.version}` });
 
   const modeBtn = (id, label) => (
     <button type="button" onClick={() => setMode(id)} style={btn(mode === id ? '#2563eb' : '#334155', mode === id)}>{label}</button>
@@ -409,7 +395,6 @@ function TermsPanel({ templateId, showToast }) {
         {modeBtn('pages', '장별 전체 (A4)')}
         {modeBtn('raw', '원문 그대로')}
         <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem' }}>
-          {mode === 'pages' && <button type="button" onClick={print} style={btn('#0f172a', true)}><Printer size={12} /> 인쇄 / PDF</button>}
           <button type="button" onClick={() => saveText('readable')} style={btn()}><Download size={12} /> 읽기 쉬운 본 .txt</button>
           <button type="button" onClick={() => saveText('raw')} style={btn()}><Download size={12} /> 원문 .txt</button>
         </span>
@@ -417,7 +402,9 @@ function TermsPanel({ templateId, showToast }) {
       <div className="no-print" style={{ ...small, lineHeight: 1.5 }}>
         {mode === 'raw'
           ? '엑셀의 셀 글과 글상자 글을 줄바꿈까지 원문 그대로 모았습니다. 계약자 정보가 들어가는 칸은 [항목 이름]으로 표시했습니다.'
-          : '엑셀 칸 폭에 맞추려고 문장 중간에서 바꾼 줄을 이어 붙였습니다. 글자는 원문 그대로이고, ①·1.·가.·A. 같은 항목은 새 문단으로 둡니다. 서명란·동의 상자·계산식(글상자)은 줄을 그대로 둡니다.'}
+          : mode === 'pages'
+            ? '엑셀이 만든 계약서 원본 PDF입니다(값 칸은 비어 있음). 인쇄·저장은 PDF 화면 위쪽 단추로 합니다. 계약마다 값이 들어간 PDF는 [계약서] 탭에서 봅니다.'
+            : '엑셀 칸 폭에 맞추려고 문장 중간에서 바꾼 줄을 이어 붙였습니다. 글자는 원문 그대로이고, ①·1.·가.·A. 같은 항목은 새 문단으로 둡니다. 서명란·동의 상자·계산식(글상자)은 줄을 그대로 둡니다.'}
       </div>
 
       {mode === 'clauses' && readable.clauses.map((c, i) => (
@@ -445,8 +432,14 @@ function TermsPanel({ templateId, showToast }) {
       ))}
 
       {mode === 'pages' && (
-        <div className="terms-a4-scroll print-fit-scroll" style={{ overflowX: 'auto', background: '#f1f5f9', borderRadius: 8, padding: '0.8rem' }}>
-          <ContractTermsDocument template={template} readable={readable} mediaUrl={(p) => media[p] || ''} docRef={docRef} />
+        <div style={{ background: '#f1f5f9', borderRadius: 8, padding: '0.6rem' }}>
+          {pdf.error ? (
+            <div style={{ padding: '2rem', color: '#b91c1c', background: '#fff', borderRadius: 6 }}>{pdf.error}</div>
+          ) : pdf.url ? (
+            <iframe title="계약서 양식 PDF" src={pdf.url} style={{ width: '100%', height: 'calc(100vh - 230px)', border: '1px solid var(--border-color)', borderRadius: 6, background: '#fff' }} />
+          ) : (
+            <div style={{ padding: '2rem', ...small }}>PDF 불러오는 중...</div>
+          )}
         </div>
       )}
 
@@ -457,19 +450,6 @@ function TermsPanel({ templateId, showToast }) {
         </div>
       ))}
 
-      <style>{`
-        @media print {
-          @page { size: A4 portrait; margin: 0 !important; }
-          body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
-          aside, header, nav, footer, button, .no-print, body .desktop-sidebar, body .mobile-header { display: none !important; }
-          main, body .main-content, body .admin-container { padding: 0 !important; margin: 0 !important; overflow: visible !important; background: #fff !important; }
-          .terms-panel { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; }
-          .terms-a4-scroll { padding: 0 !important; background: #fff !important; overflow: visible !important; }
-          .terms-a4-page { box-shadow: none !important; margin: 0 !important; min-height: 0 !important; break-before: page; page-break-before: always; }
-          .terms-a4-page:first-child { break-before: auto; page-break-before: auto; }
-          .terms-heading { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        }
-      `}</style>
     </div>
   );
 }

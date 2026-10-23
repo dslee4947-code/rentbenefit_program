@@ -1661,7 +1661,7 @@ function LedgerView({ showToast, currentUser }) {
 
     // 청구서 회차가 있는 구간: 청구서 회차(출금일·그 달 몫)마다 칸을 만들고 입금을 날짜로 맞춘다.
     // 갑지 번호는 들어온 순서라 빠진 달이 안 보였다. 여기서는 안 들어온 회차가 '미입금'으로 남는다.
-    const KIND_COLOR = { '늦게 입금': '#b45309', '미납→합산': '#b45309', '일부 입금': '#b45309', '미입금': '#dc2626' };
+    const KIND_COLOR = { '늦게 입금': '#b45309', '미납→합산': '#b45309', '일부 입금': '#b45309', '미입금': '#dc2626', '날짜 확인': '#7c3aed' };
     const bySchedule = shown.map((p) => {
       const seq = p.seq || 1;
       const rounds = scheduleRounds[contractIdOfPeriod(p)];
@@ -1669,7 +1669,7 @@ function LedgerView({ showToast, currentUser }) {
       const deposits = entries
         .filter((e) => (e.periodSeq || 1) === seq && rentRoundOf(e))
         .map((e) => ({ _id: e._id, date: e.date, amount: Number(e.amount) || 0, round: rentRoundOf(e) }));
-      const m = matchRentToRounds(rounds, deposits);
+      const m = matchRentToRounds(rounds, deposits, new Date(), { perCarRent: Number(p.monthlyRent) || Number(terms.monthlyRent) || 0 });
       const rows = m.rows.map((r) => ({
         round: r.no,
         dueDate: r.due,

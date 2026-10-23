@@ -35,7 +35,15 @@ export const ownAmountOf = (r) => Math.max(0, (r.monthlyRent || 0) + (r.fine || 
  *   rows: { no, dueDate, own, kind, entryIds, paidAmount, paidDate, note, due, overdue }
  *   kind: 정상 · 늦게 입금 · 미납→합산 · 일부 입금 · 미입금 · 예정 · 청구 없음
  */
-export function matchRentToRounds(rounds, deposits, now = new Date()) {
+export function matchRentToRounds(rounds, deposits, now = new Date(), { perCarRent = 0 } = {}) {
+  // 차 여러 대를 한 청구서로 받는 계약(신흥정보통신 20대 등)은 청구 금액이 여러 대 합계라, 원장(차 한 대)과는
+  // 차 한 대의 월 렌트료로 맞춘다. 범칙금 등 차별로 나눌 수 없는 금액은 뺀다.
+  if (perCarRent > 0) {
+    // 평소 월 렌트료(가운데 값)로 판단한다. 마지막 회차 일할 정산처럼 한 회차만 큰 것은 여러 대가 아니다
+    const rents = rounds.map((r) => Number(r.monthlyRent) || 0).filter((v) => v > 0).sort((a, b) => a - b);
+    const fleet = rents.length > 0 && rents[Math.floor(rents.length / 2)] > perCarRent * 1.3;
+    if (fleet) rounds = rounds.map((r) => ({ no: r.no, dueDate: r.dueDate, monthlyRent: (Number(r.monthlyRent) || 0) > 0 ? perCarRent : 0 }));
+  }
   const deps = deposits
     .filter((d) => d.date && Number(d.amount) > 0)
     .map((d) => ({ ...d, t: new Date(`${String(d.date).slice(0, 10)}T00:00:00+09:00`), used: [] }))
@@ -62,8 +70,10 @@ export function matchRentToRounds(rounds, deposits, now = new Date()) {
 
   for (const row of rows) {
     if (!(row.own > 0)) { row.kind = '청구 없음'; continue; }
-    const d = deps.find((x) => free(x) && covers(x.amount, row.own)
+    // 같은 창에 입금이 여럿이면 갑지 회차 번호가 맞는 것을 먼저(갑지에 순서가 뒤바뀌어 적힌 경우)
+    const cands = deps.filter((x) => free(x) && covers(x.amount, row.own)
       && (inWin(x, row, false) || (labelOf(x) === row.no && inWin(x, row, true))));
+    const d = cands.find((x) => labelOf(x) === row.no) || cands[0];
     if (!d) continue;
     const g = gapOf(row.dueDate, d.t);
     take(row, d, '정상', g > 7 ? `+${g}일(연휴 등)` : '');
@@ -82,6 +92,13 @@ export function matchRentToRounds(rounds, deposits, now = new Date()) {
     if (row.kind || !(row.own > 0)) continue;
     const d = deps.find((x) => free(x) && labelOf(x) === row.no && inWin(x, row, true) && x.amount >= row.own * 0.3);
     if (d) take(row, d, '일부 입금', `${(row.own - d.amount).toLocaleString()}원 부족`);
+  }
+  // 회차 번호는 맞는데 출금일보다 한참 앞선 날짜로 적힌 입금 → 갑지 날짜 오타 의심(예: 2023-03-03을 2023-02-03으로)
+  for (const row of rows) {
+    if (row.kind || !(row.own > 0)) continue;
+    const d = deps.find((x) => free(x) && labelOf(x) === row.no && covers(x.amount, row.own)
+      && gapOf(row.dueDate, x.t) < -7 && gapOf(row.dueDate, x.t) > -120);
+    if (d) take(row, d, '날짜 확인', `갑지 날짜 ${ymdOf(d.t)} — 출금일보다 앞선 날짜(오타 의심)`);
   }
   for (const d of deps.filter(free)) {
     const first = rows.find((r) => !r.kind && r.own > 0 && d.t >= new Date(new Date(r.dueDate).getTime() - 7 * DAY));

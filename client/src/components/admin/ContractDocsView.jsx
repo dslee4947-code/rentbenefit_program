@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { FileSignature, Upload, RefreshCw, Printer, Save, CheckCircle2, Unlock, Search, Download, ArrowLeft, BookOpen } from 'lucide-react';
-import ContractSheetPage from './ContractSheetPage.jsx';
 import ContractTermsDocument from './ContractTermsDocument.jsx';
-import { buildSheetContext, buildReadableTerms, readableTermsText, FIELD_GROUPS, SOURCE_LABEL } from './contractSheetUtils.js';
+import { buildReadableTerms, readableTermsText, FIELD_GROUPS, SOURCE_LABEL } from './contractSheetUtils.js';
 import { printFitted } from '../../utils/printFit.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -21,7 +20,6 @@ const fetchTemplate = async (id) => {
   return data.template;
 };
 
-const PRINT_MARGIN_MM = 6;
 
 const btn = (color = '#334155', solid = false) => ({
   display: 'inline-flex', alignItems: 'center', gap: '0.3rem', border: `1px solid ${solid ? color : 'var(--border-color)'}`,
@@ -60,68 +58,57 @@ const useTemplateMedia = (template) => {
   return urls;
 };
 
-/** 장이 실제로 차지하는 크기(인쇄 영역이 있으면 그 범위, 없으면 글·그림이 있는 줄까지) */
-const sheetSize = (s) => {
-  const m = /\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$/.exec(String(s.printArea || '').split(',')[0]);
-  const col = (l) => l.split('').reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
-  let [c1, r1, c2, r2] = m ? [col(m[1]), Number(m[2]) - 1, col(m[3]), Number(m[4]) - 1] : [0, 0, s.cols.length - 1, s.rows.length - 1];
-  if (!m) {
-    const last = Math.max(0, ...s.cells.filter((c) => c.t !== undefined || c.bind).map((c) => c.r), ...s.shapes.map((x) => (x.to ? x.to.r : x.from.r)));
-    r2 = Math.min(r2, last + 2);
-  }
-  const sum = (arr, a, b) => arr.slice(a, b + 1).reduce((x, y) => x + (y ?? 0), 0);
-  // 오른쪽 끝 칸의 글(계약번호 등)이 칸 밖으로 넘쳐 보이므로 폭에 여유를 둔다
-  return { w: sum(s.cols, c1, c2) + 60, h: sum(s.rows, r1, r2) };
-};
+// 계약서 체크 칸(엑셀 입력 칸 밖). 서버 utils/contractPdf.js가 이 값으로 V를 찍는다.
+const CHECK_FIELDS = [
+  { key: 'payDay', label: '대여료 결제일', options: ['5', '10', '15', '25', '말일'], suffix: (v) => (v === '말일' ? '' : '일') },
+  { key: 'driverScope', label: '운전자 범위', options: ['법인', '개인'] },
+  { key: 'blackbox', label: '블랙박스 장착', options: ['장착', '장착하지 않음'] }
+];
 
-function ContractPreview({ template, values, documentDate, highlightKey, previewRef }) {
-  const ctx = useMemo(() => buildSheetContext(template, values, documentDate), [template, values, documentDate]);
-  const media = useTemplateMedia(template);
-  const sheets = (template?.sheets || []).filter((s) => s.name !== '법인정보');
-  const sizes = sheets.map(sheetSize);
-  // 모든 장을 같은 크기(A4 비율) 상자에 넣고, 장마다 상자를 가득 채우도록 키우거나 줄인다
-  const pageW = 820;
-  const pageH = Math.floor(pageW * ((297 - PRINT_MARGIN_MM * 2) / (210 - PRINT_MARGIN_MM * 2)) * 0.995);
-  const mediaUrl = (path) => media[path] || '';
-
-  return (
-    <div ref={previewRef} className="contract-preview print-fit" style={{ width: pageW, margin: '0 auto' }}>
-      {sheets.map((sheet, i) => {
-        const { w, h } = sizes[i];
-        const scale = Math.min(pageW / w, pageH / h);
-        return (
-          <div key={sheet.name} className="contract-print-page" style={{ width: pageW, height: pageH, background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.12)', marginBottom: 16, overflow: 'hidden', position: 'relative' }}>
-            <div className="no-print" style={{ position: 'absolute', right: 6, top: 4, ...small, zIndex: 10 }}>{sheet.name}</div>
-            <div style={{ transform: `scale(${scale})`, transformOrigin: 'top center', width: w, margin: '0 auto' }}>
-              <ContractSheetPage sheet={sheet} styles={template.styles} ctx={ctx} mediaUrl={mediaUrl} highlightKey={highlightKey} />
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/** 계약서 한 건: 왼쪽 입력란 + 오른쪽 미리보기 */
+/**
+ * 계약서 한 건: 왼쪽 입력란 + 오른쪽 계약서 PDF.
+ *
+ * 오른쪽은 서버가 만든 PDF(엑셀이 만든 빈 계약서 위에 값을 찍은 것)를 그대로 보여 준다.
+ * 고객에게 보내는 파일과 화면이 같은 파일이다. 입력을 고치면 [저장] 뒤에 PDF가 새로 만들어진다.
+ */
 function DocumentEditor({ docId, onBack, showToast, canWrite }) {
   const [doc, setDoc] = useState(null);
   const [template, setTemplate] = useState(null);
   const [values, setValues] = useState({});
   const [dirty, setDirty] = useState({});
-  const [focusKey, setFocusKey] = useState(null);
   const [busy, setBusy] = useState(false);
-  const previewRef = useRef(null);
+  const [pdf, setPdf] = useState({ url: '', error: '', loading: false });
+
+  const loadPdf = useCallback(async () => {
+    setPdf((p) => ({ ...p, loading: true, error: '' }));
+    try {
+      const res = await fetch(`${API_HOST}/api/contract-documents/${docId}/pdf`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setPdf((p) => ({ ...p, loading: false, error: data.message || 'PDF를 만들지 못했습니다.' }));
+        return;
+      }
+      const url = URL.createObjectURL(await res.blob());
+      setPdf((p) => {
+        if (p.url) URL.revokeObjectURL(p.url);
+        return { url, error: '', loading: false };
+      });
+    } catch {
+      setPdf((p) => ({ ...p, loading: false, error: '서버 통신 오류가 발생했습니다.' }));
+    }
+  }, [docId]);
 
   const apply = useCallback(async (d) => {
     setDoc(d);
     setValues(d.values || {});
     setDirty({});
+    loadPdf();
     try {
       setTemplate(await fetchTemplate(d.template));
     } catch (e) {
       showToast?.(e.message, 'error');
     }
-  }, [showToast]);
+  }, [showToast, loadPdf]);
 
   useEffect(() => {
     fetch(`${API_HOST}/api/contract-documents/${docId}`).then((r) => r.json()).then((data) => {
@@ -129,6 +116,9 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
       else showToast?.(data.message || '계약서를 불러오지 못했습니다.', 'error');
     }).catch(() => showToast?.('서버 통신 오류가 발생했습니다.', 'error'));
   }, [docId, apply, showToast]);
+
+  // 화면을 떠날 때 PDF 임시 주소를 정리한다
+  useEffect(() => () => { if (pdf.url) URL.revokeObjectURL(pdf.url); }, [pdf.url]);
 
   const call = async (url, method, body) => {
     setBusy(true);
@@ -156,10 +146,17 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
     if (!reopen && !window.confirm('계약서를 확정할까요? 확정하면 [확정 풀기]를 누르기 전까지 고칠 수 없습니다.')) return;
     call(`${API_HOST}/api/contract-documents/${docId}/confirm`, 'POST', { reopen });
   };
-  const print = () => printFitted(previewRef.current, {
-    onePage: false, marginMm: PRINT_MARGIN_MM,
-    title: `자동차임대차계약서_${partyOf(doc)}_${doc?.contract?.contractNo || ''}`
-  });
+  const download = () => {
+    if (!pdf.url) return;
+    const a = document.createElement('a');
+    a.href = pdf.url;
+    a.download = `자동차임대차계약서_${partyOf(doc)}_${doc?.contract?.contractNo || ''}.pdf`;
+    a.click();
+  };
+  const setValue = (key, next) => {
+    setValues((prev) => ({ ...prev, [key]: next }));
+    setDirty((prev) => ({ ...prev, [key]: next }));
+  };
 
   if (!doc || !template) return <div style={{ padding: '2rem', ...small }}>불러오는 중...</div>;
   const locked = doc.status === '확정' || !canWrite;
@@ -169,10 +166,15 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
     .map((g) => ({ ...g, keys: g.keys.filter((k) => fieldByKey[k]) }))
     .filter((g) => g.keys.length);
   const emptyCount = (template.fields || []).filter((f) => !String(values[f.key] || '').trim()).length;
+  const dirtyCount = Object.keys(dirty).length;
+  const sourceTag = (key) => {
+    const source = dirty[key] !== undefined ? 'manual' : doc.sources?.[key];
+    return source ? <span style={{ color: source === 'manual' ? '#2563eb' : 'var(--text-muted)' }}>{SOURCE_LABEL[source] || source}</span> : null;
+  };
 
   return (
-    <div className="contract-doc-editor" style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
-      <div className="no-print" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
         <button type="button" onClick={onBack} style={btn()}><ArrowLeft size={13} /> 목록</button>
         <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-bright)' }}>
           {partyOf(doc)} · {doc.contract?.contractNo}
@@ -181,42 +183,54 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
         <span style={small}>양식 {doc.templateName} (버전 {doc.templateVersion}) · 빈칸 {emptyCount}개</span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
           {!locked && <button type="button" disabled={busy} onClick={refresh} style={btn()} title="계약·견적·고객·차량 정보를 다시 읽어 칸을 채웁니다. 직접 고친 칸은 그대로 둡니다."><RefreshCw size={13} /> 계약 정보 다시 불러오기</button>}
-          {!locked && <button type="button" disabled={busy || !Object.keys(dirty).length} onClick={save} style={btn('#2563eb', Boolean(Object.keys(dirty).length))}><Save size={13} /> 저장{Object.keys(dirty).length ? ` (${Object.keys(dirty).length})` : ''}</button>}
+          {!locked && <button type="button" disabled={busy || !dirtyCount} onClick={save} style={btn('#2563eb', Boolean(dirtyCount))}><Save size={13} /> 저장{dirtyCount ? ` (${dirtyCount})` : ''}</button>}
           {canWrite && doc.status !== '확정' && <button type="button" disabled={busy} onClick={() => confirm(false)} style={btn('#15803d', true)}><CheckCircle2 size={13} /> 확정</button>}
           {canWrite && doc.status === '확정' && <button type="button" disabled={busy} onClick={() => confirm(true)} style={btn('#a16207')}><Unlock size={13} /> 확정 풀기</button>}
-          <button type="button" onClick={print} style={btn('#0f172a', true)}><Printer size={13} /> 인쇄 / PDF</button>
+          <button type="button" disabled={!pdf.url} onClick={download} style={btn('#0f172a', true)}><Download size={13} /> PDF 받기</button>
         </div>
       </div>
 
       <div style={{ display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
-        <div className="no-print" style={{ width: 330, flexShrink: 0, position: 'sticky', top: 8, maxHeight: 'calc(100vh - 120px)', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 8, background: '#fff', padding: '0.7rem' }}>
+        <div style={{ width: 330, flexShrink: 0, position: 'sticky', top: 8, maxHeight: 'calc(100vh - 120px)', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 8, background: '#fff', padding: '0.7rem' }}>
           <div style={{ ...small, marginBottom: '0.5rem', lineHeight: 1.5 }}>
-            칸을 누르면 오른쪽 계약서에서 그 자리가 파랗게 표시됩니다. 주민등록번호는 저장하지 않습니다(개인 고객은 서명 때 직접 적음).
+            고친 뒤 [저장]을 누르면 오른쪽 계약서 PDF가 새로 만들어집니다. 주민등록번호는 저장하지 않습니다(개인 고객은 서명 때 직접 적음).
+          </div>
+          <div style={{ marginBottom: '0.8rem' }}>
+            <div style={{ fontWeight: 800, fontSize: '0.8rem', color: 'var(--text-bright)', marginBottom: '0.3rem' }}>체크 항목</div>
+            {CHECK_FIELDS.map((cf) => (
+              <div key={cf.key} style={{ marginBottom: '0.45rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', ...small }}>
+                  <span style={{ fontWeight: 700, color: values[cf.key] ? 'var(--text-muted)' : '#b45309' }}>{cf.label}{values[cf.key] ? '' : ' (선택 안 함)'}</span>
+                  {sourceTag(cf.key)}
+                </div>
+                <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginTop: '0.2rem' }}>
+                  {cf.options.map((o) => {
+                    const on = values[cf.key] === o;
+                    return (
+                      <button key={o} type="button" disabled={locked} onClick={() => setValue(cf.key, on ? '' : o)}
+                        style={{ border: `1px solid ${on ? '#e00000' : 'var(--border-color)'}`, background: on ? '#fff1f1' : '#fff', color: on ? '#e00000' : 'var(--text-bright)', fontWeight: on ? 800 : 500, padding: '0.2rem 0.55rem', borderRadius: 6, fontSize: '0.78rem', cursor: locked ? 'default' : 'pointer' }}
+                      >
+                        {on ? 'V ' : ''}{o}{cf.suffix ? cf.suffix(o) : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
           {groups.map((g) => (
             <div key={g.title} style={{ marginBottom: '0.8rem' }}>
               <div style={{ fontWeight: 800, fontSize: '0.8rem', color: 'var(--text-bright)', marginBottom: '0.3rem' }}>{g.title}</div>
               {g.keys.map((key) => {
                 const f = fieldByKey[key];
-                const source = dirty[key] !== undefined ? 'manual' : doc.sources?.[key];
                 const v = values[key] ?? '';
                 return (
                   <label key={key} style={{ display: 'block', marginBottom: '0.35rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', ...small }}>
                       <span style={{ fontWeight: 700, color: v ? 'var(--text-muted)' : '#b45309' }}>{f.label}{v ? '' : ' (빈칸)'}</span>
-                      {source && <span style={{ color: source === 'manual' ? '#2563eb' : 'var(--text-muted)' }}>{SOURCE_LABEL[source] || source}</span>}
+                      {sourceTag(key)}
                     </div>
-                    <input
-                      value={v}
-                      disabled={locked}
-                      onFocus={() => setFocusKey(key)}
-                      onChange={(e) => {
-                        const next = e.target.value;
-                        setValues((prev) => ({ ...prev, [key]: next }));
-                        setDirty((prev) => ({ ...prev, [key]: next }));
-                      }}
-                      style={{ ...input, background: locked ? '#f8fafc' : '#fff' }}
-                    />
+                    <input value={v} disabled={locked} onChange={(e) => setValue(key, e.target.value)} style={{ ...input, background: locked ? '#f8fafc' : '#fff' }} />
                     {f.note && <div style={small}>{f.note}</div>}
                   </label>
                 );
@@ -225,23 +239,22 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
           ))}
         </div>
 
-        <div className="contract-preview-scroll print-fit-scroll" style={{ flex: 1, overflowX: 'auto', background: '#f1f5f9', borderRadius: 8, padding: '0.8rem' }}>
-          <ContractPreview template={template} values={values} documentDate={doc.documentDate || doc.createdAt} highlightKey={focusKey} previewRef={previewRef} />
+        <div style={{ flex: 1, minWidth: 0, background: '#f1f5f9', borderRadius: 8, padding: '0.6rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+          <div style={{ ...small, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <span>고객에게 보내는 PDF와 같은 파일입니다 (A4 12쪽).</span>
+            {dirtyCount > 0 && <span style={{ color: '#b45309', fontWeight: 700 }}>저장하지 않은 칸 {dirtyCount}개는 아직 PDF에 없습니다.</span>}
+            {pdf.loading && <span>PDF 만드는 중...</span>}
+            <button type="button" onClick={loadPdf} style={{ ...btn(), marginLeft: 'auto', padding: '0.2rem 0.5rem' }}><RefreshCw size={12} /> 다시 만들기</button>
+          </div>
+          {pdf.error ? (
+            <div style={{ padding: '2rem', color: '#b91c1c', background: '#fff', borderRadius: 6 }}>{pdf.error}</div>
+          ) : pdf.url ? (
+            <iframe title="계약서 PDF" src={pdf.url} style={{ width: '100%', height: 'calc(100vh - 170px)', border: '1px solid var(--border-color)', borderRadius: 6, background: '#fff' }} />
+          ) : (
+            <div style={{ padding: '2rem', ...small }}>PDF 만드는 중...</div>
+          )}
         </div>
       </div>
-
-      <style>{`
-        @media print {
-          @page { size: A4 portrait; margin: 0 !important; }
-          body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
-          aside, header, nav, footer, button, .no-print, body .desktop-sidebar, body .mobile-header { display: none !important; }
-          main, body .main-content, body .admin-container { padding: 0 !important; margin: 0 !important; overflow: visible !important; background: #fff !important; }
-          .contract-doc-editor { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; }
-          .contract-preview-scroll { padding: 0 !important; background: #fff !important; overflow: visible !important; }
-          .contract-print-page { box-shadow: none !important; margin: 0 !important; break-after: page; page-break-after: always; }
-          .contract-print-page:last-child { break-after: auto; page-break-after: auto; }
-        }
-      `}</style>
     </div>
   );
 }

@@ -12,7 +12,8 @@ import {
   createDocument,
   updateDocument,
   refreshDocument,
-  confirmDocument
+  confirmDocument,
+  getDocumentPdf
 } from '../controllers/contractDocumentController.js';
 import { checkWritePermission, checkAdminPermission } from '../middleware/roleMiddleware.js';
 
@@ -30,6 +31,7 @@ templateRouter.patch('/:id/activate', checkAdminPermission, activateTemplate);
 // 계약마다 하나인 전자계약서
 export const documentRouter = express.Router();
 documentRouter.get('/', listDocuments);
+documentRouter.get('/:id/pdf', getDocumentPdf);
 documentRouter.get('/:id', getDocument);
 documentRouter.post('/', checkWritePermission, createDocument);
 documentRouter.patch('/:id', checkWritePermission, updateDocument);

@@ -426,7 +426,7 @@ const parseBinding = (formula, sheetName) => {
  */
 export const parseContractTemplate = (buffer, fileName = '') => {
   const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
-  const wb = XLSX.read(buffer, { type: 'buffer', cellFormula: true, cellStyles: true, cellText: true });
+  const wb = XLSX.read(buffer, { type: 'buffer', cellFormula: true, cellStyles: true, cellText: true, cellNF: true });
   const cfb = XLSX.CFB.read(buffer, { type: 'buffer' });
   const theme = parseTheme(zipText(cfb, 'xl/theme/theme1.xml'));
   const styles = parseStyles(zipText(cfb, 'xl/styles.xml'), theme);
@@ -491,6 +491,8 @@ export const parseContractTemplate = (buffer, fileName = '') => {
           if (bind) entry.bind = bind;
         }
         if (hasStyle) entry.s = styleRef(sAttr[a]);
+        // 표시 형식(#0"대", 0%, 회계 형식 등). PDF에 값을 찍을 때 엑셀처럼 붙인다
+        if (cell?.z && cell.z !== 'General') entry.z = cell.z;
         if (entry.t !== undefined || entry.f || entry.s !== undefined) cells.push(entry);
       }
     }

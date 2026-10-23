@@ -125,6 +125,12 @@ export const buildContractValues = (contract) => {
   set('emergencyService', maint.emergencyService || ins.emergencyCall || vins.emergencyService, 'contract');
   set('tire', maint.tireType || vehicle?.maintenance?.tireType, 'contract');
 
+  // 계약서 체크 칸(양식 입력 칸 밖). 결제일은 계약의 렌트료 결제일, 운전자 범위는 법인/개인 구분에서.
+  // 블랙박스 장착 여부는 계약 자료에 없어 비워 두고 직원이 고른다.
+  const billingDay = Number(pricing.billingDay) || 0;
+  set('payDay', billingDay ? (billingDay >= 28 ? '말일' : String(billingDay)) : '', 'contract');
+  set('driverScope', isCompany ? '법인' : '개인', 'contract');
+
   const terms = contract.terms || quote?.terms || {};
   set('penaltyRate', pct(terms.earlyTerminationRate ?? pricing.penaltyRate), 'contract');
   set('overdueRate', pct(terms.lateInterestRate ?? pricing.overdueRate), 'contract');

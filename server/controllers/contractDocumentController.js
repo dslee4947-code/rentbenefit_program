@@ -1,5 +1,7 @@
 import ContractTemplate from '../models/ContractTemplate.js';
 import ContractTemplateFile from '../models/ContractTemplateFile.js';
+import ContractTemplatePdf from '../models/ContractTemplatePdf.js';
+import { buildContractPdf } from '../utils/contractPdf.js';
 import ContractDocument from '../models/ContractDocument.js';
 import Contract from '../models/Contract.js';
 import { parseContractTemplate, extractTemplateMedia } from '../utils/contractTemplateParser.js';
@@ -258,6 +260,43 @@ export const refreshDocument = async (req, res) => {
     res.json({ success: true, document: await ContractDocument.findById(doc._id).populate(DOC_POPULATE).lean(), message: changed ? `${changed}칸을 계약 정보로 다시 채웠습니다.` : '바뀐 칸이 없습니다.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// 양식·PDF 바탕은 수백 KB~수 MB라 고쳐지지 않은 동안은 서버 메모리에 담아 둔다
+const pdfCache = new Map();
+const cachedById = async (Model, filter, key) => {
+  const head = await Model.findOne(filter).select('_id updatedAt').lean();
+  if (!head) return null;
+  const k = `${key}:${head._id}:${new Date(head.updatedAt).getTime()}`;
+  if (!pdfCache.has(k)) {
+    for (const old of [...pdfCache.keys()].filter((x) => x.startsWith(`${key}:${head._id}:`))) pdfCache.delete(old);
+    pdfCache.set(k, await Model.findById(head._id).lean());
+  }
+  return pdfCache.get(k);
+};
+
+/**
+ * 계약서 PDF. 엑셀이 만든 빈 계약서 PDF 위에 계약 값을 찍는다(utils/contractPdf.js). 모양이 원본 계약서와 같다.
+ * @route GET /api/contract-documents/:id/pdf  (?download=1 이면 파일로 받기)
+ */
+export const getDocumentPdf = async (req, res) => {
+  try {
+    const doc = await ContractDocument.findById(req.params.id).populate('contract', 'contractNo').lean();
+    if (!doc) return res.status(404).json({ success: false, message: '계약서를 찾을 수 없습니다.' });
+    const template = await cachedById(ContractTemplate, { _id: doc.template }, 'tpl');
+    const base = await cachedById(ContractTemplatePdf, { template: doc.template }, 'base');
+    if (!template || !base) {
+      return res.status(409).json({ success: false, message: '이 양식의 PDF 바탕이 아직 없습니다. 엑셀이 있는 PC에서 server/scripts/build-contract-pdf-base.js를 실행해 주세요.' });
+    }
+    const pdf = await buildContractPdf({ template, base, values: { ...(doc.values || {}), contractNo: doc.values?.contractNo || doc.contract?.contractNo }, documentDate: doc.documentDate || doc.createdAt });
+    const name = `자동차임대차계약서_${doc.contract?.contractNo || doc._id}.pdf`;
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.set('Cache-Control', 'no-store');
+    res.send(Buffer.from(pdf));
+  } catch (error) {
+    res.status(500).json({ success: false, message: `PDF를 만들지 못했습니다: ${error.message}` });
   }
 };
 

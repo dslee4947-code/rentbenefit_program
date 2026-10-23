@@ -1034,7 +1034,8 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, memo, matu
       }
       if (cat === '과태료·통행료') out.fines += amount;
       else if (cat === '차량작업') out.vehicleWork += amount;
-      else if (cat === '보험') out.insurance += amount;
+      // 공제조합(렌터카공제 보험·출자금)은 보험이다. 예산 현황(보험·수리)과 같게 센다 — 예전에는 판관비로 잡혀 '판관비 초과'가 떴다(Benz-003)
+      else if (cat === '보험' || cat === '공제조합') out.insurance += amount;
       else if (cat === '수리·사고') out.repair += amount;
       else if (cat === '정기점검') out.maintenance += amount;
       else if (!NOT_OPERATING.has(cat)) {
@@ -1603,6 +1604,28 @@ function LedgerView({ showToast, currentUser }) {
     setLedger((prev) => ({ ...prev, loan: { ...(prev.loan || {}), [key]: value } }));
     setDirty(true);
   };
+  /**
+   * 계약 조건 표의 한 칸을 고친다. 구간이 저장돼 있으면 그 구간을, 없으면(연장 없는 갑지) 고정 조건을 고친다.
+   * 마지막 구간은 지금 유효한 계약이라 고정 조건(terms)도 같이 맞춘다. 보증금은 승계되므로 고정 조건 쪽은 두지 않는다.
+   */
+  const TERMS_FROM_LAST = ['monthlyRent', 'termMonths', 'advancePayment', 'takeoverPrice', 'rentStartDate'];
+  const setPeriodField = (seq, key, value) => {
+    setLedger((prev) => {
+      const list = prev.contractPeriods || [];
+      if (!list.length) {
+        if (key === 'startDate') return { ...prev, header: { ...prev.header, contractedAt: value } };
+        if (key === 'endDate') return { ...prev, header: { ...prev.header, contractEndAt: value } };
+        return { ...prev, terms: { ...prev.terms, [key]: value } };
+      }
+      const lastSeq = Math.max(...list.map((p) => p.seq));
+      return {
+        ...prev,
+        contractPeriods: list.map((p) => (p.seq === seq ? { ...p, [key]: value } : p)),
+        terms: seq === lastSeq && TERMS_FROM_LAST.includes(key) ? { ...prev.terms, [key]: value } : prev.terms
+      };
+    });
+    setDirty(true);
+  };
 
   const updateEntry = (id, key, value) => {
     setEntries((prev) => prev.map((e) => (e._id === id ? { ...e, [key]: value } : e)));
@@ -1949,6 +1972,13 @@ function LedgerView({ showToast, currentUser }) {
         headers: authHeaders,
         body: JSON.stringify({
           header: ledger.header, terms: ledger.terms, loan: ledger.loan,
+          ...(ledger.contractPeriods?.length ? {
+            contractPeriods: ledger.contractPeriods.map((p) => ({
+              seq: p.seq, termMonths: p.termMonths, monthlyRent: p.monthlyRent, deposit: p.deposit,
+              advancePayment: p.advancePayment, takeoverPrice: p.takeoverPrice,
+              startDate: toDateInput(p.startDate), endDate: toDateInput(p.endDate), rentStartDate: toDateInput(p.rentStartDate)
+            }))
+          } : {}),
           ledgerType: ledger.ledgerType, status: ledger.status, note: ledger.note,
           profitReport: ledger.profitReport ?? '',
           maturityPlan: ledger.maturityPlan || '미정'
@@ -2690,35 +2720,68 @@ function LedgerView({ showToast, currentUser }) {
         </datalist>
       ))}
 
-      {/* 계약 구간 이력 */}
+      {/* 계약 조건 · 구간. 최초 계약과 연장마다 한 줄. 예전에는 '계약 구간'과 '고정 조건(마지막 계약만)'이 따로 있어
+          보증금·인수가가 어느 계약 것인지 안 보였다(대표님 2026-10-23, 화우 Benz-003) */}
       <div style={{ ...card, padding: '1.2rem' }}>
-        <h5 style={{ margin: '0 0 0.5rem', fontSize: '0.88rem', fontWeight: '800' }}>계약 구간</h5>
+        <h5 style={{ margin: '0 0 0.5rem', fontSize: '0.88rem', fontWeight: '800' }}>계약 조건 · 구간</h5>
         <p style={{ margin: '0 0 0.9rem', fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-          연장할 때 계약서를 새로 쓰더라도 갑지는 나누지 않고 이 목록만 늘립니다.
-          갑지를 쪼개면 차량가가 들어 있는 최초 계약은 적자로, 렌트료만 쌓이는 연장 계약은 폭리로 보여 둘 다 틀린 숫자가 됩니다.
+          최초 계약과 연장 계약을 한 줄씩 적습니다. 지금 유효한 조건은 맨 아래 줄이고, 청구·수익성 계산은 이 줄 값을 씁니다.
+          연장해도 갑지는 나누지 않습니다 — 나누면 차량가가 있는 최초 계약은 적자로, 연장 계약은 폭리로 보입니다.
+          여기서 고친 값은 이 갑지 안에서만 쓰이고 계약서·차량 DB로는 넘어가지 않습니다.
         </p>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', minWidth: '620px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', minWidth: '1080px' }}>
             <thead>
               <tr style={{ background: 'var(--bg-main)' }}>
-                {['구간', '계약번호', '시작일', '종료일', '기간(개월)', '월 렌트료', '구간 정산금액'].map((h, i) => (
-                  <th key={h} style={{ ...th, textAlign: i >= 4 ? 'right' : 'left', whiteSpace: 'nowrap' }}>{h}</th>
+                {['구간', '계약번호', '시작일', '종료일', '기간(개월)', '월 렌트료', '보증금', '선납금', '인수가', '1회차 출금일', '구간 정산금액'].map((h, i) => (
+                  <th key={h} style={{ ...th, textAlign: i >= 4 && i !== 9 ? 'right' : 'left', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {periods.map((p) => {
+              {periods.map((p, idx) => {
+                const stored = Boolean(ledger.contractPeriods?.length);
+                const valueOf = (key) => {
+                  if (stored) return p[key];
+                  if (key === 'startDate') return ledger.header?.contractedAt;
+                  if (key === 'endDate') return ledger.header?.contractEndAt;
+                  return t[key];
+                };
                 const rows = entries.filter((e) => (e.periodSeq || 1) === p.seq);
                 const bal = rows.reduce((sum, e) => sum + (e.side === '입금' ? 1 : -1) * (Number(e.amount) || 0), 0);
+                const isLast = idx === periods.length - 1;
+                const cellInput = { width: '100%', padding: '0.3rem 0.35rem', border: '1px solid var(--border-color)', borderRadius: '5px', fontSize: '0.78rem', boxSizing: 'border-box', background: '#fff' };
+                // 0원이면 비워 두고 안내 글(승계·-)이 보이게 한다
+                const money = (key, placeholder) => (
+                  <MoneyInput value={placeholder && !Number(valueOf(key)) ? '' : (valueOf(key) ?? '')} onChange={(e) => setPeriodField(p.seq, key, e.target.value)} disabled={!canEdit}
+                    placeholder={placeholder} style={{ ...cellInput, textAlign: 'right' }} />
+                );
+                const date = (key) => (
+                  <input type="date" value={toDateInput(valueOf(key))} onChange={(e) => setPeriodField(p.seq, key, e.target.value)}
+                    disabled={!canEdit} style={cellInput} />
+                );
+                const td = { padding: '0.35rem 0.3rem', verticalAlign: 'middle' };
                 return (
-                  <tr key={p.seq} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                    <td style={{ padding: '0.5rem 0.4rem', fontWeight: '700' }}>{periodName(p.seq)}</td>
-                    <td style={{ padding: '0.5rem 0.4rem' }}>{p.contractNo || '-'}</td>
-                    <td style={{ padding: '0.5rem 0.4rem', whiteSpace: 'nowrap' }}>{toDateInput(p.startDate) || '-'}</td>
-                    <td style={{ padding: '0.5rem 0.4rem', whiteSpace: 'nowrap' }}>{toDateInput(p.endDate) || '-'}</td>
-                    <td style={{ padding: '0.5rem 0.4rem', textAlign: 'right' }}>{p.termMonths || '-'}</td>
-                    <td style={{ padding: '0.5rem 0.4rem', textAlign: 'right' }}>{toCommaString(p.monthlyRent)}</td>
-                    <td style={{ padding: '0.5rem 0.4rem', textAlign: 'right', fontWeight: '700', color: bal < 0 ? '#d9534f' : '#2f6f4e' }}>
+                  <tr key={p.seq} style={{ borderBottom: '1px solid var(--border-color)', background: isLast && periods.length > 1 ? '#f7f9fd' : undefined }}>
+                    <td style={{ ...td, fontWeight: '700', whiteSpace: 'nowrap' }}>
+                      {periodName(p.seq)}
+                      {isLast && periods.length > 1 && <div style={{ fontSize: '0.68rem', fontWeight: '600', color: 'var(--primary)' }}>지금 계약</div>}
+                    </td>
+                    <td style={{ ...td, whiteSpace: 'nowrap' }}>{p.contractNo || '-'}</td>
+                    <td style={{ ...td, minWidth: '118px' }}>{date('startDate')}</td>
+                    <td style={{ ...td, minWidth: '118px' }}>{date('endDate')}</td>
+                    <td style={{ ...td, width: '64px' }}>
+                      <input type="number" value={valueOf('termMonths') ?? ''} onChange={(e) => setPeriodField(p.seq, 'termMonths', e.target.value)}
+                        disabled={!canEdit} style={{ ...cellInput, textAlign: 'right' }} />
+                    </td>
+                    <td style={{ ...td, minWidth: '100px' }}>{money('monthlyRent')}</td>
+                    {/* 연장 때 보증금은 대개 그대로 이어간다. 새로 받은 돈이 없으면 0(승계)으로 둔다 — 넣으면 보증금이 두 번 들어온 것이 된다 */}
+                    <td style={{ ...td, minWidth: '100px' }}>{money('deposit', p.seq > 1 ? '승계' : '')}</td>
+                    <td style={{ ...td, minWidth: '90px' }}>{money('advancePayment')}</td>
+                    {/* 인수가는 차를 넘길 때 한 번 받는다. 계산에는 마지막 구간 것만 쓴다 */}
+                    <td style={{ ...td, minWidth: '100px' }}>{money('takeoverPrice', isLast ? '' : '-')}</td>
+                    <td style={{ ...td, minWidth: '118px' }}>{date('rentStartDate')}</td>
+                    <td style={{ ...td, textAlign: 'right', fontWeight: '700', whiteSpace: 'nowrap', color: bal < 0 ? '#d9534f' : '#2f6f4e' }}>
                       {signed(bal)}
                     </td>
                   </tr>
@@ -2727,38 +2790,20 @@ function LedgerView({ showToast, currentUser }) {
             </tbody>
           </table>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.8rem', fontSize: '0.76rem' }}>
+          <label style={{ fontWeight: '700', color: 'var(--text-muted)' }}>결제일</label>
+          <input value={t.paymentDay ?? ''} onChange={(e) => setTermsField('paymentDay', e.target.value)} disabled={!canEdit}
+            style={{ width: '140px', padding: '0.3rem 0.4rem', border: '1px solid var(--border-color)', borderRadius: '5px', fontSize: '0.78rem' }} />
+          {periods.length > 1 && (
+            <span style={{ color: 'var(--text-muted)' }}>
+              보증금 보관 {toCommaString(t.deposit || 0)}원 (연장 구간 보증금이 비어 있으면 승계)
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* 고정 조건 · 할부 */}
+      {/* 회사 할부 · 대출 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem' }}>
-        <div style={{ ...card, padding: '1.2rem' }}>
-          <h5 style={{ margin: '0 0 0.8rem', fontSize: '0.88rem', fontWeight: '800' }}>장기렌트 고정 조건</h5>
-          <p style={{ margin: '0 0 0.9rem', fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-            계약서에서 가져온 값입니다. 여기서 고친 값은 이 갑지 안에서만 쓰이고 계약서·차량 DB로는 넘어가지 않습니다.
-          </p>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.7rem' }}>
-            {[['월 렌트료', 'monthlyRent', 'money'], ['계약 기간(개월)', 'termMonths', 'number'],
-              ['보증금', 'deposit', 'money'], ['선납금', 'advancePayment', 'money'],
-              ['인수가', 'takeoverPrice', 'money'], ['렌트료 개시일', 'rentStartDate', 'date'],
-              ['결제일', 'paymentDay', 'text']].map(([label, key, type]) => (
-              <div key={key}>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>{label}</label>
-                {type === 'money' ? (
-                  <MoneyInput value={t[key]} onChange={(e) => setTermsField(key, e.target.value)} disabled={!canEdit}
-                    style={{ width: '100%', padding: '0.45rem 0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.82rem' }} />
-                ) : (
-                  <input
-                    type={type === 'date' ? 'date' : (type === 'number' ? 'number' : 'text')}
-                    value={type === 'date' ? toDateInput(t[key]) : (t[key] ?? '')}
-                    onChange={(e) => setTermsField(key, e.target.value)}
-                    disabled={!canEdit}
-                    style={{ width: '100%', padding: '0.45rem 0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.82rem' }}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
 
         <div style={{ ...card, padding: '1.2rem' }}>
           <h5 style={{ margin: '0 0 0.8rem', fontSize: '0.88rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>

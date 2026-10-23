@@ -559,6 +559,26 @@ export const updateLedger = async (req, res) => {
         Object.entries(req.body[key]).forEach(([k, v]) => { ledger[key][k] = v; });
       }
     });
+    // 구간별 계약 조건(화면 '계약 조건 · 구간' 표). 어느 계약에 이어졌는지(contract)는 여기서 바꾸지 않는다
+    if (Array.isArray(req.body.contractPeriods)) {
+      const MONEY = ['termMonths', 'monthlyRent', 'deposit', 'advancePayment', 'takeoverPrice'];
+      const DATES = ['startDate', 'endDate', 'rentStartDate'];
+      req.body.contractPeriods.forEach((row) => {
+        const p = ledger.contractPeriods.find((x) => x.seq === Number(row.seq));
+        if (!p) return;
+        MONEY.forEach((k) => {
+          if (row[k] === undefined) return;
+          const n = Number(String(row[k]).replace(/[^0-9.-]/g, ''));
+          p[k] = row[k] === '' || row[k] === null || !Number.isFinite(n) ? undefined : n;
+        });
+        DATES.forEach((k) => {
+          if (row[k] === undefined) return;
+          // 화면은 날짜를 UTC 기준 앞 10글자로 읽는다(toDateInput). 같은 기준으로 넣어야 하루씩 밀리지 않는다
+          p[k] = row[k] ? new Date(`${String(row[k]).slice(0, 10)}T00:00:00Z`) : undefined;
+        });
+        if (row.note !== undefined) p.note = String(row.note || '');
+      });
+    }
     if (req.body.ledgerType !== undefined) ledger.ledgerType = req.body.ledgerType;
     if (req.body.status !== undefined) ledger.status = req.body.status;
     if (req.body.note !== undefined) ledger.note = req.body.note;

@@ -88,6 +88,8 @@ export const pickLedgerCategory = (label, side) => {
       if (/이자/.test(text)) return '할부이자';
       return side === '입금' ? '대출금' : '차량가';
     }
+    // "메리츠 입금"은 차를 사려고 메리츠캐피탈에서 빌려 들어온 돈이다(Benz-003, 대표님 2026-10-23). 기타 수입이 아니다
+    if (side === '입금' && /(메리츠|캐피탈|렌공)\s*입금/.test(text)) return '대출금';
   }
 
   const hit = CATEGORY_RULES.find(([rx]) => rx.test(text));

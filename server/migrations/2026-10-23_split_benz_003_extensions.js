@@ -30,7 +30,8 @@ mongoose.set('autoIndex', false);
 
 const isDryRun = process.argv.includes('--dry-run');
 const backupPath = process.argv[process.argv.indexOf('--backup') + 1];
-const kst = (s) => new Date(`${s}T00:00:00+09:00`);
+// 구간 날짜는 UTC 자정으로 둔다(화면이 앞 10글자로 읽는다). 입출금 줄의 날짜 비교도 같은 기준이다
+const kst = (s) => new Date(`${s}T00:00:00Z`);
 const d = (x) => (x ? new Date(new Date(x).getTime() + 9 * 3600e3).toISOString().slice(0, 10) : '-');
 
 const run = async () => {

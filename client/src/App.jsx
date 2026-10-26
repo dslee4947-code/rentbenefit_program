@@ -1,10 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { CheckCircle, AlertTriangle, Info, Sparkles } from 'lucide-react';
 import './App.css';
 
 // Import sub-components
 import Login from './components/Login.jsx';
 import AdminDashboard from './components/admin/AdminDashboard.jsx';
+// 인쇄용 CSS(print.css)는 body 배경까지 바꾸므로 인쇄 화면을 열 때만 불러온다
+const ContractPrint = lazy(() => import('./print/contract/ContractPrint.jsx'));
+
+// #/contracts/:id/print — 대시보드 없이 계약서 A4 쪽만 보여 주는 인쇄 화면
+const printRouteOf = (hash) => /^#\/contracts\/([^/?#]+)\/print\/?$/.exec(hash || '')?.[1] || null;
 import Signup from './components/Signup.jsx';
 import SignupSuccess from './components/SignupSuccess.jsx';
 
@@ -21,6 +26,12 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loginView, setLoginView] = useState('login'); // 'login', 'signup', 'signup-success'
+  const [printContractId, setPrintContractId] = useState(() => printRouteOf(window.location.hash));
+  useEffect(() => {
+    const onHash = () => setPrintContractId(printRouteOf(window.location.hash));
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
   const [signupData, setSignupData] = useState({
     email: '',
     password: '',
@@ -235,6 +246,10 @@ function App() {
             />
           )}
         </>
+      ) : printContractId ? (
+        <Suspense fallback={<div style={{ padding: '2rem' }}>계약서 불러오는 중...</div>}>
+          <ContractPrint contractId={printContractId} />
+        </Suspense>
       ) : (
         <AdminDashboard
           showToast={showToast}

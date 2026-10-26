@@ -34,6 +34,14 @@ const addDays = (date, days) => new Date(new Date(date).getTime() + days * DAY);
  */
 const defaultStartOf = (prev) => (prev.endDate ? new Date(prev.endDate) : null);
 
+/** 두 날짜 사이 개월 수(한국 날짜 기준). 2021-10-28 → 2026-10-28 = 60, 2026-04-27이면 53 */
+const monthsBetween = (from, to) => {
+  const kst = (d) => new Date(new Date(d).getTime() + 9 * 3600e3);
+  const a = kst(from); const b = kst(to);
+  return (b.getUTCFullYear() - a.getUTCFullYear()) * 12 + (b.getUTCMonth() - a.getUTCMonth())
+    - (b.getUTCDate() < a.getUTCDate() ? 1 : 0);
+};
+
 /** 계약자 이름. 폴더와 활동 기록에 쓴다. */
 const partyNameOf = async (contract) => (contract.companyId
   ? (await Company.findById(contract.companyId).select('name').lean())?.name
@@ -64,9 +72,13 @@ const EXTENDABLE = ['진행중', '보관됨'];
  * @param {import('mongoose').Document} contract 닫을 계약
  * @param {'연장'|'반납'|'인수'} reason
  * @param {Date} lastDay 계약이 실제로 끝난 날
+ * @param {object} [options]
+ * @param {number} [options.keepRounds] 남길 회차 수(계약이 실제로 간 개월 수). 주면 출금일 대신 회차 수로 정리한다.
+ *   연장에서 쓴다 — 렌트료를 다음 달 5일에 받는 계약은 마지막 회차 출금일이 계약 종료일 뒤라(신흥정보통신 60회 11/5,
+ *   계약 종료 10/28) 출금일로 자르면 마지막 달 렌트료가 빠진다.
  * @returns {Promise<number>} 정리한 회차 수
  */
-const closeContract = async (contract, reason, lastDay) => {
+const closeContract = async (contract, reason, lastDay, { keepRounds } = {}) => {
   const firstUncovered = addDays(lastDay, 1);
   contract.status = '종료';
   contract.endReason = reason;
@@ -76,7 +88,8 @@ const closeContract = async (contract, reason, lastDay) => {
   let dropped = 0;
   const schedule = await BillingSchedule.findOne({ contract: contract._id });
   if (schedule) {
-    const keep = schedule.rounds.filter((r) => r.issuedAt || r.status !== '예정' || new Date(r.dueDate) < firstUncovered);
+    const covered = (r) => (keepRounds !== undefined ? r.no <= keepRounds : new Date(r.dueDate) < firstUncovered);
+    const keep = schedule.rounds.filter((r) => r.issuedAt || r.status !== '예정' || covered(r));
     dropped = schedule.rounds.length - keep.length;
     if (dropped) {
       schedule.rounds = keep;
@@ -243,16 +256,27 @@ export const extendContract = async (req, res) => {
     });
     const saved = await next.save(); // pre-save가 endDate를 계산한다
 
-    // 2) 이전 계약을 닫는다. 만기 전 연장이면 남은 미청구 회차는 새 계약이 대신한다.
-    const droppedRounds = await closeContract(prev, '연장', addDays(startDate, -1));
+    // 2) 이전 계약을 닫는다. 이전 계약이 실제로 간 개월 수만큼 회차를 남기고, 만기 전 연장이면 남은 미청구 회차는 새 계약이 대신한다.
+    const keepRounds = prev.contractDate ? Math.max(0, monthsBetween(prev.contractDate, startDate)) : undefined;
+    const droppedRounds = await closeContract(prev, '연장', addDays(startDate, -1), { keepRounds });
 
-    // 3) 차량은 새로 만들지 않고 새 계약에 붙인다. 연장 1회차는 시작일 이후 처음 오는 결제일이다.
+    // 3) 차량은 새로 만들지 않고 새 계약에 붙인다.
+    //    연장 1회차는 이전 계약의 마지막 회차 다음 달 결제일이다(대표님 2026-10-26). 시작일 다음 첫 결제일로 잡으면
+    //    렌트료를 다음 달에 받는 계약은 이전 계약 마지막 회차와 같은 날 두 번 청구된다(신흥정보통신 21100001-1: 둘 다 11/5).
+    const prevSchedule = await BillingSchedule.findOne({ contract: prev._id }).select('rounds.dueDate').lean();
+    const prevLastDue = (prevSchedule?.rounds || []).map((r) => new Date(r.dueDate)).filter((d) => !Number.isNaN(d.getTime()))
+      .sort((a, b) => b - a)[0];
+    const firstDueOf = (day) => {
+      const fromStart = nextPaymentDate(startDate, day);
+      if (!prevLastDue || !fromStart || fromStart > prevLastDue) return fromStart;
+      return nextPaymentDate(addDays(prevLastDue, 1), day);
+    };
     for (const v of vehicles) {
       const vin = input.get(String(v._id));
       v.contract = saved._id;
       v.monthlyFee = feeOf(v);
       v.takeoverPrice = Number(vin.takeoverPrice) || 0;
-      if (v.monthlyPaymentDay) v.rentBillingDate = nextPaymentDate(startDate, v.monthlyPaymentDay);
+      if (v.monthlyPaymentDay) v.rentBillingDate = firstDueOf(v.monthlyPaymentDay);
       if (v.status === '계약중' || v.status === '거래완료') v.status = '장기렌트';
       // eslint-disable-next-line no-await-in-loop
       await v.save();

@@ -133,7 +133,7 @@ function ContractExtendDialog({ contractId, onClose, onDone, showToast }) {
               </div>
             </div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '-0.4rem' }}>
-              연장 기간: {startDate || '-'} ~ {endPreview || '-'} · 1회차는 시작일 이후 처음 오는 결제일입니다.
+              연장 기간: {startDate || '-'} ~ {endPreview || '-'} · 1회차는 이전 계약 마지막 회차의 다음 달 결제일입니다(이전 계약 회차가 없으면 시작일 이후 처음 오는 결제일).
               {preview.previous.endDate && startDate && startDate < ymd(preview.previous.endDate) && ' 만기 전 연장이라, 지금 계약의 남은 미청구 회차는 새 계약이 대신합니다.'}
             </div>
 

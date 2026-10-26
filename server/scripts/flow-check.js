@@ -368,13 +368,20 @@ const steps = [
     const newSched = await api('GET', `/api/billing-schedules/contract/${ctx.ext1._id}`);
     const nr = newSched?.schedule?.rounds || [];
     check('연장 회차표가 24회차로 새로 만들어졌다', nr.length === 24, `${nr.length}회차`);
-    check('연장 1회차 출금일이 시작일 이후 첫 결제일(2027-03-25)이다', nr[0] && ymd(nr[0].dueDate) === '2027-03-25', nr[0] ? ymd(nr[0].dueDate) : '');
-    check('연장 1회차 청구액이 950,000원이다', nr[0]?.total === 950000, `${nr[0]?.total}`);
-
     const oldSched = await api('GET', `/api/billing-schedules/contract/${ctx.contract._id}`);
     const or = oldSched?.schedule?.rounds || [];
     check('이전 회차표의 입금 기록(1회차)은 그대로 남았다', or[0]?.status === '입금완료', or[0]?.status);
-    check('이전 계약의 남은 회차(2027-03 이후)는 정리되었다', or.length === 6 && or.every((r) => ymd(r.dueDate) < '2027-03-01'), `${or.length}회차, 마지막 ${or.length ? ymd(or[or.length - 1].dueDate) : '-'}`);
+    // 이전 계약은 연장 시작 전까지 간 개월 수만큼 회차를 남기고 나머지(미청구)는 정리한다
+    const prevContract = await mongoose.connection.collection('contracts').findOne({ _id: oid(ctx.contract._id) });
+    const monthsUsed = (() => {
+      const a = new Date(new Date(prevContract.contractDate).getTime() + 9 * 3600e3); const b = new Date('2027-03-01T09:00:00Z');
+      return (b.getUTCFullYear() - a.getUTCFullYear()) * 12 + (b.getUTCMonth() - a.getUTCMonth()) - (b.getUTCDate() < a.getUTCDate() ? 1 : 0);
+    })();
+    check('이전 계약은 연장 전까지 간 개월 수만큼 회차가 남았다', or.length === monthsUsed, `${or.length}회차 / ${monthsUsed}개월, 마지막 ${or.length ? ymd(or[or.length - 1].dueDate) : '-'}`);
+    // 연장 1회차는 이전 계약 마지막 회차의 다음 달 결제일 — 같은 날 두 번 청구되지 않는다(대표님 2026-10-26, 신흥정보통신)
+    const lastOld = or.length ? new Date(or[or.length - 1].dueDate) : null;
+    check('연장 1회차 출금일이 이전 계약 마지막 회차보다 뒤다', nr[0] && lastOld && new Date(nr[0].dueDate) > lastOld, `${nr[0] ? ymd(nr[0].dueDate) : ''} / 이전 마지막 ${lastOld ? ymd(lastOld) : '-'}`);
+    check('연장 1회차 청구액이 950,000원이다', nr[0]?.total === 950000, `${nr[0]?.total}`);
 
     const ledger = await mongoose.connection.collection('vehicleledgers').findOne({ vehicle: oid(ctx.vehicle._id) });
     const periods = ledger?.contractPeriods || [];

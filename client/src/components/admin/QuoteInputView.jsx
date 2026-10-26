@@ -1227,7 +1227,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
     if (!element || !quoteId) return;
 
     try {
-      const blob = await withoutPhoneZoom(() => makeFittedPdf(element, { orientation, marginMm }));
+      const blob = await withoutPhoneZoom(() => makeFittedPdf(element, { orientation, marginMm, onePage: true }));
 
       const fd = new FormData();
       fd.append('file', blob, 'quote.pdf');

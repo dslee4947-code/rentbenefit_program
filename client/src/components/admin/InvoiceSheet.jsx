@@ -58,6 +58,22 @@ export const NOT_BILLED_NOTICE_STATUSES = ['납부완료', '변경완료', '고�
 export const isBilledNotice = (a) => !NOT_BILLED_NOTICE_STATUSES.includes(a?.noticeStatus);
 
 /**
+ * 연장 계약 첫 청구서 안내 문장. 서버 메일(billingScheduleController extensionLeadOf)과 같은 말을 쓴다.
+ * @param {object} contract populate된 계약(contractNo, contractDate, endDate, extensionInfo)
+ */
+const extensionNoticeOf = (contract) => {
+  const info = contract.extensionInfo || {};
+  // 한국 날짜로 읽는다(자정이 UTC 전날 15시로 저장된 값도 있다). 저장된 종료일은 기간 다음 날이라 하루 뺀다
+  const kst = (d, days = 0) => new Date(new Date(d).getTime() + (9 + days * 24) * 3600e3).toISOString().slice(0, 10);
+  const lastDay = contract.endDate ? kst(contract.endDate, -1) : '';
+  const period = contract.contractDate ? ` · 계약 기간 ${kst(contract.contractDate)} ~ ${lastDay}` : '';
+  const prev = info.previousContractNo
+    ? ` 이전 계약(${info.previousContractNo})${info.previousLastRound ? ` ${info.previousLastRound}회` : ''} 다음 회차입니다.`
+    : '';
+  return `[연장 계약 안내] 이번 청구서부터 연장 계약(${contract.contractNo}${period}) 조건으로 청구합니다.${prev}`;
+};
+
+/**
  * 회차 청구액. 서버 recalcRound와 같은 식이다.
  * @param {object} round 회차 (fine, maintenance, other는 이미 합산된 값)
  */
@@ -112,11 +128,15 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
   const small = { fontSize: '10.5px', color: '#666' };
 
   const debit = debitAccountOf(vehicles, company, item?.customer);
+  // 연장 계약은 회차가 1부터 다시 시작한다. 표시가 없으면 '1회'만 보고 새 계약인지 헷갈린다(대표님 2026-10-26)
+  const contract = item?.contract;
+  const ext = contract?.contractKind === '연장';
+  const extLead = ext && Number(round?.no) === 1 ? extensionNoticeOf(contract) : '';
   const details = [
     ['고객명', name],
     ['거래은행', debit?.bankName || '-'],
     ['계좌번호', debit ? maskAccount(debit.accountNo) : '-'],
-    ['납입회차', `${round?.no || '-'} 회`],
+    ['납입회차', ext ? `${round?.no || '-'} 회 (연장 계약)` : `${round?.no || '-'} 회`],
     ['출금일', ymd(round?.dueDate)]
   ];
   // 연체 이율 안내. 계약마다 다르다(기존 고객 20%, 이후 25%). 모르면 문구를 빼고 틀린 숫자를 찍지 않는다.
@@ -165,6 +185,13 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
           </tbody>
         </table>
       </div>
+
+      {/* 연장 계약 첫 청구서 안내. 메일 본문 맨 위에도 같은 문장이 붙는다(서버 extensionLeadOf) */}
+      {extLead && (
+        <div style={{ margin: '10px 0 0', padding: '6px 10px', border: '1px solid #1e3a8a', background: '#eff6ff', color: '#1e3a8a', fontSize: '11px', fontWeight: 700 }}>
+          {extLead}
+        </div>
+      )}
 
       {/* 받지 않은 연체 이자(기록용). 바로 청구하지 못해 청구서마다 누적으로 남긴다. 청구 합계에는 들어가지 않는다(대표님 지시 2026-10-20) */}
       {(Number(item?.unbilledInterestToDate?.amount) > 0 || round?.unbilledInterest?.amount > 0) && (
@@ -226,6 +253,7 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
             {adv && <th style={{ ...head, ...small, fontWeight: 600 }}>선납금 차감</th>}
             <th style={head}>{adv ? '청구 렌트료' : '월 렌트료'}</th>
             <th style={head}>인도일</th>
+            <th style={head}>종료일</th>
           </tr>
         </thead>
         <tbody>
@@ -240,6 +268,7 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
                 {adv && <td style={{ ...cell, ...small, textAlign: 'right' }}>{a?.deduction ? `-${a.deduction.toLocaleString()}` : '-'}</td>}
                 <td style={{ ...cell, textAlign: 'right', fontWeight: adv ? 700 : 400 }}>{fee ? fee.toLocaleString() : '-'}</td>
                 <td style={{ ...cell, textAlign: 'center' }}>{ymd(v.deliveryDate)}</td>
+                <td style={{ ...cell, textAlign: 'center' }}>{ymd(v.endDate)}</td>
               </tr>
             );
           })}

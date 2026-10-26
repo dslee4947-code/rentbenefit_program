@@ -11,6 +11,7 @@ import { buildSchedules, generateContractNo } from './contractController.js';
 import { ensureCustomerFolders, ensureContractFolder, buildContractFolderName } from '../utils/documentStorageService.js';
 import { nextPaymentDate } from '../utils/billingDate.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
+import { saveSignedFile } from './contractSignedController.js';
 
 /**
  * 계약의 만기 처리 — 연장.
@@ -177,17 +178,38 @@ export const getExtensionPreview = async (req, res) => {
  */
 export const extendContract = async (req, res) => {
   try {
+    // 서명 완료본 PDF를 함께 올리면 multipart로 오고, 나머지 값은 payload(JSON 글자)에 담겨 온다
+    const body = typeof req.body?.payload === 'string' ? JSON.parse(req.body.payload) : (req.body || {});
+
+    /**
+     * 연장은 서명 완료본이 있어야 청구서·원장에 반영한다(대표님 2026-10-26, 계약 연장 절차 1차).
+     * 서명이 늦어 첫 청구가 먼저 나가야 할 때만 관리자가 사유를 적고 먼저 반영할 수 있다(나중에 계약 화면에서 완료본을 올린다).
+     */
+    const signedFile = req.file || null;
+    if (signedFile && !(/\.pdf$/i.test(signedFile.originalname || '') || signedFile.mimetype === 'application/pdf')) {
+      return res.status(400).json({ success: false, message: '서명 완료본은 PDF 파일만 올릴 수 있습니다.' });
+    }
+    const overrideReason = String(body.signedOverrideReason || '').trim();
+    if (!signedFile) {
+      if (!overrideReason) {
+        return res.status(400).json({ success: false, message: '서명 완료본(모두싸인에서 받은 PDF)을 올려 주세요. 서명 전에 먼저 반영해야 하면 관리자가 사유를 적어 주세요.' });
+      }
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ success: false, message: '서명 완료본 없이 먼저 반영하는 것은 관리자(대표님)만 할 수 있습니다.' });
+      }
+    }
+
     const prev = await Contract.findById(req.params.id);
     if (!prev) return res.status(404).json({ success: false, message: '계약을 찾을 수 없습니다.' });
     if (!EXTENDABLE.includes(prev.status)) {
       return res.status(400).json({ success: false, message: `${prev.status} 상태의 계약은 연장할 수 없습니다.` });
     }
 
-    const termMonths = Number(req.body.termMonths);
+    const termMonths = Number(body.termMonths);
     if (!termMonths || termMonths < 1) {
       return res.status(400).json({ success: false, message: '연장 기간(개월)을 입력해 주세요.' });
     }
-    const startDate = req.body.startDate ? new Date(req.body.startDate) : defaultStartOf(prev);
+    const startDate = body.startDate ? new Date(body.startDate) : defaultStartOf(prev);
     if (!startDate || Number.isNaN(startDate.getTime())) {
       return res.status(400).json({ success: false, message: '연장 시작일을 입력해 주세요.' });
     }
@@ -200,7 +222,7 @@ export const extendContract = async (req, res) => {
       return res.status(400).json({ success: false, message: '이 계약에 묶인 차량이 없어 연장할 수 없습니다.' });
     }
     // 한 계약에 묶인 차는 함께 연장한다. 일부만 연장하면 이전 계약이 반쯤 살아 있게 된다(그런 경우는 반납 처리로 따로 뺀다).
-    const input = new Map((req.body.vehicles || []).map((v) => [String(v.vehicleId), v]));
+    const input = new Map((body.vehicles || []).map((v) => [String(v.vehicleId), v]));
     const missing = vehicles.filter((v) => !input.has(String(v._id)));
     if (missing.length) {
       return res.status(400).json({
@@ -245,16 +267,30 @@ export const extendContract = async (req, res) => {
         ...(prevObj.pricing || {}),
         monthlyFee: feeOf(vehicles[0]),
         takeoverPrice: Number(firstVehicleInput.takeoverPrice) || 0,
-        advancePayment: Number(req.body.advancePayment) || 0,
+        advancePayment: Number(body.advancePayment) || 0,
         deposit: prevObj.pricing?.deposit || 0, // 승계
         paymentTerm: termMonths
       },
       depositCarriedOver: true,
       vehicles: vehicles.map((v) => v._id),
       vehicle: vehicles[0]._id,
-      status: '진행중'
+      status: '진행중',
+      signedOverride: signedFile ? undefined : { by: req.user?.name || req.user?.email || '', at: new Date(), reason: overrideReason }
     });
     const saved = await next.save(); // pre-save가 endDate를 계산한다
+
+    // 서명 완료본을 새 계약 폴더에 저장한다. 저장하지 못하면 연장을 멈추고 새 계약을 지운다(이전 계약은 아직 손대지 않았다)
+    if (signedFile) {
+      try {
+        // 계약 폴더 이름을 먼저 정한다. 차량이 아직 이전 계약에 붙어 있어 saveSignedFile이 차종 없이 이름을 지으면
+        // 아래 6)에서 만드는 계약 폴더('…-1_Ray Van_3대')와 다른 폴더에 들어간다
+        saved.docFolderName = await buildContractFolderName(saved.contractNo, vehicles);
+        await saveSignedFile(saved, signedFile.buffer, { by: req.user?.name || req.user?.email || '', note: '연장 계약 서명 완료본' });
+      } catch (err) {
+        await Contract.deleteOne({ _id: saved._id });
+        return res.status(500).json({ success: false, message: `서명 완료본을 저장하지 못해 연장하지 않았습니다: ${err.message}` });
+      }
+    }
 
     // 2) 이전 계약을 닫는다. 이전 계약이 실제로 간 개월 수만큼 회차를 남기고, 만기 전 연장이면 남은 미청구 회차는 새 계약이 대신한다.
     const keepRounds = prev.contractDate ? Math.max(0, monthsBetween(prev.contractDate, startDate)) : undefined;
@@ -263,7 +299,13 @@ export const extendContract = async (req, res) => {
     // 3) 차량은 새로 만들지 않고 새 계약에 붙인다.
     //    연장 1회차는 이전 계약의 마지막 회차 다음 달 결제일이다(대표님 2026-10-26). 시작일 다음 첫 결제일로 잡으면
     //    렌트료를 다음 달에 받는 계약은 이전 계약 마지막 회차와 같은 날 두 번 청구된다(신흥정보통신 21100001-1: 둘 다 11/5).
-    const prevSchedule = await BillingSchedule.findOne({ contract: prev._id }).select('rounds.dueDate').lean();
+    const prevSchedule = await BillingSchedule.findOne({ contract: prev._id }).select('rounds.no rounds.dueDate monthlyRent').lean();
+    // 청구서에 "1회 (연장 계약 · 이전 계약 60회 다음)"을 찍을 수 있게 이전 계약의 마지막 모습을 남긴다
+    await Contract.updateOne({ _id: saved._id }, { $set: { extensionInfo: {
+      previousContractNo: prev.contractNo,
+      previousLastRound: (prevSchedule?.rounds || []).reduce((m, r) => Math.max(m, r.no || 0), 0) || undefined,
+      previousMonthlyRent: Number(prevSchedule?.monthlyRent) || undefined
+    } } });
     const prevLastDue = (prevSchedule?.rounds || []).map((r) => new Date(r.dueDate)).filter((d) => !Number.isNaN(d.getTime()))
       .sort((a, b) => b - a)[0];
     const firstDueOf = (day) => {
@@ -323,7 +365,7 @@ export const extendContract = async (req, res) => {
       req, dept: '계약·출고부', action: ACTIONS.CONTRACT_EXTEND,
       target: { model: 'Contract', id: saved._id },
       summary: `${partyName} ${prev.contractNo} → ${saved.contractNo} 연장 (${termMonths}개월, 월 ${feeOf(vehicles[0]).toLocaleString()}원)`,
-      meta: { previous: prev.contractNo, termMonths, vehicles: vehicles.length, droppedRounds }
+      meta: { previous: prev.contractNo, termMonths, vehicles: vehicles.length, droppedRounds, signed: Boolean(signedFile), overrideReason: overrideReason || undefined }
     });
 
     const result = await Contract.findById(saved._id).populate('customer').populate('vehicles').populate('companyId', 'name');
@@ -333,6 +375,7 @@ export const extendContract = async (req, res) => {
       droppedRounds,
       message: [
         `${prev.contractNo} 계약을 ${saved.contractNo}로 연장했습니다. 보증금은 그대로 승계됩니다.`,
+        signedFile ? '서명 완료본을 계약 폴더에 저장했습니다.' : `서명 완료본 없이 먼저 반영했습니다(사유: ${overrideReason}). 받으면 계약 화면에서 올려 주세요.`,
         droppedRounds ? `이전 계약의 남은 ${droppedRounds}회차는 새 계약이 대신합니다.` : '',
         billingMessage,
         ...ledgerNotes

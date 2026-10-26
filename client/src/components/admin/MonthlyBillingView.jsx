@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { loadStorageSettings, contractFolderPath } from './storagePaths.js';
 import { Calendar, RefreshCw, Save, FileText, Send, Paperclip, Trash2, AlertCircle, Plus, Upload, History, Mail, Search, X, ChevronDown, ChevronRight } from 'lucide-react';
 import InvoiceSheet, { isMaintenanceKind, makeInvoicePdf } from './InvoiceSheet.jsx';
+import ExtensionTag from './ExtensionTag.jsx';
 import MoneyInput from './MoneyInput.jsx';
 import { buildRoundForm, formTotals, roundSaveBody } from './billingForm.js';
 import AutoSendView from './AutoSendView.jsx';
@@ -1122,7 +1123,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
                         </>
                       ) : <span style={{ color: 'var(--text-muted)' }}>-</span>}
                     </td>
-                    <td style={{ padding: '0.7rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>{it.contract?.contractNo || '-'}</td>
+                    <td style={{ padding: '0.7rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>{it.contract?.contractNo || '-'}<ExtensionTag contract={it.contract} /></td>
                     <td style={{ padding: '0.7rem', textAlign: 'center' }}>{it.round.no} / {it.totalRounds}</td>
                     <td style={{ padding: '0.7rem', ...NUMERIC, fontWeight: '800', color: 'var(--text-bright)' }}>{won(it.round.total)}</td>
                     <td style={{ padding: '0.7rem', textAlign: 'center' }}>
@@ -1225,7 +1226,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
                   {selected.company?.name || selected.customer?.name} 청구 이력
                 </span>
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                  {selected.contract?.contractNo} · 총 {schedule.totalRounds}회차
+                  {selected.contract?.contractNo}<ExtensionTag contract={selected.contract} /> · 총 {schedule.totalRounds}회차
                 </span>
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
                   청구 {issuedCount}건 · 입금 {paidCount}건 · 미납 {unpaidCount}건 · 범칙금 누계 <strong style={{ color: 'var(--error)' }}>{won(fineSum)}</strong>
@@ -1391,7 +1392,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
           <div style={{ background: '#fff', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '1.2rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div>
               <div style={{ fontWeight: '800', fontSize: '0.95rem', color: 'var(--text-bright)' }}>
-                {selected.contract?.contractNo} · {form.no}회차
+                {selected.contract?.contractNo}<ExtensionTag contract={selected.contract} /> · {form.no}회차
               </div>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
                 출금일 {ymd(selected.round.dueDate)} · {selected.company?.name || selected.customer?.name || ''}

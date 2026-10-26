@@ -8,6 +8,7 @@ import '../models/Customer.js';
 import { saveDocument, readSavedFile } from '../utils/documentStorageService.js';
 import { sendDeliveryDocsMail, sendInternalMail } from '../utils/mailService.js';
 import { mergeCarModel } from '../utils/carModel.js';
+import { vehicleEndOf, lastDayOf } from '../utils/contractTerm.js';
 import { describeTireProvision } from '../../shared/quoteCalc.js';
 
 /**
@@ -110,7 +111,9 @@ export const buildDeliveryDocs = async (contractId) => {
       paymentDay: String(v.monthlyPaymentDay || contract.pricing?.billingDay || ''),
       monthlyFee: fee,
       deliveryDate: kstYmd(v.deliveryDate || contract.deliveryDate),
-      endDate: kstYmd(contract.endDate),
+      // 계약에 저장된 만기일은 예전 계약일 기준으로 남은 것이 있어, 차마다 인도일 + 개월 수로 다시 센다(청구서와 같은 값).
+      // 보여 주는 날은 계약 기간의 마지막 날이다(만기일 - 1일)
+      endDate: kstYmd(lastDayOf(vehicleEndOf(contract, v) || contract.endDate)),
       firstDueDate: kstYmd(rounds[0]?.dueDate),
       emergency: ins.emergencyService || '',
       regularCheck: maint.regularCheck || '',

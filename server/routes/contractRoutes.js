@@ -14,6 +14,7 @@ import {
 } from '../controllers/contractController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
 import { getExtensionPreview, extendContract, returnContract, takeoverContract, rerentVehicle } from '../controllers/contractLifecycleController.js';
+import { uploadSignedDocument, getSignedDocuments, downloadSignedDocument } from '../controllers/contractSignedController.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -36,7 +37,12 @@ router.route('/')
 // 계약서 보관 / 되돌리기. '/:id' 보다 먼저 선언해야 경로가 id로 해석되지 않는다
 // 만기 처리 - 연장 (같은 차량에 새 계약을 이어 붙인다)
 router.get('/:id/extension-preview', getExtensionPreview);
-router.post('/:id/extend', checkWritePermission, extendContract);
+// 연장: 서명 완료본(file)을 함께 받는다. 없으면 관리자만 사유를 적고 먼저 반영할 수 있다
+router.post('/:id/extend', checkWritePermission, upload.single('file'), extendContract);
+// 서명 완료본(모두싸인 등에서 서명을 마친 계약서 PDF) — 신차·중고·연장 공통
+router.get('/:id/signed', getSignedDocuments);
+router.post('/:id/signed', checkWritePermission, upload.single('file'), uploadSignedDocument);
+router.get('/:id/signed/:version/file', downloadSignedDocument);
 router.post('/:id/return', checkWritePermission, returnContract);
 router.post('/:id/takeover', checkWritePermission, takeoverContract);
 router.post('/:id/archive', checkWritePermission, archiveContract);

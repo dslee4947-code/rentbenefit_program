@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, CalendarPlus } from 'lucide-react';
+import { X, CalendarPlus, FileCheck2 } from 'lucide-react';
 import MoneyInput from './MoneyInput.jsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -17,6 +17,8 @@ const won = (n) => `${Number(n || 0).toLocaleString()}원`;
  * 같은 차량에 새 계약(기존 번호 -1, -2)을 이어 붙인다. 이전 계약은 '종료(연장)'로 닫히고 기록은 남는다.
  * 보증금은 계약자가 같으므로 그대로 승계한다(대표님 결정 2026-10-05).
  * 한 계약에 묶인 차는 함께 연장하고, 월 렌트료·인수가는 차마다 넣는다.
+ * 서명 완료본(모두싸인에서 받은 PDF)을 함께 올려야 연장된다(대표님 2026-10-26, 계약 연장 절차 1차).
+ * 서명이 늦어 첫 청구가 먼저 나가야 하면 관리자만 사유를 적고 먼저 반영할 수 있다.
  *
  * @param {object} props
  * @param {string} props.contractId 연장할 계약
@@ -31,6 +33,11 @@ function ContractExtendDialog({ contractId, onClose, onDone, showToast }) {
   const [rows, setRows] = useState([]);
   const [advancePayment, setAdvancePayment] = useState('');
   const [saving, setSaving] = useState(false);
+  const [signedFile, setSignedFile] = useState(null);
+  const [overrideOn, setOverrideOn] = useState(false);
+  const [overrideReason, setOverrideReason] = useState('');
+  // 관리자만 '서명 전 먼저 반영'을 고를 수 있다(서버도 다시 확인한다)
+  const isAdmin = (() => { try { return JSON.parse(localStorage.getItem('currentUser') || '{}').role === 'admin'; } catch { return false; } })();
 
   useEffect(() => {
     (async () => {
@@ -66,19 +73,24 @@ function ContractExtendDialog({ contractId, onClose, onDone, showToast }) {
   const submit = async () => {
     if (!termMonths || Number(termMonths) < 1) { showToast?.('연장 기간(개월)을 입력해 주세요.', 'error'); return; }
     if (rows.some((r) => !Number(r.monthlyFee))) { showToast?.('차량마다 연장 월 렌트료를 입력해 주세요.', 'error'); return; }
+    if (!signedFile && !(overrideOn && overrideReason.trim())) {
+      showToast?.('서명 완료본 PDF를 올려 주세요. 서명 전에 먼저 반영하려면 사유를 적어 주세요.', 'error');
+      return;
+    }
     if (!window.confirm(`${preview.previous.contractNo} 계약을 ${preview.contractNo}로 연장합니다.\n이전 계약은 종료(연장)로 닫히고, 보증금 ${won(preview.previous.deposit)}은 승계됩니다.\n진행할까요?`)) return;
     try {
       setSaving(true);
-      const res = await fetch(`${API_HOST}/api/contracts/${contractId}/extend`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          startDate,
-          termMonths: Number(termMonths),
-          advancePayment: Number(advancePayment) || 0,
-          vehicles: rows.map((r) => ({ vehicleId: r.vehicleId, monthlyFee: Number(r.monthlyFee), takeoverPrice: Number(r.takeoverPrice) || 0 }))
-        })
-      });
+      // 파일과 함께 보내므로 값은 payload(JSON 글자)에 담는다
+      const form = new FormData();
+      form.append('payload', JSON.stringify({
+        startDate,
+        termMonths: Number(termMonths),
+        advancePayment: Number(advancePayment) || 0,
+        signedOverrideReason: !signedFile && overrideOn ? overrideReason.trim() : '',
+        vehicles: rows.map((r) => ({ vehicleId: r.vehicleId, monthlyFee: Number(r.monthlyFee), takeoverPrice: Number(r.takeoverPrice) || 0 }))
+      }));
+      if (signedFile) form.append('file', signedFile);
+      const res = await fetch(`${API_HOST}/api/contracts/${contractId}/extend`, { method: 'POST', body: form });
       const data = await res.json();
       if (!data.success) {
         showToast?.(data.message || '연장하지 못했습니다.', 'error');
@@ -156,6 +168,31 @@ function ContractExtendDialog({ contractId, onClose, onDone, showToast }) {
               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
                 월 렌트료 · 인수가 순서입니다. 차는 새로 등록되지 않고, 손익 원장에도 같은 장부에 연장 구간으로 이어집니다.
               </div>
+            </div>
+
+            {/* 서명 완료본. 모두싸인에서 서명을 마친 연장 계약서 PDF를 올려야 청구서·원장에 반영된다 */}
+            <div style={{ border: `1px solid ${signedFile ? '#16a34a' : 'var(--border-color)'}`, borderRadius: '8px', padding: '0.7rem 0.8rem', background: signedFile ? '#f0fdf4' : '#fff' }}>
+              <span style={{ ...label, display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-bright)' }}>
+                <FileCheck2 size={15} style={{ color: signedFile ? '#16a34a' : 'var(--primary)' }} /> 서명 완료본 (모두싸인에서 받은 연장 계약서 PDF)
+              </span>
+              <input type="file" accept="application/pdf,.pdf" onChange={(e) => setSignedFile(e.target.files?.[0] || null)} style={{ fontSize: '0.82rem' }} />
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+                {signedFile
+                  ? `${signedFile.name} → 계약 폴더(01.계약서/${preview.contractNo}…)에 '서명완료'로 저장됩니다.`
+                  : '서명을 마친 계약서를 올려야 연장이 청구서·손익 원장에 반영됩니다.'}
+              </div>
+              {!signedFile && isAdmin && (
+                <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px dashed var(--border-color)' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={overrideOn} onChange={(e) => setOverrideOn(e.target.checked)} />
+                    서명 전에 먼저 반영 (관리자 · 사유 필수)
+                  </label>
+                  {overrideOn && (
+                    <input value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} placeholder="예: 서명이 늦어 12/5 첫 청구가 먼저 나가야 함"
+                      style={{ ...input, marginTop: '0.35rem', fontSize: '0.82rem' }} />
+                  )}
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>

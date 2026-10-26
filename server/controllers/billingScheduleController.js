@@ -18,6 +18,7 @@ import { sendInvoiceMail, sendFineNoticeMail, sendInternalMail } from '../utils/
 import { isMaintenanceKind } from '../utils/maintenance.js';
 import { noticeKeyOf, findOverdueNotices, upsertNoticeSchedule, collectNotices } from '../utils/fineNoticeScheduleJob.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
+import { vehicleEndOf, lastDayOf } from '../utils/contractTerm.js';
 
 /**
  * 날짜를 YYYY-MM-DD로. Date 객체를 그냥 자르면 'Sun Oct 25 2026...'이 나온다.
@@ -376,16 +377,22 @@ export const getScheduleByContract = async (req, res) => {
     if (!schedule) {
       return res.status(404).json({ success: false, message: '회차표가 아직 없습니다.' });
     }
-    const contract = await Contract.findById(req.params.contractId).select('termMonths').lean();
+    const contract = await Contract.findById(req.params.contractId).select('contractNo termMonths contractKind contractDate deliveryDate endDate extensionInfo').lean();
     const found = await Vehicle.find({ contract: req.params.contractId })
       .select('code carModel plateNo monthlyFee deliveryDate advancePayment paymentTerm banking')
       .lean();
     // 선납금은 차량마다 '선납금 ÷ 개월 수'씩 월 렌트료에서 빠진다(계약서 조건). 개월 수는 차량 값,
     // 없으면 계약기간, 그것도 없으면 회차표의 회차 수(일할 회차가 끼면 하나 많을 수 있다)를 쓴다. 청구서가 차감액·잔액을 그릴 때 쓴다(advancePayment.js).
-    const vehicles = found.map((v) => ({ ...v, advanceMonths: Number(v.paymentTerm) || Number(contract?.termMonths) || schedule.totalRounds || 0 }));
+    // 종료일은 차마다 계약 기간의 마지막 날(인도일 + 계약 개월 수 - 1일, 연장 계약은 계약 만기 기준). 청구서 차량 표에 인도일과 함께 보인다
+    const vehicles = found.map((v) => ({
+      ...v,
+      advanceMonths: Number(v.paymentTerm) || Number(contract?.termMonths) || schedule.totalRounds || 0,
+      endDate: lastDayOf(vehicleEndOf(contract, v))
+    }));
     // 엑셀로 보냈던 청구서 기록(드롭박스에서 읽어 넣은 것). 보관함이 회차 옆에 함께 보여 준다
     const excelInvoices = await ExcelInvoice.find({ schedule: schedule._id }).select('-__v').lean();
-    res.json({ success: true, schedule, vehicles, excelInvoices });
+    // 계약(연장 여부·이전 계약)도 함께 준다. 보관함 청구서가 연장 1회차 안내를 찍는다
+    res.json({ success: true, schedule, vehicles, excelInvoices, contract });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -409,7 +416,7 @@ export const getDueRounds = async (req, res) => {
     const to = new Date(year, mon, 1);
 
     const schedules = await BillingSchedule.find({ 'rounds.dueDate': { $gte: from, $lt: to } })
-      .populate('contract', 'contractNo termMonths terms')
+      .populate('contract', 'contractNo contractKind extensionInfo contractDate endDate termMonths terms')
       .populate('company', 'name bizNo billingEmail')
       .populate('customer', 'name contactName')
       .lean();
@@ -504,6 +511,24 @@ const invoiceFileNameOf = async (partyName, round) => {
 };
 
 /**
+ * 연장 계약 첫 청구서 안내 한 줄. 연장 1회차는 '1회'로만 나가 고객이 헷갈렸다(대표님 2026-10-26, 계약 연장 절차 1차).
+ * 메일 본문 맨 위에 붙는다. 청구서 PDF에는 같은 내용이 화면(InvoiceSheet)에서 찍힌다.
+ */
+const extensionLeadOf = (schedule, round) => {
+  const c = schedule?.contract;
+  if (!c || c.contractKind !== '연장' || Number(round?.no) !== 1) return '';
+  const info = c.extensionInfo || {};
+  // 한국 날짜로 읽는다(운영 서버는 UTC). 저장된 종료일은 기간 다음 날이라 하루 뺀다
+  const kst = (d, days = 0) => new Date(new Date(d).getTime() + (9 + days * 24) * 3600e3).toISOString().slice(0, 10);
+  const lastDay = c.endDate ? kst(c.endDate, -1) : '';
+  const period = c.contractDate ? ` · 계약 기간 ${kst(c.contractDate)} ~ ${lastDay}` : '';
+  const prev = info.previousContractNo
+    ? ` 이전 계약(${info.previousContractNo})${info.previousLastRound ? ` ${info.previousLastRound}회` : ''} 다음 회차입니다.`
+    : '';
+  return `[연장 계약 안내] 이번 청구서부터 연장 계약(${c.contractNo}${period}) 조건으로 청구합니다.${prev}`;
+};
+
+/**
  * 저장해 둔 청구서를 메일로 보내고 회차를 '청구됨'으로 바꾼다.
  *
  * 화면의 [발행]과 아침 자동 발송이 함께 쓴다. 두 길이 따로 놀면 한쪽만 서류 첨부나
@@ -528,6 +553,7 @@ const deliverInvoice = async ({ schedule, round, partyName, fileName, pdfBuffer,
       // 제목·본문은 화면에서 고친 양식을 쓰고, 아래 값들로 {{계약자}} 같은 자리를 채운다
       mailResult = await sendInvoiceMail({
         to,
+        leadLine: extensionLeadOf(schedule, round),
         fileName,
         fileBuffer: pdfBuffer,
         extraFiles,
@@ -700,7 +726,7 @@ const buildAutoSendQueue = async (days) => {
   const dueFrom = today;
 
   const schedules = await BillingSchedule.find({ rounds: { $elemMatch: { dueDate: { $gte: dueFrom, $lt: dueUntil }, status: '예정' } } })
-    .populate('contract', 'contractNo termMonths terms')
+    .populate('contract', 'contractNo contractKind extensionInfo contractDate endDate termMonths terms')
     .populate('company', 'name bizNo billingEmail')
     .populate('customer', 'name contactName email')
     .lean();
@@ -794,7 +820,7 @@ export const approveAutoSend = async (req, res) => {
     const schedule = await BillingSchedule.findById(req.params.id)
       .populate('company', 'name billingEmail folderName')
       .populate('customer', 'name')
-      .populate('contract', 'contractNo docFolderName leaseCompany');
+      .populate('contract', 'contractNo contractKind extensionInfo contractDate endDate docFolderName leaseCompany');
     if (!schedule) return res.status(404).json({ success: false, message: '회차표를 찾을 수 없습니다.' });
     const round = schedule.rounds.find((r) => r.no === Number(req.params.no));
     if (!round) return res.status(404).json({ success: false, message: '해당 회차가 없습니다.' });
@@ -877,7 +903,7 @@ export const testSendInvoice = async (req, res) => {
     const schedule = await BillingSchedule.findById(req.params.id)
       .populate('company', 'name billingEmail')
       .populate('customer', 'name email')
-      .populate('contract', 'contractNo docFolderName leaseCompany');
+      .populate('contract', 'contractNo contractKind extensionInfo contractDate endDate docFolderName leaseCompany');
     if (!schedule) return res.status(404).json({ success: false, message: '회차표를 찾을 수 없습니다.' });
     const round = schedule.rounds.find((r) => r.no === Number(req.params.no));
     if (!round) return res.status(404).json({ success: false, message: '해당 회차가 없습니다.' });
@@ -900,6 +926,7 @@ export const testSendInvoice = async (req, res) => {
     const fileName = await invoiceFileNameOf(partyName, round);
     const mail = await sendInvoiceMail({
       to,
+      leadLine: extensionLeadOf(schedule, round),
       fileName,
       fileBuffer: req.file.buffer,
       extraFiles,
@@ -976,7 +1003,7 @@ const sendApprovedInvoices = async ({ user, scheduleId, roundNo, ignoreSendDate 
   const schedules = await BillingSchedule.find(filter)
     .populate('company', 'name billingEmail folderName')
     .populate('customer', 'name')
-    .populate('contract', 'contractNo docFolderName leaseCompany');
+    .populate('contract', 'contractNo contractKind extensionInfo contractDate endDate docFolderName leaseCompany');
 
   const results = [];
   for (const schedule of schedules) {
@@ -1133,7 +1160,7 @@ export const getSendHistory = async (req, res) => {
         { 'rounds.autoSend.status': { $in: ['발송중', '실패', '변경됨'] } }
       ]
     })
-      .populate('contract', 'contractNo')
+      .populate('contract', 'contractNo contractKind extensionInfo contractDate endDate')
       .populate('company', 'name billingEmail')
       .populate('customer', 'name email')
       .lean();
@@ -1194,7 +1221,7 @@ export const getPaymentChecks = async (req, res) => {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
     const schedules = await BillingSchedule.find({ rounds: { $elemMatch: { status: '청구됨', dueDate: { $lte: today } } } })
-      .populate('contract', 'contractNo')
+      .populate('contract', 'contractNo contractKind extensionInfo contractDate endDate')
       .populate('company', 'name')
       .populate('customer', 'name')
       .lean();
@@ -1235,7 +1262,7 @@ export const resendInvoice = async (req, res) => {
     const schedule = await BillingSchedule.findById(req.params.id)
       .populate('company', 'name billingEmail')
       .populate('customer', 'name email')
-      .populate('contract', 'contractNo docFolderName leaseCompany');
+      .populate('contract', 'contractNo contractKind extensionInfo contractDate endDate docFolderName leaseCompany');
     if (!schedule) return res.status(404).json({ success: false, message: '회차표를 찾을 수 없습니다.' });
     const round = schedule.rounds.find((r) => r.no === Number(req.params.no));
     if (!round?.issuedAt || !round.invoiceSavedPath) {
@@ -1263,6 +1290,7 @@ export const resendInvoice = async (req, res) => {
     const partyName = resolvePartyName(schedule);
     const mail = await sendInvoiceMail({
       to,
+      leadLine: extensionLeadOf(schedule, round),
       fileName: round.invoiceFileName || 'invoice.pdf',
       fileBuffer: pdfBuffer,
       extraFiles,
@@ -1417,7 +1445,7 @@ export const issueRound = async (req, res) => {
     const schedule = await BillingSchedule.findById(req.params.id)
       .populate('company', 'name billingEmail folderName')
       .populate('customer', 'name')
-      .populate('contract', 'contractNo docFolderName leaseCompany');
+      .populate('contract', 'contractNo contractKind extensionInfo contractDate endDate docFolderName leaseCompany');
     if (!schedule) {
       return res.status(404).json({ success: false, message: '회차표를 찾을 수 없습니다.' });
     }
@@ -1809,7 +1837,7 @@ export const addRoundAttachment = async (req, res) => {
     const schedule = await BillingSchedule.findById(req.params.id)
       .populate('company', 'name')
       .populate('customer', 'name')
-      .populate('contract', 'contractNo docFolderName leaseCompany');
+      .populate('contract', 'contractNo contractKind extensionInfo contractDate endDate docFolderName leaseCompany');
     if (!schedule) return res.status(404).json({ success: false, message: '회차표를 찾을 수 없습니다.' });
 
     const round = schedule.rounds.find((r) => r.no === Number(req.params.no));
@@ -1889,7 +1917,7 @@ export const addUpcomingAttachment = async (req, res) => {
     const schedule = await BillingSchedule.findOne({ contract: req.params.contractId })
       .populate('company', 'name')
       .populate('customer', 'name')
-      .populate('contract', 'contractNo docFolderName leaseCompany');
+      .populate('contract', 'contractNo contractKind extensionInfo contractDate endDate docFolderName leaseCompany');
     if (!schedule) return res.status(404).json({ success: false, message: '이 계약의 회차표가 없습니다.' });
     if (!req.file) return res.status(400).json({ success: false, message: '올릴 파일이 없습니다.' });
 
@@ -2038,7 +2066,7 @@ export const downloadHistoryTemplate = async (req, res) => {
 export const getSchedulesSummary = async (req, res) => {
   try {
     const schedules = await BillingSchedule.find({})
-      .populate('contract', 'contractNo')
+      .populate('contract', 'contractNo contractKind extensionInfo contractDate endDate')
       .populate('company', 'name')
       .populate('customer', 'name')
       .lean();
@@ -2137,7 +2165,7 @@ export const getIssuedRounds = async (req, res) => {
     // $elemMatch를 쓰는 이유: 'rounds.issuedAt': { $ne: null }은 배열에서
     // "어떤 원소도 null이 아니어야 한다"는 뜻이라, 발행 전 회차가 하나라도 있으면 문서가 통째로 빠진다.
     const schedules = await BillingSchedule.find({ rounds: { $elemMatch: { issuedAt: { $ne: null } } } })
-      .populate('contract', 'contractNo')
+      .populate('contract', 'contractNo contractKind extensionInfo contractDate endDate')
       .populate('company', 'name billingEmail')
       .populate('customer', 'name')
       .lean();
@@ -2511,7 +2539,7 @@ export const sendNoticeMail = async (req, res) => {
     const schedule = await BillingSchedule.findById(req.params.id)
       .populate('company', 'name')
       .populate('customer', 'name')
-      .populate('contract', 'contractNo leaseCompany finesEmail finesEmail2 fineHandling');
+      .populate('contract', 'contractNo contractKind extensionInfo contractDate endDate leaseCompany finesEmail finesEmail2 fineHandling');
     if (!schedule) return res.status(404).json({ success: false, message: '회차표를 찾을 수 없습니다.' });
 
     const round = schedule.rounds.find((r) => r.no === Number(req.params.no));
@@ -2815,7 +2843,7 @@ export const refreshUnbilledInterestOf = (s, rate, now = new Date()) => {
 };
 
 export const refreshAllUnbilledInterest = async () => {
-  const schedules = await BillingSchedule.find({}).populate('contract', 'contractNo terms');
+  const schedules = await BillingSchedule.find({}).populate('contract', 'contractNo contractKind extensionInfo contractDate endDate terms');
   const rates = await loadLateInterestRates(schedules.map((s) => s.contract?._id).filter(Boolean));
   const now = new Date();
   let changed = 0;
@@ -2845,7 +2873,7 @@ export const toggleRoundUnpaid = async (req, res) => {
     // 일부만 들어왔으면 들어온 금액(예: 52.4만 원 청구에 42.4만 원 입금). 나머지만 다음 청구서로 넘어간다.
     const partial = req.body?.paidAmount === undefined || req.body?.paidAmount === '' ? null : Math.max(0, Number(req.body.paidAmount) || 0);
     if (!['mark', 'unmark'].includes(action)) return res.status(400).json({ success: false, message: '알 수 없는 요청입니다.' });
-    const schedule = await BillingSchedule.findById(req.params.id).populate('contract', 'contractNo terms');
+    const schedule = await BillingSchedule.findById(req.params.id).populate('contract', 'contractNo contractKind extensionInfo contractDate endDate terms');
     if (!schedule) return res.status(404).json({ success: false, message: '회차표를 찾을 수 없습니다.' });
     const no = Number(req.params.no);
     const target = schedule.rounds.find((r) => r.no === no);

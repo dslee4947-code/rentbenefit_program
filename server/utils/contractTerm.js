@@ -47,6 +47,15 @@ export const contractEndOf = (contract, vehicles = []) =>
   addTermMonths(contractStartOf(contract, vehicles), contract?.termMonths);
 
 /**
+ * 고객에게 보여 주는 '종료일'. 만기일은 마지막 날의 다음 날이라 하루 앞당긴다
+ * (인도 2021-11-13이면 매년 11-12까지, 대표님 확인 2026-10-26). 청구서·계약사실 증명원이 쓴다.
+ */
+export const lastDayOf = (end) => {
+  const date = toDate(end);
+  return date ? new Date(date.getTime() - 24 * 60 * 60 * 1000) : null;
+};
+
+/**
  * 차량 한 대의 만기일. 같은 계약이라도 차마다 인도일이 다르다
  * (예: 22020006은 2022-02-03부터 03-01까지 나눠 인도했다).
  */

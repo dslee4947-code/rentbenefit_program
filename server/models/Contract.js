@@ -94,6 +94,32 @@ const ContractSchema = new Schema({
   actualEndDate: Date,
   // 보증금을 이전 계약에서 그대로 넘겨받았는지. 계약자가 같으면 승계, 다르면 돌려주고 새로 받는다.
   depositCarriedOver: { type: Boolean, default: false },
+  // 연장 계약일 때 이전 계약의 마지막 모습. 청구서에 "1회 (연장 계약 · 이전 계약 60회 다음)"을 찍는 데 쓴다(대표님 2026-10-26).
+  extensionInfo: {
+    previousContractNo: String,
+    previousLastRound: Number, // 이전 계약 회차표의 마지막 회차 번호
+    previousMonthlyRent: Number // 이전 계약 월 렌트료(계약 전체 합계)
+  },
+
+  /**
+   * 서명 완료본(모두싸인 등에서 서명을 마친 계약서 PDF). 신차·중고·연장 모두 같은 방식으로 올린다(대표님 2026-10-26).
+   * 파일은 계약자 폴더 01.계약서/{계약 폴더}에 저장하고 여기에는 기록만 둔다. 다시 올리면 새 버전이 붙고 예전 것은 남는다.
+   * 연장은 이것이 있어야 청구서·원장에 반영한다(없으면 관리자가 사유를 적고 먼저 반영할 수 있다 → signedOverride).
+   */
+  signedDocuments: [{
+    _id: false,
+    version: Number,
+    fileName: String,
+    savedPath: String,
+    webUrl: String,
+    size: Number,
+    uploadedAt: Date,
+    uploadedBy: String,
+    note: String
+  }],
+  signedAt: Date, // 마지막 서명 완료본을 올린 때
+  // 서명 완료본 없이 연장을 먼저 반영한 경우(서명이 늦어 첫 청구가 먼저 나가야 할 때). 관리자만, 사유 필수
+  signedOverride: { by: String, at: Date, reason: String },
   // 반납할 때 정산한 내용. 보증금 반환·손상 수리비·초과 주행은 원장에도 줄로 들어간다.
   returnInfo: {
     returnDate: Date,

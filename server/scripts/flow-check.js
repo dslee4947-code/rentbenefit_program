@@ -345,7 +345,7 @@ const steps = [
 
     // 만기(2030-09) 전에 일찍 연장한다: 2027-03-01부터 24개월, 월 950,000원
     const res = await api('POST', `/api/contracts/${ctx.contract._id}/extend`, {
-      startDate: '2027-03-01', termMonths: 24,
+      startDate: '2027-03-01', termMonths: 24, signedOverrideReason: '흐름 점검 (서명 완료본 없이)',
       vehicles: [{ vehicleId: ctx.vehicle._id, monthlyFee: 950000, takeoverPrice: 15000000 }]
     }, { expect: [201] });
     ctx.ext1 = res?.contract;
@@ -394,7 +394,7 @@ const steps = [
 
     // 한 번 더 연장하면 -2
     const res2 = await api('POST', `/api/contracts/${ctx.ext1._id}/extend`, {
-      termMonths: 12, vehicles: [{ vehicleId: ctx.vehicle._id, monthlyFee: 900000, takeoverPrice: 12000000 }]
+      termMonths: 12, signedOverrideReason: '흐름 점검 (서명 완료본 없이)', vehicles: [{ vehicleId: ctx.vehicle._id, monthlyFee: 900000, takeoverPrice: 12000000 }]
     }, { expect: [201] });
     check('두 번째 연장은 -2 번호를 받는다', res2?.contract?.contractNo === `${ctx.contract.contractNo}-2`, res2?.contract?.contractNo);
     const ext2 = await mongoose.connection.collection('contracts').findOne({ _id: oid(res2?.contract?._id) });

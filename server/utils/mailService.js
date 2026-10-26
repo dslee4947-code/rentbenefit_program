@@ -115,13 +115,15 @@ const buildHtmlBody = (body, tail, { greeting = '', signatureHtml = '' } = {}) =
  * @param {Array<{fileName: string, buffer: Buffer}>} [params.extraFiles] 함께 보낼 서류(범칙금 고지서 등)
  * @param {object} [params.values] 제목·본문의 치환 값 ({{계약자}} 등)
  * @param {string} [params.cc] 참조
+ * @param {string} [params.leadLine] 본문 맨 위에 붙일 안내 한 줄(예: 연장 계약 첫 청구 안내). 양식은 그대로 둔다
  */
-export const sendInvoiceMail = async ({ to, subject, fileName, fileBuffer, extraFiles = [], values = {}, cc }) => {
+export const sendInvoiceMail = async ({ to, subject, fileName, fileBuffer, extraFiles = [], values = {}, cc, leadLine }) => {
   return sendTemplateMail({
     to,
     cc,
     subject,
     values,
+    leadLine,
     files: [{ fileName, buffer: fileBuffer, contentType: 'application/pdf' }, ...extraFiles],
     missingToMessage: '받는 사람 이메일이 없습니다. 법인 관리에서 청구 이메일을 먼저 등록해 주세요.'
   });
@@ -194,15 +196,17 @@ const invoiceSender = () => process.env.INVOICE_SENDER_EMAIL || 'rent@sdibenefit
  * @param {string} [params.templateKey] 양식 종류
  * @param {Array<{fileName: string, buffer: Buffer, contentType?: string}>} [params.files] 붙일 파일
  * @param {string} [params.missingToMessage] 받는 사람이 없을 때 알릴 말
+ * @param {string} [params.leadLine] 본문 맨 위에 붙일 안내 한 줄
  */
-const sendTemplateMail = async ({ to, cc, subject, values = {}, templateKey = 'invoice', files = [], missingToMessage }) => {
+const sendTemplateMail = async ({ to, cc, subject, values = {}, templateKey = 'invoice', files = [], missingToMessage, leadLine }) => {
   if (!to) throw new Error(missingToMessage || '받는 사람 이메일이 없습니다.');
 
   const sender = invoiceSender();
 
   const template = await getOrCreateTemplate(templateKey);
   const finalSubject = applyPlaceholders(subject || template.subject, values);
-  const finalBody = applyPlaceholders(template.body, values);
+  const templated = applyPlaceholders(template.body, values);
+  const finalBody = leadLine ? [leadLine, '', templated].join('\n') : templated;
 
   const token = await getGraphAccessToken();
 

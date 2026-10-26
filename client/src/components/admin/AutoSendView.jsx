@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { RefreshCw, Send, CheckCircle2, AlertCircle, FileText, X, ChevronLeft, ChevronRight, Eye, Clock, Wallet, ListChecks } from 'lucide-react';
 import InvoiceSheet, { makeInvoicePdf } from './InvoiceSheet.jsx';
+import ExtensionTag from './ExtensionTag.jsx';
 import { buildRoundForm, formTotals, roundSaveBody } from './billingForm.js';
 import PaymentDayBadge from './PaymentDayBadge.jsx';
 import { paymentDayStripe, paymentDayKey, PAYMENT_DAYS } from './paymentDay.js';
@@ -593,7 +594,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
                     {changed.map((it, i) => (
                       <tr key={keyOf(it)} style={{ boxShadow: paymentDayStripe(it.round.dueDate) }}>
                         <td style={{ ...cell, whiteSpace: 'nowrap', fontWeight: 700, color: it.sendDday <= 1 ? '#d97706' : 'var(--text-muted)' }}>{sendDayLabel(it.sendDday)}</td>
-                        <td style={cell}><strong>{nameOf(it)}</strong><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{it.contract?.contractNo}</div></td>
+                        <td style={cell}><strong>{nameOf(it)}</strong><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{it.contract?.contractNo}<ExtensionTag contract={it.contract} /></div></td>
                         <td style={{ ...cell, whiteSpace: 'nowrap' }}><PaymentDayBadge date={it.round.dueDate} /> {it.round.no}/{it.totalRounds}</td>
                         <td style={{ ...cell, fontWeight: 800, whiteSpace: 'nowrap' }}>{won(it.expectedTotal)}</td>
                         <td style={cell}>
@@ -674,7 +675,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
                             />
                           </td>
                           <td style={{ ...cell, whiteSpace: 'nowrap', fontWeight: 700, color: it.sendDday <= 1 ? '#d97706' : 'var(--text-muted)' }}>{sendDayLabel(it.sendDday)}</td>
-                          <td style={cell}><strong>{nameOf(it)}</strong> <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{it.contract?.contractNo}</span></td>
+                          <td style={cell}><strong>{nameOf(it)}</strong> <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{it.contract?.contractNo}</span><ExtensionTag contract={it.contract} /></td>
                           <td style={{ ...cell, whiteSpace: 'nowrap' }}><PaymentDayBadge date={it.round.dueDate} /> {it.round.no}/{it.totalRounds} · {ymd(it.round.dueDate)}</td>
                           <td style={{ ...cell, fontWeight: 700, whiteSpace: 'nowrap' }}>{won(it.expectedTotal)}</td>
                           <td style={cell}>{toField(it)}</td>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Plus, Trash2, FileSignature, ChevronDown, ChevronUp, ArrowLeft, UserPlus, Users, Upload, Download, List, Edit, Search, Clock, Truck, FolderCheck, RotateCcw, CalendarPlus } from 'lucide-react';
+import { Save, Plus, Trash2, FileSignature, ChevronDown, ChevronUp, ArrowLeft, UserPlus, Users, Upload, Download, List, Edit, Search, Clock, Truck, FolderCheck, RotateCcw, CalendarPlus, FileCheck2 } from 'lucide-react';
 import ContractExtendDialog from './ContractExtendDialog.jsx';
+import SignedDocsDialog from './SignedDocsDialog.jsx';
 import ContractCloseDialog from './ContractCloseDialog.jsx';
 import { formatCustomerName, toCommaString, parseNumber, extractQuoteVehicleDetail } from '../../utils/format.js';
 import { useTableSort } from './useTableSort.js';
@@ -41,6 +42,8 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
   // 보기 설정이 바뀌면 목록을 다시 불러온다
   // 연장 창을 띄울 계약
   const [extendTarget, setExtendTarget] = useState(null);
+  // 서명 완료본 창(모두싸인에서 받은 계약서 PDF 올리기·열기). 신차·중고·연장 공통
+  const [signedTarget, setSignedTarget] = useState(null);
   // 반납·인수 창을 띄울 계약
   const [closeTarget, setCloseTarget] = useState(null);
   useEffect(() => { fetchContractsList(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [showArchived]);
@@ -1787,6 +1790,21 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                           <FolderCheck size={13} /> 보관
                         </button>
                       )}
+                      {/* 서명 완료본: 있으면 초록(버전), 연장인데 서명 전에 먼저 반영했으면 주황, 없으면 회색 */}
+                      {c.status !== '임시저장' && (() => {
+                        const n = (c.signedDocuments || []).length;
+                        const pending = !n && c.contractKind === '연장' && c.signedOverride?.reason;
+                        const color = n ? '#16a34a' : (pending ? '#c2410c' : 'var(--text-muted)');
+                        return (
+                          <button
+                            onClick={() => setSignedTarget(c)}
+                            title={n ? `서명 완료본 v${n} — 눌러서 열기·새 버전 올리기` : (pending ? `서명 전에 먼저 반영한 연장입니다 (사유: ${c.signedOverride.reason}). 서명 완료본을 올려 주세요` : '모두싸인에서 받은 서명 완료본 PDF를 올립니다')}
+                            style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: n ? '#f0fdf4' : '#fff', border: `1px solid ${n ? '#16a34a' : (pending ? '#fdba74' : 'var(--border-color)')}`, color, padding: '0.3rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          >
+                            <FileCheck2 size={13} /> {n ? `서명본 v${n}` : (pending ? '서명본 필요' : '서명본')}
+                          </button>
+                        );
+                      })()}
                       {/* 만기 처리 - 연장. 차량이 있는 진행 중·보관된 계약만 연장할 수 있다 */}
                       {c.vehicle && (c.status === '진행중' || c.status === '보관됨') && (
                         <button
@@ -1826,6 +1844,14 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
             <ContractCloseDialog
               contractId={closeTarget}
               onClose={() => setCloseTarget(null)}
+              onDone={() => fetchContractsList()}
+              showToast={showToast}
+            />
+          )}
+          {signedTarget && (
+            <SignedDocsDialog
+              contract={signedTarget}
+              onClose={() => setSignedTarget(null)}
               onDone={() => fetchContractsList()}
               showToast={showToast}
             />

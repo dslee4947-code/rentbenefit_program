@@ -634,7 +634,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
   const dayBaseItems = items.filter((it) => {
     if (statusFilter !== 'all' && it.round?.status !== statusFilter) return false;
     if (!kw) return true;
-    return [it.company?.name, it.customer?.name, it.contract?.contractNo]
+    return [it.company?.name, it.customer?.name, it.contract?.contractNo, it.carSummary]
       .some((v) => (v || '').toLowerCase().includes(kw));
   });
   const filteredItems = dayFilter.length
@@ -662,7 +662,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
     { key: 'dueDate', label: '출금일', numeric: true, sortValue: (it) => it.round?.dueDate },
     { key: 'sendDate', label: '발송 예정', numeric: true, sortValue: (it) => it.sendDate },
     { key: 'prevStatus', label: '전월', sortValue: (it) => it.prevRound?.status },
-    { key: 'contractNo', label: '계약번호', sortValue: (it) => it.contract?.contractNo },
+    { key: 'carSummary', label: '차종', sortValue: (it) => it.carSummary || '' },
     { key: 'roundNo', label: '회차', numeric: true, sortValue: (it) => it.round?.no },
     { key: 'total', label: '청구액', numeric: true, sortValue: (it) => it.round?.total },
     { key: 'status', label: '상태', sortValue: (it) => it.round?.status }
@@ -744,7 +744,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
               <div>
                 <div style={{ fontWeight: 800 }}>{unpaidFor.company?.name || unpaidFor.customer?.name || '계약자'} · {unpaidFor.round.no}회차</div>
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{unpaidFor.contract?.contractNo} · 청구액 {won(unpaidFor.round.total)}</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{unpaidFor.carSummary || '-'} · 청구액 {won(unpaidFor.round.total)}</div>
               </div>
               <button type="button" onClick={() => setUnpaidFor(null)} aria-label="닫기" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={20} /></button>
             </div>
@@ -847,7 +847,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
           <input
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
-            placeholder="계약자 / 계약번호로 검색"
+            placeholder="계약자 / 차종 / 계약번호로 검색"
             style={{ width: '100%', padding: '0.55rem 0.7rem 0.55rem 2.1rem', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '0.9rem' }}
           />
           {keyword && (
@@ -998,7 +998,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
                 <SortableTh sort={dueSort} columnKey="dueDate" style={{ padding: '0.7rem', textAlign: 'center', width: '110px' }}>출금일</SortableTh>
                 <SortableTh sort={dueSort} columnKey="sendDate" style={{ padding: '0.7rem', textAlign: 'center', width: '120px' }}>발송 예정</SortableTh>
                 <SortableTh sort={dueSort} columnKey="prevStatus" style={{ padding: '0.7rem', textAlign: 'center', width: '130px' }}>전월</SortableTh>
-                <SortableTh sort={dueSort} columnKey="contractNo" style={{ padding: '0.7rem', textAlign: 'left' }}>계약번호</SortableTh>
+                <SortableTh sort={dueSort} columnKey="carSummary" style={{ padding: '0.7rem', textAlign: 'left' }}>차종</SortableTh>
                 <SortableTh sort={dueSort} columnKey="roundNo" style={{ padding: '0.7rem', textAlign: 'center', width: '70px' }}>회차</SortableTh>
                 <SortableTh sort={dueSort} columnKey="total" style={{ padding: '0.7rem', textAlign: 'right', width: '120px' }}>청구액</SortableTh>
                 <SortableTh sort={dueSort} columnKey="status" style={{ padding: '0.7rem', textAlign: 'center', width: '90px' }}>상태</SortableTh>
@@ -1123,7 +1123,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
                         </>
                       ) : <span style={{ color: 'var(--text-muted)' }}>-</span>}
                     </td>
-                    <td style={{ padding: '0.7rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>{it.contract?.contractNo || '-'}<ExtensionTag contract={it.contract} /></td>
+                    <td style={{ padding: '0.7rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>{it.carSummary || '-'}<ExtensionTag contract={it.contract} /></td>
                     <td style={{ padding: '0.7rem', textAlign: 'center' }}>{it.round.no} / {it.totalRounds}</td>
                     <td style={{ padding: '0.7rem', ...NUMERIC, fontWeight: '800', color: 'var(--text-bright)' }}>{won(it.round.total)}</td>
                     <td style={{ padding: '0.7rem', textAlign: 'center' }}>
@@ -1226,7 +1226,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
                   {selected.company?.name || selected.customer?.name} 청구 이력
                 </span>
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                  {selected.contract?.contractNo}<ExtensionTag contract={selected.contract} /> · 총 {schedule.totalRounds}회차
+                  {selected.carSummary || '-'}<ExtensionTag contract={selected.contract} /> · 총 {schedule.totalRounds}회차
                 </span>
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
                   청구 {issuedCount}건 · 입금 {paidCount}건 · 미납 {unpaidCount}건 · 범칙금 누계 <strong style={{ color: 'var(--error)' }}>{won(fineSum)}</strong>
@@ -1392,7 +1392,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
           <div style={{ background: '#fff', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '1.2rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div>
               <div style={{ fontWeight: '800', fontSize: '0.95rem', color: 'var(--text-bright)' }}>
-                {selected.contract?.contractNo}<ExtensionTag contract={selected.contract} /> · {form.no}회차
+                {selected.carSummary || '-'}<ExtensionTag contract={selected.contract} /> · {form.no}회차
               </div>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
                 출금일 {ymd(selected.round.dueDate)} · {selected.company?.name || selected.customer?.name || ''}

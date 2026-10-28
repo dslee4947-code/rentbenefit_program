@@ -410,6 +410,36 @@ export const getScheduleByContract = async (req, res) => {
 };
 
 /**
+ * 계약의 차종 한 줄. 한 대면 차종만, 여러 대면 "Ray Van 스탠다드 A/T (9대)",
+ * 차종이 섞이면 가장 많은 차종 + "외 n종 (12대)". 판 차(거래완료)는 남은 차가 있으면 뺀다.
+ * 청구 목록에 계약번호 대신 쓴다(대표님 2026-10-28). 계약번호는 외우기 어렵고 차종은 바로 안다.
+ * @param {{carModel?: string, status?: string}[]} vehicles 그 계약의 차량
+ * @returns {string}
+ */
+export const carSummaryOf = (vehicles) => {
+  const running = vehicles.filter((v) => v.status !== '거래완료');
+  const list = (running.length ? running : vehicles).map((v) => String(v.carModel || '').trim() || '차종 미상');
+  if (!list.length) return '';
+  const counts = new Map();
+  list.forEach((m) => counts.set(m, (counts.get(m) || 0) + 1));
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  if (list.length === 1) return top;
+  return counts.size === 1 ? `${top} (${list.length}대)` : `${top} 외 ${counts.size - 1}종 (${list.length}대)`;
+};
+
+/** 계약 id → 차종 한 줄. 목록마다 차량을 한 번에 읽는다. */
+const loadCarSummaries = async (schedules) => {
+  const ids = schedules.map((s) => s.contract?._id).filter(Boolean);
+  const byContract = new Map();
+  (await Vehicle.find({ contract: { $in: ids } }).select('contract carModel status').lean()).forEach((v) => {
+    const key = String(v.contract);
+    if (!byContract.has(key)) byContract.set(key, []);
+    byContract.get(key).push(v);
+  });
+  return new Map([...byContract].map(([k, list]) => [k, carSummaryOf(list)]));
+};
+
+/**
  * 특정 달에 청구할 회차만 뽑아 준다.
  *
  * 회차를 사람이 고르지 않고 청구일로 정한다. 엑셀에서 회차를 손으로 넣다 틀리는 일이 가장 잦았다.
@@ -436,6 +466,7 @@ export const getDueRounds = async (req, res) => {
     const rateByContract = await loadLateInterestRates(
       schedules.map((s) => s.contract?._id).filter(Boolean)
     );
+    const carSummaries = await loadCarSummaries(schedules);
 
     const items = [];
     for (const s of schedules) {
@@ -461,6 +492,7 @@ export const getDueRounds = async (req, res) => {
       items.push({
         scheduleId: s._id,
         contract: s.contract,
+        carSummary: carSummaries.get(String(s.contract?._id)) || '',
         company: s.company,
         customer: s.customer,
         totalRounds: s.totalRounds,
@@ -742,6 +774,7 @@ const buildAutoSendQueue = async (days) => {
     .populate('customer', 'name contactName email')
     .lean();
   const rateByContract = await loadLateInterestRates(schedules.map((s) => s.contract?._id).filter(Boolean));
+  const carSummaries = await loadCarSummaries(schedules);
 
   const items = [];
   for (const s of schedules) {
@@ -773,6 +806,7 @@ const buildAutoSendQueue = async (days) => {
       items.push({
         scheduleId: s._id,
         contract: s.contract,
+        carSummary: carSummaries.get(String(s.contract?._id)) || '',
         company: s.company,
         customer: s.customer,
         totalRounds: s.totalRounds,

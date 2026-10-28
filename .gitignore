@@ -20,3 +20,6 @@ Thumbs.db
 
 # 업무 보고서·정리 문서·백업 (개발과 무관, 고객 정보 포함)
 업무자료/
+
+# DB 쓰기 전 백업 (scripts/charge-past-interest.js 등)
+server/backups/

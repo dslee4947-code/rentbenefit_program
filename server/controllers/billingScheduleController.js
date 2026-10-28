@@ -85,7 +85,7 @@ const NOTICE_STATUS_MESSAGE = {
   청구취소: '고객이 직접 내기로 함(청구 취소)'
 };
 
-const recalcRound = (round) => {
+export const recalcRound = (round) => {
   const atts = round.attachments || [];
   const sumOf = (pick) => atts.filter(pick).reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
   const hasAmount = (pick) => atts.some((a) => pick(a) && Number(a.amount) > 0);
@@ -131,11 +131,22 @@ export const LATE_GRACE_DAYS = 15;
  * @param {number} no 이 회차 번호
  */
 export const unbilledInterestToDate = (rounds, no) => {
-  const upto = (rounds || []).filter((r) => r.no <= no && Number(r.unbilledInterest?.amount) > 0);
-  return {
-    amount: upto.reduce((s, r) => s + Number(r.unbilledInterest.amount), 0),
-    count: upto.reduce((s, r) => s + ((r.unbilledInterest.items || []).length || 1), 0)
-  };
+  // 이 회차까지의 청구서에서 모아 청구한 이자(pastInterestCharge)는 더 이상 '보류'가 아니다
+  const charged = new Set((rounds || []).filter((r) => r.no <= no)
+    .flatMap((r) => (r.pastInterestCharge?.items || []).map((it) => `${it.onNo}:${it.fromNo}`)));
+  let amount = 0;
+  let count = 0;
+  for (const r of rounds || []) {
+    if (r.no > no || !(Number(r.unbilledInterest?.amount) > 0)) continue;
+    const items = r.unbilledInterest.items || [];
+    if (!items.length) { amount += Number(r.unbilledInterest.amount); count += 1; continue; }
+    for (const it of items) {
+      if (charged.has(`${r.no}:${it.fromNo}`)) continue;
+      amount += Number(it.amount) || 0;
+      count += 1;
+    }
+  }
+  return { amount, count };
 };
 
 /**
@@ -2783,6 +2794,10 @@ export const updateRound = async (req, res) => {
       round.extras = req.body.extras
         .filter((e) => (e.label || '').trim() || Number(e.amount))
         .map((e) => ({ label: (e.label || '').trim() || '기타 청구', amount: Number(e.amount) || 0 }));
+      // 모아 청구한 지난 연체 이자 줄을 지웠으면 그 내역도 지운다. 남겨 두면 보관함에 '청구'로 잘못 보인다.
+      if (round.pastInterestCharge?.label && !round.extras.some((e) => e.label === round.pastInterestCharge.label)) {
+        round.pastInterestCharge = undefined;
+      }
     }
 
     // 연체 이자를 무엇으로 계산했는지 남긴다. 요율이 바뀌어도 지난 청구서를 설명할 수 있어야 한다.

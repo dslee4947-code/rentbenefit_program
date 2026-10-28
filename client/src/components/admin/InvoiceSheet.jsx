@@ -193,6 +193,23 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
         </div>
       )}
 
+      {/* 지난 회차의 미청구 연체 이자를 이번 청구서에 모아 청구한 근거. 합계에는 기타 청구 줄로 들어가 있다(대표님 지시 2026-10-28) */}
+      {round?.pastInterestCharge?.amount > 0 && round.extras?.some((e) => e.label === round.pastInterestCharge.label) && (
+        <div style={{ marginTop: '10px', padding: '6px 10px', border: '1px solid #f59e0b', borderRadius: '4px', fontSize: '10px', color: '#78350f', background: '#fffbeb' }}>
+          <div style={{ fontWeight: 700, marginBottom: '3px' }}>
+            {round.pastInterestCharge.label} {Number(round.pastInterestCharge.amount).toLocaleString()}원 내역 (n회 청구서 · 미납 회차 원금 × 연이율 × 일수 ÷ 365, 10원 미만 버림)
+          </div>
+          <div style={{ columnCount: (round.pastInterestCharge.items || []).length > 8 ? 2 : 1, columnGap: '16px' }}>
+            {(round.pastInterestCharge.items || []).map((it, i) => (
+              <div key={i} style={{ breakInside: 'avoid', whiteSpace: 'nowrap' }}>
+                · {it.onNo}회 · {it.fromNo}회분 {Number(it.principal).toLocaleString()} × {it.rate}% × {it.days}일
+                ({String(it.from).slice(2, 10).replace(/-/g, '.')}~{String(it.to).slice(5, 10).replace(/-/g, '.')}) = {Number(it.amount).toLocaleString()}원
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 받지 않은 연체 이자(기록용). 바로 청구하지 못해 청구서마다 누적으로 남긴다. 청구 합계에는 들어가지 않는다(대표님 지시 2026-10-20) */}
       {(Number(item?.unbilledInterestToDate?.amount) > 0 || round?.unbilledInterest?.amount > 0) && (
         <div style={{ marginTop: '10px', padding: '6px 10px', border: '1px dashed #f59e0b', borderRadius: '4px', fontSize: '10.5px', color: '#92400e', background: '#fffbeb' }}>

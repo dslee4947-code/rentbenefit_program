@@ -44,6 +44,36 @@ const wasLate = (r) => {
   return r.status === '미납';
 };
 
+/**
+ * 지난 미청구 이자를 뒤 회차 청구서에 모아 청구한 내역(pastInterestCharge).
+ * '이자가 붙었던 회차:미납 회차' → 청구한 회차 번호. 서버 unbilledInterestToDate와 같은 열쇠다.
+ */
+const chargedInterestMap = (rounds) => {
+  const map = new Map();
+  for (const r of rounds) {
+    for (const it of r.pastInterestCharge?.items || []) map.set(`${it.onNo}:${it.fromNo}`, r.no);
+  }
+  return map;
+};
+
+/** 이 회차 청구서 기준으로 아직 청구하지 않은 이자(이 회차까지 모아 청구한 건은 뺀다) */
+const unbilledInterestUpTo = (rounds, no) => {
+  const charged = chargedInterestMap(rounds);
+  let amount = 0;
+  let count = 0;
+  for (const r of rounds) {
+    if (r.no > no || !(Number(r.unbilledInterest?.amount) > 0)) continue;
+    const items = r.unbilledInterest.items || [];
+    if (!items.length) { amount += Number(r.unbilledInterest.amount); count += 1; continue; }
+    for (const it of items) {
+      if ((charged.get(`${r.no}:${it.fromNo}`) || Infinity) <= no) continue;
+      amount += Number(it.amount) || 0;
+      count += 1;
+    }
+  }
+  return { amount, count };
+};
+
 const issueStateOf = (round) => {
   if (round.issuedAt) return { label: '발행', color: '#0284c7', bg: '#e0f2fe' };
   if (round.excelInvoice?.total !== undefined) return { label: '엑셀 발송', color: '#0f766e', bg: '#ccfbf1' };
@@ -201,9 +231,6 @@ function InvoiceArchiveView({ showToast, currentUser }) {
     ? (locked ? round : { ...round, extras: draft, other: draftOther })
     : null;
   const previewTotal = previewRound ? (locked ? round.total : roundTotal(previewRound)) : 0;
-  // 이 회차까지 쌓인 받지 않은 연체 이자(청구서에 누적으로 남긴다)
-  const interestToDate = rounds.filter((r) => r.no <= (round?.no || 0) && Number(r.unbilledInterest?.amount) > 0)
-    .reduce((acc, r) => ({ amount: acc.amount + Number(r.unbilledInterest.amount), count: acc.count + ((r.unbilledInterest.items || []).length || 1) }), { amount: 0, count: 0 });
 
   const updateDraft = (index, patch) => {
     setDraft((prev) => prev.map((e, i) => (i === index ? { ...e, ...patch } : e)));
@@ -307,10 +334,20 @@ function InvoiceArchiveView({ showToast, currentUser }) {
       missing: past.filter((r) => !r.issuedAt && r.excelInvoice?.total === undefined).length,
       unpaid: rounds.filter((r) => r.status === '미납').length,
       // 다음 청구서에 전월 미결제로 넘어간 회차(청구 당시 미납이었던 회차)
-      overdue: rounds.filter((r) => r.status !== '미납' && wasLate(r)).length,
-      unbilledInterest: rounds.reduce((s, r) => s + (Number(r.unbilledInterest?.amount) || 0), 0)
+      overdue: rounds.filter((r) => r.status !== '미납' && wasLate(r)).length
     };
   }, [rounds]);
+
+  // 이 회차까지 쌓인 받지 않은 연체 이자(청구서에 누적으로 남긴다)
+  const interestToDate = unbilledInterestUpTo(rounds, round?.no || 0);
+  // 연체 이자 합계: 받지 않은 것(뒤 청구서에 모아 청구한 건 빼고)과 모아 청구한 것
+  const chargedMap = chargedInterestMap(rounds);
+  // 이 회차의 미청구 이자를 뒤에서 모아 청구했으면 그 회차 번호
+  const laterChargeOf = (r) => (r.unbilledInterest?.items || []).map((it) => chargedMap.get(`${r.no}:${it.fromNo}`)).find(Boolean);
+  const interestSums = {
+    unbilled: unbilledInterestUpTo(rounds, Infinity).amount,
+    charged: rounds.reduce((s, r) => s + (Number(r.pastInterestCharge?.amount) || 0), 0)
+  };
 
   const box = { background: '#fff', border: '1px solid var(--border-color)', borderRadius: '10px' };
   const inputStyle = { padding: '0.45rem 0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.85rem' };
@@ -389,7 +426,8 @@ function InvoiceArchiveView({ showToast, currentUser }) {
               {counts.missing > 0 && <span style={{ color: '#b45309' }}>발행 기록 없음 <b>{counts.missing}</b></span>}
               {counts.unpaid > 0 && <span style={{ color: '#dc2626' }}>지금 미납 <b>{counts.unpaid}</b></span>}
               {counts.overdue > 0 && <span style={{ color: '#b45309' }}>늦게 입금(미납 이력) <b>{counts.overdue}</b>회</span>}
-              {counts.unbilledInterest > 0 && <span style={{ color: '#92400e' }}>받지 않은 연체 이자 <b>{won(counts.unbilledInterest)}</b></span>}
+              {interestSums.unbilled > 0 && <span style={{ color: '#92400e' }}>받지 않은 연체 이자 <b>{won(interestSums.unbilled)}</b></span>}
+              {interestSums.charged > 0 && <span style={{ color: '#dc2626' }}>지난 이자 모아 청구 <b>{won(interestSums.charged)}</b></span>}
             </div>
           </div>
 
@@ -443,7 +481,12 @@ function InvoiceArchiveView({ showToast, currentUser }) {
                             <span style={{ background: pay.bg, color: pay.color, padding: '0.1rem 0.5rem', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap' }}>{r.status}</span>
                           )}
                           {r.unbilledInterest?.amount > 0 && (
-                            <div style={{ fontSize: '0.66rem', color: '#92400e', whiteSpace: 'nowrap' }}>미청구 이자 {won(r.unbilledInterest.amount)}</div>
+                            <div style={{ fontSize: '0.66rem', color: laterChargeOf(r) ? '#dc2626' : '#92400e', whiteSpace: 'nowrap' }}>
+                              {laterChargeOf(r) ? <>이자 {won(r.unbilledInterest.amount)}<br />→ {laterChargeOf(r)}회 청구</> : `미청구 이자 ${won(r.unbilledInterest.amount)}`}
+                            </div>
+                          )}
+                          {r.pastInterestCharge?.amount > 0 && (
+                            <div style={{ fontSize: '0.66rem', color: '#dc2626', fontWeight: 700, whiteSpace: 'nowrap' }}>지난 이자<br />{won(r.pastInterestCharge.amount)} 청구</div>
                           )}
                         </td>
                       </tr>
@@ -670,9 +713,12 @@ function InterestHistory({ rounds }) {
   const [open, setOpen] = useState(false);
   const fmt = (d) => (d ? String(d).slice(2, 10).replace(/-/g, '.') : '-');
   const rows = [];
+  const chargedIn = chargedInterestMap(rounds);
   for (const r of rounds) {
     for (const it of r.unbilledInterest?.items || []) {
-      rows.push({ on: r, fromNo: it.fromNo, principal: it.principal, from: it.from, to: it.to, days: it.days, rate: it.rate, amount: it.amount, billed: false });
+      // 그때는 청구하지 않았지만 뒤 회차 청구서에 모아 청구한 이자
+      const laterNo = chargedIn.get(`${r.no}:${it.fromNo}`);
+      rows.push({ on: r, fromNo: it.fromNo, principal: it.principal, from: it.from, to: it.to, days: it.days, rate: it.rate, amount: it.amount, billed: Boolean(laterNo), laterNo });
     }
     for (const e of r.extras || []) {
       const m = /^연체 이자 \((\d+)회차 ([\d,]+)원 · 연 (\d+)% · (\d+)일\)/.exec(e.label || '');
@@ -710,7 +756,7 @@ function InterestHistory({ rounds }) {
                   <td style={td}>{x.days}일</td>
                   <td style={td}>연 {x.rate}%</td>
                   <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{Number(x.amount).toLocaleString()}</td>
-                  <td style={{ ...td, color: x.billed ? '#dc2626' : '#92400e', fontWeight: 700 }}>{x.billed ? '청구' : '청구하지 않음'}</td>
+                  <td style={{ ...td, color: x.billed ? '#dc2626' : '#92400e', fontWeight: 700 }}>{x.laterNo ? `${x.laterNo}회차에서 청구` : x.billed ? '청구' : '청구하지 않음'}</td>
                 </tr>
               ))}
             </tbody>

@@ -64,6 +64,32 @@ const BillingRoundSchema = new Schema({
     }]
   },
 
+  /**
+   * 지난 회차들의 '받지 않은 연체 이자'를 이 회차 청구서에 모아 청구한 내역.
+   *
+   * 대표님 지시(2026-10-28, 동춘푸드): 미청구 이자 총합을 다음 청구서에 넣는다.
+   * 금액은 기타 청구(extras)의 label 줄로 들어가 합계에 잡히고, 여기에는 어느 회차의 어느 이자인지를 남긴다.
+   * 지난 회차의 unbilledInterest는 그대로 두고(그때는 청구하지 않은 게 사실이다),
+   * 이 내역에 있는 건은 보관함에서 'n회차에서 청구'로 보여 주고 누적 '청구 보류' 합계에서 뺀다.
+   * 기타 청구에서 그 줄을 지우면 이 내역도 함께 지운다(updateRound).
+   */
+  pastInterestCharge: {
+    label: String, // extras에 넣은 줄 이름
+    amount: Number,
+    chargedAt: Date,
+    items: [{
+      _id: false,
+      onNo: Number, // 이자가 붙었던 청구서 회차
+      fromNo: Number, // 미납이었던 회차
+      principal: Number,
+      from: Date,
+      to: Date,
+      days: Number,
+      rate: Number,
+      amount: Number
+    }]
+  },
+
   status: {
     type: String,
     enum: ['예정', '청구됨', '입금완료', '미납'],

@@ -221,6 +221,16 @@ test('정산금액은 보증금을 뺀다 (보증금 포함 값은 cashBalance)'
   assert.equal(s.balance, 700000 - 1000000);
 });
 
+test('고객 보증금을 돌려준 줄은 환급이 아니라 보증금 (Ray-039)', async () => {
+  const { pickLedgerCategory } = await import('../models/VehicleLedger.js');
+  assert.equal(pickLedgerCategory('보증금 환급', '입금'), '보증금');
+  assert.equal(pickLedgerCategory('보증금 반환', '지출'), '보증금');
+  // 렌공·렌터카보험 보증금은 공제조합 출자금이다
+  assert.equal(pickLedgerCategory('렌공보증금 환급', '입금'), '환급');
+  assert.equal(pickLedgerCategory('렌터카보험 보증금', '지출'), '공제조합');
+  assert.equal(pickLedgerCategory('삼성보험료 환급', '입금'), '환급');
+});
+
 test('거래완료 차에 인수가 줄 없이 남은 보증금은 인수가와 상계한 돈으로 본다 (Benz-018)', async () => {
   const { summarizeLedger } = await import('../models/VehicleLedger.js');
   const entries = [

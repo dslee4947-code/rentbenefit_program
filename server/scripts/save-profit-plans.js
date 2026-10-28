@@ -23,7 +23,7 @@ const apply = process.argv.includes('--apply');
 await mongoose.connect(process.env.MONGODB_ATLAS_URL || process.env.MONGO_URI);
 try {
   const ledgers = await VehicleLedger.find({ ledgerType: '장기렌트', 'profitPlans.0': { $exists: false } })
-    .select('ledgerNo status contract contractPeriods vehicle terms header profitPlans entries.side entries.category entries.amount').lean();
+    .select('ledgerNo status contract contractPeriods vehicle terms header profitPlans entries.side entries.category entries.amount entries.label').lean();
 
   const saved = [];
   const failed = [];

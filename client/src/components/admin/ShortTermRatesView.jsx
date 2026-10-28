@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Save, Printer, Plus, Trash2 } from 'lucide-react';
 import { toCommaString, parseNumber } from '../../utils/format.js';
-import { quoteRental, insurerAmountFor } from '../../../../shared/shortTermRates.js';
+import { quoteRental, insurerAmountFor, deriveRates } from '../../../../shared/shortTermRates.js';
 import { printFitted } from '../../utils/printFit.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -127,6 +127,25 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
   const setEdit = (id, key, value) => setEdits((prev) => ({ ...prev, [id]: { ...(prev[id] || {}), [key]: value } }));
   const valueOf = (c, key) => (edits[c.ledgerId] && key in edits[c.ledgerId] ? edits[c.ledgerId][key] : c[key]);
   const dirty = Object.keys(edits).length > 0;
+  // 아래 요금표는 위 표에서 고친 값(저장 전)을 바로 보여 준다. 칸을 비우면 계산값으로 돌아간다.
+  const sheetCars = cars.map((c) => {
+    const e = edits[c.ledgerId];
+    if (!e) return c;
+    // 1개월을 고치면 직접 정하지 않은 1일·1주는 서버처럼 새 1개월에서 다시 낸다
+    const base = 'month' in e ? deriveRates(e.month || c.calculated.month, policy) : null;
+    const rate = (key) => {
+      if (key in e) return e[key] || (base ? base[key] : c.calculated[key]);
+      if (base && !c.overridden[key]) return base[key];
+      return c.rates[key];
+    };
+    return {
+      ...c,
+      renting: !!valueOf(c, 'renting'),
+      longRent: !!valueOf(c, 'longRent'),
+      longRentUntil: valueOf(c, 'longRentUntil') || null,
+      rates: { day: rate('day'), week: rate('week'), month: rate('month') }
+    };
+  });
 
   const sheetRef = useRef(null);
   const print = () => printFitted(sheetRef.current, { orientation: 'portrait', title: `렌트베네핏_단기렌트료_${ymdText(new Date())}` });
@@ -235,8 +254,8 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
         <span style={{ fontWeight: 800 }}>고객 안내용 단가표 (인쇄 모양)</span>
         <button type="button" style={{ ...btn(true), background: SHEET_NAVY }} onClick={print}><Printer size={14} /> 인쇄하기 / PDF 다운로드</button>
       </div>
-      {dirty && <div className="no-print" style={{ fontSize: '0.76rem', color: '#b45309', marginBottom: '0.5rem' }}>저장하지 않은 수정이 있습니다. 저장해야 아래 단가표에 반영됩니다.</div>}
-      <RateSheet sheetRef={sheetRef} cars={cars} policy={policy} />
+      {dirty && <div className="no-print" style={{ fontSize: '0.76rem', color: '#b45309', marginBottom: '0.5rem' }}>위에서 고친 내용이 아래 요금표에 미리 보입니다. [저장]을 눌러야 남습니다.</div>}
+      <RateSheet sheetRef={sheetRef} cars={sheetCars} policy={policy} />
     </div>
     </>
   );

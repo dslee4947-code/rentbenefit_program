@@ -133,12 +133,13 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
     { label: '차량', items: [
       { id: 'vehicles', name: '렌트차량 DB', icon: <Car size={ICON_SIZE} /> },
       { id: 'vehicle-service', name: '정비·검사 관리', icon: <Wrench size={ICON_SIZE} /> },
-      { id: 'short-term-rates', name: '단기렌트·사고대차 단가표', icon: <Tags size={ICON_SIZE} /> },
-      { id: 'fine-notices', name: '고지서 관리', icon: <FileWarning size={ICON_SIZE} /> }
+      { id: 'short-term-rates', name: '단기렌트·사고대차 단가표', icon: <Tags size={ICON_SIZE} /> }
     ] },
     { label: '청구·정산', items: [
       { id: 'billing', name: '장기렌트 청구서', icon: <FileText size={ICON_SIZE} /> },
       { id: 'invoice-archive', name: '청구서 보관함', icon: <Archive size={ICON_SIZE} /> },
+      // 고지서는 렌트료 청구서에 얹어 받는 돈이라 청구·정산에 둔다(대표님 2026-10-28)
+      { id: 'fine-notices', name: '고지서 관리', icon: <FileWarning size={ICON_SIZE} /> },
       { id: 'ledgers', name: '차량 손익 원장', icon: <Wallet size={ICON_SIZE} /> }
     ] },
     currentUser?.role === 'admin' && { label: '관리', items: [

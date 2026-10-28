@@ -93,20 +93,6 @@ export const makeInvoicePdf = (element) => makeFittedPdf(element, { orientation:
  * 청구서 양식. 월 청구 화면은 숨겨 두고 PDF로 캡처하고, 청구서 보관함은 화면에 그대로 보여 준다.
  * 엑셀로 쓰던 청구서 양식(결제금액 내역 / 청구내역 / 상세내역 / 차량 표)을 그대로 옮겼다.
  */
-/**
- * 상세내역의 차종 칸. 같은 차종이 여러 대면 대수를 붙이고(레이 20대), 차종이 셋 이상이면 두 개만 쓰고 '외 n종'으로 줄인다.
- */
-const carModelText = (vehicles) => {
-  const counts = new Map();
-  (vehicles || []).forEach((v) => {
-    const model = String(v?.carModel || '').trim();
-    if (model) counts.set(model, (counts.get(model) || 0) + 1);
-  });
-  const parts = [...counts].map(([model, n]) => (n > 1 ? `${model} ${n}대` : model));
-  if (!parts.length) return '-';
-  return parts.length > 2 ? `${parts.slice(0, 2).join(', ')} 외 ${parts.length - 2}종` : parts.join(', ');
-};
-
 export default function InvoiceSheet({ innerRef, item, round, vehicles, total }) {
   const company = item?.company;
   const name = company?.name || item?.customer?.name || '-';
@@ -158,13 +144,7 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
 
   return (
     <div ref={innerRef} className="m-doc" style={{ width: '780px', padding: '28px', background: '#fff', color: '#111', fontFamily: "'Malgun Gothic', sans-serif" }}>
-      {/* 어느 차 청구서인지 첫 장에서 바로 보이게 계약자 이름 옆에 차종을 둔다(대표님 2026-10-28) */}
-      <div style={{ fontSize: '20px', fontWeight: 800, marginBottom: '16px' }}>
-        {name}
-        {carModelText(vehicles) !== '-' && (
-          <span style={{ fontSize: '14px', fontWeight: 700, color: '#555', marginLeft: '10px' }}>{carModelText(vehicles)}</span>
-        )}
-      </div>
+      <div style={{ fontSize: '20px', fontWeight: 800, marginBottom: '16px' }}>{name}</div>
 
       <div style={{ background: '#8a8a8a', color: '#fff', padding: '5px 10px', fontWeight: 700, fontSize: '12px' }}>결제금액 내역</div>
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '16px', margin: '10px 0 2px' }}>

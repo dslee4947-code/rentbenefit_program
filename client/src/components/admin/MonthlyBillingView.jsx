@@ -995,10 +995,11 @@ function MonthlyBillingView({ showToast, currentUser }) {
                   />
                 </th>
                 <SortableTh sort={dueSort} columnKey="partyName" style={{ padding: '0.7rem', textAlign: 'left' }}>계약자</SortableTh>
+                {/* 차종은 계약자 바로 뒤, 출금일 앞(대표님 2026-10-28) */}
+                <SortableTh sort={dueSort} columnKey="carSummary" style={{ padding: '0.7rem', textAlign: 'left' }}>차종</SortableTh>
                 <SortableTh sort={dueSort} columnKey="dueDate" style={{ padding: '0.7rem', textAlign: 'center', width: '110px' }}>출금일</SortableTh>
                 <SortableTh sort={dueSort} columnKey="sendDate" style={{ padding: '0.7rem', textAlign: 'center', width: '120px' }}>발송 예정</SortableTh>
                 <SortableTh sort={dueSort} columnKey="prevStatus" style={{ padding: '0.7rem', textAlign: 'center', width: '130px' }}>전월</SortableTh>
-                <SortableTh sort={dueSort} columnKey="carSummary" style={{ padding: '0.7rem', textAlign: 'left' }}>차종</SortableTh>
                 <SortableTh sort={dueSort} columnKey="roundNo" style={{ padding: '0.7rem', textAlign: 'center', width: '70px' }}>회차</SortableTh>
                 <SortableTh sort={dueSort} columnKey="total" style={{ padding: '0.7rem', textAlign: 'right', width: '120px' }}>청구액</SortableTh>
                 <SortableTh sort={dueSort} columnKey="status" style={{ padding: '0.7rem', textAlign: 'center', width: '90px' }}>상태</SortableTh>
@@ -1071,6 +1072,8 @@ function MonthlyBillingView({ showToast, currentUser }) {
                     }}
                   >
                     <td style={{ padding: '0.7rem', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                      {/* 결제일 표시(5일·말일)는 체크박스 위에 둔다(대표님 2026-10-28) */}
+                      <div style={{ marginBottom: '0.25rem' }}><PaymentDayBadge date={it.round.dueDate} /></div>
                       <input
                         type="checkbox"
                         checked={checked.includes(it.scheduleId)}
@@ -1082,8 +1085,9 @@ function MonthlyBillingView({ showToast, currentUser }) {
                       />
                     </td>
                     <td style={{ padding: '0.7rem', fontWeight: '700' }}>{it.company?.name || it.customer?.name || '-'}</td>
+                    <td style={{ padding: '0.7rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>{it.carSummary || '-'}<ExtensionTag contract={it.contract} /></td>
                     <td style={{ padding: '0.7rem', textAlign: 'center', whiteSpace: 'nowrap' }}>
-                      <PaymentDayBadge date={it.round.dueDate} /> <span style={{ fontVariantNumeric: 'tabular-nums' }}>{ymd(it.round.dueDate)}</span>
+                      <span style={{ fontVariantNumeric: 'tabular-nums' }}>{ymd(it.round.dueDate)}</span>
                     </td>
                     <td style={{ padding: '0.7rem', textAlign: 'center' }}>
                       <div>{ymd(it.sendDate)}</div>
@@ -1123,7 +1127,6 @@ function MonthlyBillingView({ showToast, currentUser }) {
                         </>
                       ) : <span style={{ color: 'var(--text-muted)' }}>-</span>}
                     </td>
-                    <td style={{ padding: '0.7rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>{it.carSummary || '-'}<ExtensionTag contract={it.contract} /></td>
                     <td style={{ padding: '0.7rem', textAlign: 'center' }}>{it.round.no} / {it.totalRounds}</td>
                     <td style={{ padding: '0.7rem', ...NUMERIC, fontWeight: '800', color: 'var(--text-bright)' }}>{won(it.round.total)}</td>
                     <td style={{ padding: '0.7rem', textAlign: 'center' }}>

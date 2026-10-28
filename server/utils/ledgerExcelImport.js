@@ -1,5 +1,5 @@
 import XLSX from 'xlsx';
-import VehicleLedger, { summarizeLedger, pickLedgerCategory, parseLoanRound } from '../models/VehicleLedger.js';
+import VehicleLedger, { summarizeLedger, pickLedgerCategory, parseLoanRound, saleEntryOf, hasSaleEntry } from '../models/VehicleLedger.js';
 import Vehicle from '../models/Vehicle.js';
 import Contract from '../models/Contract.js';
 import { excelCellDate } from './excelDate.js';
@@ -371,6 +371,11 @@ export const importLedgersFromExcel = async (files, { dryRun = false, beforeWrit
         continue;
       }
 
+      // 프로그램 '판매 대금' 칸에서 넣은 판매는 엑셀에 아직 없을 수 있다. 덮어써도 판매 대금 줄은 남긴다.
+      if (existing.sale?.at && !hasSaleEntry(s.entries, existing.sale.amount)) {
+        const seq = existing.contractPeriods?.length ? Math.max(...existing.contractPeriods.map((p) => p.seq)) : 1;
+        s.entries.push(saleEntryOf(existing.sale, seq));
+      }
       const moved = splitByPeriods(s.entries, existing.contractPeriods || []);
       if (moved) stats.split.push(`${s.ledgerNo}: ${moved}줄을 연장 구간으로`);
       OVERRIDES[s.ledgerNo]?.(s.entries);

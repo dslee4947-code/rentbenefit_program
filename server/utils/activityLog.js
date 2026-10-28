@@ -13,6 +13,7 @@ export const ACTIONS = Object.freeze({
   CONTRACT_EXTEND: '계약 연장',
   CONTRACT_RETURN: '차량 반납',
   CONTRACT_TAKEOVER: '차량 인수',
+  VEHICLE_SALE: '차량 판매',
   CONTRACT_RERENT: '재렌트 계약',
   CONTRACT_TEMPLATE: '전자계약서',
   CONTRACT_SIGNED: '서명 완료본',

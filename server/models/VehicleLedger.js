@@ -188,6 +188,22 @@ const VehicleLedgerSchema = new Schema({
   },
 
   /**
+   * 차량 판매(인수·매각). 갑지 맨 위 '판매 대금' 칸에서 넣는다(대표님 2026-10-28).
+   * 넣으면 차·계약·갑지가 한 번에 거래완료가 된다(controllers/vehicleSaleController.js).
+   * 엑셀 갱신이 줄을 통째로 덮어써도 판매 대금 줄은 이 값으로 다시 붙인다(utils/ledgerExcelImport.js).
+   */
+  sale: {
+    kind: { type: String, enum: ['인수', '매각'] },
+    date: Date,
+    amount: Number,
+    buyer: String, // 매각한 곳
+    memo: String,
+    by: String,
+    at: Date,
+    undo: Schema.Types.Mixed // [판매 취소] 때 되돌릴 이전 상태
+  },
+
+  /**
    * 갑지 상단 정보.
    *
    * 차량·계약에서 가져올 수 있는 값이지만 스냅샷으로 복사해 둔다.
@@ -369,6 +385,27 @@ VehicleLedgerSchema.index({ 'header.plateNo': 1 });
  * 받은 보증금은 depositHeld(보관 중인 보증금)로 따로 준다. 회사가 낸 보증금(이행보증금 등)도 돌려받을 돈이라 같이 뺀다.
  * cashBalance는 보증금까지 넣은 통장 기준 값이다. 엑셀 갑지(보증금 포함)와 맞춰 볼 때만 쓴다.
  */
+// 판매 대금 칸에서 넣은 줄 표시. [판매 취소]와 엑셀 갱신이 이 줄을 알아본다(줄 _id는 엑셀 갱신 때 바뀐다).
+export const SALE_ENTRY_MEMO = '판매 대금 칸에서 입력';
+
+/** 판매 대금 줄. 인수든 매각이든 매출은 '인수가' 항목으로 잡는다(정산·수익성 계산이 이 항목을 판매 대금으로 본다). */
+export const saleEntryOf = (sale, periodSeq = 1) => ({
+  side: '입금',
+  group: '고객입금',
+  category: '인수가',
+  label: sale.kind === '매각' ? `매각 대금${sale.buyer ? ` (${sale.buyer})` : ''}` : '인수가',
+  amount: Number(sale.amount),
+  date: sale.date,
+  periodSeq,
+  memo: SALE_ENTRY_MEMO,
+  source: 'manual',
+  locked: true
+});
+
+/** 갑지에 이미 판매 대금 줄이 있는지(같은 금액의 인수가 입금 줄) */
+export const hasSaleEntry = (entries, amount) => (entries || [])
+  .some((e) => e.side === '입금' && e.category === '인수가' && Number(e.amount) === Number(amount));
+
 export const DEPOSIT_CATEGORY = '보증금';
 
 export const summarizeLedger = (ledger, periodSeq = null) => {

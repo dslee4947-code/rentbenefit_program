@@ -17,6 +17,7 @@ import {
   getShortTermReport,
   getLedgerShortTerm
 } from '../controllers/ledgerController.js';
+import { recordSale, cancelSale } from '../controllers/vehicleSaleController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
 
 const router = express.Router();
@@ -43,5 +44,7 @@ router.put('/:id/entries', checkWritePermission, saveLedgerEntries);
 router.post('/:id/sync', checkWritePermission, syncLedger);
 router.post('/:id/link-vehicle', checkWritePermission, linkVehicle);
 router.post('/:id/extend', checkWritePermission, extendLedger);
+router.post('/:id/sale', checkWritePermission, recordSale);
+router.delete('/:id/sale', checkWritePermission, cancelSale);
 
 export default router;

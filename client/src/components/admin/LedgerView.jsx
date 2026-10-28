@@ -1659,6 +1659,116 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
  * 목록에서 차량을 찾아 들어가면 그 차 한 대의 정산 카드가 열린다.
  * 엑셀 "렌트베네핏 장기렌트_갑지.xlsx"의 시트 한 장이 이 화면 하나다.
  */
+/**
+ * 갑지 맨 위 '판매 대금' 칸 (대표님 2026-10-28).
+ *
+ * 판매 대금을 넣고 [판매 처리]를 누르면 갑지·차량·계약이 한 번에 거래완료가 된다(서버 vehicleSaleController).
+ * 엑셀에서 인수가 줄이 이미 들어왔는데 차가 아직 운행 중이면 그 줄로 미리 채워 처리하라고 알린다.
+ */
+function SalePanel({ ledger, entries, canEdit, dirty, authHeaders, showToast, onDone }) {
+  // 계약에서 자동으로 만든 예정 인수가 줄(잠기지 않은 줄)은 실제로 받은 돈이 아니다. 엑셀에서 들어온 줄은 잠겨 있다.
+  const takeoverLine = entries.find((e) => e.side === '입금' && e.category === '인수가' && Number(e.amount) > 0 && !(e.source === 'contract' && !e.locked));
+  const [form, setForm] = useState(() => ({
+    kind: '인수',
+    date: takeoverLine?.date || '',
+    amount: takeoverLine ? Number(takeoverLine.amount) : '',
+    buyer: '',
+    memo: ''
+  }));
+  const [busy, setBusy] = useState(false);
+  const sale = ledger.sale?.at ? ledger.sale : null;
+  // 저장 직후 응답은 차량이 id로만 와서 상태를 모른다. 그때는 갑지 상태만 보고 판단한다.
+  const vehicleStatus = typeof ledger.vehicle === 'object' ? ledger.vehicle?.status : undefined;
+  const box = { ...card, padding: '0.8rem 1.1rem', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' };
+  const input = { padding: '0.4rem 0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.82rem', background: '#fff', boxSizing: 'border-box' };
+  const btn = (bg, fg) => ({ border: `1px solid ${bg === '#fff' ? 'var(--border-color)' : bg}`, background: bg, color: fg, padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: '700', cursor: busy ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' });
+
+  const send = async (method, body) => {
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_HOST}/api/ledgers/${ledger._id}/sale`, { method, headers: authHeaders, body: body ? JSON.stringify(body) : undefined });
+      const d = await res.json().catch(() => ({}));
+      showToast(d.message || (res.ok ? '처리했습니다.' : '처리하지 못했습니다.'), res.ok && d.success ? 'success' : 'error');
+      if (res.ok && d.success) onDone();
+    } finally { setBusy(false); }
+  };
+
+  if (sale) {
+    return (
+      <div style={{ ...box, background: '#f0fdf4', borderColor: '#86efac' }}>
+        <b style={{ color: '#15803d', fontSize: '0.86rem' }}>판매 완료</b>
+        <span style={{ fontSize: '0.82rem' }}>
+          {sale.kind} · {toDateInput(sale.date)} · <b>{toCommaString(sale.amount)}원</b>{sale.buyer ? ` · ${sale.buyer}` : ''}
+        </span>
+        <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+          {sale.by ? `${sale.by} · ` : ''}{toDateInput(sale.at)} 처리 · 차량·계약 거래완료{sale.memo ? ` · ${sale.memo}` : ''}
+        </span>
+        {canEdit && (
+          <button type="button" disabled={busy} style={{ ...btn('#fff', 'var(--text-muted)'), marginLeft: 'auto' }}
+            onClick={() => { if (window.confirm('판매를 취소할까요? 판매 대금 줄을 빼고 차량·계약·갑지를 판매 전으로 되돌립니다.')) send('DELETE'); }}>
+            판매 취소
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // 예전 방식(계약 화면 [인수] 등)으로 이미 끝난 차
+  if (ledger.status === '거래완료' && (!ledger.vehicle || !vehicleStatus || vehicleStatus === '거래완료')) {
+    return (
+      <div style={{ ...box, padding: '0.55rem 1.1rem' }}>
+        <b style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>거래완료</b>
+        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+          {takeoverLine ? `인수가 ${toDateInput(takeoverLine.date)} ${toCommaString(takeoverLine.amount)}원` : '판매 대금 줄이 없습니다. 판매 금액을 아래 원장에 넣어 주세요.'}
+        </span>
+      </div>
+    );
+  }
+
+  const waiting = takeoverLine || ledger.status === '거래완료';
+  const submit = () => {
+    if (dirty) { showToast('저장하지 않은 내용이 있습니다. 먼저 [저장]을 눌러 주세요.', 'error'); return; }
+    if (!form.date) { showToast('판매일을 넣어 주세요.', 'error'); return; }
+    if (!(Number(form.amount) > 0)) { showToast('판매 대금을 넣어 주세요.', 'error'); return; }
+    if (form.kind === '매각' && !form.buyer.trim()) { showToast('매각한 곳을 넣어 주세요.', 'error'); return; }
+    const who = form.kind === '매각' ? `${form.buyer}에 매각` : '고객 인수';
+    if (!window.confirm(`${ledger.header?.plateNo || ledger.ledgerNo} ${who}, ${form.date}, ${toCommaString(form.amount)}원\n\n갑지·차량·계약을 거래완료로 바꾸고 검사·정비 알림을 끕니다. 진행할까요?`)) return;
+    send('POST', form);
+  };
+
+  return (
+    <div style={{ ...box, background: waiting ? '#fff7ed' : '#fff', borderColor: waiting ? '#fdba74' : 'var(--border-color)' }}>
+      <b style={{ fontSize: '0.86rem', color: waiting ? '#c2410c' : 'var(--text-bright)' }}>판매 대금</b>
+      {waiting && (
+        <span style={{ fontSize: '0.76rem', fontWeight: '700', color: '#c2410c', flexBasis: '100%' }}>
+          {takeoverLine ? `원장에 인수가 ${toDateInput(takeoverLine.date)} ${toCommaString(takeoverLine.amount)}원이 있습니다. ` : '갑지는 거래완료입니다. '}
+          {vehicleStatus ? `차량은 아직 '${vehicleStatus}'입니다. ` : ''}확인하고 [판매 처리]를 눌러 주세요.
+        </span>
+      )}
+      <span style={{ display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: '6px', overflow: 'hidden' }}>
+        {['인수', '매각'].map((k) => (
+          <button key={k} type="button" disabled={!canEdit} onClick={() => setForm((f) => ({ ...f, kind: k }))}
+            title={k === '인수' ? '고객(임차인)이 차를 삼' : '중고차 매매상 등 다른 곳에 팜'}
+            style={{ border: 'none', padding: '0.4rem 0.8rem', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer', background: form.kind === k ? 'var(--primary)' : '#fff', color: form.kind === k ? '#fff' : 'var(--text-muted)' }}>
+            {k}
+          </button>
+        ))}
+      </span>
+      <DateText value={form.date} onChange={(v) => setForm((f) => ({ ...f, date: v }))} disabled={!canEdit} placeholder="판매일 YYMMDD" style={{ ...input, width: '120px' }} />
+      <MoneyInput value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} disabled={!canEdit} placeholder="판매 대금 (원)" style={{ ...input, width: '140px' }} />
+      {form.kind === '매각' && (
+        <input value={form.buyer} onChange={(e) => setForm((f) => ({ ...f, buyer: e.target.value }))} disabled={!canEdit} placeholder="매각한 곳" style={{ ...input, width: '150px' }} />
+      )}
+      <input value={form.memo} onChange={(e) => setForm((f) => ({ ...f, memo: e.target.value }))} disabled={!canEdit} placeholder="메모 (선택)" style={{ ...input, flex: '1 1 140px', minWidth: '120px' }} />
+      {canEdit && (
+        <button type="button" disabled={busy} onClick={submit} style={btn(waiting ? '#c2410c' : 'var(--primary)', '#fff')}>
+          {busy ? '처리 중...' : '판매 처리'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function LedgerView({ showToast, currentUser }) {
   const canEdit = currentUser?.role !== 'viewer';
 
@@ -2683,6 +2793,18 @@ function LedgerView({ showToast, currentUser }) {
           )}
         </div>
       </div>
+
+      {/* 판매 대금 — 넣으면 갑지·차량·계약이 거래완료가 된다. 갑지마다 새로 그리도록 key를 준다 */}
+      <SalePanel
+        key={`${ledger._id}-${ledger.sale?.at || ''}-${ledger.status}`}
+        ledger={ledger}
+        entries={entries}
+        canEdit={canEdit}
+        dirty={dirty}
+        authHeaders={authHeaders}
+        showToast={showToast}
+        onDone={() => openLedger(ledger._id)}
+      />
 
       {/* 상단 정보 (핸드폰은 두 칸씩) */}
       <div style={{ ...card, padding: '1.2rem' }}>

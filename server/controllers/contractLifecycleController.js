@@ -71,7 +71,7 @@ const EXTENDABLE = ['진행중', '보관됨'];
  * 이미 발행했거나 입금된 회차는 그대로 둔다.
  *
  * @param {import('mongoose').Document} contract 닫을 계약
- * @param {'연장'|'반납'|'인수'} reason
+ * @param {'연장'|'반납'|'인수'|'매각'} reason
  * @param {Date} lastDay 계약이 실제로 끝난 날
  * @param {object} [options]
  * @param {number} [options.keepRounds] 남길 회차 수(계약이 실제로 간 개월 수). 주면 출금일 대신 회차 수로 정리한다.
@@ -79,7 +79,7 @@ const EXTENDABLE = ['진행중', '보관됨'];
  *   계약 종료 10/28) 출금일로 자르면 마지막 달 렌트료가 빠진다.
  * @returns {Promise<number>} 정리한 회차 수
  */
-const closeContract = async (contract, reason, lastDay, { keepRounds } = {}) => {
+export const closeContract = async (contract, reason, lastDay, { keepRounds } = {}) => {
   const firstUncovered = addDays(lastDay, 1);
   contract.status = '종료';
   contract.endReason = reason;

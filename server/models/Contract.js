@@ -90,7 +90,7 @@ const ContractSchema = new Schema({
   baseContractNo: String,
   extensionSeq: { type: Number, default: 0 },
   // 계약이 끝난 사유와 실제 끝난 날. 만기 전에 연장·반납하면 endDate(예정)와 다르다.
-  endReason: { type: String, enum: ['연장', '반납', '인수', '중도해지'] },
+  endReason: { type: String, enum: ['연장', '반납', '인수', '매각', '중도해지'] },
   actualEndDate: Date,
   // 보증금을 이전 계약에서 그대로 넘겨받았는지. 계약자가 같으면 승계, 다르면 돌려주고 새로 받는다.
   depositCarriedOver: { type: Boolean, default: false },

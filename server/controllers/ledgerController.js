@@ -203,7 +203,8 @@ export const syncLedgerEntries = async (ledger) => {
       seq === 1 && { side: '지출', group: '회사출금', category: '차량가', label: '차량가', amount: vehicle?.carPrice ?? pricing.basePrice, date: vehicle?.registrationDate || contract?.contractDate },
       { side: '입금', group: '고객입금', category: '보증금', label: `보증금${tag}`, amount: period.deposit ?? pricing.deposit, date: contract?.contractDate },
       { side: '입금', group: '고객입금', category: '선납금', label: `선납금${tag}`, amount: period.advancePayment ?? pricing.advancePayment, date: contract?.contractDate },
-      seq === lastSeq && { side: '입금', group: '고객입금', category: '인수가', label: '인수가', amount: period.takeoverPrice ?? pricing.takeoverPrice, date: contract?.endDate }
+      // 판매 대금 칸에서 실제 판매를 넣은 갑지는 그 줄이 인수가다. 계약의 예정 인수가를 또 넣지 않는다.
+      seq === lastSeq && !ledger.sale?.at && { side: '입금', group: '고객입금', category: '인수가', label: '인수가', amount: period.takeoverPrice ?? pricing.takeoverPrice, date: contract?.endDate }
     ].filter(Boolean);
 
     fixed.forEach((row) => {
@@ -306,7 +307,7 @@ export const syncLedgerEntries = async (ledger) => {
   // 반납해서 차가 돌아왔으면 인수가는 들어오지 않았다. 자동으로 만든 줄 중 이런 것을 지운다(사람이 고친 줄은 둔다).
   const before = ledger.entries.length;
   ledger.entries = ledger.entries.filter((e) => !(e.source === 'contract' && e.category === '인수가' && !e.locked
-    && ((e.periodSeq || 1) !== lastSeq || !lastTakeoverAmount)));
+    && ((e.periodSeq || 1) !== lastSeq || !lastTakeoverAmount || ledger.sale?.at)));
   changed += before - ledger.entries.length;
 
   return changed;

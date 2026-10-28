@@ -281,7 +281,8 @@ const SHEET_CSS = `
   .st-sheet-table td.c { text-align: center; }
   .st-sheet-table tr.blocked td { background-color: #fef2f2 !important; background-image: ${STRIKE_BG}; color: #9ca3af; }
   .st-sheet-table tr.blocked td.no, .st-sheet-table tr.blocked td.model { color: #9ca3af; }
-  .st-sheet-table tr.blocked td.blocked-label { color: #b91c1c; font-weight: 800; }
+  /* 안내 글자 칸에는 선을 긋지 않는다(글자가 가려지지 않게) */
+  .st-sheet-table tr.blocked td.blocked-label { color: #b91c1c; font-weight: 800; background-image: none; }
   .st-sheet-table tr.brand td { background: #f3eee6 !important; color: ${SHEET_NAVY}; font-weight: 800; font-size: 0.84rem; padding: 6px 12px;
     border-top: 2px solid ${SHEET_GOLD}; border-right: none; letter-spacing: 1px; }
   .st-sheet-table tr.brand td span { color: ${SHEET_GOLD}; font-weight: 700; margin-left: 6px; letter-spacing: 0; }

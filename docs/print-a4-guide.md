@@ -94,7 +94,7 @@ const blob = await makeFittedPdf(element, { orientation: 'portrait', marginMm: 8
 | 청구서 | `InvoiceSheet.jsx` (`makeInvoicePdf`) → 월 청구, 청구서 보관함 | - | `makeFittedPdf` (png, 여백 5mm) | ✅ 적용 |
 | 차량 손익 원장 | `LedgerView.jsx` 인쇄 버튼 | `window.print()`로 화면 전체를 찍음 | - | ⏳ 다음 대상: 원장 문서 부분에 `print-fit`을 달고 나머지는 숨긴다 |
 | 업무 매뉴얼 | `HandbookView.jsx` 인쇄 버튼 | `window.print()`로 화면 전체를 찍음 | - | ⏳ 긴 글이라 `onePage: false`로 적용 |
-| 단기렌트 단가표 | `ShortTermRatesView.jsx` | 새 창에 인쇄용 HTML을 따로 써서 인쇄 | - | ⏳ 표가 폭 100%라 잘리지는 않음. 화면 양식과 따로라 4장의 "두 벌" 문제가 있음 |
+| 단기렌트 요금표 | `ShortTermRatesView.jsx` (`RateSheet`, 비교견적서 양식) | `printFitted` | - | ✅ 적용 (2026-10-28) |
 
 새 인쇄·PDF 기능을 만들거나 위 ⏳ 항목을 고치면 이 표를 함께 고친다.
 

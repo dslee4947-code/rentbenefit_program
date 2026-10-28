@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Save, Printer, Plus, Trash2 } from 'lucide-react';
 import { toCommaString, parseNumber } from '../../utils/format.js';
 import { quoteRental, insurerAmountFor } from '../../../../shared/shortTermRates.js';
+import { printFitted } from '../../utils/printFit.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -76,7 +77,7 @@ function ShortTermRatesView({ showToast, currentUser }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+      <div className="no-print" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
         {TABS.map(([key, label]) => (
           <button key={key} type="button" onClick={() => setTab(key)}
             style={{ ...btn(tab === key), background: tab === key ? 'var(--primary)' : '#fff' }}>{label}</button>
@@ -108,26 +109,12 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
   const valueOf = (c, key) => (edits[c.ledgerId] && key in edits[c.ledgerId] ? edits[c.ledgerId][key] : c[key]);
   const dirty = Object.keys(edits).length > 0;
 
-  const print = () => {
-    const rows = cars.map((c) => (valueOf(c, 'renting')
-      ? `<tr><td>${c.carModel}</td><td colspan="3" style="text-align:center;color:#b45309">단기 렌트 중</td><td>${c.plateNo}</td><td>${c.fuelType || ''}</td><td>${yearMonth(c.ageStart)}</td></tr>`
-      : `<tr><td>${c.carModel}</td><td class="n">${won(c.rates.day)}</td><td class="n">${won(c.rates.week)}</td><td class="n">${won(c.rates.month)}</td><td>${c.plateNo}</td><td>${c.fuelType || ''}</td><td>${yearMonth(c.ageStart)}</td></tr>`)).join('');
-    const ins = policy.insurance;
-    const w = window.open('', '_blank');
-    if (!w) return;
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>렌트베네핏 단기렌트료</title>
-      <style>body{font-family:'Malgun Gothic',sans-serif;padding:24px;color:#111}h1{text-align:center;font-size:22px}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13px}td,th{border:1px solid #999;padding:6px 8px}th{background:#f1f5f9}.n{text-align:right}.s{font-size:12px;color:#333;line-height:1.7}</style></head><body>
-      <h1>렌트베네핏 단기렌트료</h1>
-      <div class="s">${policy.notes.filter((n) => n.trim()).map((n) => `* ${n}`).join(' &nbsp; ')}<br/>1일 ${policy.kmPerDay}km, 1주 ${toCommaString(policy.kmPerWeek)}km, 월 ${toCommaString(policy.kmPerMonth)}km 기준 (초과 시 km당 ${policy.excessPerKm}원)<br/>* 주말·공휴일 1일 렌트 시 1일 렌트료에 ${Math.round(policy.weekendSurchargeRate * 100)}% 추가</div>
-      <table><tr><th>차량 보험 조건</th><th>대인</th><th>대물</th><th>자손</th><th>자차 수리금</th><th>면책금</th></tr><tr><td>모든 렌터카</td><td>${ins.bodily}</td><td>${ins.property}</td><td>${ins.selfInjury}</td><td>${ins.ownDamageLimit}</td><td>${ins.deductible}</td></tr></table>
-      <table><tr><th>차종</th><th>1일(평일)</th><th>1주</th><th>1개월</th><th>번호</th><th>유종</th><th>년식</th></tr>${rows}</table>
-      <div class="s">* 렌트비는 부가세 포함 금액<br/>탁송: ${deliveryText(policy)}</div>
-      <script>window.onload=()=>window.print()</script></body></html>`);
-    w.document.close();
-  };
+  const sheetRef = useRef(null);
+  const print = () => printFitted(sheetRef.current, { orientation: 'portrait', title: `렌트베네핏_단기렌트료_${ymdText(new Date())}` });
 
   return (
-    <div style={card}>
+    <>
+    <div className="no-print" style={card}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
         <span style={{ fontWeight: 800, color: '#fa8c16' }}>렌트베네핏 단기렌트료 ({cars.length}대)</span>
         <div style={{ display: 'flex', gap: '0.4rem' }}>
@@ -151,13 +138,13 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
-              <th style={th}>차종</th><th style={th}>번호</th><th style={th}>년식 · 차령</th><th style={th}>렌터카 차령 만료</th>
+              <th style={{ ...th, textAlign: 'center' }}>NO</th><th style={th}>차종</th><th style={th}>번호</th><th style={th}>년식 · 차령</th><th style={th}>렌터카 차령 만료</th>
               <th style={{ ...th, textAlign: 'right' }}>1일(평일)</th><th style={{ ...th, textAlign: 'right' }}>1주</th><th style={{ ...th, textAlign: 'right' }}>1개월</th>
               <th style={{ ...th, textAlign: 'right' }}>지난달 번 돈</th><th style={th}>대여 중</th><th style={th}>메모</th>
             </tr>
           </thead>
           <tbody>
-            {cars.map((c) => {
+            {cars.map((c, i) => {
               const e = edits[c.ledgerId] || {};
               const field = (key) => (canEdit ? (
                 <input style={{ ...inputSt, fontWeight: c.overridden[key] || e[key] ? 800 : 400, color: c.overridden[key] || e[key] ? '#b45309' : undefined }}
@@ -167,6 +154,7 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
               ) : won(c.rates[key]));
               return (
                 <tr key={c.ledgerId} style={{ background: valueOf(c, 'renting') ? '#fffbeb' : undefined }}>
+                  <td style={{ ...td, textAlign: 'center', color: 'var(--text-muted)' }}>{i + 1}</td>
                   <td style={{ ...td, fontWeight: 700 }}>{c.carModel}{c.reason && <div style={{ fontSize: '0.7rem', color: '#b45309', fontWeight: 400 }}>{c.reason}</div>}</td>
                   <td style={td}>{c.plateNo}</td>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>{yearMonth(c.ageStart)}<div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{c.ageYear ? `${c.ageYear}년차 ×${c.ageFactor}` : ''} · {c.fuelType || '유종 미상'}</div></td>
@@ -198,6 +186,101 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
         {policy.notes.filter((n) => n.trim()).join(' · ')}
       </div>
     </div>
+    <div className="st-sheet-section" style={card}>
+      <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+        <span style={{ fontWeight: 800 }}>고객 안내용 단가표 (인쇄 모양)</span>
+        <button type="button" style={{ ...btn(true), background: SHEET_NAVY }} onClick={print}><Printer size={14} /> 인쇄하기 / PDF 다운로드</button>
+      </div>
+      {dirty && <div className="no-print" style={{ fontSize: '0.76rem', color: '#b45309', marginBottom: '0.5rem' }}>저장하지 않은 수정이 있습니다. 저장해야 아래 단가표에 반영됩니다.</div>}
+      <RateSheet sheetRef={sheetRef} cars={cars} policy={policy} />
+    </div>
+    </>
+  );
+}
+
+// 고객에게 보내는 단가표. 견적서의 비교견적서(차량 조건비교표)와 같은 양식 — 남색 머리글, 금색 선, 로고.
+// 화면·인쇄·PDF가 이 한 양식을 함께 쓴다(docs/print-a4-guide.md).
+const SHEET_NAVY = '#111e38';
+const SHEET_GOLD = '#ad885c';
+const SHEET_CSS = `
+  .st-sheet-scroll { overflow-x: auto; }
+  .st-sheet-table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 0.86rem; color: #334155; background: #fff;
+    border-top: 3px solid ${SHEET_NAVY}; border-bottom: 3px solid ${SHEET_NAVY}; }
+  .st-sheet-table th { background: ${SHEET_NAVY}; color: #fff; font-weight: 800; padding: 9px 8px; text-align: center;
+    border-right: 1px solid ${SHEET_GOLD}; border-bottom: 1px solid ${SHEET_GOLD}; white-space: nowrap; }
+  .st-sheet-table td { padding: 8px 8px; border-bottom: 1px solid #e9e6e0; border-right: 1px solid ${SHEET_GOLD}; white-space: nowrap; }
+  .st-sheet-table th:last-child, .st-sheet-table td:last-child { border-right: none; }
+  .st-sheet-table tbody tr:nth-child(even) td { background: #f9f8f6; }
+  .st-sheet-table td.no { text-align: center; color: ${SHEET_GOLD}; font-weight: 800; }
+  .st-sheet-table td.model { color: ${SHEET_NAVY}; font-weight: 800; }
+  .st-sheet-table td.n { text-align: right; padding-right: 14px; }
+  .st-sheet-table td.month { font-weight: 800; color: ${SHEET_NAVY}; }
+  .st-sheet-table td.c { text-align: center; }
+  @media print {
+    @page { size: A4 portrait; margin: 0 !important; }
+    body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
+    aside, header, nav, footer, button, .no-print, body .desktop-sidebar, body .mobile-header { display: none !important; }
+    main, body .main-content, body .admin-container { padding: 0 !important; margin: 0 !important; overflow: visible !important; background: #fff !important; }
+    .st-sheet-section { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; border: none !important;
+      border-radius: 0 !important; box-shadow: none !important; padding: 0 !important; margin: 0 !important; background: #fff !important; }
+  }
+`;
+
+function RateSheet({ sheetRef, cars, policy }) {
+  const ins = policy.insurance;
+  const today = ymdText(new Date());
+  const notes = policy.notes.filter((n) => n.trim());
+  return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: SHEET_CSS }} />
+      <div ref={sheetRef} className="print-fit" style={{ maxWidth: '900px', margin: '0 auto', background: '#fff', padding: '10px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', marginTop: '0.3rem', borderBottom: `2px solid ${SHEET_GOLD}`, paddingBottom: '0.6rem' }}>
+          <div style={{ width: '150px' }}><span style={{ fontSize: '1.1rem', fontWeight: 800, color: SHEET_NAVY }}>(주)렌트베네핏</span></div>
+          <h2 style={{ fontWeight: 800, fontSize: '1.7rem', color: SHEET_NAVY, margin: 0, letterSpacing: '1px', flex: 1, textAlign: 'center' }}>단기렌트 요금표</h2>
+          <div style={{ width: '150px', display: 'flex', justifyContent: 'flex-end' }}><img src="/logo.png" alt="RENT BENefit" style={{ height: '32px', width: 'auto', objectFit: 'contain' }} /></div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '1rem', marginBottom: '0.8rem', color: SHEET_NAVY, fontSize: '0.86rem', fontWeight: 700 }}>
+          <div style={{ lineHeight: 1.7 }}>
+            <span style={{ color: SHEET_GOLD, marginRight: '0.5rem' }}>보험</span>
+            대인 {ins.bodily} · 대물 {ins.property} · 자손 {ins.selfInjury} · 자차 수리 {ins.ownDamageLimit} · 면책금 {ins.deductible}<br />
+            <span style={{ color: SHEET_GOLD, marginRight: '0.5rem' }}>주행</span>
+            1일 {policy.kmPerDay}km · 1주 {toCommaString(policy.kmPerWeek)}km · 1개월 {toCommaString(policy.kmPerMonth)}km (초과 km당 {policy.excessPerKm}원)
+          </div>
+          <div style={{ color: '#555', fontWeight: 500, whiteSpace: 'nowrap' }}>작성일 {today}</div>
+        </div>
+
+        <div className="st-sheet-scroll print-fit-scroll">
+          <table className="st-sheet-table">
+            <thead>
+              <tr>
+                <th style={{ width: '6%' }}>NO</th><th>차종</th><th>1일(평일)</th><th>1주</th><th>1개월</th><th>차량번호</th><th>유종</th><th>연식</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cars.map((c, i) => (
+                <tr key={c.ledgerId}>
+                  <td className="no">{i + 1}</td>
+                  <td className="model">{c.carModel}</td>
+                  {c.renting
+                    ? <td colSpan={3} className="c" style={{ color: SHEET_GOLD, fontWeight: 800 }}>단기 렌트 중</td>
+                    : <><td className="n">{won(c.rates.day)}</td><td className="n">{won(c.rates.week)}</td><td className="n month">{won(c.rates.month)}</td></>}
+                  <td className="c">{c.plateNo}</td>
+                  <td className="c">{c.fuelType || ''}</td>
+                  <td className="c">{yearMonth(c.ageStart)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{ marginTop: '0.8rem', background: '#fdfbfa', border: `1px dashed ${SHEET_GOLD}`, padding: '0.55rem 0.8rem', fontSize: '0.78rem', color: '#444', lineHeight: 1.7 }}>
+          * 요금은 부가세·자차 포함 금액(원)입니다. 주말·공휴일 1일 렌트는 1일 요금에 {Math.round(policy.weekendSurchargeRate * 100)}% 추가됩니다.<br />
+          * 탁송: {deliveryText(policy)}
+          {notes.length > 0 && <><br />{notes.map((n) => `* ${n}`).join('  ')}</>}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -316,13 +399,14 @@ function Accident({ data, cars, contacts, setContacts, canEdit, saving, onSave, 
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr>
-              {['차종', '배기량', '보험사 등급', '보험사 1일(1~2일차)', '우리 1일', '30일 사고대차', '우리 1개월'].map((h, i) => <th key={h} style={{ ...th, textAlign: i > 2 ? 'right' : 'left' }}>{h}</th>)}
+              {['NO', '차종', '배기량', '보험사 등급', '보험사 1일(1~2일차)', '우리 1일', '30일 사고대차', '우리 1개월'].map((h, i) => <th key={h} style={{ ...th, textAlign: i === 0 ? 'center' : i > 3 ? 'right' : 'left' }}>{h}</th>)}
             </tr></thead>
             <tbody>
-              {cars.map((c) => {
+              {cars.map((c, i) => {
                 const g = data.insurerTable.find((x) => x.grade === c.insurer?.grade);
                 return (
                   <tr key={c.ledgerId}>
+                    <td style={{ ...td, textAlign: 'center', color: 'var(--text-muted)' }}>{i + 1}</td>
                     <td style={{ ...td, fontWeight: 700 }}>{c.carModel} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>{c.plateNo}</span></td>
                     <td style={td}>{c.cc ? `${toCommaString(c.cc)}cc` : '모름'}</td>
                     <td style={td}>

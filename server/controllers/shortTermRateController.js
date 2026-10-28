@@ -32,6 +32,18 @@ const holidayList = () => {
 
 const money = (v) => (Number(v) > 0 ? Math.round(Number(v)) : null);
 
+// 단가표 차 순서: 국산 → 수입, 브랜드는 기아 · 현대 · 제네시스 · 벤츠 · 그 밖의 수입차, 같은 브랜드 안에서는 싼 차부터(2026-10-28 대표님)
+const BRAND_ORDER = [
+  ['기아', /^(ray|레이|k\d|모닝|morning|스포티지|sportage|sorento|쏘렌토|카니발|carnival|셀토스|seltos|니로|niro|ev\d)/i],
+  ['현대', /^(avante|아반떼|그랜저|grandeur|쏘나타|sonata|싼타페|santa|투싼|tucson|팰리세이드|palisade|아이오닉|ioniq|캐스퍼|casper|스타리아|staria|코나|kona)/i],
+  ['제네시스', /^(g\d0|gv\d0)/i],
+  ['벤츠', /^(maybach|마이바흐|amg|eq[a-z]|[ces]\d{3}|gl[a-z]?\s?\d{3}|cle|cla|g\s?\d{3})/i]
+];
+const brandRank = (carModel) => {
+  const i = BRAND_ORDER.findIndex(([, re]) => re.test(String(carModel || '').trim()));
+  return i === -1 ? BRAND_ORDER.length : i;
+};
+
 /** @route GET /api/short-term-rates */
 export const getShortTermRates = async (req, res) => {
   try {
@@ -73,7 +85,9 @@ export const getShortTermRates = async (req, res) => {
         // 렌터카 차령 만료일. 넘기면 대여사업에 쓸 수 없다(검사로 최대 2년 연장)
         rentalLife: life ? { years: life.years, until: life.until, daysLeft: Math.ceil((life.until - Date.now()) / 86400000) } : null
       };
-    }).sort((a, b) => (a.rates.month || 0) - (b.rates.month || 0));
+    }).sort((a, b) => brandRank(a.carModel) - brandRank(b.carModel)
+      || (a.carPrice || 0) - (b.carPrice || 0)
+      || (a.rates.month || 0) - (b.rates.month || 0));
 
     res.json({
       success: true,

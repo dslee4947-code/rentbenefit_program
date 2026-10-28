@@ -450,3 +450,13 @@ test('선수금분이자는 0원, 상환방식이 없는 예전 견적은 균등
   assert.equal(calc.fundingRepaymentMode, 'equal');
   assert.equal(calc.fundingBalloon, 0);
 });
+
+test('장기렌트 마지막 렌트료가 이번 달이라 단기 시작이 다음 달이어도 오늘 차령으로 월 요금을 낸다 (아반떼 2022년식, 2026-10-28)', async () => {
+  const { shortTermPerformance } = await import('../../shared/shortTermTarget.js');
+  const ledger = { header: { registeredAt: '2022-11-01' }, entries: [{ side: '입금', category: '렌트료', amount: 500000, date: new Date('2026-10-15T00:00:00+09:00') }] };
+  const p = shortTermPerformance(ledger, 665000, new Date('2026-10-28T12:00:00+09:00'), { ageStart: new Date('2022-11-01T00:00:00+09:00') });
+  assert.equal(p.months.length, 0); // 단기 시작은 11월
+  assert.equal(p.ageYear, 4);
+  assert.equal(p.ageFactor, 0.8);
+  assert.equal(p.currentTarget, 532000);
+});

@@ -232,15 +232,19 @@ export const shortTermPerformance = (ledger, monthlyTarget, asOf = new Date(), o
   const cumTarget = sum(months, 'target');
   const cumActual = sum(months, 'actual') + undated;
   const fullTarget = monthlyTarget * SHORT_TERM_TARGET_TERMS.termMonths;
+  const nowAgeMonths = Math.max(0, monthDiff(ageKey, nowKey));
+  const nowAge = ageFactorFor(nowAgeMonths);
   return {
     ok: true,
     start,
     monthlyTarget,
     ageStart,
-    // 이번 달 차령과 그에 맞춘 월 목표(한 달 전체 기준)
-    ageYear: months[months.length - 1]?.ageYear || 1,
-    ageFactor: months[months.length - 1]?.factor || 1,
-    currentTarget: months[months.length - 1]?.fullMonthTarget || monthlyTarget,
+    // 이번 달 차령과 그에 맞춘 월 목표(한 달 전체 기준).
+    // 단기렌트 시작이 다음 달 이후면(장기렌트 마지막 렌트료가 이번 달) 달 목록이 비어도 오늘 차령으로 잡는다.
+    // 예전에는 이때 1년차 ×1.0으로 떨어져, 같은 2022년식 아반떼가 4년차 ×0.8인 차보다 월 13만 원 비쌌다(2026-10-28).
+    ageYear: months[months.length - 1]?.ageYear || nowAge.ageYear,
+    ageFactor: months[months.length - 1]?.factor || nowAge.factor,
+    currentTarget: months[months.length - 1]?.fullMonthTarget || ageAdjustedTarget(monthlyTarget, nowAgeMonths),
     months,
     undated,
     elapsedMonths: months.length,

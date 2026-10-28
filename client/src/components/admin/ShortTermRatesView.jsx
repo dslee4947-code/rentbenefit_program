@@ -279,10 +279,12 @@ const SHEET_CSS = `
   .st-sheet-table td.n { text-align: right; padding-right: 14px; }
   .st-sheet-table td.month { font-weight: 800; color: ${SHEET_NAVY}; }
   .st-sheet-table td.c { text-align: center; }
-  .st-sheet-table tr.blocked td { background-color: #fef2f2 !important; background-image: ${STRIKE_BG}; color: #9ca3af; }
+  /* 줄 가운데 빨간 선. 배경 그러데이션은 인쇄·PDF에서 빠져서 칸마다 테두리 한 줄을 긋는다 */
+  .st-sheet-table tr.blocked td { background-color: #fef2f2 !important; color: #9ca3af; position: relative; }
+  .st-sheet-table tr.blocked td:not(.blocked-label)::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid #dc2626; }
   .st-sheet-table tr.blocked td.no, .st-sheet-table tr.blocked td.model { color: #9ca3af; }
   /* 안내 글자 칸에는 선을 긋지 않는다(글자가 가려지지 않게) */
-  .st-sheet-table tr.blocked td.blocked-label { color: #b91c1c; font-weight: 800; background-image: none; }
+  .st-sheet-table tr.blocked td.blocked-label { color: #b91c1c; font-weight: 800; }
   .st-sheet-table tr.brand td { background: #f3eee6 !important; color: ${SHEET_NAVY}; font-weight: 800; font-size: 0.84rem; padding: 6px 12px;
     border-top: 2px solid ${SHEET_GOLD}; border-right: none; letter-spacing: 1px; }
   .st-sheet-table tr.brand td span { color: ${SHEET_GOLD}; font-weight: 700; margin-left: 6px; letter-spacing: 0; }

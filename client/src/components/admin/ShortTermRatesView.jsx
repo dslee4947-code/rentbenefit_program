@@ -274,6 +274,8 @@ const SHEET_CSS = `
   .st-sheet-table td { padding: 8px 8px; border-bottom: 1px solid #e9e6e0; border-right: 1px solid ${SHEET_GOLD}; white-space: nowrap; }
   .st-sheet-table th:last-child, .st-sheet-table td:last-child { border-right: none; }
   .st-sheet-table tbody tr.even td { background: #f9f8f6; }
+  /* 모든 차 줄을 같은 높이로 둔다. 장기 대여 차는 요금 칸을 이 높이의 절반씩 위(안내)·아래(요금)로 나눈다 */
+  .st-sheet-table tbody tr:not(.brand):not(.blocked) td, .st-sheet-table tr.blocked td[rowspan] { height: 34px; padding-top: 0; padding-bottom: 0; }
   .st-sheet-table td.no { text-align: center; color: ${SHEET_GOLD}; font-weight: 800; }
   .st-sheet-table td.model { color: ${SHEET_NAVY}; font-weight: 800; }
   .st-sheet-table td.n { text-align: right; padding-right: 14px; }
@@ -281,10 +283,12 @@ const SHEET_CSS = `
   .st-sheet-table td.c { text-align: center; }
   /* 줄 가운데 빨간 선. 배경 그러데이션은 인쇄·PDF에서 빠져서 칸마다 테두리 한 줄을 긋는다 */
   .st-sheet-table tr.blocked td { background-color: #fef2f2 !important; color: #9ca3af; position: relative; }
-  .st-sheet-table tr.blocked td:not(.blocked-label)::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid #dc2626; }
+  .st-sheet-table tr.blocked td:not(.blocked-label):not(.rate)::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid #dc2626; }
   .st-sheet-table tr.blocked td.no, .st-sheet-table tr.blocked td.model { color: #9ca3af; }
-  /* 안내 글자 칸에는 선을 긋지 않는다(글자가 가려지지 않게) */
-  .st-sheet-table tr.blocked td.blocked-label { color: #b91c1c; font-weight: 800; }
+  /* 요금 칸은 위(안내)·아래(단기 요금)로 나눠 선을 긋지 않는다. 그 경계가 다른 칸의 가운데 선과 이어진다 */
+  .st-sheet-table tr.blocked td.blocked-label { color: #b91c1c; font-weight: 800; font-size: 0.68rem; height: 17px; line-height: 16px; padding: 0 8px; border-bottom: 1px solid #fca5a5; }
+  .st-sheet-table tr.blocked td.rate { color: #b6bcc6; font-weight: 500; font-size: 0.74rem; height: 17px; line-height: 16px; padding-top: 0; padding-bottom: 0; }
+  .st-sheet-table tr.blocked td.rate.month { color: #b6bcc6; font-weight: 600; }
   .st-sheet-table tr.brand td { background: #f3eee6 !important; color: ${SHEET_NAVY}; font-weight: 800; font-size: 0.84rem; padding: 6px 12px;
     border-top: 2px solid ${SHEET_GOLD}; border-right: none; letter-spacing: 1px; }
   .st-sheet-table tr.brand td span { color: ${SHEET_GOLD}; font-weight: 700; margin-left: 6px; letter-spacing: 0; }
@@ -335,18 +339,33 @@ function RateSheet({ sheetRef, cars, policy }) {
                 {c.brand !== cars[i - 1]?.brand && (
                   <tr className="brand"><td colSpan={8}>{c.brand}<span>{cars.filter((x) => x.brand === c.brand).length}대</span></td></tr>
                 )}
-                <tr className={c.longRent ? 'blocked' : (i - cars.findIndex((x) => x.brand === c.brand)) % 2 ? 'even' : undefined}>
+                {c.longRent ? (
+                  // 장기 대여 차는 요금 칸을 위아래로 나눈다: 위 '장기 대여 중(날짜)', 아래 단기 요금. 다른 칸은 두 줄을 합쳐 가운데 선을 긋는다
+                  <>
+                    <tr className="blocked">
+                      <td rowSpan={2} className="no">{i + 1}</td>
+                      <td rowSpan={2} className="model">{c.carModel}</td>
+                      <td colSpan={3} className="c blocked-label">{longRentText(c.longRentUntil)}</td>
+                      <td rowSpan={2} className="c">{c.plateNo}</td>
+                      <td rowSpan={2} className="c">{c.fuelType || ''}</td>
+                      <td rowSpan={2} className="c">{yearMonth(c.ageStart)}</td>
+                    </tr>
+                    <tr className="blocked">
+                      <td className="n rate">{won(c.rates.day)}</td><td className="n rate">{won(c.rates.week)}</td><td className="n rate month">{won(c.rates.month)}</td>
+                    </tr>
+                  </>
+                ) : (
+                <tr className={(i - cars.findIndex((x) => x.brand === c.brand)) % 2 ? 'even' : undefined}>
                   <td className="no">{i + 1}</td>
                   <td className="model">{c.carModel}</td>
-                  {c.longRent
-                    ? <td colSpan={3} className="c blocked-label">{longRentText(c.longRentUntil)}</td>
-                    : c.renting
+                  {c.renting
                     ? <td colSpan={3} className="c" style={{ color: SHEET_GOLD, fontWeight: 800 }}>단기 렌트 중</td>
                     : <><td className="n">{won(c.rates.day)}</td><td className="n">{won(c.rates.week)}</td><td className="n month">{won(c.rates.month)}</td></>}
                   <td className="c">{c.plateNo}</td>
                   <td className="c">{c.fuelType || ''}</td>
                   <td className="c">{yearMonth(c.ageStart)}</td>
                 </tr>
+                )}
                 </React.Fragment>
               ))}
             </tbody>

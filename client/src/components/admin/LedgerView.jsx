@@ -5,7 +5,7 @@ import MoneyInput from './MoneyInput.jsx';
 import ShortTermTargetPanel from './ShortTermTargetPanel.jsx';
 import { useSaveShortcut } from './useSaveShortcut.js';
 import { quotePlanOf, planInterestTotal, planRevenue, isDepositOffsetTakeover } from '../../../../shared/ledgerPlan.js';
-import { hasOwnLoan, internalInterestFor, DEFAULT_INTERNAL_RATE } from '../../../../shared/companyFunding.js';
+import { hasOwnLoan } from '../../../../shared/companyFunding.js';
 import useBackClose from '../../utils/useBackClose.js';
 import { matchRentToRounds } from './rentMatch.js';
 
@@ -716,10 +716,9 @@ const bucketOf = (e) => {
   return 'operating';
 };
 
-function BudgetBoard({ plan, entries, income, internalRate, salesCommission, recovered = {}, closed = false }) {
+function BudgetBoard({ plan, entries, income, salesCommission, recovered = {}, closed = false }) {
   const [open, setOpen] = useState(null);
   const ownLoan = hasOwnLoan(entries);
-  const internal = useMemo(() => internalInterestFor(entries, internalRate), [entries, internalRate]);
 
   const groups = useMemo(() => {
     const g = Object.fromEntries(BUDGET_BUCKETS.map((b) => [b.key, []]));
@@ -758,8 +757,9 @@ function BudgetBoard({ plan, entries, income, internalRate, salesCommission, rec
     ownCar: sum('ownCar'),
     // 고객에게서 돌려받은 과태료·정비비(정비 미포함 고객)는 회사가 쓴 돈이 아니다(matchRecoveries)
     maintenance: sum('maintenance') - (plan.maintenanceOn ? 0 : recovered.maintenance || 0),
-    // 회사 돈으로 산 차는 원장에 이자 줄이 없으므로 내부 금리로 매긴 이자를 쓴다
-    finance: ownLoan ? sum('finance') : internal.interest,
+    // 차량 이자는 갑지에 적힌 이자만 쓴다(대표님 2026-10-28). 캐피탈·할부 차는 실제 할부이자, 담보대출로 산 차는 엑셀 갑지 '이자' 줄.
+    // 담보대출 이자를 회사 전체로 다시 나누는 계산(내부 금리)은 FP&A에서 이 줄을 대신하는 값으로 쓴다 — 더하면 이자가 두 번 잡힌다
+    finance: sum('finance'),
     operating: sum('operating') - (recovered.fines || 0),
     vehicleWork: sum('vehicleWork')
   };
@@ -907,10 +907,10 @@ function BudgetBoard({ plan, entries, income, internalRate, salesCommission, rec
             let note = b.desc;
             if (b.key === 'finance') {
               note += ownLoan
-                ? ' · 자기 대출이 있는 차: 원장 할부이자 기준'
-                : ` · 회사 돈으로 산 차: 내부 금리 연 ${(internalRate * 100).toFixed(2)}%로 오늘까지 ${internal.months}개월 (지금 묶인 돈 ${toCommaString(internal.current)})`;
-              // 엑셀 갑지에서 '대출로 샀다고 보고' 넣은 이자 줄은 내부 이자로 대신 계산하므로 참고로만 보여 준다
-              if (!ownLoan && groups.finance.length) note += ` · 원장에 수기로 넣은 이자 ${toCommaString(sum('finance'))}원은 참고값`;
+                ? ' · 캐피탈·할부로 산 차: 원장 할부이자 기준'
+                : groups.finance.length
+                  ? ' · 담보대출로 산 차: 엑셀 갑지 이자 줄 기준'
+                  : ' · 갑지에 이자 줄이 없습니다';
             }
             if (b.key === 'vehicleWork') note += ' · 예산 = 받은 판매 수수료';
             return (
@@ -1059,7 +1059,7 @@ function PurchaseCheck({ plan, actual }) {
       {diffRow('조달이자', plan.fundingInterest, actual.loanInterest,
         actual.loanRepayment > 0
           ? `할부금 상환 ${won(actual.loanRepayment)}에는 원금과 이자가 섞여 있어 이자만 따로 볼 수 없습니다.`
-          : '실제: 원장 할부이자. 회사 돈으로 산 차는 0원이 정상입니다(견적은 빌렸다고 보고 잡은 금액).')}
+          : '실제: 원장 이자 줄(캐피탈·할부 이자, 담보대출로 산 차는 엑셀 갑지 이자).')}
       <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
         자동차세({won(actual.carTax)})는 판관비에서 나가는 돈이라 2번 운영비에서 셉니다.
       </div>
@@ -1195,14 +1195,6 @@ function ContractPlanCard({ plan, saved, liveSource, liveSources, canEdit, isAdm
 function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRounds, memo, maturityPlan, canEdit, isAdmin, showToast, onMemoChange, onMaturityChange, closed = false }) {
   const [state, setState] = useState({ loading: true, quote: null, estimate: null, reason: '', savedPlan: null });
   const [planSaving, setPlanSaving] = useState(false);
-  // 회사 내부 금리. 회사 돈으로 산 차의 이자를 매길 때 쓴다(관리 > 회사 자금·내부 금리)
-  const [internalRate, setInternalRate] = useState(DEFAULT_INTERNAL_RATE);
-  useEffect(() => {
-    fetch(`${API_HOST}/api/settings/company-funding`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((d) => { if (d?.internalRate > 0) setInternalRate(d.internalRate); })
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -1513,7 +1505,6 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
           plan={plan}
           entries={entries}
           income={{ rentTotal, takeover: returned ? 0 : takeover, advance, rentReceived: actual.rentReceived, months: totalMonths, cms: cmsTotal }}
-          internalRate={internalRate}
           salesCommission={actual.salesCommission}
           recovered={{ fines: actual.finesRecovered, maintenance: actual.maintRecovered }}
           closed={closed}

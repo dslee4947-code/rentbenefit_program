@@ -853,7 +853,7 @@ function BudgetBoard({ plan, entries, income, internalRate, salesCommission, rec
               />
             )}
             {plan.depositInterestBenefit > 0 && <Row label="· 보증금 이자 이득 (보증금 × 금리 × 기간)" value={`- ${won(Math.round(plan.depositInterestBenefit))}`} muted />}
-            {plan.advancePaymentInterest > 0 && <Row label="· 선수금분 이자 (선수금 × 3% × 기간)" value={won(Math.round(plan.advancePaymentInterest))} muted />}
+            {plan.advancePaymentInterest > 0 && <Row label="· 선수금분 이자" value={won(Math.round(plan.advancePaymentInterest))} muted />}
           </div>
           <div>
             <Row label="보험료 예산 (견적 기본 보험료)" value={won(budget.insurance)} muted />

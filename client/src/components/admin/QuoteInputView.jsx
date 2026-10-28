@@ -7,7 +7,7 @@ import { useDraggableDialog, DIALOG_TOP } from './useDraggableDialog.js';
 import { useSaveShortcut } from './useSaveShortcut.js';
 import { createPortal } from 'react-dom';
 import {
-  FUNDING_REPAYMENT_MODES, DEFAULT_FUNDING_REPAYMENT_MODE,
+  FUNDING_REPAYMENT_MODES, DEFAULT_FUNDING_REPAYMENT_MODE, LEGACY_FUNDING_REPAYMENT_MODE,
   DEFAULT_HIGH_RESIDUAL_FEE_RATE_PER_POINT, defaultMaintenanceItems, getCalculatedMaintenanceFee, calculateQuoteOption,
   getTireCount, getMaintenanceBreakdown, maintenanceTimes
 } from '../../../../shared/quoteCalc.js';
@@ -2552,7 +2552,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }} title="만기 인수가 상환: 만기에 (인수가 − 보증금)만큼 원금을 남겨 인수가로 갚는 방식. 인수가가 높을수록 조달이자가 늘어납니다.">조달 상환방식</label>
               <select
-                value={activeVehicle.fundingRepaymentMode || DEFAULT_FUNDING_REPAYMENT_MODE}
+                value={activeVehicle.fundingRepaymentMode || LEGACY_FUNDING_REPAYMENT_MODE}
                 onChange={(e) => updateActiveVehicle({ fundingRepaymentMode: e.target.value })}
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#fff', color: '#333', fontWeight: '600' }}
               >

@@ -32,17 +32,21 @@ export function RATE(nper, pmt, pv, fv = 0, guess = 0.003) {
 // 조달 상환방식 (엑셀 ver4 118행).
 // equal: 원리금 균등상환. 매달 같은 금액을 내고 만기에 남는 원금이 없다.
 // balloon: 만기에 '인수가 − 보증금'만큼 원금을 남겨 두고 인수가로 갚는다. 인수가가 높을수록 원금이 늦게 줄어 이자가 늘어난다.
-// 기본값은 원리금 균등상환이다. 실제 대출(메리츠캐피탈 2건)을 역산하면 만기 잔액 없이 다 갚는 구조였다(2026-09-27 검토).
-// 만기 인수가 상환은 잔가(유예)형 대출로 들여오는 차에만 고른다.
+// 새 견적의 기본값은 만기 인수가 상환이다(2026-10-28 대표님 결정).
+// 균등상환은 렌트료보다 큰 할부금을 회사 돈으로 메우다 만기 인수가로 돌려받는데, 그동안 묶인 돈의 이자가 원가에 빠진다.
+// 돈이 나가고 들어오는 때를 그대로 금리로 할인해 구한 손익분기 렌트료와 비교하면
+// G90 60개월·인수가 50%에서 균등상환은 월 14만 원 낮게, 만기 인수가 상환은 1.8만 원 차이로 맞았다.
 export const FUNDING_REPAYMENT_MODES = {
   equal: '원리금 균등상환',
   balloon: '만기 인수가 상환'
 };
-export const DEFAULT_FUNDING_REPAYMENT_MODE = 'equal';
+export const DEFAULT_FUNDING_REPAYMENT_MODE = 'balloon';
+// 상환방식 칸이 생기기 전에 저장된 견적은 균등상환으로 계산됐다. 다시 열어도 그 숫자 그대로 둔다.
+export const LEGACY_FUNDING_REPAYMENT_MODE = 'equal';
 
-// 선수금분이자율(연). 선수금으로 아끼는 조달이자(연 2.9~3.3%)와 거의 같은 중립값이다(2026-09-27 검토).
-// 이보다 낮추면 아낀 이자를 고객에게 나눠 주는 셈이고, 3.3%를 넘기면 선수금을 받을수록 손해다.
-export const ADVANCE_PAYMENT_INTEREST_RATE = 0.03;
+// 선수금분이자율(연). 0이면 선수금으로 아낀 조달이자를 모두 고객 렌트료에서 깎아 준다(2026-10-28 대표님 결정, 이전 3%).
+// 경쟁사(우리카드 G90)도 선수금 3,053만 원에 월 591,400원을 깎아 줘, 이자를 다 돌려주는 값(591,728원)과 같았다.
+export const ADVANCE_PAYMENT_INTEREST_RATE = 0;
 
 // 고잔가(인수가 연동) 수수료 요율: 일반잔가 상한을 넘는 인수가율 1%p마다 차량가의 0.107% (엑셀 ver4 115행).
 // 신한캐피탈이 고잔가 전환 때 차량가 1.5%를 한 번에 물리는 것을 잔가 확대폭 14%p로 나눠 편 값이다.
@@ -294,7 +298,7 @@ export const calculateQuoteOption = (opt, vehicle) => {
   // 만기 인수가 상환이면 만기에 '인수가 − 보증금'만큼 원금이 남는다(E77). 그만큼 원금이 늦게 줄어 이자가 붙는다.
   // 엑셀은 보증금이 인수가보다 크면 이 값이 음수가 되어 오히려 균등상환보다 이자가 적게 나오는데,
   // 원금을 기간보다 빨리 갚는 대출은 없으므로 0 아래로 내려가지 않게 막는다.
-  const fundingRepaymentMode = vehicle.fundingRepaymentMode || DEFAULT_FUNDING_REPAYMENT_MODE;
+  const fundingRepaymentMode = vehicle.fundingRepaymentMode || LEGACY_FUNDING_REPAYMENT_MODE;
   // 만기 인수가 상환이면 만기에 인수가만큼 원금을 남겨 인수가로 갚는다. 보증금은 원금에서 빼지 않으므로 인수가 그대로다.
   const fundingBalloon = fundingRepaymentMode === 'balloon' ? Math.min(Math.max(0, takeoverPrice), Math.max(0, fundingPrincipal)) : 0;
   const grossFundingInterest = fundingInterestFor({ annualRate: interestRate, months: rentPeriodMonths, principal: fundingPrincipal, balloon: fundingBalloon });

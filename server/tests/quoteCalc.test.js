@@ -385,3 +385,38 @@ test('사고대차 하이브리드 기준·렌터카 차령', async () => {
   assert.equal(rentalLifeFor({ cc: 2999, ageStart: new Date(2021, 11, 26) }).years, 8);
   assert.equal(rentalLifeFor({ cc: 1598, ageStart: new Date(2025, 11, 29) }).years, 5); // 하이브리드 1.6도 소형 5년
 });
+
+// 돈이 나가고 들어오는 때를 그대로 조달금리로 할인해 구한 손익분기 렌트료(기준 답).
+// 렌트료는 매달 말, 보험료·자동차세는 매년 초에 낸다고 본다.
+const breakEvenByCashFlow = (calc, vehicle, opt) => {
+  const i = calc.interestRate / 12;
+  const n = Math.round(opt.termYears * 12);
+  const upfront = calc.netVehiclePrice + calc.acquisitionTax + calc.publicBond + vehicle.globalRegistrationAgencyFee + calc.companyCommission + calc.pandanbi;
+  const yearly = vehicle.globalInsuranceFee + calc.ownCarInsuranceFee + calc.carTaxAnnual;
+  let pvYearly = 0;
+  for (let y = 0; y < opt.termYears; y++) pvYearly += yearly / (1 + i) ** (12 * y);
+  const annuity = (1 - (1 + i) ** -n) / i;
+  return (upfront + pvYearly - calc.deposit - calc.advancePayment - (calc.takeoverPrice - calc.deposit) / (1 + i) ** n) / annuity;
+};
+
+test('만기 인수가 상환은 현금흐름 기준 손익분기 렌트료와 맞는다 (G90 60개월·인수가 50%, 2026-10-28)', () => {
+  const vehicle = baseVehicle({ carPrice: 101780000, consignmentFee: 360000, cc: 3470, isMaintenanceEnabled: false, fundingRepaymentMode: 'balloon' });
+  const fees = {};
+  for (const [name, depositRate, advancePaymentRate] of [['무보증', 0, 0], ['선납', 0, 0.3], ['보증', 0.3, 0]]) {
+    const opt = baseOption({ termYears: 5, residualRate: 0.5, depositRate, advancePaymentRate, calcMode: 'auto', targetProfitInput: 0, isMaintenanceEnabled: false });
+    const calc = calculateQuoteOption(opt, vehicle);
+    const reference = breakEvenByCashFlow(calc, vehicle, opt);
+    near(calc.monthlyLeaseFee, reference, 25000, `${name} 손익분기 렌트료`);
+    fees[name] = { calc: calc.monthlyLeaseFee, reference };
+  }
+  // 선수금·보증금으로 깎이는 몫은 기준 답과 1천 원 단위 절사 범위 안에서 같다(경쟁사 591,400 / 156,200)
+  near(fees.무보증.calc - fees.선납.calc, fees.무보증.reference - fees.선납.reference, 2000, '선수금 30% 할인폭');
+  near(fees.무보증.calc - fees.보증.calc, fees.무보증.reference - fees.보증.reference, 2000, '보증금 30% 할인폭');
+});
+
+test('선수금분이자는 0원, 상환방식이 없는 예전 견적은 균등상환 그대로 (2026-10-28)', () => {
+  const calc = calculateQuoteOption(baseOption({ depositRate: 0, advancePaymentRate: 0.3 }), baseVehicle());
+  assert.equal(calc.advancePaymentInterest, 0);
+  assert.equal(calc.fundingRepaymentMode, 'equal');
+  assert.equal(calc.fundingBalloon, 0);
+});

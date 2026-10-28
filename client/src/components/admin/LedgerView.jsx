@@ -716,7 +716,7 @@ const bucketOf = (e) => {
   return 'operating';
 };
 
-function BudgetBoard({ plan, entries, income, internalRate, salesCommission, recovered = {} }) {
+function BudgetBoard({ plan, entries, income, internalRate, salesCommission, recovered = {}, closed = false }) {
   const [open, setOpen] = useState(null);
   const ownLoan = hasOwnLoan(entries);
   const internal = useMemo(() => internalInterestFor(entries, internalRate), [entries, internalRate]);
@@ -837,6 +837,12 @@ function BudgetBoard({ plan, entries, income, internalRate, salesCommission, rec
           <span style={{ fontSize: '0.8rem', fontWeight: '800' }}>월 렌트료를 다 받고 인수했을 때 예상 수익금</span>
           <span style={{ fontSize: '1.15rem', fontWeight: '800', color: projectedProfit < 0 ? '#d9534f' : '#2f6f4e' }}>{won(projectedProfit)}</span>
         </div>
+        {/* 끝난 계약은 위 정산계가 실제 결과다. 이 칸은 계약 때 기준으로 본 값이라 참고만 한다(대표님 2026-10-28) */}
+        {closed && (
+          <div style={{ fontSize: '0.7rem', color: '#8a6d1f', marginTop: '0.15rem' }}>
+            거래완료된 차입니다. 실제 결과는 위 정산계이고, 이 금액은 계약 기준으로 본 참고용입니다(이자 추정·남은 회차 포함).
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.1rem 1.4rem', marginTop: '0.35rem' }}>
           <div>
             <Row label="받을 돈 + 판매 수수료" value={won(projectedIncome)} muted />
@@ -1186,7 +1192,7 @@ function ContractPlanCard({ plan, saved, liveSource, liveSources, canEdit, isAdm
  * 견적이 맞았는지, 어디서 새고 있는지를 차 한 대 단위로 보려는 칸이다.
  * 계약 구간을 골라 봐도 이 칸은 차 1대 전체 기준이다. 견적이 차 1대 전체 기간을 놓고 계산한 값이기 때문이다.
  */
-function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRounds, memo, maturityPlan, canEdit, isAdmin, showToast, onMemoChange, onMaturityChange }) {
+function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRounds, memo, maturityPlan, canEdit, isAdmin, showToast, onMemoChange, onMaturityChange, closed = false }) {
   const [state, setState] = useState({ loading: true, quote: null, estimate: null, reason: '', savedPlan: null });
   const [planSaving, setPlanSaving] = useState(false);
   // 회사 내부 금리. 회사 돈으로 산 차의 이자를 매길 때 쓴다(관리 > 회사 자금·내부 금리)
@@ -1510,6 +1516,7 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
           internalRate={internalRate}
           salesCommission={actual.salesCommission}
           recovered={{ fines: actual.finesRecovered, maintenance: actual.maintRecovered }}
+          closed={closed}
         />
 
         <Section no={1} title="보험료 · 자차보험료">
@@ -3029,6 +3036,7 @@ function LedgerView({ showToast, currentUser }) {
         memo={ledger.profitReport}
         canEdit={canEdit}
         isAdmin={currentUser?.role === 'admin'}
+        closed={ledger.status === '거래완료'}
         showToast={showToast}
         onMemoChange={(v) => { setLedger((prev) => ({ ...prev, profitReport: v })); setDirty(true); }}
         maturityPlan={ledger.maturityPlan}
@@ -3055,10 +3063,10 @@ function LedgerView({ showToast, currentUser }) {
           여기서 고친 값은 이 갑지 안에서만 쓰이고 계약서·차량 DB로는 넘어가지 않습니다.
         </p>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', minWidth: '1080px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', minWidth: '960px' }}>
             <thead>
               <tr style={{ background: 'var(--bg-main)' }}>
-                {['구간', '계약번호', '시작일', '종료일', '기간(개월)', '월 렌트료', '보증금', '선납금', '인수가', '1회차 출금일', '구간 정산금액 (보증금 제외)'].map((h, i) => (
+                {['구간', '계약번호', '시작일', '종료일', '기간(개월)', '월 렌트료', '보증금', '선납금', '인수가', '1회차 출금일'].map((h, i) => (
                   <th key={h} style={{ ...th, textAlign: i >= 4 && i !== 9 ? 'right' : 'left', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -3066,19 +3074,15 @@ function LedgerView({ showToast, currentUser }) {
             <tbody>
               {periods.map((p, idx) => {
                 const stored = Boolean(ledger.contractPeriods?.length);
+                const isLast = idx === periods.length - 1;
                 const valueOf = (key) => {
+                  // 엑셀에서 옮긴 갑지는 인수가가 구간이 아니라 고정 조건에만 들어 있다(Benz-017 덕신설비). 마지막 구간은 그 값을 보여 준다
+                  if (stored && key === 'takeoverPrice' && isLast && (p[key] === undefined || p[key] === null || p[key] === '')) return t.takeoverPrice;
                   if (stored) return p[key];
                   if (key === 'startDate') return ledger.header?.contractedAt;
                   if (key === 'endDate') return ledger.header?.contractEndAt;
                   return t[key];
                 };
-                // 구간 정산금액 = 그 구간 원장 줄의 입금 − 출금. 보증금은 돌려줄 돈이라 갑지 정산금액처럼 뺀다
-                const rows = entries.filter((e) => (e.periodSeq || 1) === p.seq && e.category !== '보증금');
-                const bal = rows.reduce((sum, e) => sum + (e.side === '입금' ? 1 : -1) * (Number(e.amount) || 0), 0);
-                // 아직 안 받은 인수가 줄(날짜 없음)이 들어 있으면 '인수가를 받았을 때' 금액이라고 밝힌다
-                const takeoverPending = rows.filter((e) => e.category === '인수가' && e.side === '입금' && !e.date)
-                  .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-                const isLast = idx === periods.length - 1;
                 const cellInput = { width: '100%', padding: '0.3rem 0.35rem', border: '1px solid var(--border-color)', borderRadius: '5px', fontSize: '0.78rem', boxSizing: 'border-box', background: '#fff' };
                 // 0원이면 비워 두고 안내 글(승계·-)이 보이게 한다
                 const money = (key, placeholder) => (
@@ -3111,21 +3115,18 @@ function LedgerView({ showToast, currentUser }) {
                     <td style={{ ...td, minWidth: '100px' }}>
                       {money('takeoverPrice', isLast ? '' : '-')}
                       {/* 인수할 때 보증금을 인수가에서 빼고 나머지만 받는다(화우: 22,105,860 − 12,360,000 = 9,745,860) */}
-                      {isLast && Number(valueOf('takeoverPrice')) > 0 && Number(t.deposit) > 0 && (
+                      {/* 계약이 끝났는데 보증금이 남아 있으면 인수가와 상계한 것(대표님 2026-10-28) */}
+                      {isLast && summary.takeoverOffset > 0 ? (
+                        <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', textAlign: 'right', marginTop: '0.15rem', whiteSpace: 'nowrap' }}>
+                          보증금 {toCommaString(summary.takeoverOffset)}과 상계
+                        </div>
+                      ) : isLast && Number(valueOf('takeoverPrice')) > 0 && Number(t.deposit) > 0 && (
                         <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', textAlign: 'right', marginTop: '0.15rem', whiteSpace: 'nowrap' }}>
                           보증금 빼고 받을 돈 {toCommaString(Number(valueOf('takeoverPrice')) - Number(t.deposit))}
                         </div>
                       )}
                     </td>
                     <td style={{ ...td, minWidth: '118px' }}>{date('rentStartDate')}</td>
-                    <td style={{ ...td, textAlign: 'right', fontWeight: '700', whiteSpace: 'nowrap', color: bal < 0 ? '#d9534f' : '#2f6f4e' }}>
-                      {signed(bal)}
-                      {takeoverPending > 0 && (
-                        <div style={{ fontSize: '0.66rem', fontWeight: '400', color: 'var(--text-muted)' }}>
-                          아직 안 받은 인수가 {toCommaString(takeoverPending)} 포함
-                        </div>
-                      )}
-                    </td>
                   </tr>
                 );
               })}

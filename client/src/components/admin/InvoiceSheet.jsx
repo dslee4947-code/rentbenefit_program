@@ -151,8 +151,6 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
     ['거래은행', debit?.bankName || '-'],
     ['계좌번호', debit ? maskAccount(debit.accountNo) : '-'],
     ['납입회차', ext ? `${round?.no || '-'} 회 (연장 계약)` : `${round?.no || '-'} 회`],
-    // 어느 차 청구서인지 첫 장에서 바로 보이게 출금일 앞에 둔다(대표님 2026-10-28)
-    ['차종', carModelText(vehicles)],
     ['출금일', ymd(round?.dueDate)]
   ];
   // 연체 이율 안내. 계약마다 다르다(기존 고객 20%, 이후 25%). 모르면 문구를 빼고 틀린 숫자를 찍지 않는다.
@@ -160,7 +158,13 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
 
   return (
     <div ref={innerRef} className="m-doc" style={{ width: '780px', padding: '28px', background: '#fff', color: '#111', fontFamily: "'Malgun Gothic', sans-serif" }}>
-      <div style={{ fontSize: '20px', fontWeight: 800, marginBottom: '16px' }}>{name}</div>
+      {/* 어느 차 청구서인지 첫 장에서 바로 보이게 계약자 이름 옆에 차종을 둔다(대표님 2026-10-28) */}
+      <div style={{ fontSize: '20px', fontWeight: 800, marginBottom: '16px' }}>
+        {name}
+        {carModelText(vehicles) !== '-' && (
+          <span style={{ fontSize: '14px', fontWeight: 700, color: '#555', marginLeft: '10px' }}>{carModelText(vehicles)}</span>
+        )}
+      </div>
 
       <div style={{ background: '#8a8a8a', color: '#fff', padding: '5px 10px', fontWeight: 700, fontSize: '12px' }}>결제금액 내역</div>
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '16px', margin: '10px 0 2px' }}>

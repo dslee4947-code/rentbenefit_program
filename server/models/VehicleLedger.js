@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { isDepositOffsetTakeover } from '../../shared/ledgerPlan.js';
 const { Schema } = mongoose;
 
 /**
@@ -398,6 +399,9 @@ export const summarizeLedger = (ledger, periodSeq = null) => {
   });
 
   const cashBalance = paidIn - paidOut;
+  // 거래완료 차에 인수가 줄 없이 남은 보증금은 인수가와 상계된 돈이다(shared/ledgerPlan.js). 정산계에서 빼지 않는다
+  const takeoverOffset = isDepositOffsetTakeover(ledger.status, ledger.entries, depositIn - depositOut) ? depositIn - depositOut : 0;
+  if (takeoverOffset) Object.values(byBank).forEach((b) => { b.balance = b.cashBalance; });
   return {
     byBank: Object.values(byBank).sort((a, b) => a.bank.localeCompare(b.bank)),
     paidOut,
@@ -405,9 +409,10 @@ export const summarizeLedger = (ledger, periodSeq = null) => {
     depositIn,
     depositOut,
     // 보관 중인 보증금 = 받은 보증금 − 돌려준(또는 회사가 낸) 보증금
-    depositHeld: depositIn - depositOut,
+    depositHeld: takeoverOffset ? 0 : depositIn - depositOut,
+    takeoverOffset,
     cashBalance,
-    balance: cashBalance - depositIn + depositOut
+    balance: cashBalance - depositIn + depositOut + takeoverOffset
   };
 };
 

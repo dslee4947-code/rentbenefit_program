@@ -3,7 +3,7 @@ import Contract from '../models/Contract.js';
 import Quote from '../models/Quote.js';
 import { calculateVehicleProfit, QUOTE_DEFAULTS } from './vehicleProfit.js';
 import { mergeMaintenanceRates } from '../../shared/maintenanceRates.js';
-import { quotePlanOf, planInterestTotal, planRevenue } from '../../shared/ledgerPlan.js';
+import { quotePlanOf, planInterestTotal, planRevenue, isDepositOffsetTakeover } from '../../shared/ledgerPlan.js';
 
 /**
  * 원장 '계약 손익 기준표' (구상안 2단계, 2026-10-28).
@@ -100,9 +100,7 @@ export const estimateFromVehicle = async ({ ledger, contract, vehicle, maintenan
       // 판관비는 차량 DB에 금액이 있으면 그 값을 썼으므로 '차량가의 3%' 가정은 빼고 보여 준다
       assumptions: [
         ...(vehicle.fromHeader ? ['차량: 렌트차량 DB에 연결된 차가 없어 갑지 상단 차량가·배기량으로 계산'] : []),
-        // 인수가가 없는데 보증금을 받아 두었으면 보증금으로 인수가를 대신한 계약일 수 있다(Benz-018, 2026-10-28)
-        ...(vehicle.fromHeader && !(Number(merged.takeoverPrice) > 0) && Number(merged.deposit) > 0
-          ? [`인수가: 원장에 없음. 보증금 ${Number(merged.deposit).toLocaleString()}원으로 인수가를 대신했는지 확인 필요`] : []),
+        ...(vehicle.depositOffset ? [`인수가: 원장에 인수가 줄이 없어 보증금 ${vehicle.depositOffset.toLocaleString()}원과 상계한 것으로 봄`] : []),
         ...profit.assumptions.filter((a) => !(Number(vehicle.sellingAdminExpense) > 0 && a.startsWith('판관비'))),
         `베네핏 수수료: 차량가의 ${(QUOTE_DEFAULTS.commissionRate * 100).toFixed(1)}%`
       ]
@@ -141,6 +139,10 @@ export const vehicleFromHeader = (ledger) => {
   const takeoverIn = (ledger.entries || [])
     .filter((e) => e.side === '입금' && e.category === '인수가' && Number(e.amount) > 0)
     .reduce((t, e) => t + Number(e.amount), 0);
+  // 거래완료인데 인수가 줄 없이 보증금만 남아 있으면 보증금을 인수가와 상계한 것이다(대표님 2026-10-28, Benz-018)
+  const depositHeld = (ledger.entries || []).filter((e) => e.category === '보증금')
+    .reduce((t, e) => t + (e.side === '입금' ? 1 : -1) * (Number(e.amount) || 0), 0);
+  const offset = !(Number(ledger.terms?.takeoverPrice) > 0) && isDepositOffsetTakeover(ledger.status, ledger.entries, depositHeld) ? depositHeld : 0;
   return {
     carModel: h.carModel,
     plateNo: h.plateNo,
@@ -148,7 +150,8 @@ export const vehicleFromHeader = (ledger) => {
     cc: Number(h.cc) || 0,
     paymentTerm: months,
     monthlyFee,
-    takeoverPrice: Number(ledger.terms?.takeoverPrice) > 0 ? Number(ledger.terms.takeoverPrice) : takeoverIn,
+    takeoverPrice: Number(ledger.terms?.takeoverPrice) > 0 ? Number(ledger.terms.takeoverPrice) : (takeoverIn || offset),
+    depositOffset: offset,
     advancePayment: Number(ledger.terms?.advancePayment) || 0,
     deposit: Number(ledger.terms?.deposit) || 0,
     maintenance: {},

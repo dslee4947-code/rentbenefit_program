@@ -4,7 +4,7 @@ import { toCommaString } from '../../utils/format.js';
 import MoneyInput from './MoneyInput.jsx';
 import ShortTermTargetPanel from './ShortTermTargetPanel.jsx';
 import { useSaveShortcut } from './useSaveShortcut.js';
-import { quotePlanOf, planInterestTotal, planRevenue } from '../../../../shared/ledgerPlan.js';
+import { quotePlanOf, planInterestTotal, planRevenue, isDepositOffsetTakeover } from '../../../../shared/ledgerPlan.js';
 import { hasOwnLoan, internalInterestFor, DEFAULT_INTERNAL_RATE } from '../../../../shared/companyFunding.js';
 import useBackClose from '../../utils/useBackClose.js';
 import { matchRentToRounds } from './rentMatch.js';
@@ -2269,8 +2269,15 @@ function LedgerView({ showToast, currentUser }) {
       if (ai !== -1 || bi !== -1) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
       return a.bank.localeCompare(b.bank);
     });
-    return { rows, paidOut, paidIn, depositHeld: depositIn - depositOut, balance: paidIn - paidOut - depositIn + depositOut };
-  }, [entries, periodView]);
+    // 거래완료 차에 인수가 줄 없이 남은 보증금은 인수가와 상계된 돈이라 정산계에서 빼지 않는다(서버와 같은 규칙)
+    const takeoverOffset = isDepositOffsetTakeover(ledger?.status, entries, depositIn - depositOut) ? depositIn - depositOut : 0;
+    if (takeoverOffset) rows.forEach((r) => { r.deposit = 0; });
+    return {
+      rows, paidOut, paidIn, takeoverOffset,
+      depositHeld: takeoverOffset ? 0 : depositIn - depositOut,
+      balance: paidIn - paidOut - depositIn + depositOut + takeoverOffset
+    };
+  }, [entries, periodView, ledger?.status]);
 
   const handleSave = async () => {
     if (!ledger) return;
@@ -2734,7 +2741,7 @@ function LedgerView({ showToast, currentUser }) {
           {[
             { title: '지출계 (회사출금액)', pick: (r) => r.paidOut, total: summary.paidOut, color: '#d9534f' },
             { title: '수입계 (고객입금액)', pick: (r) => r.paidIn, total: summary.paidIn, color: '#2f6f4e' },
-            { title: '정산계 (보증금 제외)', pick: (r) => r.paidIn - r.paidOut - r.deposit, total: summary.balance, color: summary.balance < 0 ? '#d9534f' : '#2f6f4e' }
+            { title: summary.takeoverOffset ? '정산계 (보증금 = 인수가 상계)' : '정산계 (보증금 제외)', pick: (r) => r.paidIn - r.paidOut - r.deposit, total: summary.balance, color: summary.balance < 0 ? '#d9534f' : '#2f6f4e' }
           ].map((box) => (
             <div key={box.title} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
               <div style={{ padding: '0.5rem 0.7rem', background: 'var(--bg-main)', fontSize: '0.78rem', fontWeight: '800' }}>{box.title}</div>
@@ -2751,6 +2758,11 @@ function LedgerView({ showToast, currentUser }) {
                 {box.title.startsWith('정산계') && summary.depositHeld !== 0 && (
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', paddingTop: '0.2rem' }}>
                     보관 중인 보증금 {signed(summary.depositHeld)} (돌려줄 돈이라 정산계에서 뺌)
+                  </div>
+                )}
+                {box.title.startsWith('정산계') && summary.takeoverOffset > 0 && (
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', paddingTop: '0.2rem' }}>
+                    거래완료인데 인수가 줄이 없어 보증금 {signed(summary.takeoverOffset)}을 인수가와 상계한 것으로 봄 (정산계에 넣음)
                   </div>
                 )}
               </div>

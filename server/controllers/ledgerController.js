@@ -982,7 +982,7 @@ export const getLinkableVehicles = async (req, res) => {
 // @route   GET /api/ledgers/:id/quote
 export const getLedgerQuote = async (req, res) => {
   try {
-    const ledger = await VehicleLedger.findById(req.params.id).select('contract contractPeriods vehicle terms header profitPlans entries.side entries.category entries.amount entries.label').lean();
+    const ledger = await VehicleLedger.findById(req.params.id).select('status contract contractPeriods vehicle terms header profitPlans entries.side entries.category entries.amount entries.label').lean();
     if (!ledger) return res.status(404).json({ message: '갑지를 찾을 수 없습니다.' });
     const savedPlan = (ledger.profitPlans || []).find((p) => (p.periodSeq || 1) === 1) || null;
 
@@ -1012,7 +1012,7 @@ export const getLedgerQuote = async (req, res) => {
 // @route   POST /api/ledgers/:id/profit-plan  { reason }
 export const saveLedgerProfitPlan = async (req, res) => {
   try {
-    const ledger = await VehicleLedger.findById(req.params.id).select('ledgerNo header contract contractPeriods vehicle terms profitPlans entries.side entries.category entries.amount entries.label').lean();
+    const ledger = await VehicleLedger.findById(req.params.id).select('ledgerNo status header contract contractPeriods vehicle terms profitPlans entries.side entries.category entries.amount entries.label').lean();
     if (!ledger) return res.status(404).json({ message: '갑지를 찾을 수 없습니다.' });
     const plans = ledger.profitPlans || [];
     const prev = plans.find((p) => (p.periodSeq || 1) === 1);

@@ -221,6 +221,26 @@ test('정산금액은 보증금을 뺀다 (보증금 포함 값은 cashBalance)'
   assert.equal(s.balance, 700000 - 1000000);
 });
 
+test('거래완료 차에 인수가 줄 없이 남은 보증금은 인수가와 상계한 돈으로 본다 (Benz-018)', async () => {
+  const { summarizeLedger } = await import('../models/VehicleLedger.js');
+  const entries = [
+    { side: '입금', category: '보증금', amount: 42330000, bank: 'B' },
+    { side: '입금', category: '렌트료', amount: 131732100, bank: 'B' },
+    { side: '지출', category: '차량가', amount: 135456000, bank: 'B' }
+  ];
+  const done = summarizeLedger({ status: '거래완료', entries });
+  assert.equal(done.takeoverOffset, 42330000);
+  assert.equal(done.depositHeld, 0);
+  assert.equal(done.balance, 42330000 + 131732100 - 135456000);
+  // 운용 중이면 아직 돌려줄 보증금이다
+  const running = summarizeLedger({ status: '운용중', entries });
+  assert.equal(running.takeoverOffset, 0);
+  assert.equal(running.balance, 131732100 - 135456000);
+  // 인수가 줄이 따로 있으면 보증금은 돌려줄 돈 그대로다
+  const withTakeover = summarizeLedger({ status: '거래완료', entries: [...entries, { side: '입금', category: '인수가', amount: 42330000, bank: 'B' }] });
+  assert.equal(withTakeover.takeoverOffset, 0);
+});
+
 test('회사 내부 금리와 차별 내부 이자', async () => {
   const { computeInternalRate, internalInterestFor, hasOwnLoan } = await import('../../shared/companyFunding.js');
   // 잔액 가중 평균: (1억×5% + 3억×6%) ÷ 4억 = 5.75%

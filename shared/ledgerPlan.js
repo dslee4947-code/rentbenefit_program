@@ -65,6 +65,20 @@ export const quotePlanOf = (quote) => {
   }
 };
 
+/**
+ * 거래완료 차의 보증금이 인수가와 상계된 것인지(대표님 2026-10-28).
+ *
+ * 만기에 고객이 차를 인수할 때 보증금을 인수가와 상계하면 돈이 오가지 않아 원장에 '인수가'·'보증금 반환' 줄이 생기지 않고
+ * 보증금만 남는다(Benz-018: 보증금 42,330,000 = 차량가 30%). 거래완료인데 인수가 입금 줄이 없고 보증금이 남아 있으면
+ * 그 보증금을 인수가로 본다. 그러면 '돌려줄 돈'이 아니므로 정산계에서 빼지 않는다.
+ * @param {string} status 갑지 상태
+ * @param {Array} entries 갑지 줄 전체
+ * @param {number} depositHeld 보관 중인 보증금
+ */
+export const isDepositOffsetTakeover = (status, entries, depositHeld) => status === '거래완료'
+  && Number(depositHeld) > 0
+  && !(entries || []).some((e) => e.side === '입금' && e.category === '인수가' && Number(e.amount) > 0);
+
 /** 계약 기간 총 이자 = 원리금 균등상환 조달이자 − 보증금 이자 이득 + 선수금분 이자 */
 export const planInterestTotal = (plan) => Math.max(0, (Number(plan?.fundingInterest) || 0) + (Number(plan?.advancePaymentInterest) || 0));
 

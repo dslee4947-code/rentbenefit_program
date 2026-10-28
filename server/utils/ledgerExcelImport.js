@@ -199,7 +199,7 @@ const deriveTerms = (entries) => {
  * 계약 구간이 여럿인 갑지는 엑셀의 연속 회차(1~53)를 구간별 회차로 다시 나눈다.
  * 최초 계약이 48개월이면 49회차는 1차 연장 1회차다. 렌트료가 아닌 줄은 날짜가 연장 시작일 이후면 그 구간으로 보낸다.
  */
-const splitByPeriods = (entries, periods) => {
+export const splitByPeriods = (entries, periods) => {
   const sorted = [...periods].sort((a, b) => a.seq - b.seq);
   if (sorted.length < 2) return 0;
   let moved = 0;

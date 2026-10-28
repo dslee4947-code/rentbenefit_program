@@ -4,8 +4,7 @@ import { toCommaString } from '../../utils/format.js';
 import MoneyInput from './MoneyInput.jsx';
 import ShortTermTargetPanel from './ShortTermTargetPanel.jsx';
 import { useSaveShortcut } from './useSaveShortcut.js';
-import { calculateQuoteOption } from '../../../../shared/quoteCalc.js';
-import { GRADE_LABEL } from '../../../../shared/maintenanceRates.js';
+import { quotePlanOf, planInterestTotal, planRevenue } from '../../../../shared/ledgerPlan.js';
 import { hasOwnLoan, internalInterestFor, DEFAULT_INTERNAL_RATE } from '../../../../shared/companyFunding.js';
 import useBackClose from '../../utils/useBackClose.js';
 import { matchRentToRounds } from './rentMatch.js';
@@ -475,63 +474,7 @@ const EXPENSE_FIXED = [
 ];
 const FIXED_CATEGORIES = new Set(EXPENSE_FIXED.map((f) => f.category));
 
-/**
- * 견적서에서 이 차의 계산 결과를 꺼낸다.
- *
- * 견적서에는 계산 결과가 아니라 입력값(comparisonVehicles)이 저장돼 있어서 견적 화면과 같은 식으로
- * 다시 계산한다. 비교 차량이 여러 대면 견적서를 저장할 때 보고 있던 차(activeVehicleId)를,
- * 안이 여러 개면 계약한 기간(pricing.paymentTerm)과 같은 안을 고른다.
- */
-const quotePlanOf = (quote) => {
-  const vehicles = quote?.comparisonVehicles || [];
-  if (!vehicles.length) return null;
-  const vehicle = vehicles.find((v) => v.id === quote.activeVehicleId) || vehicles[0];
-  const options = vehicle.options || [];
-  const term = Number(quote.pricing?.paymentTerm) || 0;
-  const selectedId = (vehicle.selectedOptionIds || [])[0];
-  const opt = options.find((o) => term && Math.round(Number(o.termYears) * 12) === term)
-    || options.find((o) => o.id === selectedId)
-    || options[0];
-  if (!opt) return null;
-  try {
-    const calc = calculateQuoteOption(opt, vehicle);
-    const years = Number(opt.termYears) || 0;
-    const maintenanceOn = opt.isMaintenanceEnabled !== undefined ? opt.isMaintenanceEnabled !== false : vehicle.isMaintenanceEnabled !== false;
-    return {
-      months: Math.round(years * 12),
-      baseInsurance: (Number(vehicle.globalInsuranceFee) || 0) * years,
-      ownCarInsurance: (calc.ownCarInsuranceFee || 0) * years,
-      pandanbi: calc.pandanbi || 0,
-      benefitFee: calc.companyCommission || 0,
-      maintenanceOn,
-      maintenanceFee: calc.maintenanceFeeTotal || 0,
-      tireFee: calc.tireCostTotal || 0,
-      // 정비 항목별 계획(횟수 × 단가)과 타이어 본수, 차종 등급
-      maintenanceLines: calc.maintenanceLines || [],
-      tireCount: calc.tireCount || 0,
-      gradeLabel: GRADE_LABEL[vehicle.vehicleGrade] || '',
-      // 차 구입·등록·금융·세금. 원장의 실제 출금과 맞대 본다.
-      netVehiclePrice: calc.netVehiclePrice || 0,
-      registrationCost: calc.registrationCost || 0,
-      fundingInterest: calc.fundingInterest || 0,
-      // 계약 기간 총 이자를 어떻게 냈는지 보여 주는 값(예상 수익금 칸)
-      fundingPrincipal: calc.fundingPrincipal || 0,
-      interestRate: calc.interestRate || 0,
-      grossFundingInterest: calc.grossFundingInterest || 0,
-      depositInterestBenefit: calc.depositInterestBenefit || 0,
-      advancePaymentInterest: calc.advancePaymentInterest || 0,
-      fundingRepaymentMode: calc.fundingRepaymentMode,
-      carTaxTotal: calc.carTaxTotal || 0,
-      // 견적 원가에는 베네핏 수수료가 들어 있다. 수수료도 회사 몫이라 예상 이익에서는 원가에서 빼고 본다.
-      costExCommission: (calc.totalCost || 0) - (calc.companyCommission || 0),
-      quoteMonthlyRent: calc.monthlyLeaseFee || 0,
-      takeoverPrice: calc.takeoverPrice || 0,
-      advancePayment: calc.advancePayment || 0
-    };
-  } catch {
-    return null;
-  }
-};
+// 견적서에서 이 차의 견적 비용을 꺼내는 식(quotePlanOf)은 서버의 기준표 저장과 같이 쓰려고 shared/ledgerPlan.js에 있다.
 
 // 운영하면서 나간 돈으로 보지 않는 분류. 차를 사고 등록하고 취득세·보험·할부를 내는 돈은 판관비가 아니다.
 // 차량작업(썬팅·PPF·블랙박스 등)은 판관비가 아니라 판매 수수료에서 충당하므로 따로 본다.
@@ -544,7 +487,10 @@ const NOT_OPERATING = new Set(['계약금', '차량가', '등록비용', '할부
  * 공제조합 출자금은 나중에 돌려받는 돈이라 보험료가 아니다. 수리비는 보험료와 따로 본다(자차보험료로 막는 돈).
  */
 const isCoopShare = (e) => e.category === '공제조합' && /출자/.test(e.label || '');
-const isInsurancePremium = (e) => e.side === '지출' && (e.category === '보험' || (e.category === '공제조합' && !isCoopShare(e)));
+// 엑셀 갑지에는 보험료 환급을 회사출금 열에 마이너스로 적은 줄도 있다('보험료 해지 환급금' -747,750, 분류 환급, Benz-018).
+// 판관비에서 빠지던 돈이라 보험료를 줄이는 줄로 본다(2026-10-28)
+const isInsuranceRefundOut = (e) => e.side === '지출' && e.category === '환급' && /보험|공제|자차/.test(e.label || '');
+const isInsurancePremium = (e) => e.side === '지출' && (e.category === '보험' || (e.category === '공제조합' && !isCoopShare(e)) || isInsuranceRefundOut(e));
 const isInsuranceRefund = (e) => e.side === '입금' && /환급/.test(`${e.category || ''} ${e.label || ''}`) && /보험|공제|자차/.test(e.label || '');
 
 /**
@@ -764,7 +710,7 @@ const bucketOf = (e) => {
   if (['등록비용', '제세공과'].includes(cat)) return 'registration';
   if (matchMaintenance(e)) return 'maintenance';
   if (cat === '수리·사고') return 'ownCar';
-  if (['보험', '공제조합'].includes(cat)) return 'insurance';
+  if (['보험', '공제조합'].includes(cat) || isInsuranceRefundOut(e)) return 'insurance';
   if (cat === '할부이자') return 'finance';
   if (cat === '차량작업') return 'vehicleWork';
   return 'operating';
@@ -793,7 +739,7 @@ function BudgetBoard({ plan, entries, income, internalRate, salesCommission, rec
   // 보험료는 해마다 나간다. 견적이 계약 전체보다 짧으면(연장한 차, 견적이 지금 계약 1년만 본 경우) 연 보험료로 전체 기간을 채운다
   const insuranceScale = plan.months > 0 && income.months > plan.months ? income.months / plan.months : 1;
   // 계약 기간 총 이자 = 원리금 균등상환 조달이자 − 보증금 이자 이득 + 선수금분 이자 (견적서와 같은 식)
-  const interestTotal = Math.max(0, (plan.fundingInterest || 0) + (plan.advancePaymentInterest || 0));
+  const interestTotal = planInterestTotal(plan);
   const budget = {
     purchase: plan.netVehiclePrice || 0,
     // 자동차세는 판관비에서 나가므로 등록 예산에 넣지 않는다
@@ -1116,14 +1062,133 @@ function PurchaseCheck({ plan, actual }) {
 }
 
 /**
+ * 계약 손익 기준표 (구상안 2단계, 2026-10-28).
+ *
+ * 계약할 때 정한 매출과 비용을 한 표로 보여 준다. 저장해 두면(서버 profitPlans) 렌트차량 DB를 고쳐도 바뀌지 않고,
+ * 관리자가 [다시 계산]으로만 바꾼다. 칸마다 값을 어디서 가져왔는지(견적서·원장 계약 조건·렌트차량 DB·기본값)를 붙인다.
+ * 실제 쓴 돈과의 비교는 바로 아래 예산 현황이 한다.
+ */
+const PLAN_SOURCE_COLOR = (text = '') => {
+  if (/견적서|원장/.test(text)) return { background: '#dcfce7', color: '#166534' };
+  if (/기본|3%|추정/.test(text)) return { background: '#fef3c7', color: '#92400e' };
+  return { background: '#e2e8f0', color: '#334155' };
+};
+
+function ContractPlanCard({ plan, saved, liveSource, liveSources, canEdit, isAdmin, saving, onSave }) {
+  const sources = saved?.sources || liveSources || {};
+  const source = saved?.source || liveSource;
+  const tag = (key) => {
+    const text = source === '견적서' ? '견적서' : sources[key];
+    if (!text) return null;
+    return <span style={{ ...PLAN_SOURCE_COLOR(text), fontSize: '0.66rem', padding: '0 0.35rem', borderRadius: '4px', whiteSpace: 'nowrap' }}>{text}</span>;
+  };
+  const n = (v) => Number(v) || 0;
+  const interest = planInterestTotal(plan);
+  const maintenance = plan.maintenanceOn ? n(plan.maintenanceFee) + n(plan.tireFee) : 0;
+  const revenue = planRevenue(plan);
+  const listed = n(plan.netVehiclePrice) + n(plan.registrationCost) + n(plan.baseInsurance) + n(plan.ownCarInsurance)
+    + n(plan.carTaxTotal) + interest + n(plan.pandanbi) + maintenance;
+  // 딜러 수수료·고잔가 수수료 등 위 칸에 없는 견적 비용
+  const others = n(plan.costExCommission) - listed;
+  const profit = revenue - n(plan.costExCommission) - n(plan.benefitFee);
+  const rows = [
+    ['매출', `렌트료 ${toCommaString(Math.round(n(plan.quoteMonthlyRent)))} × ${n(plan.months)}개월 + 인수가 ${toCommaString(n(plan.takeoverPrice))}${n(plan.advancePayment) ? ` + 선납금 ${toCommaString(n(plan.advancePayment))}` : ''}`, revenue, 'revenue', true],
+    ['차량 구입', '차량가 + 옵션 − 할인 + 탁송료', -n(plan.netVehiclePrice), 'netVehiclePrice'],
+    ['등록·취득세', '취득세·공채·등록대행료', -n(plan.registrationCost), 'registrationCost'],
+    ['기본 보험료', '대인·대물 등', -n(plan.baseInsurance), 'baseInsurance'],
+    ['자차보험료', '차량 수리비는 여기서 나간다', -n(plan.ownCarInsurance), 'ownCarInsurance'],
+    ['자동차세', '계약 기간 전체 (판관비에서 나감)', -n(plan.carTaxTotal), 'carTaxTotal'],
+    ['이자', `${plan.fundingRepaymentMode === 'balloon' ? '만기 인수가 상환' : '원리금 균등상환'} 계약 기간 총 이자${n(plan.interestRate) ? ` · 연 ${(n(plan.interestRate) * 100).toFixed(2)}%` : ''}`, -interest, 'interest'],
+    ['판관비', '자동차세·검사비·탁송료 등 운영비', -n(plan.pandanbi), 'pandanbi'],
+    ...(plan.maintenanceOn ? [['정비', `정비 ${toCommaString(Math.round(n(plan.maintenanceFee)))} + 타이어 ${toCommaString(Math.round(n(plan.tireFee)))}`, -maintenance, 'maintenance']] : []),
+    ...(Math.abs(others) >= 1000 ? [['기타 견적 비용', '딜러 수수료 등', -others, null]] : []),
+    ['베네핏 수수료', '회사 몫', -n(plan.benefitFee), 'benefitFee']
+  ];
+  const cell = { padding: '0.28rem 0.45rem', borderBottom: '1px solid var(--border-color)', fontSize: '0.76rem' };
+  const history = saved?.history || [];
+
+  return (
+    <div style={{ gridColumn: '1 / -1', border: '1.5px solid #4a6fa5', borderRadius: '8px', padding: '0.75rem 0.9rem', background: '#fff' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.45rem' }}>
+        <span style={{ fontSize: '0.82rem', fontWeight: '800', color: '#4a6fa5' }}>
+          계약 손익 기준표 · 최초 계약 {n(plan.months)}개월
+          <span style={{ ...PLAN_SOURCE_COLOR(source), fontSize: '0.68rem', padding: '0.05rem 0.4rem', borderRadius: '4px', marginLeft: '0.4rem' }}>
+            {source === '견적서' ? '견적서 기준' : '추정 (견적서 없음)'}
+          </span>
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+          {saved
+            ? `저장됨 · ${String(saved.savedAt || '').slice(0, 10)} ${saved.savedBy || ''}`
+            : '아직 저장하지 않았습니다 · 지금 값으로 계산한 표'}
+          {canEdit && (!saved || isAdmin) && (
+            <button
+              type="button"
+              onClick={onSave}
+              disabled={saving}
+              style={{ padding: '0.25rem 0.6rem', fontSize: '0.74rem', fontWeight: '700', border: '1px solid #4a6fa5', borderRadius: '6px', background: saved ? '#fff' : '#4a6fa5', color: saved ? '#4a6fa5' : '#fff', cursor: 'pointer' }}
+              title={saved ? '관리자만: 지금 값으로 다시 계산해 기준을 바꿉니다. 바꾸기 전 값은 기록에 남습니다.' : '지금 값을 이 차의 계약 기준으로 저장합니다.'}
+            >
+              {saving ? '저장 중…' : (saved ? '다시 계산' : '기준표로 저장')}
+            </button>
+          )}
+        </span>
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ color: 'var(--text-muted)', background: 'var(--bg-main)' }}>
+            <th style={{ ...cell, textAlign: 'left', width: '18%' }}>항목</th>
+            <th style={{ ...cell, textAlign: 'left' }}>내용</th>
+            <th style={{ ...cell, textAlign: 'right', width: '18%' }}>계약 기준</th>
+            <th style={{ ...cell, textAlign: 'left', width: '17%' }}>값의 출처</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([label, desc, value, key, strong]) => (
+            <tr key={label}>
+              <td style={{ ...cell, fontWeight: strong ? '800' : '600' }}>{label}</td>
+              <td style={{ ...cell, color: 'var(--text-muted)' }}>{desc}</td>
+              <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap', fontWeight: strong ? '800' : '400' }}>{value < 0 ? `- ${toCommaString(Math.round(-value))}` : toCommaString(Math.round(value))}</td>
+              <td style={cell}>{key ? tag(key) : null}</td>
+            </tr>
+          ))}
+          <tr style={{ background: '#f3faf6' }}>
+            <td style={{ ...cell, fontWeight: '800' }}>남는 금액</td>
+            <td style={{ ...cell, color: 'var(--text-muted)' }}>영업이익 (베네핏 수수료 포함 회사 몫 {toCommaString(Math.round(profit + n(plan.benefitFee)))})</td>
+            <td style={{ ...cell, textAlign: 'right', fontWeight: '800', color: profit < 0 ? '#d9534f' : '#2f6f4e', whiteSpace: 'nowrap' }}>{toCommaString(Math.round(profit))}</td>
+            <td style={cell} />
+          </tr>
+        </tbody>
+      </table>
+      {(saved?.assumptions?.length > 0 || saved?.ledgerNotes?.length > 0) && (
+        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.35rem', lineHeight: 1.55 }}>
+          {saved.note ? `${saved.note} ` : ''}가정한 값: {saved.assumptions.join(' · ')}
+          {saved.ledgerNotes?.length > 0 && <div style={{ color: '#b45309' }}>원장 값을 쓴 칸: {saved.ledgerNotes.join(' · ')}</div>}
+        </div>
+      )}
+      {history.length > 0 && (
+        <details style={{ marginTop: '0.35rem', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+          <summary style={{ cursor: 'pointer' }}>바꾼 기록 {history.length}건</summary>
+          {history.map((h, i) => (
+            <div key={i}>
+              {String(h.replacedAt || '').slice(0, 10)} {h.replacedBy} 다시 계산 · 이전 남는 금액 {toCommaString(h.operatingProfit)}원 ({h.source}, {String(h.savedAt || '').slice(0, 10)} 저장){h.reason ? ` · 이유: ${h.reason}` : ''}
+            </div>
+          ))}
+        </details>
+      )}
+    </div>
+  );
+}
+
+/**
  * 수익성 검토.
  *
  * 견적서에서 잡아 둔 비용(보험·자차·판관비·베네핏 수수료·정비)과 원장에 실제로 쌓인 출금을 나란히 놓는다.
  * 견적이 맞았는지, 어디서 새고 있는지를 차 한 대 단위로 보려는 칸이다.
  * 계약 구간을 골라 봐도 이 칸은 차 1대 전체 기준이다. 견적이 차 1대 전체 기간을 놓고 계산한 값이기 때문이다.
  */
-function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRounds, memo, maturityPlan, canEdit, onMemoChange, onMaturityChange }) {
-  const [state, setState] = useState({ loading: true, quote: null, estimate: null, reason: '' });
+function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRounds, memo, maturityPlan, canEdit, isAdmin, showToast, onMemoChange, onMaturityChange }) {
+  const [state, setState] = useState({ loading: true, quote: null, estimate: null, reason: '', savedPlan: null });
+  const [planSaving, setPlanSaving] = useState(false);
   // 회사 내부 금리. 회사 돈으로 산 차의 이자를 매길 때 쓴다(관리 > 회사 자금·내부 금리)
   const [internalRate, setInternalRate] = useState(DEFAULT_INTERNAL_RATE);
   useEffect(() => {
@@ -1137,14 +1202,40 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
     let alive = true;
     fetch(`${API_HOST}/api/ledgers/${ledgerId}/quote`)
       .then((res) => (res.ok ? res.json() : { quote: null, reason: '견적서를 불러오지 못했습니다.' }))
-      .then((data) => { if (alive) setState({ loading: false, quote: data.quote, estimate: data.estimate || null, reason: data.reason || '' }); })
-      .catch(() => { if (alive) setState({ loading: false, quote: null, estimate: null, reason: '견적서를 불러오지 못했습니다.' }); });
+      .then((data) => { if (alive) setState({ loading: false, quote: data.quote, estimate: data.estimate || null, reason: data.reason || '', savedPlan: data.savedPlan || null }); })
+      .catch(() => { if (alive) setState({ loading: false, quote: null, estimate: null, reason: '견적서를 불러오지 못했습니다.', savedPlan: null }); });
     return () => { alive = false; };
   }, [ledgerId]);
 
-  // 견적서가 없으면 서버가 렌트차량 DB 값으로 같은 식을 돌려 준 추정치(estimate)로 비교한다
+  /**
+   * 견적 비용은 저장된 '계약 손익 기준표'를 먼저 쓴다. 없으면 견적서로, 견적서도 없으면 서버가 원장·렌트차량 DB 값으로
+   * 같은 식을 돌려 준 추정치(estimate)로 비교한다. 저장해 두면 렌트차량 DB를 고쳐도 기준이 바뀌지 않는다.
+   */
   const quotePlan = useMemo(() => quotePlanOf(state.quote), [state.quote]);
-  const plan = quotePlan || state.estimate;
+  const livePlan = quotePlan || state.estimate;
+  const plan = state.savedPlan?.values || livePlan;
+
+  const saveProfitPlan = async () => {
+    let reason = '';
+    if (state.savedPlan) {
+      reason = window.prompt('저장된 기준표를 지금 값으로 다시 계산합니다. 바꾸는 이유를 적어 주세요(예: 견적서 연결, 렌트차량 DB 수정).', '');
+      if (reason === null) return;
+    }
+    setPlanSaving(true);
+    try {
+      const res = await fetch(`${API_HOST}/api/ledgers/${ledgerId}/profit-plan`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+      setState((prev) => ({ ...prev, savedPlan: data.savedPlan }));
+      showToast?.(`계약 손익 기준표를 ${state.savedPlan ? '다시 계산해' : ''} 저장했습니다. 남는 금액 ${toCommaString(data.savedPlan.operatingProfit)}원`, 'success');
+    } catch (err) {
+      showToast?.(err.message || '기준표를 저장하지 못했습니다.', 'error');
+    } finally {
+      setPlanSaving(false);
+    }
+  };
 
   const actual = useMemo(() => {
     const out = {
@@ -1188,7 +1279,7 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
       else if (isInsurancePremium(e)) {
         out.insurance += amount;
         const d = String(e.date || '').slice(0, 10);
-        if (d && (!out.firstPremiumDate || d < out.firstPremiumDate)) out.firstPremiumDate = d;
+        if (amount > 0 && d && (!out.firstPremiumDate || d < out.firstPremiumDate)) out.firstPremiumDate = d;
       }
       else if (cat === '수리·사고') out.repair += amount;
       else if (cat === '정기점검') out.maintenance += amount;
@@ -1321,6 +1412,16 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
 
     body = (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.8rem' }}>
+        <ContractPlanCard
+          plan={plan}
+          saved={state.savedPlan}
+          liveSource={quotePlan ? '견적서' : '추정'}
+          liveSources={quotePlan ? null : state.estimate?.sources}
+          canEdit={canEdit}
+          isAdmin={isAdmin}
+          saving={planSaving}
+          onSave={saveProfitPlan}
+        />
         <div style={{ gridColumn: '1 / -1', border: '1px solid #c9d6ea', background: '#f7f9fd', borderRadius: '8px', padding: '0.8rem 0.9rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
             <span style={{ fontSize: '0.8rem', fontWeight: '800' }}>예상 수익 (지금 월 렌트료 기준)</span>
@@ -1522,7 +1623,7 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
       </div>
       <div style={{ padding: '0.8rem 0.9rem' }}>
         {body}
-        {!quotePlan && state.estimate && (
+        {!quotePlan && state.estimate && !state.savedPlan && (
           <div style={{ marginTop: '0.7rem', fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
             {state.reason} 그래서 렌트차량 DB 값에 견적서 계산식을 돌린 추정치입니다. 월 렌트료·선납금·보증금·인수가는 원장 계약 조건을 먼저 씁니다. 가정한 값: {state.estimate.assumptions.join(' · ')}
             {state.estimate.ledgerNotes?.length > 0 && (
@@ -2915,6 +3016,8 @@ function LedgerView({ showToast, currentUser }) {
         billingRounds={billingRounds}
         memo={ledger.profitReport}
         canEdit={canEdit}
+        isAdmin={currentUser?.role === 'admin'}
+        showToast={showToast}
         onMemoChange={(v) => { setLedger((prev) => ({ ...prev, profitReport: v })); setDirty(true); }}
         maturityPlan={ledger.maturityPlan}
         onMaturityChange={(v) => { setLedger((prev) => ({ ...prev, maturityPlan: v })); setDirty(true); }}

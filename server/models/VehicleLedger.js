@@ -291,6 +291,43 @@ const VehicleLedgerSchema = new Schema({
   maturityPlan: { type: String, enum: ['미정', '인수', '반납'], default: '미정' },
 
   /**
+   * 계약 손익 기준표 (2026-10-28, utils/ledgerProfitPlan.js).
+   *
+   * 계약할 때 정한 매출·비용(차량·등록·보험·자차·자동차세·이자·판관비·정비·베네핏 수수료)을 한 번 계산해 저장한 값이다.
+   * 수익성 검토는 이 값이 있으면 이걸 쓴다. 렌트차량 DB를 고쳐도 기준은 바뀌지 않고, [다시 계산]으로만 바뀐다.
+   * 지금은 최초 계약(periodSeq 1) 한 칸이다. 연장 구간의 기준표는 같은 배열에 seq를 늘려 넣는다.
+   */
+  profitPlans: [{
+    _id: false,
+    periodSeq: { type: Number, default: 1 },
+    source: { type: String, enum: ['견적서', '추정'] }, // 추정 = 견적서가 없어 원장·렌트차량 DB·기본값으로 계산
+    quote: { type: Schema.Types.ObjectId, ref: 'Quote' },
+    values: Schema.Types.Mixed, // 수익성 검토가 쓰는 견적 비용 묶음(shared/ledgerPlan.js quotePlanOf와 같은 모양)
+    sources: Schema.Types.Mixed, // 칸마다 값을 어디서 가져왔는지
+    assumptions: [String],
+    ledgerNotes: [String], // 렌트차량 DB가 원장과 달라 원장 값을 쓴 것
+    note: String,
+    vehicleLabel: String,
+    revenue: Number,
+    interestTotal: Number,
+    operatingProfit: Number,
+    savedAt: Date,
+    savedBy: String,
+    // 다시 계산하기 전 값. 누가 언제 왜 바꿨는지와 그때의 남는 금액을 남긴다
+    history: [{
+      _id: false,
+      savedAt: Date,
+      savedBy: String,
+      source: String,
+      revenue: Number,
+      operatingProfit: Number,
+      replacedAt: Date,
+      replacedBy: String,
+      reason: String
+    }]
+  }],
+
+  /**
    * 단기렌트 월 목표 (shared/shortTermTarget.js).
    * 비워 두면 견적서 식(3년·인수가 30%·정비 포함)으로 낸 값과, 원장에서 찾은 시작일을 쓴다.
    * 대표님이 따로 정한 목표나 실제 단기렌트 시작일이 다르면 여기에 적는다.

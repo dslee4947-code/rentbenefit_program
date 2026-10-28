@@ -13,6 +13,7 @@ import {
   searchContracts,
   getLedgerLabels,
   getLedgerQuote,
+  saveLedgerProfitPlan,
   getShortTermReport,
   getLedgerShortTerm
 } from '../controllers/ledgerController.js';
@@ -36,6 +37,7 @@ router.route('/:id')
   .delete(checkWritePermission, deleteLedger);
 
 router.get('/:id/quote', getLedgerQuote);
+router.post('/:id/profit-plan', checkWritePermission, saveLedgerProfitPlan);
 router.get('/:id/short-term', getLedgerShortTerm);
 router.put('/:id/entries', checkWritePermission, saveLedgerEntries);
 router.post('/:id/sync', checkWritePermission, syncLedger);

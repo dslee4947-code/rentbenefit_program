@@ -4,8 +4,7 @@ import Contract from '../models/Contract.js';
 import BillingSchedule from '../models/BillingSchedule.js';
 import Company from '../models/Company.js';
 import Customer from '../models/Customer.js';
-import Quote from '../models/Quote.js';
-import { calculateVehicleProfit, QUOTE_DEFAULTS } from '../utils/vehicleProfit.js';
+import { computeProfitPlan, estimateFromVehicle, findLedgerQuote, vehicleFromHeader } from '../utils/ledgerProfitPlan.js';
 import { getMaintenanceRates } from '../utils/maintenanceRates.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
 import { buildShortTermReport, shortTermRowFor, getInternalRate } from '../utils/shortTermReport.js';
@@ -978,88 +977,73 @@ export const getLinkableVehicles = async (req, res) => {
   }
 };
 
-// @desc    이 갑지 차량의 견적서 (수익성 검토용). 갑지 -> 최초 계약 -> 견적서 순으로 찾는다
+// @desc    이 갑지 차량의 견적서 (수익성 검토용). 갑지 -> 최초 계약 -> 견적서 순으로 찾는다.
+//          저장된 계약 손익 기준표(savedPlan)가 있으면 화면은 그걸 쓴다.
 // @route   GET /api/ledgers/:id/quote
 export const getLedgerQuote = async (req, res) => {
   try {
-    const ledger = await VehicleLedger.findById(req.params.id).select('contract contractPeriods vehicle terms').lean();
+    const ledger = await VehicleLedger.findById(req.params.id).select('contract contractPeriods vehicle terms header profitPlans entries.side entries.category entries.amount').lean();
     if (!ledger) return res.status(404).json({ message: '갑지를 찾을 수 없습니다.' });
+    const savedPlan = (ledger.profitPlans || []).find((p) => (p.periodSeq || 1) === 1) || null;
 
-    // 견적은 차를 들여올 때 한 번 쓴다. 연장 계약에는 견적서가 따로 없으므로 최초 계약을 본다.
-    const first = [...(ledger.contractPeriods || [])].sort((a, b) => a.seq - b.seq)[0];
-    // 구간이 있으면 1구간의 계약만 본다. ledger.contract는 연장하면 연장 계약으로 바뀌어 견적과 상관없다.
-    const contractId = first ? first.contract : ledger.contract;
-    const contract = contractId
-      ? await Contract.findById(contractId).select('quote contractNo termMonths rentPeriodYears').lean()
-      : null;
-
-    let reason;
-    if (!contract) reason = '연결된 계약이 없습니다.';
-    else if (!contract.quote) reason = `계약 ${contract.contractNo || ''}은(는) 견적서에서 만들어지지 않았습니다.`.replace(/\s+/g, ' ');
-    else {
-      const quote = await Quote.findById(contract.quote)
-        .select('vehicleModel totalPrice pricing insurance maintenance comparisonVehicles activeVehicleId monthlyEstimates createdAt')
-        .lean();
-      if (quote) return res.json({ quote });
-      reason = '계약에 적힌 견적서가 삭제되었습니다.';
-    }
+    const { contract, quote, reason } = await findLedgerQuote(ledger);
+    if (quote) return res.json({ quote, savedPlan });
 
     /**
      * 견적서가 없는 차(엑셀에서 옮겨 온 계약 대부분)는 렌트차량 DB 값에 견적서 식을 돌려 대신 보여 준다.
-     * 렌트차량 목록의 이익금과 같은 계산이다. 값이 없는 항목은 견적서 기본값으로 채우고 무엇을 가정했는지 함께 내려 준다.
+     * 월 렌트료·선납금·보증금·인수가·기간은 원장 계약 조건을 먼저 쓴다(utils/ledgerProfitPlan.js).
      */
-    const vehicle = ledger.vehicle ? await Vehicle.findById(ledger.vehicle).lean() : null;
-    if (!vehicle) return res.json({ quote: null, reason });
+    // 차량이 연결되지 않은 거래완료 갑지는 갑지 상단 정보(차량가·배기량·계약 기간)로 대신한다
+    const vehicle = (ledger.vehicle ? await Vehicle.findById(ledger.vehicle).lean() : null) || vehicleFromHeader(ledger);
+    if (!vehicle) return res.json({ quote: null, reason, savedPlan });
+    if (vehicle.skip) return res.json({ quote: null, reason: `${reason} ${vehicle.skip}`, savedPlan });
+    // 지난 계약이라 정비비는 단가표 처음 값으로 본다(utils/ledgerProfitPlan.js PAST_CONTRACT_MAINTENANCE_RATES)
+    const est = await estimateFromVehicle({ ledger, contract, vehicle });
+    if (!est.ok) return res.json({ quote: null, reason: `${reason} 렌트차량 DB로도 계산할 수 없습니다(${est.reason}).`, savedPlan });
+    res.json({ quote: null, reason, estimate: est.estimate, savedPlan });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
 
-    /**
-     * 계약 조건은 렌트차량 DB보다 원장 값을 먼저 쓴다(2026-10-28).
-     * 렌트차량 DB의 월 렌트료가 원장과 다른 차가 32대였다(Benz-013: DB 469,000원, 원장 2,975,445원). 그 값으로 계산하니
-     * 125대 합계가 1억 8천만 원 손실로 나왔다. 원장은 자금팀이 실제 계약대로 맞춰 둔 장부라 그쪽이 맞다.
-     * 견적은 최초 계약을 놓고 계산하므로 1구간 값을 쓴다. 구간이 하나뿐이면 고정 조건(terms)도 같은 계약이다.
-     * 연장한 갑지의 terms는 연장 계약 값이라(Ray-002: 연장 렌트료 130,000원 × 최초 60개월) 1구간이 비어도 쓰지 않는다.
-     */
-    const single = (ledger.contractPeriods || []).length <= 1;
-    const fromLedger = (key) => {
-      const value = Number(first?.[key]) || (single ? Number(ledger.terms?.[key]) : 0);
-      return value > 0 ? value : 0;
-    };
-    const ledgerTerms = {
-      monthlyFee: fromLedger('monthlyRent'),
-      advancePayment: fromLedger('advancePayment'),
-      deposit: fromLedger('deposit'),
-      takeoverPrice: fromLedger('takeoverPrice')
-    };
-    const LABEL = { monthlyFee: '월 렌트료', advancePayment: '선납금', deposit: '보증금', takeoverPrice: '인수가' };
-    const ledgerNotes = [];
-    const merged = { ...vehicle };
-    Object.entries(ledgerTerms).forEach(([key, value]) => {
-      // 1천 원 미만 차이는 원장이 CMS 수수료(275원)를 떼고 적은 것이라 렌트차량 DB 값을 그대로 둔다(수수료는 화면에서 따로 뺀다)
-      if (!value || Math.abs(value - (Number(vehicle[key]) || 0)) < 1000) return;
-      ledgerNotes.push(`${LABEL[key]}: 렌트차량 DB ${(Number(vehicle[key]) || 0).toLocaleString()}원 대신 원장 ${value.toLocaleString()}원`);
-      merged[key] = value;
+// @desc    계약 손익 기준표 저장 / 다시 계산 (구상안 2단계)
+//          처음 저장은 수정 권한이 있으면 누구나, 이미 있는 기준을 바꾸는 [다시 계산]은 관리자만 한다.
+//          바꾸기 전 값은 history에 남긴다.
+// @route   POST /api/ledgers/:id/profit-plan  { reason }
+export const saveLedgerProfitPlan = async (req, res) => {
+  try {
+    const ledger = await VehicleLedger.findById(req.params.id).select('ledgerNo header contract contractPeriods vehicle terms profitPlans entries.side entries.category entries.amount').lean();
+    if (!ledger) return res.status(404).json({ message: '갑지를 찾을 수 없습니다.' });
+    const plans = ledger.profitPlans || [];
+    const prev = plans.find((p) => (p.periodSeq || 1) === 1);
+    if (prev && req.user?.role !== 'admin') {
+      return res.status(403).json({ message: '저장된 기준표를 다시 계산하는 것은 관리자만 할 수 있습니다.' });
+    }
+
+    const result = await computeProfitPlan(ledger);
+    if (!result.ok) return res.status(400).json({ message: result.reason });
+
+    const by = req.user?.name || '';
+    const now = new Date();
+    const history = prev
+      ? [...(prev.history || []), {
+        savedAt: prev.savedAt, savedBy: prev.savedBy, source: prev.source, revenue: prev.revenue, operatingProfit: prev.operatingProfit,
+        replacedAt: now, replacedBy: by, reason: String(req.body?.reason || '').slice(0, 300)
+      }]
+      : [];
+    const plan = { ...result.plan, savedAt: now, savedBy: by, history };
+    await VehicleLedger.updateOne(
+      { _id: ledger._id },
+      { $set: { profitPlans: [...plans.filter((p) => (p.periodSeq || 1) !== 1), plan] } }
+    );
+
+    logActivity({
+      req, dept: '재무부', action: ACTIONS.LEDGER_EDIT,
+      target: { model: 'VehicleLedger', id: ledger._id },
+      summary: `${ledger.ledgerNo} 계약 손익 기준표 ${prev ? '다시 계산' : '저장'} · 남는 금액 ${plan.operatingProfit.toLocaleString()}원`,
+      meta: { source: plan.source, before: prev?.operatingProfit ?? null, after: plan.operatingProfit }
     });
-
-    // 기간도 1구간(최초 계약)을 먼저 본다. 고정 조건(terms)은 연장하면 연장 계약 기간으로 바뀌므로 구간이 하나일 때만 쓴다.
-    const termMonths = Number(first?.termMonths) || (single ? Number(ledger.terms?.termMonths) : 0) || Number(vehicle.paymentTerm)
-      || Number(contract?.termMonths) || Number(contract?.rentPeriodYears || 0) * 12 || 0;
-    const profit = calculateVehicleProfit(merged, termMonths, { maintenanceRates: await getMaintenanceRates() });
-    if (!profit.ok) return res.json({ quote: null, reason: `${reason} 렌트차량 DB로도 계산할 수 없습니다(${profit.reason}).` });
-
-    res.json({
-      quote: null,
-      reason,
-      estimate: {
-        ...profit.breakdown,
-        months: profit.termMonths,
-        vehicleLabel: [vehicle.carModel, vehicle.plateNo].filter(Boolean).join(' '),
-        // 판관비는 차량 DB에 금액이 있으면 그 값을 썼으므로 '차량가의 3%' 가정은 빼고 보여 준다
-        ledgerNotes,
-        assumptions: [
-          ...profit.assumptions.filter((a) => !(Number(vehicle.sellingAdminExpense) > 0 && a.startsWith('판관비'))),
-          `베네핏 수수료: 차량가의 ${(QUOTE_DEFAULTS.commissionRate * 100).toFixed(1)}%`
-        ]
-      }
-    });
+    res.json({ savedPlan: plan });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

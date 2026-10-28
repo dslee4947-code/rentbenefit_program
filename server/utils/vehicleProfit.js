@@ -53,6 +53,13 @@ const has = (value) => value !== '' && value !== null && value !== undefined && 
 export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
   const defaults = { ...QUOTE_DEFAULTS, ...overrides };
   const assumptions = [];
+  // 기준표 칸마다 값을 어디서 가져왔는지(렌트차량 DB / 계산 / 기본값). 원장 값은 부르는 쪽이 덮어쓴다.
+  const sources = {
+    revenue: '렌트차량 DB', netVehiclePrice: '렌트차량 DB', registrationCost: '렌트차량 DB',
+    baseInsurance: '기본값', ownCarInsurance: '견적 자차 요율', carTaxTotal: '렌트차량 DB',
+    interest: '렌트차량 DB 금리', pandanbi: num(vehicle.sellingAdminExpense) ? '렌트차량 DB' : '차량가 3%', benefitFee: '차량가 3%',
+    maintenance: vehicle.maintenance?.generalMaintenance === '가입' ? '정비 단가표' : '정비 미포함'
+  };
 
   const totalCarPrice = num(vehicle.carPrice) + num(vehicle.optionPrice);
   const months = num(termMonths);
@@ -70,6 +77,7 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
   let acquisitionTax = num(vehicle.acquisitionTax);
   if (!acquisitionTax) {
     acquisitionTax = acquisitionTaxFor(netVehiclePrice);
+    sources.registrationCost = '공급가로 계산';
     assumptions.push('취득세: 공급가액 기준으로 계산');
   }
   let publicBond = num(vehicle.publicBond);
@@ -92,6 +100,7 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
   let carTaxTotal = num(vehicle.individualConsumptionTax);
   if (!carTaxTotal) {
     carTaxTotal = annualCarTax(vehicle.cc) * years;
+    sources.carTaxTotal = '배기량으로 계산';
     assumptions.push('자동차세: 배기량 기준으로 계산');
   }
 
@@ -106,6 +115,7 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
   let baseInterestRate = num(vehicle.interestRate) ? num(vehicle.interestRate) / 100 : 0;
   if (!baseInterestRate) {
     baseInterestRate = defaults.baseInterestRate;
+    sources.interest = `기본 금리 ${(defaults.baseInterestRate * 100).toFixed(1)}%`;
     assumptions.push(`금리: 연 ${(defaults.baseInterestRate * 100).toFixed(1)}%`);
   }
   const interestRate = baseInterestRate + addedRateForTerm(months);
@@ -185,6 +195,7 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
     profitAmount,
     profitRatePercent,
     assumptions,
+    sources,
     // 원장 수익성 검토에서 항목별로 보여 줄 값. 견적서가 없는 차는 이 값으로 대신 비교한다.
     breakdown: {
       baseInsurance: insuranceFeeAnnual * years,

@@ -542,6 +542,11 @@ export const updateVehicle = async (req, res) => {
           billingWarning = { code: err.code || 'UNKNOWN', message: err.message };
         }
       }
+    } else if (updatedVehicle?.status === '장기렌트') {
+      // 엑셀로 먼저 등록한 차는 계약 없이 출고될 수 있다. 그러면 회차표가 없어 청구가 통째로 빠진다
+      // (주식회사 레이 셀토스 2대, 2026-10-28 발견). 저장은 두고 눈에 띄게 알린다.
+      billingWarning = { code: 'NO_CONTRACT', message: '이 차에 연결된 계약이 없어 청구 회차표를 만들 수 없습니다. 계약 등록에서 계약을 만들어 연결해 주세요.' };
+      billingMessage = ' (계약이 연결되지 않아 청구 회차표가 없습니다)';
     }
 
     res.json({

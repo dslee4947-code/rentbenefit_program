@@ -93,6 +93,20 @@ export const makeInvoicePdf = (element) => makeFittedPdf(element, { orientation:
  * 청구서 양식. 월 청구 화면은 숨겨 두고 PDF로 캡처하고, 청구서 보관함은 화면에 그대로 보여 준다.
  * 엑셀로 쓰던 청구서 양식(결제금액 내역 / 청구내역 / 상세내역 / 차량 표)을 그대로 옮겼다.
  */
+/**
+ * 상세내역의 차종 칸. 같은 차종이 여러 대면 대수를 붙이고(레이 20대), 차종이 셋 이상이면 두 개만 쓰고 '외 n종'으로 줄인다.
+ */
+const carModelText = (vehicles) => {
+  const counts = new Map();
+  (vehicles || []).forEach((v) => {
+    const model = String(v?.carModel || '').trim();
+    if (model) counts.set(model, (counts.get(model) || 0) + 1);
+  });
+  const parts = [...counts].map(([model, n]) => (n > 1 ? `${model} ${n}대` : model));
+  if (!parts.length) return '-';
+  return parts.length > 2 ? `${parts.slice(0, 2).join(', ')} 외 ${parts.length - 2}종` : parts.join(', ');
+};
+
 export default function InvoiceSheet({ innerRef, item, round, vehicles, total }) {
   const company = item?.company;
   const name = company?.name || item?.customer?.name || '-';
@@ -137,6 +151,8 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
     ['거래은행', debit?.bankName || '-'],
     ['계좌번호', debit ? maskAccount(debit.accountNo) : '-'],
     ['납입회차', ext ? `${round?.no || '-'} 회 (연장 계약)` : `${round?.no || '-'} 회`],
+    // 어느 차 청구서인지 첫 장에서 바로 보이게 출금일 앞에 둔다(대표님 2026-10-28)
+    ['차종', carModelText(vehicles)],
     ['출금일', ymd(round?.dueDate)]
   ];
   // 연체 이율 안내. 계약마다 다르다(기존 고객 20%, 이후 25%). 모르면 문구를 빼고 틀린 숫자를 찍지 않는다.

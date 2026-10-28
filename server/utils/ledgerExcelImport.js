@@ -361,8 +361,11 @@ export const importLedgersFromExcel = async (files, { dryRun = false, beforeWrit
       stats.mismatched.push(`${s.ledgerNo} [${s.kind}]: 엑셀 정산 ${Math.round(s.expected.balance).toLocaleString()} / 읽은 줄 합계 ${Math.round(got.cashBalance).toLocaleString()}`);
     }
 
-    const ledgerType = s.kind === '단기' ? '단기렌트' : '장기렌트';
     const existing = existingByNo.get(s.ledgerNo);
+    // 장기 계약을 반납하고 단기로 돌리는 차는 시트가 장기 파일에 남아 있어도 프로그램에서 바꾼 '단기렌트'를 지킨다
+    // (Grander-009 김대환 회장님: 6회차까지 장기 후 단기 운용, 대표님 2026-10-28)
+    const keepShort = s.kind === '장기' && existing?.ledgerType === '단기렌트';
+    const ledgerType = s.kind === '단기' || keepShort ? '단기렌트' : '장기렌트';
 
     if (existing) {
       // 같은 이름인데 차량번호가 다르면 다른 차다. 덮어쓰지 않는다.
@@ -391,7 +394,7 @@ export const importLedgersFromExcel = async (files, { dryRun = false, beforeWrit
 
       const status = s.kind === '완료' ? '거래완료' : existing.status;
       const prevForm = existing.status === '거래완료' ? '완료' : (existing.ledgerType === '단기렌트' ? '단기' : '장기');
-      if (prevForm !== s.kind) stats.kindChanged.push(`${s.ledgerNo}: ${prevForm} -> ${s.kind}`);
+      if (prevForm !== s.kind && !keepShort) stats.kindChanged.push(`${s.ledgerNo}: ${prevForm} -> ${s.kind}`);
 
       // 줄이 그대로면 쓰지 않는다. 10분마다 도는데 매번 179장을 다시 쓰면 수정 시각이 의미를 잃는다.
       const comparable = (list) => JSON.stringify((list || []).map((e) => [

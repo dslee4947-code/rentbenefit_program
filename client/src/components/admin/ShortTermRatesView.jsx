@@ -54,6 +54,22 @@ function ShortTermRatesView({ showToast, currentUser }) {
 
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 손익 원장·렌트차량 DB에서 단기렌트로 바꾸고 이 화면으로 돌아오면 차 목록을 다시 읽는다.
+  // 저장하지 않은 수정이 있으면 지우지 않도록 건너뛴다.
+  const editsRef = useRef(edits);
+  editsRef.current = edits;
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && Object.keys(editsRef.current).length === 0) load();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const save = async (body, okMessage) => {
     setSaving(true);
     try {
@@ -146,6 +162,13 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
           <tbody>
             {cars.map((c, i) => {
               const e = edits[c.ledgerId] || {};
+              const brandRow = c.brand !== cars[i - 1]?.brand && (
+                <tr key={`brand-${c.brand}`}>
+                  <td colSpan={11} style={{ ...td, background: '#111e38', color: '#fff', fontWeight: 800, fontSize: '0.78rem', padding: '0.3rem 0.6rem' }}>
+                    {c.brand} <span style={{ color: '#ad885c', fontWeight: 600 }}>{cars.filter((x) => x.brand === c.brand).length}대</span>
+                  </td>
+                </tr>
+              );
               const field = (key) => (canEdit ? (
                 <input style={{ ...inputSt, fontWeight: c.overridden[key] || e[key] ? 800 : 400, color: c.overridden[key] || e[key] ? '#b45309' : undefined }}
                   placeholder={toCommaString(c.calculated[key])}
@@ -153,7 +176,9 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
                   onChange={(ev) => setEdit(c.ledgerId, key, parseNumber(ev.target.value) || null)} />
               ) : won(c.rates[key]));
               return (
-                <tr key={c.ledgerId} style={{ background: valueOf(c, 'renting') ? '#fffbeb' : undefined }}>
+                <React.Fragment key={c.ledgerId}>
+                {brandRow}
+                <tr style={{ background: valueOf(c, 'renting') ? '#fffbeb' : undefined }}>
                   <td style={{ ...td, textAlign: 'center', color: 'var(--text-muted)' }}>{i + 1}</td>
                   <td style={{ ...td, fontWeight: 700 }}>{c.carModel}{c.reason && <div style={{ fontSize: '0.7rem', color: '#b45309', fontWeight: 400 }}>{c.reason}</div>}</td>
                   <td style={td}>{c.plateNo}</td>
@@ -174,6 +199,7 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
                     {canEdit ? <input style={{ ...inputSt, width: '140px', textAlign: 'left' }} value={valueOf(c, 'note') || ''} onChange={(ev) => setEdit(c.ledgerId, 'note', ev.target.value)} /> : c.note}
                   </td>
                 </tr>
+                </React.Fragment>
               );
             })}
           </tbody>
@@ -210,12 +236,15 @@ const SHEET_CSS = `
     border-right: 1px solid ${SHEET_GOLD}; border-bottom: 1px solid ${SHEET_GOLD}; white-space: nowrap; }
   .st-sheet-table td { padding: 8px 8px; border-bottom: 1px solid #e9e6e0; border-right: 1px solid ${SHEET_GOLD}; white-space: nowrap; }
   .st-sheet-table th:last-child, .st-sheet-table td:last-child { border-right: none; }
-  .st-sheet-table tbody tr:nth-child(even) td { background: #f9f8f6; }
+  .st-sheet-table tbody tr.even td { background: #f9f8f6; }
   .st-sheet-table td.no { text-align: center; color: ${SHEET_GOLD}; font-weight: 800; }
   .st-sheet-table td.model { color: ${SHEET_NAVY}; font-weight: 800; }
   .st-sheet-table td.n { text-align: right; padding-right: 14px; }
   .st-sheet-table td.month { font-weight: 800; color: ${SHEET_NAVY}; }
   .st-sheet-table td.c { text-align: center; }
+  .st-sheet-table tr.brand td { background: #f3eee6 !important; color: ${SHEET_NAVY}; font-weight: 800; font-size: 0.84rem; padding: 6px 12px;
+    border-top: 2px solid ${SHEET_GOLD}; border-right: none; letter-spacing: 1px; }
+  .st-sheet-table tr.brand td span { color: ${SHEET_GOLD}; font-weight: 700; margin-left: 6px; letter-spacing: 0; }
   @media print {
     @page { size: A4 portrait; margin: 0 !important; }
     body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
@@ -259,7 +288,11 @@ function RateSheet({ sheetRef, cars, policy }) {
             </thead>
             <tbody>
               {cars.map((c, i) => (
-                <tr key={c.ledgerId}>
+                <React.Fragment key={c.ledgerId}>
+                {c.brand !== cars[i - 1]?.brand && (
+                  <tr className="brand"><td colSpan={8}>{c.brand}<span>{cars.filter((x) => x.brand === c.brand).length}대</span></td></tr>
+                )}
+                <tr className={(i - cars.findIndex((x) => x.brand === c.brand)) % 2 ? 'even' : undefined}>
                   <td className="no">{i + 1}</td>
                   <td className="model">{c.carModel}</td>
                   {c.renting
@@ -269,6 +302,7 @@ function RateSheet({ sheetRef, cars, policy }) {
                   <td className="c">{c.fuelType || ''}</td>
                   <td className="c">{yearMonth(c.ageStart)}</td>
                 </tr>
+                </React.Fragment>
               ))}
             </tbody>
           </table>

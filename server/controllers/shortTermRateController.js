@@ -1,5 +1,7 @@
 import Setting from '../models/Setting.js';
-import { buildShortTermReport } from '../utils/shortTermReport.js';
+import Vehicle from '../models/Vehicle.js';
+import { buildShortTermReport, shortTermRowFor, getInternalRate } from '../utils/shortTermReport.js';
+import { getMaintenanceRates } from '../utils/maintenanceRates.js';
 import { isPublicHoliday } from '../utils/koreanHolidays.js';
 import {
   mergeRatePolicy, deriveRates, insurerGradeFor, insurerCcFor, rentalLifeFor, INSURER_RENTAL_TABLE, REGIONS
@@ -9,6 +11,8 @@ import {
  * 단기렌트 · 사고대차 단가표 (엑셀 "12. 단기 렌트비용.xls"를 옮긴 화면).
  *
  * 차 목록과 1개월 요금은 손익 원장의 단기렌트 장에서 온다(월 목표 = 견적 3년·인수가 30%·정비 포함, 차령 가감).
+ * 렌트차량 DB 상태도 함께 본다: DB에서 단기렌트인 차는 원장이 없어도 넣고, 장기렌트·계약중·거래완료로 바뀐 차는 뺀다.
+ * 화면을 열 때마다 새로 읽으므로 원장·DB에서 바꾸면 따로 손댈 것 없이 반영된다.
  * 1일·1주 요금, 주행거리·탁송 규칙, 차마다 직접 정한 요금, 대여 중 표시, 보험 담당자는 설정 한 칸(shortTermRateCard)에 둔다.
  */
 const KEY = 'shortTermRateCard';
@@ -43,15 +47,44 @@ const brandRank = (carModel) => {
   const i = BRAND_ORDER.findIndex(([, re]) => re.test(String(carModel || '').trim()));
   return i === -1 ? BRAND_ORDER.length : i;
 };
+const brandName = (carModel) => BRAND_ORDER[brandRank(carModel)]?.[0] || '기타';
+
+// 렌트차량 DB에서 이 상태면 단기렌트 단가표에서 뺀다(원장이 아직 단기렌트로 남아 있어도)
+const NOT_SHORT_TERM = ['장기렌트', '계약중', '거래완료'];
+
+/**
+ * 단가표에 올릴 차. 단기렌트 원장 + 원장이 없는 DB 단기렌트 차.
+ * 원장이 없는 차는 차 id를 원장 id 자리에 써서 차별 요금·대여 중 표시를 같은 방식으로 저장한다.
+ */
+const shortTermRows = async () => {
+  const report = await buildShortTermReport();
+  const [dbShortTerm, linked] = await Promise.all([
+    Vehicle.find({ status: '단기렌트' })
+      .select('carModel plateNo carPrice optionPrice discount deliveryFee cc fuelType maintenance status registrationDate deliveryDate').lean(),
+    Vehicle.find({ _id: { $in: report.rows.map((r) => r.vehicleId).filter(Boolean) } }).select('status').lean()
+  ]);
+  const statusOf = new Map(linked.map((v) => [String(v._id), v.status]));
+  const rows = report.rows.filter((r) => !NOT_SHORT_TERM.includes(statusOf.get(String(r.vehicleId))));
+  const inReport = new Set(report.rows.map((r) => String(r.vehicleId)));
+  const missing = dbShortTerm.filter((v) => !inReport.has(String(v._id)) && Number(v.carPrice) > 0);
+  if (missing.length) {
+    const [annualRate, maintenanceRates] = await Promise.all([getInternalRate(), getMaintenanceRates()]);
+    for (const v of missing) {
+      const row = shortTermRowFor({ _id: v._id, header: {}, entries: [], shortTerm: {} }, v, { annualRate, maintenanceRates });
+      rows.push({ ...row, ledgerNo: null, reason: '손익 원장에 단기렌트 장이 없습니다 (렌트차량 DB 기준으로 올림)' });
+    }
+  }
+  return rows;
+};
 
 /** @route GET /api/short-term-rates */
 export const getShortTermRates = async (req, res) => {
   try {
-    const [{ value, updatedAt, updatedBy }, report] = await Promise.all([loadCard(), buildShortTermReport()]);
+    const [{ value, updatedAt, updatedBy }, rows] = await Promise.all([loadCard(), shortTermRows()]);
     const policy = mergeRatePolicy(value.policy);
     const overrides = value.vehicles || {};
 
-    const cars = report.rows.map((r) => {
+    const cars = rows.map((r) => {
       const p = r.performance || {};
       const ov = overrides[String(r.ledgerId)] || {};
       // 1개월 = 이번 달 차령을 반영한 월 목표. 목표를 못 내는 차는 직접 정한 값만 쓴다.
@@ -66,6 +99,7 @@ export const getShortTermRates = async (req, res) => {
         ledgerNo: r.ledgerNo,
         vehicleId: r.vehicleId,
         carModel: r.carModel,
+        brand: brandName(r.carModel),
         plateNo: r.plateNo,
         fuelType: r.fuelType,
         cc: r.cc,

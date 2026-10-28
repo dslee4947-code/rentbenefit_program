@@ -115,7 +115,6 @@ const sortedDates = (records, kind) => (records || [])
  */
 export const nextInspection = (vehicle, records, today = new Date()) => {
   const reg = kstYmd(vehicle?.registrationDate);
-  if (!reg) return null;
   const R = INSPECTION_RULE;
   const todayYmd = kstYmd(today);
   const done = sortedDates(records, '자동차검사');
@@ -123,6 +122,38 @@ export const nextInspection = (vehicle, records, today = new Date()) => {
   const dueOf = (round) => addMonths(reg, R.firstAfterMonths + (round - 1) * R.everyMonths);
   const startOf = (round) => addMonths(dueOf(round), -R.windowBeforeMonths);
   const halfCycle = Math.round((R.everyMonths * 30.44) / 2);
+
+  // 사이버검사소에서 조회한 유효기간이 있으면 그 만료일이 정답이다(연기·늦은 검사·빠진 검사비 기록과 상관없이).
+  const valid = vehicle?.inspectionValidity;
+  if (valid?.to) {
+    let date = valid.to;
+    // 조회한 뒤에 검사를 받았다고 적었으면 다음 해로 넘긴다. 다음 조회 때 사이트 값으로 다시 맞춰진다.
+    const checked = kstYmd(valid.checkedAt) || '';
+    if (done.some((d) => d > checked && d >= addMonths(date, -R.windowBeforeMonths))) date = addMonths(date, R.everyMonths);
+    const windowEnd = addMonths(date, R.windowAfterMonths);
+    const dday = ddayOf(date, todayYmd);
+    let round = null;
+    if (reg) {
+      for (let r = 1; r < 200; r += 1) {
+        const gap = dayNo(date) - dayNo(dueOf(r));
+        if (Math.abs(gap) <= halfCycle) { round = r; break; }
+        if (gap < -halfCycle) break;
+      }
+    }
+    return {
+      date,
+      dday,
+      status: statusOf(dday, windowEnd < todayYmd),
+      windowStart: addMonths(date, -R.windowBeforeMonths),
+      windowEnd,
+      round,
+      missed: 0,
+      lastDone: done[done.length - 1] || '',
+      unverified: false,
+      checkedAt: checked // 사이버검사소에서 조회한 날
+    };
+  }
+  if (!reg) return null;
 
   // 기록이 덮는 가장 늦은 회차. 기록이 없으면 0회차(아직 한 번도 안 받음).
   let covered = 0;

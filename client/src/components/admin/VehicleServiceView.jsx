@@ -343,9 +343,10 @@ function VehicleServiceView({ showToast, currentUser }) {
                 {selectedRow?.inspection ? (
                   <>
                     <Due item={selectedRow.inspection} color={INSPECTION_LEVEL[inspectionLevelOf(selectedRow)]?.fg} />
-                    <div style={small}>받을 수 있는 기간 {selectedRow.inspection.windowStart} ~ {selectedRow.inspection.windowEnd} (목표: 검사일 전)</div>
+                    <div style={small}>{selectedRow.inspection.checkedAt ? '유효기간 만료일 · ' : ''}받을 수 있는 기간 {selectedRow.inspection.windowStart} ~ {selectedRow.inspection.windowEnd} (목표: 검사일 전)</div>
                     {selectedRow.inspection.unverified && <div style={{ ...small, color: '#6d28d9' }}>검사 기록이 없어 지난 검사는 받은 것으로 보았습니다. 사이버검사소에서 확인해 주세요.</div>}
-                    <div style={small}>{selectedRow.inspection.round}회차{selectedRow.inspection.lastDone ? ` · 지난 검사 ${selectedRow.inspection.lastDone}` : ''}</div>
+                    {selectedRow.inspection.checkedAt && <div style={small}>사이버검사소 유효기간 만료일 기준 ({selectedRow.inspection.checkedAt} 조회)</div>}
+                    <div style={small}>{[selectedRow.inspection.round && `${selectedRow.inspection.round}회차`, selectedRow.inspection.lastDone && `지난 검사 ${selectedRow.inspection.lastDone}`].filter(Boolean).join(' · ')}</div>
                     {selectedRow.inspection.missed > 0 && (
                       <div style={{ ...small, color: 'var(--error)' }}>그 뒤 {selectedRow.inspection.missed}회차도 기간이 지났습니다. 검사 기록이 빠졌는지 확인하세요.</div>
                     )}

@@ -114,7 +114,7 @@ export const loadServiceRecords = async (vehicles, select) => {
  */
 export const syncVehicleServiceSchedules = async ({ dryRun = false } = {}) => {
   const vehicles = await Vehicle.find({ status: { $in: SERVICE_ACTIVE_STATUSES } })
-    .select('plateNo status registrationDate deliveryDate rentBillingDate maintenance contract company contractorName')
+    .select('plateNo status registrationDate inspectionValidity deliveryDate rentBillingDate maintenance contract company contractorName')
     .populate('contract', 'leaseCompany')
     .populate('company', 'name')
     .lean();

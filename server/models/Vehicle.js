@@ -24,6 +24,9 @@ const VehicleSchema = new Schema({
   vin: String,
   plateNo: String,
   registrationDate: Date,
+  // 사이버검사소에서 조회한 정기검사 유효기간(YYYY-MM-DD). 있으면 다음 검사일을 등록일로 계산하지 않고 만료일로 잡는다.
+  // utils/cybertsInspection.js가 매일 새벽 맞춘다.
+  inspectionValidity: { from: String, to: String, checkedAt: Date },
 
   // 3. 가격 스냅샷 (목록 화면에서 매번 계약을 populate하지 않고 바로 표시하기 위한 용도, 원본은 Contract.pricing)
   // 견적서 가격 상세 항목을 빠짐없이 그대로 담는다.

@@ -86,4 +86,20 @@ check('점검: 실제로 더 많이 타면 주행거리 기준 날짜가 앞선�
   assert.match(r.basis, /실제 주행/);
 });
 
+check('검사: 사이버검사소 만료일이 있으면 기록이 빠져도 그 날짜가 다음 검사일', () => {
+  // 2025년 검사비가 원장에 없던 101호2169 (2026-10-28)
+  const v = { registrationDate: '2021-10-25', inspectionValidity: { from: '2026-10-25', to: '2027-10-24', checkedAt: '2026-10-28' } };
+  const r = nextInspection(v, [{ kind: '자동차검사', date: '2024-10-31' }], '2026-10-28');
+  assert.equal(r.date, '2027-10-24');
+  assert.equal(r.round, 5); // 2023·2024·2025·2026 다음
+  assert.equal(r.status, '예정');
+  assert.equal(r.unverified, false);
+});
+
+check('검사: 조회 뒤에 검사 기록을 적으면 다음 해로 넘어간다', () => {
+  const v = { registrationDate: '2023-10-20', inspectionValidity: { from: '2025-10-20', to: '2026-10-19', checkedAt: '2026-10-28' } };
+  assert.equal(nextInspection(v, [], '2026-10-29').date, '2026-10-19');
+  assert.equal(nextInspection(v, [{ kind: '자동차검사', date: '2026-10-30' }], '2026-10-30').date, '2027-10-19');
+});
+
 console.log('\n모두 통과했습니다.');

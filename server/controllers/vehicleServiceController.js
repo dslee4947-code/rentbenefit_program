@@ -19,7 +19,7 @@ const DOC_KIND_OF = {
   기타: 'repair'
 };
 
-const VEHICLE_FIELDS = 'plateNo carModel status registrationDate deliveryDate rentBillingDate maintenance contract company contractorName currentMileage paymentTerm';
+const VEHICLE_FIELDS = 'plateNo carModel status registrationDate inspectionValidity deliveryDate rentBillingDate maintenance contract company contractorName currentMileage paymentTerm';
 
 const loadVehicle = (filter) => Vehicle.findOne(filter)
   .select(VEHICLE_FIELDS)

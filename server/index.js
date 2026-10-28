@@ -44,6 +44,7 @@ import { syncVehicleServiceSchedules } from './utils/vehicleServiceScheduleJob.j
 import { runAutoSend, sendAutoSendReport, sendApprovalReminder, refreshAllUnbilledInterest } from './controllers/billingScheduleController.js';
 import { runDeliveryDocsSend, sendDeliveryDocsReminder } from './controllers/deliveryDocsController.js';
 import { syncCalendarInbox } from './utils/calendarInboxSync.js';
+import { syncInspectionValidity } from './utils/cybertsInspection.js';
 import { isGoogleCalendarConfigured } from './utils/googleCalendar.js';
 
 // Connect to MongoDB database
@@ -92,6 +93,15 @@ connectDB().then(async () => {
     syncFineNoticeSchedules().catch((err) => console.error('[고지서 납부기한] 실패:', err.message));
   }, CRON_OPTIONS);
   console.log('[Cron Scheduler] 고지서 납부기한 동기화 예약 완료 (매일 03:20).');
+
+  // 사이버검사소에서 차마다 검사 유효기간을 받아 온다. 검사를 받으면 사이트 만료일이 다음 해로 바뀐다.
+  // 정비·검사 일정(03:30)이 새 만료일로 계산되도록 그보다 먼저 돈다.
+  cron.schedule('0 3 * * *', () => {
+    syncInspectionValidity()
+      .then((r) => console.log(`[검사 유효기간] ${r.checked}대 중 ${r.found}대 조회 · 바뀜 ${r.changed} · 없음 ${r.notFound.length}`))
+      .catch((err) => console.error('[검사 유효기간] 실패:', err.message));
+  }, CRON_OPTIONS);
+  console.log('[Cron Scheduler] 사이버검사소 검사 유효기간 조회 예약 완료 (매일 03:00).');
 
   // 차마다 다음 자동차검사·정기점검을 캘린더에 하나씩 맞춰 둔다(직원용 알림, 고객 메일 없음).
   // 날짜가 지나면 상태가 바뀌고 기록이 들어오면 다음 회차로 넘어가므로 매일 한 번 훑는다.

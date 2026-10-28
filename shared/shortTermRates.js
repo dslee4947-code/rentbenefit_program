@@ -2,7 +2,7 @@
  * 단기렌트 단가표와 대여료 계산 (2026-10-05).
  *
  * 엑셀 "12. 단기 렌트비용.xls"의 '렌트베네핏 단기렌트표'를 프로그램으로 옮겼다.
- *   1개월 = 단기렌트 월 목표(shared/shortTermTarget.js: 견적 3년·인수가 30%·정비 포함, 차령 가감)
+ *   1개월 = 엑셀 '단기렌트 계산식'(excelMonthlyRate, 2026-10-28부터 기본) 또는 단기렌트 월 목표(policy.monthly.method = 'quote')
  *   1일(평일) = 1개월 × 10%를 2,500원 단위로 올림   ← 엑셀 단가표 17대가 모두 이 규칙과 맞는다
  *   1주 = 1일 × 4
  * 비율·주행거리·탁송 규칙은 관리자가 화면에서 바꾼다(설정 shortTermRateCard). 여기 값은 처음 기본값이다.
@@ -44,7 +44,22 @@ export const DEFAULT_RATE_POLICY = {
     holidayIncludesSunday: true,
     regionFees: { 서울: 0, '경기·인천': 40000, 기타: null }
   },
-  notes: ['절대 금연', '선불 결제 · 계좌이체만 가능', '자차·부가세 포함 금액', '26세 이상 보험']
+  notes: ['절대 금연', '선불 결제 · 계좌이체만 가능', '자차·부가세 포함 금액', '26세 이상 보험'],
+  /**
+   * 1개월 요금 계산 방식 (2026-10-28 대표님: 엑셀 '단기렌트 계산식'을 따른다).
+   *   excel: 차량가를 36개월에 회수하는 엑셀 식(SHORT_TERM_EXCEL 주석). 등록 후 반기마다 기준 요금의 3%씩 내린다.
+   *   quote: 견적 식(3년 · 인수가 30% · 정비 포함, 1년마다 ×1.1/1.0/0.9/0.8/0.7). 손익 원장 단기렌트 월 목표와 같은 값.
+   */
+  monthly: {
+    method: 'excel',
+    termMonths: 36,
+    interestRate: 0.06, // 이자: 차량가를 이 금리로 36개월 원리금 균등상환
+    registrationRate: 0.05, // 등록비용 = 차량가 ÷ 1.1 × 이 비율
+    insuranceAnnual: 800000, // 보험료(연)
+    residualRate: 0, // 중고차 감가율. 0이면 차량가 전체를 36개월에 회수한다
+    stepRate: 0.03, // 반기마다 내리는 폭 = 기준 요금 × 이 비율(1,000원 올림)
+    maxSteps: 5 // 3년 하반기(5번 내림)부터는 더 내리지 않는다
+  }
 };
 
 export const REGIONS = ['서울', '경기·인천', '기타'];
@@ -59,8 +74,50 @@ export const mergeRatePolicy = (saved) => ({
     ...(saved?.delivery || {}),
     regionFees: { ...DEFAULT_RATE_POLICY.delivery.regionFees, ...(saved?.delivery?.regionFees || {}) }
   },
-  notes: Array.isArray(saved?.notes) ? saved.notes : DEFAULT_RATE_POLICY.notes
+  notes: Array.isArray(saved?.notes) ? saved.notes : DEFAULT_RATE_POLICY.notes,
+  monthly: { ...DEFAULT_RATE_POLICY.monthly, ...(saved?.monthly || {}) }
 });
+
+const roundUp = (v, unit) => Math.ceil(Math.round(v * 100) / 100 / unit) * unit;
+
+/**
+ * 엑셀 '단기렌트 계산식'(12. 단기 렌트비용.xls) 그대로.
+ *   F 등록비용 = 차량가 ÷ 1.1 × 5%
+ *   G 자차 수리 예비비(연) = 차량가를 1천만 원 단위로 올린 값 × 자차보험료율(견적의 ownCarInsuranceRate와 같은 식)
+ *   H 보험료(연) = 80만 원
+ *   I 이자 = 차량가를 연 6%·36개월 원리금 균등상환할 때의 이자 합계
+ *   J 총비용 = F + 차량가 + H×3 + G×3 + I
+ *   O 기준 월 요금 = (J ÷ 36 + 차량가 × 감가율 ÷ 36)을 1,000원 올림
+ *   P 반기 감가 = O × 3%를 1,000원 올림
+ *   적용 = O − P × (등록 후 지난 반기 수, 최대 5)
+ * 엑셀의 적용 칸(AD)은 INDEX 범위가 한 칸 밀리고 TODAY()를 반기 수로 써서, 모든 차가 연식과 상관없이
+ * '3년 상반기'(O − 4P)로 나왔다. 여기서는 원래 뜻대로 차를 등록한 뒤 지난 반기 수로 내린다.
+ */
+export const excelMonthlyBase = (carPrice, policy = DEFAULT_RATE_POLICY) => {
+  const m = { ...DEFAULT_RATE_POLICY.monthly, ...(policy?.monthly || {}) };
+  const price = Number(carPrice) || 0;
+  if (!(price > 0)) return null;
+  const n = m.termMonths;
+  const rate = m.interestRate / 12;
+  const registration = (price / 1.1) * m.registrationRate;
+  const insRate = price <= 10000000 ? 0.022 : price >= 500000000 ? 0.012 : 0.017 - (price - 10000000) * (0.01 / (500000000 - 10000000));
+  const ownDamageReserve = Math.ceil(price / 10000000) * 10000000 * insRate;
+  const interest = rate ? (price * rate) / (1 - (1 + rate) ** -n) * n - price : 0;
+  const years = n / 12;
+  const total = registration + price + m.insuranceAnnual * years + ownDamageReserve * years + interest;
+  const base = roundUp(total / n + (price * m.residualRate) / n, 1000);
+  const step = roundUp(base * m.stepRate, 1000);
+  return { price, registration, ownDamageReserve, insurance: m.insuranceAnnual, interest, total, base, step, maxSteps: m.maxSteps };
+};
+
+/** 엑셀 식 1개월 요금. ageStart(등록일)부터 asOf까지 지난 반기 수(엑셀처럼 30일 = 1개월)만큼 내린다. */
+export const excelMonthlyRate = ({ carPrice, ageStart, asOf = new Date(), policy = DEFAULT_RATE_POLICY }) => {
+  const b = excelMonthlyBase(carPrice, policy);
+  if (!b) return null;
+  const months = ageStart ? Math.max(0, (new Date(asOf) - new Date(ageStart)) / (30 * 24 * 3600 * 1000)) : 0;
+  const steps = Math.min(b.maxSteps, Math.floor(months / 6));
+  return { ...b, ageMonths: months, steps, halfLabel: `${Math.floor(steps / 2) + 1}년 ${steps % 2 ? '하반기' : '상반기'}${Math.floor(months / 6) > b.maxSteps ? ' 이후' : ''}`, month: b.base - b.step * steps };
+};
 
 /** 1개월 요금에서 1일·1주 요금을 낸다. */
 export const deriveRates = (monthly, policy = DEFAULT_RATE_POLICY) => {
@@ -126,6 +183,24 @@ export const quoteRental = ({ rates, start, end, region = '서울', holidays = [
     dayLines.push({ date: ymd(date), amount: Math.round(rates.day * (surcharge ? 1 + surchargeRate : 1)), surcharge });
   }
   let dayCost = dayLines.reduce((sum, l) => sum + l.amount, 0);
+
+  // 화면에 보여 줄 계산 과정(대표님 2026-10-28: 금액이 어떻게 나왔는지 식으로 보이게)
+  const won = (n) => `${Math.round(n).toLocaleString()}원`;
+  const steps = [];
+  const wd = (date) => '일월화수목금토'[new Date(`${date}T12:00:00`).getDay()];
+  steps.push({ label: '기간 나누기', formula: `${days}일 = ${[months && `1개월(30일) × ${months}`, weeks && `1주(7일) × ${weeks}`, restDays && `${restDays}일`].filter(Boolean).join(' + ')}` });
+  if (months) steps.push({ label: `1개월 요금 × ${months}`, formula: `${won(rates.month)} × ${months}`, amount: rates.month * months });
+  if (weeks) steps.push({ label: `1주 요금 × ${weeks}`, formula: `${won(rates.week)} × ${weeks}`, amount: rates.week * weeks });
+  if (restDays) {
+    steps.push({
+      label: `남은 ${restDays}일 1일 요금`,
+      formula: dayLines.map((l) => (l.surcharge
+        ? `${l.date.slice(5)}(${wd(l.date)}) ${won(rates.day)}×${1 + surchargeRate}=${won(l.amount)}`
+        : `${l.date.slice(5)}(${wd(l.date)}) ${won(l.amount)}`)).join(' + '),
+      amount: dayCost,
+      note: dayLines.some((l) => l.surcharge) ? `토·일·공휴일은 1일 요금에 ${Math.round(surchargeRate * 100)}% 추가` : null
+    });
+  }
   // 실제로 요금을 매긴 단위 수. 더 긴 상품으로 끊으면 주행거리 한도도 그 상품 기준이 된다.
   let chargedMonths = months;
   let chargedWeeks = weeks;
@@ -133,6 +208,7 @@ export const quoteRental = ({ rates, start, end, region = '서울', holidays = [
   const notes = [];
   if (restDays && dayCost > rates.week) {
     notes.push(`남은 ${restDays}일은 1일 요금(${dayCost.toLocaleString()}원)보다 1주 요금이 싸서 1주로 계산`);
+    steps.push({ label: `→ 남은 ${restDays}일은 1주 요금으로`, formula: `1일 요금 합계 ${won(dayCost)} > 1주 요금 ${won(rates.week)}이라 1주로 바꿈`, amount: rates.week, swap: true });
     dayCost = rates.week;
     chargedDays = 0;
     chargedWeeks += 1;
@@ -141,6 +217,12 @@ export const quoteRental = ({ rates, start, end, region = '서울', holidays = [
   let monthCost = months * rates.month;
   if (rem && weekCost + dayCost > rates.month) {
     notes.push(`남은 ${rem}일은 주·일 요금(${(weekCost + dayCost).toLocaleString()}원)보다 1개월 요금이 싸서 1개월로 계산`);
+    steps.push({
+      label: `→ 남은 ${rem}일은 1개월 요금으로`,
+      formula: `주·일 요금 ${[chargedWeeks && `1주 ${won(rates.week)} × ${chargedWeeks}`, chargedDays && `1일 요금 ${won(dayCost)}`].filter(Boolean).join(' + ')} = ${won(weekCost + dayCost)} > 1개월 요금 ${won(rates.month)}이라 1개월로 바꿈`,
+      amount: rates.month,
+      swap: true
+    });
     monthCost += rates.month;
     weekCost = 0;
     dayCost = 0;
@@ -149,6 +231,12 @@ export const quoteRental = ({ rates, start, end, region = '서울', holidays = [
     chargedDays = 0;
   }
   const rent = monthCost + weekCost + dayCost;
+  steps.push({
+    label: '대여료',
+    formula: [chargedMonths && `1개월 ${won(rates.month)} × ${chargedMonths}`, chargedWeeks && `1주 ${won(rates.week)} × ${chargedWeeks}`, chargedDays && `1일 요금 ${won(dayCost)}`].filter(Boolean).join(' + '),
+    amount: rent,
+    total: true
+  });
 
   // 탁송
   const d = policy.delivery || DEFAULT_RATE_POLICY.delivery;
@@ -193,6 +281,7 @@ export const quoteRental = ({ rates, start, end, region = '서울', holidays = [
     excessKm,
     excess,
     total: rent + delivery + excess,
+    steps,
     notes
   };
 };

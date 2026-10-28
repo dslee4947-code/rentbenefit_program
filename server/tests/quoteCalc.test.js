@@ -460,3 +460,23 @@ test('장기렌트 마지막 렌트료가 이번 달이라 단기 시작이 다�
   assert.equal(p.ageFactor, 0.8);
   assert.equal(p.currentTarget, 532000);
 });
+
+test('단기렌트 1개월 엑셀 식: 기준 요금·반기 감가가 엑셀 "단기렌트 계산식"과 같다 (2026-10-28)', async () => {
+  const { excelMonthlyBase, excelMonthlyRate, quoteRental } = await import('../../shared/shortTermRates.js');
+  // 엑셀 O·P열
+  for (const [price, base, step] of [[12750000, 499000, 15000], [35550000, 1248000, 38000], [40110000, 1406000, 43000], [119200000, 3992000, 120000], [201330000, 6675000, 201000]]) {
+    const b = excelMonthlyBase(price);
+    assert.equal(b.base, base, `${price} 기준 요금`);
+    assert.equal(b.step, step, `${price} 반기 감가`);
+  }
+  // K8 125호8766: 2024-07-29 등록 → 2026-10-28은 반기 4번 지남(3년 상반기) → 엑셀 시트 1,234,000과 같다
+  const k8 = excelMonthlyRate({ carPrice: 40110000, ageStart: new Date('2024-07-29'), asOf: new Date('2026-10-28') });
+  assert.equal(k8.steps, 4);
+  assert.equal(k8.month, 1234000);
+  // 5번 넘게는 내리지 않는다
+  assert.equal(excelMonthlyRate({ carPrice: 12750000, ageStart: new Date('2021-11-04'), asOf: new Date('2026-10-28') }).month, 499000 - 15000 * 5);
+  // 계산기 계산 과정: 48일 = 1개월 + 2주 + 4일 → 4일은 1주로, 남은 18일은 1개월로
+  const q = quoteRental({ rates: { day: 107500, week: 430000, month: 1061000 }, start: '2026-10-29T09:00', end: '2026-12-15T10:00', region: '서울', holidays: [] });
+  assert.equal(q.total, 2122000);
+  assert.deepEqual(q.steps.map((st) => st.amount ?? null), [null, 1061000, 860000, 451500, 430000, 1061000, 2122000]);
+});

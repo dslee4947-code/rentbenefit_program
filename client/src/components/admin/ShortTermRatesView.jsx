@@ -169,7 +169,9 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
         </div>
       )}
       <p style={{ margin: '0 0 0.7rem', fontSize: '0.76rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-        <b>1개월</b> = 단기렌트 월 목표(견적 3년 · 인수가 30% · 정비 포함, 차령 가감) · <b>1일(평일)</b> = 1개월 × {Math.round(policy.dayRatio * 100)}% ({toCommaString(policy.dayRoundUnit)}원 단위 올림) · <b>1주</b> = 1일 × {policy.weekDays}.
+        <b>1개월</b> = {policy.monthly?.method === 'quote'
+          ? '단기렌트 월 목표(견적 3년 · 인수가 30% · 정비 포함, 차령 가감)'
+          : `엑셀 단기렌트 계산식(차량가를 ${policy.monthly?.termMonths || 36}개월에 회수 · 연 ${((policy.monthly?.interestRate ?? 0.06) * 100).toFixed(1)}% · 등록 후 반기마다 ${Math.round((policy.monthly?.stepRate ?? 0.03) * 100)}%씩 내림)`} · <b>1일(평일)</b> = 1개월 × {Math.round(policy.dayRatio * 100)}% ({toCommaString(policy.dayRoundUnit)}원 단위 올림) · <b>1주</b> = 1일 × {policy.weekDays}.
         칸에 금액을 적으면 그 차만 직접 정한 요금을 씁니다(비우면 계산값). 주말·공휴일 1일 렌트는 {Math.round(policy.weekendSurchargeRate * 100)}% 추가 · 부가세·자차 포함.
       </p>
       <div style={{ overflowX: 'auto' }}>
@@ -206,7 +208,9 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
                   <td style={{ ...td, textAlign: 'center', color: 'var(--text-muted)' }}>{i + 1}</td>
                   <td style={{ ...td, fontWeight: 700 }}>{c.carModel}{c.reason && <div style={{ fontSize: '0.7rem', color: '#b45309', fontWeight: 400 }}>{c.reason}</div>}</td>
                   <td style={td}>{c.plateNo}</td>
-                  <td style={{ ...td, whiteSpace: 'nowrap' }}>{yearMonth(c.ageStart)}<div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{c.ageYear ? `${c.ageYear}년차 ×${c.ageFactor}` : ''} · {c.fuelType || '유종 미상'}</div></td>
+                  <td style={{ ...td, whiteSpace: 'nowrap' }}>{yearMonth(c.ageStart)}<div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{policy.monthly?.method !== 'quote' && c.excel
+                    ? `${c.excel.halfLabel} −${toCommaString(c.excel.step)}×${c.excel.steps}`
+                    : (c.ageYear ? `${c.ageYear}년차 ×${c.ageFactor}` : '')} · {c.fuelType || '유종 미상'}</div></td>
                   <td style={{ ...td, whiteSpace: 'nowrap', color: c.rentalLife?.daysLeft <= 180 ? '#b91c1c' : 'var(--text-muted)', fontWeight: c.rentalLife?.daysLeft <= 180 ? 700 : 400 }}>
                     {c.rentalLife ? <>{ymdText(c.rentalLife.until)}<div style={{ fontSize: '0.7rem' }}>{c.rentalLife.years}년 · {c.rentalLife.daysLeft < 0 ? '지남' : `D-${c.rentalLife.daysLeft}`}</div></> : '-'}
                   </td>
@@ -400,10 +404,60 @@ const localInput = (d) => {
   return x.toISOString().slice(0, 16);
 };
 
+/**
+ * 계산기 차량 고르기. 브라우저 기본 선택 칸은 항목에 줄을 그을 수 없어 목록을 직접 그린다.
+ * 장기 대여(대여 불가) 차는 가운데 빨간 선을 긋고 고를 수 없게 한다.
+ */
+function CarPicker({ cars, value, onChange, fieldStyle }) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+  const selected = cars.find((c) => String(c.ledgerId) === String(value));
+  const text = (c) => `${c.carModel} ${c.plateNo}`;
+  const blocked = { textDecoration: 'line-through', textDecorationColor: '#dc2626', textDecorationThickness: '1.5px', color: '#9ca3af', cursor: 'not-allowed' };
+  return (
+    <div ref={boxRef} style={{ position: 'relative', fontWeight: 400 }}>
+      <button type="button" onClick={() => setOpen((o) => !o)}
+        style={{ ...fieldStyle, width: '100%', background: '#fff', textAlign: 'left', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>{selected ? `${text(selected)}${selected.renting ? ' (대여 중)' : ''}` : '차량을 고르세요'}</span><span style={{ fontSize: '0.7rem' }}>▼</span>
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', zIndex: 20, top: '100%', left: 0, right: 0, maxHeight: '320px', overflowY: 'auto', background: '#fff', border: '1px solid var(--border-color)', borderRadius: '6px', boxShadow: '0 6px 18px rgba(0,0,0,0.12)', marginTop: '2px' }}>
+          {cars.map((c, i) => (
+            <React.Fragment key={c.ledgerId}>
+              {c.brand !== cars[i - 1]?.brand && <div style={{ padding: '0.25rem 0.6rem', fontSize: '0.7rem', fontWeight: 800, color: '#ad885c', background: '#faf8f4' }}>{c.brand}</div>}
+              <div
+                role="option"
+                aria-disabled={c.longRent || undefined}
+                aria-selected={String(c.ledgerId) === String(value)}
+                onClick={() => { if (c.longRent) return; onChange(c.ledgerId); setOpen(false); }}
+                title={c.longRent ? `장기 대여 중${c.longRentUntil ? ` (~${c.longRentUntil})` : ''} · 대여 불가` : undefined}
+                style={{ padding: '0.35rem 0.6rem', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: '0.5rem',
+                  background: String(c.ledgerId) === String(value) ? '#e8f0ff' : undefined }}
+                onMouseEnter={(e) => { if (!c.longRent && String(c.ledgerId) !== String(value)) e.currentTarget.style.background = '#f5f7fb'; }}
+                onMouseLeave={(e) => { if (String(c.ledgerId) !== String(value)) e.currentTarget.style.background = ''; }}>
+                <span style={c.longRent ? blocked : undefined}>{text(c)}</span>
+                {c.longRent && <span style={{ color: '#b91c1c', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap' }}>대여 불가{c.longRentUntil ? ` ~${c.longRentUntil}` : ''}</span>}
+                {!c.longRent && c.renting && <span style={{ color: '#b45309', fontSize: '0.72rem', whiteSpace: 'nowrap' }}>대여 중</span>}
+              </div>
+            </React.Fragment>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Calculator({ cars, policy, holidays, regions }) {
   const today = new Date();
   today.setHours(10, 0, 0, 0);
-  const [ledgerId, setLedgerId] = useState(cars[0]?.ledgerId || '');
+  // 처음에는 빌려줄 수 있는 첫 차를 고른다(장기 대여 차는 고를 수 없다)
+  const [ledgerId, setLedgerId] = useState((cars.find((c) => !c.longRent) || cars[0])?.ledgerId || '');
   const [start, setStart] = useState(localInput(new Date(today.getTime() + 86400000)));
   const [end, setEnd] = useState(localInput(new Date(today.getTime() + 4 * 86400000)));
   const [region, setRegion] = useState('서울');
@@ -424,11 +478,9 @@ function Calculator({ cars, policy, holidays, regions }) {
     <div style={{ ...card, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.2rem' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
         <span style={{ fontWeight: 800, color: '#fa8c16' }}>대여료 계산기</span>
-        <label style={label}>차량
-          <select style={field} value={ledgerId} onChange={(e) => setLedgerId(e.target.value)}>
-            {cars.map((c) => <option key={c.ledgerId} value={c.ledgerId}>{c.carModel} {c.plateNo}{c.longRent ? ' (장기 대여 · 대여 불가)' : c.renting ? ' (대여 중)' : ''}</option>)}
-          </select>
-        </label>
+        <div style={label}>차량
+          <CarPicker cars={cars} value={ledgerId} onChange={setLedgerId} fieldStyle={field} />
+        </div>
         <label style={label}>인도 일시<input type="datetime-local" style={field} value={start} onChange={(e) => setStart(e.target.value)} /></label>
         <label style={label}>반납 일시<input type="datetime-local" style={field} value={end} onChange={(e) => setEnd(e.target.value)} /></label>
         <label style={label}>탁송 지역
@@ -450,7 +502,21 @@ function Calculator({ cars, policy, holidays, regions }) {
             {q.excess > 0 && line(`초과 주행 ${toCommaString(q.excessKm)}km × ${policy.excessPerKm}원`, q.excess)}
             {line(q.deliveryKnown ? '합계 (부가세 포함)' : '합계 (탁송료 별도)', q.total, true)}
             <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.5rem', lineHeight: 1.6 }}>
-              포함 주행거리 {toCommaString(q.allowanceKm)}km{q.notes.length ? <><br />{q.notes.join(' / ')}</> : null}
+              포함 주행거리 {toCommaString(q.allowanceKm)}km ({[q.months && `1개월 ${toCommaString(policy.kmPerMonth)}km × ${q.months}`, q.weeks && `1주 ${toCommaString(policy.kmPerWeek)}km × ${q.weeks}`, q.restDays && `1일 ${policy.kmPerDay}km × ${q.restDays}`].filter(Boolean).join(' + ')})
+            </div>
+            {/* 금액이 어떻게 나왔는지 단계별 식 */}
+            <div style={{ marginTop: '0.9rem', border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
+              <div style={{ background: 'var(--bg-main)', padding: '0.4rem 0.7rem', fontWeight: 800, fontSize: '0.8rem' }}>계산 과정</div>
+              {(q.steps || []).map((st, i) => (
+                <div key={i} style={{ padding: '0.45rem 0.7rem', borderTop: i ? '1px dashed var(--border-color)' : 'none', background: st.total ? '#f0f7ff' : st.swap ? '#fffbeb' : undefined }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.6rem', fontWeight: st.total ? 800 : 700, fontSize: '0.8rem', color: st.swap ? '#b45309' : undefined }}>
+                    <span>{i + 1}. {st.label}</span>
+                    {st.amount !== undefined && <span style={{ whiteSpace: 'nowrap' }}>{won(st.amount)}원</span>}
+                  </div>
+                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.15rem', lineHeight: 1.55 }}>{st.formula}</div>
+                  {st.note && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>※ {st.note}</div>}
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -592,7 +658,19 @@ function Policy({ policy, setPolicy, isAdmin, saving, onSave }) {
         {isAdmin ? <button type="button" style={btn(true)} disabled={saving} onClick={onSave}><Save size={14} /> 저장</button>
           : <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>관리자만 바꿀 수 있습니다</span>}
       </div>
-      {row('1개월 요금', <span>단기렌트 월 목표 (견적 3년 · 인수가 30% · 정비 포함, 차령 1년차 ×1.1 ~ 5년차 ×0.7)</span>)}
+      {row('1개월 요금 계산', (
+        <select disabled={!isAdmin} value={policy.monthly?.method || 'excel'} onChange={(e) => set(['monthly', 'method'], e.target.value)} style={{ fontSize: '0.8rem', padding: '0.25rem' }}>
+          <option value="excel">엑셀 단기렌트 계산식 (차량가 36개월 회수, 반기마다 내림)</option>
+          <option value="quote">견적 식 (3년 · 인수가 30% · 정비 포함, 차령 1년차 ×1.1 ~ 5년차 ×0.7)</option>
+        </select>
+      ))}
+      {(policy.monthly?.method || 'excel') === 'excel' && <>
+        {row('· 이자율 (연)', numIn(['monthly', 'interestRate'], policy.monthly.interestRate, { pct: true }), `% · ${policy.monthly.termMonths}개월 원리금 균등`)}
+        {row('· 등록비용', numIn(['monthly', 'registrationRate'], policy.monthly.registrationRate, { pct: true }), '% (차량가 ÷ 1.1에 곱함)')}
+        {row('· 보험료 (연)', numIn(['monthly', 'insuranceAnnual'], policy.monthly.insuranceAnnual), '원 + 자차 수리 예비비(차량가 기준 요율)')}
+        {row('· 중고차 감가율', numIn(['monthly', 'residualRate'], policy.monthly.residualRate, { pct: true }), '% (0이면 차량가 전체를 36개월에 회수)')}
+        {row('· 반기마다 내림', numIn(['monthly', 'stepRate'], policy.monthly.stepRate, { pct: true }), `% × 최대 ${policy.monthly.maxSteps}번 (3년 하반기까지)`)}
+      </>}
       {row('1일 = 1개월 ×', numIn(['dayRatio'], policy.dayRatio, { pct: true }), '%')}
       {row('1일 요금 올림 단위', numIn(['dayRoundUnit'], policy.dayRoundUnit), '원')}
       {row('1주 = 1일 ×', numIn(['weekDays'], policy.weekDays), '일치')}

@@ -4,7 +4,7 @@ import { buildShortTermReport, shortTermRowFor, getInternalRate } from '../utils
 import { getMaintenanceRates } from '../utils/maintenanceRates.js';
 import { isPublicHoliday } from '../utils/koreanHolidays.js';
 import {
-  mergeRatePolicy, deriveRates, insurerGradeFor, insurerCcFor, rentalLifeFor, INSURER_RENTAL_TABLE, REGIONS
+  mergeRatePolicy, deriveRates, excelMonthlyRate, insurerGradeFor, insurerCcFor, rentalLifeFor, INSURER_RENTAL_TABLE, REGIONS
 } from '../../shared/shortTermRates.js';
 
 /**
@@ -87,8 +87,10 @@ export const getShortTermRates = async (req, res) => {
     const cars = rows.map((r) => {
       const p = r.performance || {};
       const ov = overrides[String(r.ledgerId)] || {};
-      // 1개월 = 이번 달 차령을 반영한 월 목표. 목표를 못 내는 차는 직접 정한 값만 쓴다.
-      const calcMonth = p.currentTarget || r.calculatedTarget || 0;
+      // 1개월: 엑셀 식(기본) 또는 이번 달 차령을 반영한 단기렌트 월 목표(견적 식). 계산이 안 되는 차는 직접 정한 값만 쓴다.
+      const quoteMonth = p.currentTarget || r.calculatedTarget || 0;
+      const excel = excelMonthlyRate({ carPrice: r.carPrice, ageStart: r.ageStart, policy });
+      const calcMonth = policy.monthly.method === 'quote' ? quoteMonth : (excel?.month || 0);
       const base = deriveRates(ov.month || calcMonth, policy);
       // 보험사 등급: 직접 고른 등급 → 하이브리드는 같은 모델 내연기관 배기량 → 배기량
       const basis = insurerCcFor({ cc: r.cc, carModel: r.carModel, fuelType: r.fuelType });
@@ -106,6 +108,9 @@ export const getShortTermRates = async (req, res) => {
         carPrice: r.carPrice,
         ageStart: r.ageStart,
         ageYear: p.ageYear || null,
+        // 엑셀 식: 기준 요금, 반기 감가, 지난 반기 수
+        excel: excel ? { base: excel.base, step: excel.step, steps: excel.steps, halfLabel: excel.halfLabel, month: excel.month } : null,
+        quoteMonth: quoteMonth || null,
         ageFactor: p.ageFactor || null,
         calculated: deriveRates(calcMonth, policy),
         rates: { day: ov.day || base.day, week: ov.week || base.week, month: base.month },
@@ -155,6 +160,11 @@ export const updateShortTermRates = async (req, res) => {
       if (req.user?.role !== 'admin') return res.status(403).json({ success: false, message: '요금 규칙은 관리자만 바꿀 수 있습니다.' });
       const merged = mergeRatePolicy(req.body.policy);
       if (!(merged.dayRatio > 0 && merged.dayRatio < 1)) return res.status(400).json({ success: false, message: '1일 비율은 0과 1 사이여야 합니다(예: 0.1).' });
+      if (!['excel', 'quote'].includes(merged.monthly.method)) return res.status(400).json({ success: false, message: '1개월 요금 계산 방식을 골라 주세요.' });
+      if (!(merged.monthly.interestRate >= 0 && merged.monthly.interestRate < 0.3) || !(merged.monthly.stepRate >= 0 && merged.monthly.stepRate < 0.2)
+        || !(merged.monthly.residualRate >= 0 && merged.monthly.residualRate < 1)) {
+        return res.status(400).json({ success: false, message: '이자율·감가율·반기 내림 비율을 확인해 주세요.' });
+      }
       next.policy = merged;
     }
 

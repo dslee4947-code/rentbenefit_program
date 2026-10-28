@@ -205,6 +205,12 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
       registrationCost: acquisitionTax + publicBond + registrationAgencyFee,
       fundingInterest,
       depositInterestBenefit,
+      // 원장 '예상 수익금'에 계약 기간 총 이자를 어떻게 냈는지 보여 줄 값
+      fundingPrincipal,
+      interestRate,
+      grossFundingInterest: fundingInterest + depositInterestBenefit,
+      advancePaymentInterest,
+      fundingRepaymentMode: 'equal',
       carTaxTotal,
       // 예상 이익 계산용. 원가에는 회사수수료가 빠져 있다(위 설명 참고).
       costExCommission: totalCost,

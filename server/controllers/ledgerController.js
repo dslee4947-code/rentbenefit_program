@@ -1011,10 +1011,38 @@ export const getLedgerQuote = async (req, res) => {
     const vehicle = ledger.vehicle ? await Vehicle.findById(ledger.vehicle).lean() : null;
     if (!vehicle) return res.json({ quote: null, reason });
 
-    // 견적은 최초 계약 기간을 놓고 계산한다. 고정 조건(terms)은 연장하면 연장 계약 기간으로 바뀌므로 마지막에 본다.
-    const termMonths = Number(vehicle.paymentTerm) || Number(first?.termMonths) || Number(contract?.termMonths)
-      || Number(contract?.rentPeriodYears || 0) * 12 || Number(ledger.terms?.termMonths) || 0;
-    const profit = calculateVehicleProfit(vehicle, termMonths, { maintenanceRates: await getMaintenanceRates() });
+    /**
+     * 계약 조건은 렌트차량 DB보다 원장 값을 먼저 쓴다(2026-10-28).
+     * 렌트차량 DB의 월 렌트료가 원장과 다른 차가 32대였다(Benz-013: DB 469,000원, 원장 2,975,445원). 그 값으로 계산하니
+     * 125대 합계가 1억 8천만 원 손실로 나왔다. 원장은 자금팀이 실제 계약대로 맞춰 둔 장부라 그쪽이 맞다.
+     * 견적은 최초 계약을 놓고 계산하므로 1구간 값을 쓴다. 구간이 하나뿐이면 고정 조건(terms)도 같은 계약이다.
+     * 연장한 갑지의 terms는 연장 계약 값이라(Ray-002: 연장 렌트료 130,000원 × 최초 60개월) 1구간이 비어도 쓰지 않는다.
+     */
+    const single = (ledger.contractPeriods || []).length <= 1;
+    const fromLedger = (key) => {
+      const value = Number(first?.[key]) || (single ? Number(ledger.terms?.[key]) : 0);
+      return value > 0 ? value : 0;
+    };
+    const ledgerTerms = {
+      monthlyFee: fromLedger('monthlyRent'),
+      advancePayment: fromLedger('advancePayment'),
+      deposit: fromLedger('deposit'),
+      takeoverPrice: fromLedger('takeoverPrice')
+    };
+    const LABEL = { monthlyFee: '월 렌트료', advancePayment: '선납금', deposit: '보증금', takeoverPrice: '인수가' };
+    const ledgerNotes = [];
+    const merged = { ...vehicle };
+    Object.entries(ledgerTerms).forEach(([key, value]) => {
+      // 1천 원 미만 차이는 원장이 CMS 수수료(275원)를 떼고 적은 것이라 렌트차량 DB 값을 그대로 둔다(수수료는 화면에서 따로 뺀다)
+      if (!value || Math.abs(value - (Number(vehicle[key]) || 0)) < 1000) return;
+      ledgerNotes.push(`${LABEL[key]}: 렌트차량 DB ${(Number(vehicle[key]) || 0).toLocaleString()}원 대신 원장 ${value.toLocaleString()}원`);
+      merged[key] = value;
+    });
+
+    // 기간도 1구간(최초 계약)을 먼저 본다. 고정 조건(terms)은 연장하면 연장 계약 기간으로 바뀌므로 구간이 하나일 때만 쓴다.
+    const termMonths = Number(first?.termMonths) || (single ? Number(ledger.terms?.termMonths) : 0) || Number(vehicle.paymentTerm)
+      || Number(contract?.termMonths) || Number(contract?.rentPeriodYears || 0) * 12 || 0;
+    const profit = calculateVehicleProfit(merged, termMonths, { maintenanceRates: await getMaintenanceRates() });
     if (!profit.ok) return res.json({ quote: null, reason: `${reason} 렌트차량 DB로도 계산할 수 없습니다(${profit.reason}).` });
 
     res.json({
@@ -1025,6 +1053,7 @@ export const getLedgerQuote = async (req, res) => {
         months: profit.termMonths,
         vehicleLabel: [vehicle.carModel, vehicle.plateNo].filter(Boolean).join(' '),
         // 판관비는 차량 DB에 금액이 있으면 그 값을 썼으므로 '차량가의 3%' 가정은 빼고 보여 준다
+        ledgerNotes,
         assumptions: [
           ...profit.assumptions.filter((a) => !(Number(vehicle.sellingAdminExpense) > 0 && a.startsWith('판관비'))),
           `베네핏 수수료: 차량가의 ${(QUOTE_DEFAULTS.commissionRate * 100).toFixed(1)}%`

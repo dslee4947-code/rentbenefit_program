@@ -514,6 +514,13 @@ const quotePlanOf = (quote) => {
       netVehiclePrice: calc.netVehiclePrice || 0,
       registrationCost: calc.registrationCost || 0,
       fundingInterest: calc.fundingInterest || 0,
+      // 계약 기간 총 이자를 어떻게 냈는지 보여 주는 값(예상 수익금 칸)
+      fundingPrincipal: calc.fundingPrincipal || 0,
+      interestRate: calc.interestRate || 0,
+      grossFundingInterest: calc.grossFundingInterest || 0,
+      depositInterestBenefit: calc.depositInterestBenefit || 0,
+      advancePaymentInterest: calc.advancePaymentInterest || 0,
+      fundingRepaymentMode: calc.fundingRepaymentMode,
       carTaxTotal: calc.carTaxTotal || 0,
       // 견적 원가에는 베네핏 수수료가 들어 있다. 수수료도 회사 몫이라 예상 이익에서는 원가에서 빼고 본다.
       costExCommission: (calc.totalCost || 0) - (calc.companyCommission || 0),
@@ -526,10 +533,11 @@ const quotePlanOf = (quote) => {
   }
 };
 
-// 운영하면서 나간 돈으로 보지 않는 분류. 차를 사고 등록하고 세금·보험·할부를 내는 돈은 판관비가 아니다.
+// 운영하면서 나간 돈으로 보지 않는 분류. 차를 사고 등록하고 취득세·보험·할부를 내는 돈은 판관비가 아니다.
 // 차량작업(썬팅·PPF·블랙박스 등)은 판관비가 아니라 판매 수수료에서 충당하므로 따로 본다.
 // 대출금(캐피탈·렌공에서 빌려 들어온 돈)과 할부금(그 상환)은 차를 사는 돈이라 운영비가 아니다.
-const NOT_OPERATING = new Set(['계약금', '차량가', '등록비용', '할부이자', '할부금', '대출금', '보험', '자동차세', '검사비', '제세공과', '수리·사고', '정기점검', '차량작업']);
+// 자동차세·자동차 검사비·탁송료는 판관비(차량가 3%)에서 나가는 돈이다(대표님 2026-10-28). 그래서 여기 넣지 않는다.
+const NOT_OPERATING = new Set(['계약금', '차량가', '등록비용', '할부이자', '할부금', '대출금', '보험', '제세공과', '수리·사고', '정기점검', '차량작업']);
 
 /**
  * 보험료 정산(대표님 2026-10-23). 보험료 = 보험 + 공제조합 보험료 − 보험료 환급(고객입금 열의 '삼성보험료 환급'·'자차보험 환급' 등).
@@ -719,17 +727,21 @@ const Divider = () => <div style={{ borderTop: '1px dashed var(--border-color)',
  * 계약으로 받을 돈과, 견적에서 잡아 둔 나갈 돈을 분류별 예산으로 놓고 지금까지 쓴 돈과 남은 돈(쓸 수 있는 돈)을 보여 준다.
  * 입력은 원장 한 곳에서 하고, 여기서는 입력한 줄을 분류별로 모아 날짜순으로 보여 준다(분류 이름을 누르면 펼쳐짐).
  *
- * 보험·수리는 한 묶음이다. 자차보험료는 수리비를 막으려고 잡아 둔 돈이라, 보험료와 수리비를 같은 예산에서 본다.
+ * 보험료와 수리비는 나눠 본다(대표님 2026-10-28). 보험료는 견적의 기본 보험료에서, 차량 수리비는 자차보험료에서 나간다.
+ * 자차보험료는 수리비를 막으려고 잡아 둔 돈이라 수리비를 쓰고 남은 만큼이 수익이 된다.
+ * 판관비(차량가 3%)에서 자동차세·자동차 검사비·탁송료·과태료(미회수) 등 운영하며 나가는 돈을 쓴다(대표님 2026-10-28).
  * 정비는 정비 단가표(항목 1회 단가 × 계약 기간 횟수 + 타이어·얼라이먼트)로 잡은 예산과 실제 정비 출금을 맞댄다.
- * 금융은 자기 대출이 있는 차면 실제 할부이자, 회사 돈으로 산 차면 내부 금리로 매긴 이자(묶인 돈 × 내부 금리)다.
+ * 금융 이자 예산은 견적서처럼 원리금 균등상환으로 낸 계약 기간 총 이자다. 실제는 자기 대출이 있는 차면 할부이자,
+ * 회사 돈으로 산 차면 내부 금리로 매긴 이자(묶인 돈 × 내부 금리)다.
  */
 const BUDGET_BUCKETS = [
-  { key: 'purchase', name: '차량 구입', desc: '차량가 + 계약금 + 나중에 낸 개별소비세' },
-  { key: 'registration', name: '등록·세금·검사', desc: '취득세·공채·등록비용·자동차세·검사비' },
-  { key: 'insurance', name: '보험·수리', desc: '보험료·공제조합 + 수리·사고 (자차보험료로 수리비를 막는다)' },
+  { key: 'purchase', name: '차량 구입', desc: '차량가 + 계약금 + 나중에 낸 개별소비세·교육세' },
+  { key: 'registration', name: '등록·취득세', desc: '취득세·공채·등록비용' },
+  { key: 'insurance', name: '보험료', desc: '보험료·공제조합 (견적 기본 보험료)' },
+  { key: 'ownCar', name: '자차 (수리·사고)', desc: '차량 수리비는 자차보험료에서 나간다' },
   { key: 'maintenance', name: '정비', desc: '정비 단가표 항목 + 타이어·얼라이먼트' },
-  { key: 'finance', name: '금융 이자', desc: '자기 대출이면 할부이자, 회사 돈이면 내부 이자' },
-  { key: 'operating', name: '운영비 (판관비)', desc: '탁송·과태료(미회수)·기타' },
+  { key: 'finance', name: '금융 이자', desc: '예산: 원리금 균등상환 계약 기간 총 이자' },
+  { key: 'operating', name: '운영비 (판관비)', desc: '자동차세·자동차 검사비·탁송료·과태료(미회수)·기타' },
   { key: 'vehicleWork', name: '차량작업', desc: '썬팅·블랙박스 등. 판매 수수료로 충당' },
   { key: 'loan', name: '대출 원금 상환', desc: '빌린 돈을 갚는 것이라 예산 비교에서 뺌' },
   { key: 'deposit', name: '보증금 · 출자금', desc: '돌려주거나 돌려받을 돈이라 예산 비교에서 뺌' }
@@ -739,8 +751,9 @@ const BUDGET_BUCKETS = [
  * 개별소비세 출금인지. 면세로 산 차의 조건이 깨져 나중에 낸 개별소비세는 차를 살 때 냈어야 할 돈이라 차량 구입가로 본다
  * (2026-10-05 대표님 결정). 원장에서는 '개별소비세 환급'(분류 환급)·'개별소비세 납부'·'개소세'(분류 제세공과) 등으로 적혀 있어
  * 분류가 아니라 이름으로 판정한다. 예전에는 '환급'으로 분류된 줄이 운영비(판관비)로 계산됐다.
+ * 개별소비세와 함께 돌려내는 교육세도 같은 돈이다. '교육세' 줄은 분류가 자동차세로 잡혀 있어 이름으로 함께 본다(2026-10-28).
  */
-const isExciseTax = (e) => e.side === '지출' && /개별\s*소비세|개소세/.test(e.label || '');
+const isExciseTax = (e) => e.side === '지출' && /개별\s*소비세|개소세|교육세/.test(e.label || '');
 
 const bucketOf = (e) => {
   const cat = e.category || '기타';
@@ -748,9 +761,10 @@ const bucketOf = (e) => {
   if (cat === '보증금' || isCoopShare(e)) return 'deposit';
   if (cat === '할부금' || cat === '대출금') return 'loan';
   if (cat === '차량가' || cat === '계약금') return 'purchase';
-  if (['등록비용', '제세공과', '자동차세', '검사비'].includes(cat)) return 'registration';
+  if (['등록비용', '제세공과'].includes(cat)) return 'registration';
   if (matchMaintenance(e)) return 'maintenance';
-  if (['보험', '공제조합', '수리·사고'].includes(cat)) return 'insurance';
+  if (cat === '수리·사고') return 'ownCar';
+  if (['보험', '공제조합'].includes(cat)) return 'insurance';
   if (cat === '할부이자') return 'finance';
   if (cat === '차량작업') return 'vehicleWork';
   return 'operating';
@@ -778,12 +792,16 @@ function BudgetBoard({ plan, entries, income, internalRate, salesCommission, rec
 
   // 보험료는 해마다 나간다. 견적이 계약 전체보다 짧으면(연장한 차, 견적이 지금 계약 1년만 본 경우) 연 보험료로 전체 기간을 채운다
   const insuranceScale = plan.months > 0 && income.months > plan.months ? income.months / plan.months : 1;
+  // 계약 기간 총 이자 = 원리금 균등상환 조달이자 − 보증금 이자 이득 + 선수금분 이자 (견적서와 같은 식)
+  const interestTotal = Math.max(0, (plan.fundingInterest || 0) + (plan.advancePaymentInterest || 0));
   const budget = {
     purchase: plan.netVehiclePrice || 0,
-    registration: (plan.registrationCost || 0) + (plan.carTaxTotal || 0),
-    insurance: ((plan.baseInsurance || 0) + (plan.ownCarInsurance || 0)) * insuranceScale,
+    // 자동차세는 판관비에서 나가므로 등록 예산에 넣지 않는다
+    registration: plan.registrationCost || 0,
+    insurance: (plan.baseInsurance || 0) * insuranceScale,
+    ownCar: (plan.ownCarInsurance || 0) * insuranceScale,
     maintenance: plan.maintenanceOn ? (plan.maintenanceFee || 0) + (plan.tireFee || 0) : 0,
-    finance: Math.max(0, plan.fundingInterest || 0),
+    finance: interestTotal,
     operating: plan.pandanbi || 0,
     vehicleWork: salesCommission || 0
   };
@@ -791,6 +809,7 @@ function BudgetBoard({ plan, entries, income, internalRate, salesCommission, rec
     purchase: sum('purchase'),
     registration: sum('registration'),
     insurance: sum('insurance') - insuranceRefund,
+    ownCar: sum('ownCar'),
     // 고객에게서 돌려받은 과태료·정비비(정비 미포함 고객)는 회사가 쓴 돈이 아니다(matchRecoveries)
     maintenance: sum('maintenance') - (plan.maintenanceOn ? 0 : recovered.maintenance || 0),
     // 회사 돈으로 산 차는 원장에 이자 줄이 없으므로 내부 금리로 매긴 이자를 쓴다
@@ -812,16 +831,17 @@ function BudgetBoard({ plan, entries, income, internalRate, salesCommission, rec
    * 월 렌트료를 다 받고 고객이 인수했을 때의 예상 수익금.
    *
    * 지금까지 실제로 쓴 돈에 남은 기간 동안 쓸 돈을 더해 분류마다 '만기까지 쓸 돈'을 낸다.
-   *   보험·수리: 보험료는 지금까지 낸 속도(낸 보험료 ÷ 지난 기간)로 남은 기간을 채우고, 수리비는 더 생기지 않는다고 본다.
-   *             예산(보험료 + 자차보험료)에서 남는 만큼이 그대로 수익이 된다(자차를 안 쓰면 그만큼 남는다).
-   *   정비(정비 포함 고객)·운영비·등록·세금·금융: 예산과 실제 중 큰 값(정비는 약속한 만큼은 해 줘야 한다)
+   *   보험료: 지금까지 낸 속도(낸 보험료 ÷ 지난 기간)로 남은 기간을 채운다.
+   *   자차: 차량 수리비는 자차보험료에서 나간다. 수리비는 더 생기지 않는다고 보고, 자차보험료에서 남는 만큼이 수익이 된다.
+   *   금융 이자: 엑셀 갑지처럼 원리금 균등상환으로 낸 계약 기간 총 이자(대표님 2026-10-28)
+   *   정비(정비 포함 고객)·운영비·등록: 예산과 실제 중 큰 값(정비는 약속한 만큼은 해 줘야 한다)
    *   차량 구입: 실제(없으면 예산)
    * 받을 돈에는 판매 수수료를 더하고, 차량작업비와 CMS 수수료를 뺀다.
    * 지난 기간은 '받은 렌트료 ÷ 계약 전체 렌트료'로 본다.
    */
   const elapsed = income.rentTotal > 0 ? Math.min(1, (income.rentReceived || 0) / income.rentTotal) : 0;
-  const premiumPaid = groups.insurance.filter((e) => e.category !== '수리·사고').reduce((t, e) => t + (Number(e.amount) || 0), 0) - insuranceRefund;
-  const repairPaid = groups.insurance.filter((e) => e.category === '수리·사고').reduce((t, e) => t + (Number(e.amount) || 0), 0);
+  const premiumPaid = used.insurance;
+  const repairPaid = used.ownCar;
   // 보험료는 1년치를 먼저 내므로 초반에는 속도가 높게 나온다. 1년(지난 비율)이 지나기 전에는 예산의 보험료 몫을 쓴다.
   const yearShare = income.months > 0 ? Math.min(1, 12 / income.months) : 1;
   const premiumProjected = elapsed >= yearShare && elapsed > 0
@@ -830,16 +850,20 @@ function BudgetBoard({ plan, entries, income, internalRate, salesCommission, rec
   const projected = {
     purchase: used.purchase || budget.purchase,
     registration: Math.max(used.registration, budget.registration),
-    insurance: premiumProjected + repairPaid,
+    insurance: premiumProjected,
+    ownCar: repairPaid,
     maintenance: plan.maintenanceOn ? Math.max(used.maintenance, budget.maintenance) : used.maintenance,
-    finance: Math.max(used.finance, budget.finance),
+    finance: budget.finance,
     operating: Math.max(used.operating, budget.operating),
     vehicleWork: used.vehicleWork
   };
   const projectedCost = Object.values(projected).reduce((t, v) => t + v, 0) + (income.cms || 0);
   const projectedIncome = totalIncome + (salesCommission || 0);
   const projectedProfit = projectedIncome - projectedCost;
-  const insuranceLeft = budget.insurance - projected.insurance;
+  const premiumLeft = budget.insurance - projected.insurance;
+  const ownCarLeft = budget.ownCar - projected.ownCar;
+  const interestMonths = plan.months || 0;
+  const repaymentLabel = plan.fundingRepaymentMode === 'balloon' ? '만기 인수가 상환' : '원리금 균등상환';
 
   const cards = [
     ['받을 돈 (계약 전체)', totalIncome, `렌트료 ${toCommaString(income.rentTotal)} + 인수가 ${toCommaString(income.takeover)} + 선납금 ${toCommaString(income.advance)}`],
@@ -872,21 +896,40 @@ function BudgetBoard({ plan, entries, income, internalRate, salesCommission, rec
             <Row label="받을 돈 + 판매 수수료" value={won(projectedIncome)} muted />
             <Row label="만기까지 쓸 돈 (실적 반영)" value={`- ${won(projectedCost)}`} muted />
             <Row label="견적대로 쓸 때와 비교" value={`${projectedProfit - (totalIncome - totalBudget) >= 0 ? '+' : '-'} ${won(Math.abs(projectedProfit - (totalIncome - totalBudget)))}`} muted />
+            <Divider />
+            {/* 엑셀 갑지는 이자를 원리금 균등상환으로 계산해 출금에 넣었다. 여기서는 계약 기간 총 이자를 한 줄로 보여 준다(대표님 2026-10-28) */}
+            <Row label={`계약 기간 총 이자 (${repaymentLabel})`} value={`- ${won(Math.round(interestTotal))}`} strong />
+            {plan.fundingPrincipal > 0 && (
+              <Row
+                label={`· 조달원금 ${toCommaString(Math.round(plan.fundingPrincipal))} × 연 ${((plan.interestRate || 0) * 100).toFixed(2)}% × ${interestMonths}개월`}
+                value={won(Math.round(plan.grossFundingInterest || 0))}
+                muted
+              />
+            )}
+            {plan.depositInterestBenefit > 0 && <Row label="· 보증금 이자 이득 (보증금 × 금리 × 기간)" value={`- ${won(Math.round(plan.depositInterestBenefit))}`} muted />}
+            {plan.advancePaymentInterest > 0 && <Row label="· 선수금분 이자 (선수금 × 3% × 기간)" value={won(Math.round(plan.advancePaymentInterest))} muted />}
           </div>
           <div>
-            <Row label="보험·수리 예산 (보험료 + 자차)" value={won(budget.insurance)} muted />
+            <Row label="보험료 예산 (견적 기본 보험료)" value={won(budget.insurance)} muted />
             <Row label={`만기까지 보험료 (낸 속도 기준${insuranceRefund ? `, 환급 ${toCommaString(insuranceRefund)} 뺌` : ''})`} value={won(premiumProjected)} muted />
-            <Row label="지금까지 수리비" value={won(repairPaid)} muted />
             <Row
-              label={insuranceLeft >= 0 ? '보험·수리에서 남는 돈 → 수익' : '보험·수리 예산 초과'}
-              value={won(Math.abs(insuranceLeft))}
-              color={insuranceLeft >= 0 ? '#2f6f4e' : '#d9534f'}
+              label={premiumLeft >= 0 ? '보험료에서 남는 돈' : '보험료 예산 초과'}
+              value={won(Math.abs(premiumLeft))}
+              color={premiumLeft >= 0 ? '#2f6f4e' : '#d9534f'}
+            />
+            <Divider />
+            <Row label="자차보험료 예산" value={won(budget.ownCar)} muted />
+            <Row label="차량 수리비 (자차보험료에서 나감)" value={`- ${won(repairPaid)}`} muted />
+            <Row
+              label={ownCarLeft >= 0 ? '자차보험료에서 남는 돈 → 수익' : '자차보험료 초과'}
+              value={won(Math.abs(ownCarLeft))}
+              color={ownCarLeft >= 0 ? '#2f6f4e' : '#d9534f'}
               strong
             />
           </div>
         </div>
         <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: '0.3rem', lineHeight: 1.5 }}>
-          수리비는 앞으로 더 생기지 않는다고 보고 계산했습니다. 사고가 나면 그만큼 줄어듭니다. 정비·운영비·금융·세금은 예산과 실제 중 큰 값, 지난 기간은 받은 렌트료 비율({Math.round(elapsed * 100)}%)로 봅니다.
+          수리비는 앞으로 더 생기지 않는다고 보고 계산했습니다. 사고가 나면 그만큼 줄어듭니다. 이자는 계약 기간 총 이자를 그대로 넣었고, 정비·운영비·등록은 예산과 실제 중 큰 값, 지난 기간은 받은 렌트료 비율({Math.round(elapsed * 100)}%)로 봅니다.
         </div>
       </div>
 
@@ -1045,7 +1088,7 @@ function PurchaseCheck({ plan, actual }) {
   return (
     <Section no={4} title="차 구입 · 등록 · 금융 · 세금">
       {diffRow('차량 구입가', plan.netVehiclePrice, actual.vehiclePurchase,
-        `견적: 차량가 + 옵션 − 할인 + 탁송료. 실제: 원장 차량가 ${won(actual.vehiclePrice)} + 계약금 ${won(actual.vehicleDeposit)}${actual.vehicleExcise ? ` + 개별소비세 ${won(actual.vehicleExcise)}` : ''} (대출로 낸 금액 포함).`)}
+        `견적: 차량가 + 옵션 − 할인 + 탁송료. 실제: 원장 차량가 ${won(actual.vehiclePrice)} + 계약금 ${won(actual.vehicleDeposit)}${actual.vehicleExcise ? ` + 나중에 낸 개별소비세·교육세 ${won(actual.vehicleExcise)}` : ''} (대출로 낸 금액 포함). 장기렌트는 면세로 사서 차량가에서 세금이 빠져 나가고, 나중에 돌려내는 개별소비세·교육세는 여기서 셉니다.`)}
       {/*
         계약금까지 더했는데도 견적보다 적게 나갔으면 할인을 받았거나 면세로 산 것이다.
         면세로 산 차는 조건이 깨지면 개별소비세를 나중에 다시 내야 할 수 있어 따로 알린다(2026-10-05 대표님 안내).
@@ -1065,8 +1108,9 @@ function PurchaseCheck({ plan, actual }) {
         actual.loanRepayment > 0
           ? `할부금 상환 ${won(actual.loanRepayment)}에는 원금과 이자가 섞여 있어 이자만 따로 볼 수 없습니다.`
           : '실제: 원장 할부이자. 회사 돈으로 산 차는 0원이 정상입니다(견적은 빌렸다고 보고 잡은 금액).')}
-      <Divider />
-      {diffRow('자동차세', plan.carTaxTotal, actual.carTax, '견적은 계약 기간 전체 금액입니다. 계약 중간이면 실제가 적습니다.')}
+      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+        자동차세({won(actual.carTax)})는 판관비에서 나가는 돈이라 2번 운영비에서 셉니다.
+      </div>
     </Section>
   );
 }
@@ -1252,8 +1296,10 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
 
     // 지금까지 실제 비용이 예상을 넘은 만큼은 이익에서 깎인다. 정비 미포함 고객의 정비비는 전부 예상 밖 비용이다.
     const maintenanceSpent = actual.maintenance + actual.tire;
-    // 보험은 지금까지 낸 햇수만큼의 견적과 비교한다(남은 해의 보험료는 아직 안 나갔다)
-    const overrun = Math.max(0, actual.insuranceNet + actual.repair - insuranceYear * Math.max(premiumYears, 1))
+    // 보험료는 지금까지 낸 햇수만큼의 견적 기본 보험료와 비교한다(남은 해의 보험료는 아직 안 나갔다).
+    // 차량 수리비는 자차보험료(계약 전체)에서 나가고, 넘친 만큼만 예상보다 더 나간 돈이다(대표님 2026-10-28)
+    const overrun = Math.max(0, actual.insuranceNet - baseInsuranceYear * Math.max(premiumYears, 1))
+      + Math.max(0, actual.repair - ownCarBudget)
       + Math.max(0, actual.operating - plan.pandanbi)
       // 정비 미포함 고객의 정비비는 고객에게서 돌려받아야 한다. 못 받은 것만 회사 비용(예상 밖)이다
       + (plan.maintenanceOn ? Math.max(0, maintenanceSpent - (plan.maintenanceFee + plan.tireFee)) : actual.maintUnrecovered);
@@ -1374,10 +1420,11 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
           {actual.insuranceRefund > 0 && <Row label="· 보험료 환급 (고객입금 열)" value={`- ${won(actual.insuranceRefund)}`} muted color="#2f6f4e" />}
           <Row label={`실제 보험료${premiumYears ? ` (${premiumYears}년치)` : ''}`} value={won(actual.insuranceNet)} />
           <Row label="1년 평균 보험료" value={won(Math.round(premiumPerYear))} strong />
-          <Meter used={premiumPerYear} budget={insuranceYear} />
+          <Meter used={premiumPerYear} budget={baseInsuranceYear} />
           {actual.coopShare > 0 && <Row label="· 공제조합 출자금 (돌려받을 돈, 보험료에서 뺌)" value={won(actual.coopShare)} muted />}
           <Divider />
-          <Row label="수리 · 사고 비용" value={won(actual.repair)} />
+          <Row label={`자차보험료 (계약 ${Math.round(contractYears * 10) / 10}년)`} value={won(ownCarBudget)} muted />
+          <Row label="차량 수리 · 사고 비용 (자차보험료에서 나감)" value={won(actual.repair)} />
           <Row label="자차보험료에서 쓴 금액" value={won(Math.min(actual.repair, ownCarBudget))} />
           <Meter used={actual.repair} budget={ownCarBudget} />
           <Row label={ownLeft >= 0 ? '자차보험료 남은 금액' : '자차보험료 초과'} value={won(Math.abs(ownLeft))} strong color={ownLeft >= 0 ? '#2f6f4e' : '#d9534f'} />
@@ -1406,7 +1453,7 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
               <RecoveryList matches={actual.fineMatches} />
             </>
           )}
-          <Row label="운영하며 들어간 비용" value={won(actual.operating)} />
+          <Row label="운영하며 들어간 비용 (자동차세·검사비·탁송료 등, 판관비에서 나감)" value={won(actual.operating)} />
           {opCats.map(([cat, sum]) => (
             <Row key={cat} label={`· ${cat}`} value={won(sum)} muted />
           ))}
@@ -1477,7 +1524,12 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
         {body}
         {!quotePlan && state.estimate && (
           <div style={{ marginTop: '0.7rem', fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-            {state.reason} 그래서 렌트차량 DB 값에 견적서 계산식을 돌린 추정치입니다. 가정한 값: {state.estimate.assumptions.join(' · ')}
+            {state.reason} 그래서 렌트차량 DB 값에 견적서 계산식을 돌린 추정치입니다. 월 렌트료·선납금·보증금·인수가는 원장 계약 조건을 먼저 씁니다. 가정한 값: {state.estimate.assumptions.join(' · ')}
+            {state.estimate.ledgerNotes?.length > 0 && (
+              <div style={{ marginTop: '0.3rem', color: '#b45309' }}>
+                렌트차량 DB가 원장과 달라 원장 값을 썼습니다(렌트차량 DB를 맞춰 주세요): {state.estimate.ledgerNotes.join(' · ')}
+              </div>
+            )}
           </div>
         )}
       </div>

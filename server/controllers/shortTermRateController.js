@@ -110,7 +110,10 @@ export const getShortTermRates = async (req, res) => {
         calculated: deriveRates(calcMonth, policy),
         rates: { day: ov.day || base.day, week: ov.week || base.week, month: base.month },
         overridden: { day: !!ov.day, week: !!ov.week, month: !!ov.month },
-        renting: !!ov.renting,
+        renting: !!ov.renting && !ov.longRent,
+        // 단기렌트 차를 장기 계약서 없이 월렌트(1년 미만)로 내준 상태. 단가표에서 대여 불가로 줄을 긋는다.
+        longRent: !!ov.longRent,
+        longRentUntil: ov.longRent ? (ov.longRentUntil || null) : null,
         hidden: !!ov.hidden,
         note: ov.note || '',
         reason: r.reason,
@@ -165,6 +168,8 @@ export const updateShortTermRates = async (req, res) => {
           ...('week' in v ? { week: money(v.week) } : {}),
           ...('month' in v ? { month: money(v.month) } : {}),
           ...('renting' in v ? { renting: !!v.renting } : {}),
+          ...('longRent' in v ? { longRent: !!v.longRent } : {}),
+          ...('longRentUntil' in v ? { longRentUntil: /^\d{4}-\d{2}-\d{2}$/.test(v.longRentUntil || '') ? v.longRentUntil : null } : {}),
           ...('hidden' in v ? { hidden: !!v.hidden } : {}),
           ...('note' in v ? { note: String(v.note || '').slice(0, 200) } : {}),
           ...('insurerGrade' in v ? { insurerGrade: /^[A-H]$/.test(v.insurerGrade || '') ? v.insurerGrade : null } : {})

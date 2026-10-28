@@ -8,6 +8,9 @@ const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? ''
 
 const won = (n) => (n === null || n === undefined ? '-' : `${toCommaString(Math.round(n))}`);
 const yearMonth = (d) => (d ? `${new Date(d).getFullYear()}년 ${new Date(d).getMonth() + 1}월` : '-');
+// 장기 대여(월렌트) 중인 차: 줄 가운데에 빨간 가는 선을 긋는다. 칸마다 같은 높이에 그려 한 줄로 이어진다.
+const STRIKE_BG = 'linear-gradient(to bottom, transparent calc(50% - 0.5px), #dc2626 calc(50% - 0.5px), #dc2626 calc(50% + 0.5px), transparent calc(50% + 0.5px))';
+const longRentText = (until) => `장기 대여 중${until ? ` (~${until})` : ''} · 대여 불가`;
 const card = { background: '#fff', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-premium)', padding: '1.1rem 1.2rem' };
 const th = { padding: '0.5rem 0.55rem', fontSize: '0.76rem', fontWeight: 800, background: 'var(--bg-main)', borderBottom: '2px solid var(--border-color)', whiteSpace: 'nowrap', textAlign: 'left' };
 const td = { padding: '0.4rem 0.55rem', borderBottom: '1px solid var(--border-color)', fontSize: '0.82rem', verticalAlign: 'middle' };
@@ -156,7 +159,7 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
             <tr>
               <th style={{ ...th, textAlign: 'center' }}>NO</th><th style={th}>차종</th><th style={th}>번호</th><th style={th}>년식 · 차령</th><th style={th}>렌터카 차령 만료</th>
               <th style={{ ...th, textAlign: 'right' }}>1일(평일)</th><th style={{ ...th, textAlign: 'right' }}>1주</th><th style={{ ...th, textAlign: 'right' }}>1개월</th>
-              <th style={{ ...th, textAlign: 'right' }}>지난달 번 돈</th><th style={th}>대여 중</th><th style={th}>메모</th>
+              <th style={th}>대여 상태</th><th style={th}>메모</th>
             </tr>
           </thead>
           <tbody>
@@ -164,7 +167,7 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
               const e = edits[c.ledgerId] || {};
               const brandRow = c.brand !== cars[i - 1]?.brand && (
                 <tr key={`brand-${c.brand}`}>
-                  <td colSpan={11} style={{ ...td, background: '#111e38', color: '#fff', fontWeight: 800, fontSize: '0.78rem', padding: '0.3rem 0.6rem' }}>
+                  <td colSpan={10} style={{ ...td, background: '#111e38', color: '#fff', fontWeight: 800, fontSize: '0.78rem', padding: '0.3rem 0.6rem' }}>
                     {c.brand} <span style={{ color: '#ad885c', fontWeight: 600 }}>{cars.filter((x) => x.brand === c.brand).length}대</span>
                   </td>
                 </tr>
@@ -178,7 +181,9 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
               return (
                 <React.Fragment key={c.ledgerId}>
                 {brandRow}
-                <tr style={{ background: valueOf(c, 'renting') ? '#fffbeb' : undefined }}>
+                <tr style={valueOf(c, 'longRent')
+                  ? { backgroundColor: '#fef2f2', backgroundImage: STRIKE_BG }
+                  : { background: valueOf(c, 'renting') ? '#fffbeb' : undefined }}>
                   <td style={{ ...td, textAlign: 'center', color: 'var(--text-muted)' }}>{i + 1}</td>
                   <td style={{ ...td, fontWeight: 700 }}>{c.carModel}{c.reason && <div style={{ fontSize: '0.7rem', color: '#b45309', fontWeight: 400 }}>{c.reason}</div>}</td>
                   <td style={td}>{c.plateNo}</td>
@@ -189,11 +194,24 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
                   <td style={num}>{field('day')}</td>
                   <td style={num}>{field('week')}</td>
                   <td style={num}>{field('month')}</td>
-                  <td style={{ ...num, color: c.lastMonth?.rate >= 1 ? '#15803d' : '#b91c1c' }}>
-                    {c.lastMonth ? <>{won(c.lastMonth.actual)}<div style={{ fontSize: '0.7rem' }}>목표의 {Math.round((c.lastMonth.rate || 0) * 100)}%</div></> : '-'}
-                  </td>
                   <td style={td}>
-                    <input type="checkbox" disabled={!canEdit} checked={!!valueOf(c, 'renting')} onChange={(ev) => setEdit(c.ledgerId, 'renting', ev.target.checked)} />
+                    <select disabled={!canEdit} style={{ fontSize: '0.78rem', padding: '0.2rem', background: '#fff' }}
+                      value={valueOf(c, 'longRent') ? 'long' : valueOf(c, 'renting') ? 'short' : ''}
+                      onChange={(ev) => {
+                        const mode = ev.target.value;
+                        setEdits((prev) => ({ ...prev, [c.ledgerId]: { ...(prev[c.ledgerId] || {}), renting: mode === 'short', longRent: mode === 'long' } }));
+                      }}>
+                      <option value="">대여 가능</option>
+                      <option value="short">단기 대여 중</option>
+                      <option value="long">장기 대여(월렌트)</option>
+                    </select>
+                    {valueOf(c, 'longRent') && (
+                      <div style={{ marginTop: '0.25rem', fontSize: '0.7rem', color: '#b91c1c', background: '#fff', whiteSpace: 'nowrap' }}>
+                        반납 예정{' '}
+                        <input type="date" disabled={!canEdit} style={{ fontSize: '0.72rem' }} value={valueOf(c, 'longRentUntil') || ''}
+                          onChange={(ev) => setEdit(c.ledgerId, 'longRentUntil', ev.target.value || null)} />
+                      </div>
+                    )}
                   </td>
                   <td style={td}>
                     {canEdit ? <input style={{ ...inputSt, width: '140px', textAlign: 'left' }} value={valueOf(c, 'note') || ''} onChange={(ev) => setEdit(c.ledgerId, 'note', ev.target.value)} /> : c.note}
@@ -242,6 +260,9 @@ const SHEET_CSS = `
   .st-sheet-table td.n { text-align: right; padding-right: 14px; }
   .st-sheet-table td.month { font-weight: 800; color: ${SHEET_NAVY}; }
   .st-sheet-table td.c { text-align: center; }
+  .st-sheet-table tr.blocked td { background-color: #fef2f2 !important; background-image: ${STRIKE_BG}; color: #9ca3af; }
+  .st-sheet-table tr.blocked td.no, .st-sheet-table tr.blocked td.model { color: #9ca3af; }
+  .st-sheet-table tr.blocked td.blocked-label { color: #b91c1c; font-weight: 800; }
   .st-sheet-table tr.brand td { background: #f3eee6 !important; color: ${SHEET_NAVY}; font-weight: 800; font-size: 0.84rem; padding: 6px 12px;
     border-top: 2px solid ${SHEET_GOLD}; border-right: none; letter-spacing: 1px; }
   .st-sheet-table tr.brand td span { color: ${SHEET_GOLD}; font-weight: 700; margin-left: 6px; letter-spacing: 0; }
@@ -292,10 +313,12 @@ function RateSheet({ sheetRef, cars, policy }) {
                 {c.brand !== cars[i - 1]?.brand && (
                   <tr className="brand"><td colSpan={8}>{c.brand}<span>{cars.filter((x) => x.brand === c.brand).length}대</span></td></tr>
                 )}
-                <tr className={(i - cars.findIndex((x) => x.brand === c.brand)) % 2 ? 'even' : undefined}>
+                <tr className={c.longRent ? 'blocked' : (i - cars.findIndex((x) => x.brand === c.brand)) % 2 ? 'even' : undefined}>
                   <td className="no">{i + 1}</td>
                   <td className="model">{c.carModel}</td>
-                  {c.renting
+                  {c.longRent
+                    ? <td colSpan={3} className="c blocked-label">{longRentText(c.longRentUntil)}</td>
+                    : c.renting
                     ? <td colSpan={3} className="c" style={{ color: SHEET_GOLD, fontWeight: 800 }}>단기 렌트 중</td>
                     : <><td className="n">{won(c.rates.day)}</td><td className="n">{won(c.rates.week)}</td><td className="n month">{won(c.rates.month)}</td></>}
                   <td className="c">{c.plateNo}</td>
@@ -362,7 +385,7 @@ function Calculator({ cars, policy, holidays, regions }) {
         <span style={{ fontWeight: 800, color: '#fa8c16' }}>대여료 계산기</span>
         <label style={label}>차량
           <select style={field} value={ledgerId} onChange={(e) => setLedgerId(e.target.value)}>
-            {cars.map((c) => <option key={c.ledgerId} value={c.ledgerId}>{c.carModel} {c.plateNo}{c.renting ? ' (대여 중)' : ''}</option>)}
+            {cars.map((c) => <option key={c.ledgerId} value={c.ledgerId}>{c.carModel} {c.plateNo}{c.longRent ? ' (장기 대여 · 대여 불가)' : c.renting ? ' (대여 중)' : ''}</option>)}
           </select>
         </label>
         <label style={label}>인도 일시<input type="datetime-local" style={field} value={start} onChange={(e) => setStart(e.target.value)} /></label>

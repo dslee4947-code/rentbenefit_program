@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, X, ExternalLink, Trash2, Pencil, Search } from 'lucide-react';
 import VehicleServiceForm from './VehicleServiceForm.jsx';
 import CarDamageMap from './CarDamageMap.jsx';
+import CalendarInboxPanel from './CalendarInboxPanel.jsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -229,6 +230,7 @@ function VehicleServiceView({ showToast, currentUser }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+      <CalendarInboxPanel vehicles={rows} onImported={() => { load(); if (selectedId) loadDetail(selectedId); }} showToast={showToast} />
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
         {FILTERS.map((f) => {
           const count = rows.filter(f.test).length;

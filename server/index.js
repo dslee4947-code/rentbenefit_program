@@ -43,6 +43,8 @@ import { syncFineNoticeSchedules } from './utils/fineNoticeScheduleJob.js';
 import { syncVehicleServiceSchedules } from './utils/vehicleServiceScheduleJob.js';
 import { runAutoSend, sendAutoSendReport, sendApprovalReminder, refreshAllUnbilledInterest } from './controllers/billingScheduleController.js';
 import { runDeliveryDocsSend, sendDeliveryDocsReminder } from './controllers/deliveryDocsController.js';
+import { syncCalendarInbox } from './utils/calendarInboxSync.js';
+import { isGoogleCalendarConfigured } from './utils/googleCalendar.js';
 
 // Connect to MongoDB database
 connectDB().then(async () => {
@@ -133,6 +135,16 @@ connectDB().then(async () => {
     sendDeliveryDocsReminder().catch((err) => console.error('[인도 서류 승인 알림] 실패:', err.message));
   }, CRON_OPTIONS);
   console.log('[Cron Scheduler] 인도 서류 발송 예약 완료 (매일 09:05, 승인 알림 16:05).');
+
+  // 구글 업무캘린더 → 정비 기록 '확인 대기'. 직원이 핸드폰 캘린더에 적은 정비 일정을 10분마다 읽어 온다.
+  // 열쇠(GOOGLE_SERVICE_ACCOUNT_KEY)가 없는 서버에서는 아무것도 하지 않는다.
+  if (isGoogleCalendarConfigured()) {
+    const readCalendar = () => syncCalendarInbox()
+      .then((r) => { if (r.waiting || r.noPlate || r.flagged) console.log(`[캘린더 읽기] 일정 ${r.read}건 · 새 대기 ${r.waiting} · 번호없음 ${r.noPlate} · 옮긴 뒤 바뀜 ${r.flagged}`); })
+      .catch((err) => console.error('[캘린더 읽기] 실패:', err.message));
+    cron.schedule('*/10 7-22 * * *', readCalendar, CRON_OPTIONS);
+    console.log('[Cron Scheduler] 구글 캘린더 정비 일정 읽기 예약 완료 (07:00~22:59 10분마다).');
+  }
   // 9시에 서버가 꺼져 있었으면 그날 승인 건이 하루 밀린다. 근무 시간에 켜지면 한 번 따라잡는다.
   // 새벽 배포 때 돌면 고객이 새벽에 받게 되므로 근무 시간(9~18시)에만 돈다.
   const hour = Number(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul', hour: 'numeric', hourCycle: 'h23' }));

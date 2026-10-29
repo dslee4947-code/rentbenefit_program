@@ -8,6 +8,8 @@ const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? ''
 
 const won = (n) => (n === null || n === undefined ? '-' : `${toCommaString(Math.round(n))}`);
 const yearMonth = (d) => (d ? `${new Date(d).getFullYear()}년 ${new Date(d).getMonth() + 1}월` : '-');
+// 요금표 연식: 2021년 11월 → 21/11
+const shortYearMonth = (d) => (d ? `${String(new Date(d).getFullYear()).slice(2)}/${String(new Date(d).getMonth() + 1).padStart(2, '0')}` : '-');
 // 장기 대여(월렌트) 중인 차: 줄 가운데에 빨간 가는 선을 긋는다. 칸마다 같은 높이에 그려 한 줄로 이어진다.
 const STRIKE_BG = 'linear-gradient(to bottom, transparent calc(50% - 0.5px), #dc2626 calc(50% - 0.5px), #dc2626 calc(50% + 0.5px), transparent calc(50% + 0.5px))';
 const longRentText = (until) => `장기 대여 중${until ? ` (~${until})` : ''} · 대여 불가`;
@@ -335,14 +337,14 @@ function RateSheet({ sheetRef, cars, policy }) {
           <table className="st-sheet-table">
             <thead>
               <tr>
-                <th style={{ width: '6%' }}>NO</th><th>차종</th><th>1일(평일)</th><th>1주</th><th>1개월</th><th>색상(외/내)</th><th>유종</th><th>연식</th>
+                <th style={{ width: '6%' }}>NO</th><th>차종</th><th>1일(평일)</th><th>1주</th><th>1개월</th><th>색상(외/내)</th><th>차량번호</th><th>유종</th><th>연식</th>
               </tr>
             </thead>
             <tbody>
               {cars.map((c, i) => (
                 <React.Fragment key={c.ledgerId}>
                 {c.brand !== cars[i - 1]?.brand && (
-                  <tr className="brand"><td colSpan={8}>{c.brand}<span>{cars.filter((x) => x.brand === c.brand).length}대</span></td></tr>
+                  <tr className="brand"><td colSpan={9}>{c.brand}<span>{cars.filter((x) => x.brand === c.brand).length}대</span></td></tr>
                 )}
                 {c.longRent ? (
                   // 장기 대여 차는 요금 칸을 위아래로 나눈다: 위 '장기 대여 중(날짜)', 아래 단기 요금. 다른 칸은 두 줄을 합쳐 가운데 선을 긋는다
@@ -352,8 +354,9 @@ function RateSheet({ sheetRef, cars, policy }) {
                       <td rowSpan={2} className="model">{c.carModel}</td>
                       <td colSpan={3} className="c blocked-label">{longRentText(c.longRentUntil)}</td>
                       <td rowSpan={2} className="c color">{c.color || ''}</td>
+                      <td rowSpan={2} className="c">{c.plateNo}</td>
                       <td rowSpan={2} className="c">{c.fuelType || ''}</td>
-                      <td rowSpan={2} className="c">{yearMonth(c.ageStart)}</td>
+                      <td rowSpan={2} className="c">{shortYearMonth(c.ageStart)}</td>
                     </tr>
                     <tr className="blocked">
                       <td className="n rate">{won(c.rates.day)}</td><td className="n rate">{won(c.rates.week)}</td><td className="n rate month">{won(c.rates.month)}</td>
@@ -367,8 +370,9 @@ function RateSheet({ sheetRef, cars, policy }) {
                     ? <td colSpan={3} className="c" style={{ color: SHEET_GOLD, fontWeight: 800 }}>단기 렌트 중</td>
                     : <><td className="n">{won(c.rates.day)}</td><td className="n">{won(c.rates.week)}</td><td className="n month">{won(c.rates.month)}</td></>}
                   <td className="c color">{c.color || ''}</td>
+                  <td className="c">{c.plateNo}</td>
                   <td className="c">{c.fuelType || ''}</td>
-                  <td className="c">{yearMonth(c.ageStart)}</td>
+                  <td className="c">{shortYearMonth(c.ageStart)}</td>
                 </tr>
                 )}
                 </React.Fragment>

@@ -204,6 +204,7 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
       pandanbi: num(vehicle.sellingAdminExpense) || pandanbi,
       // 차량 DB의 companyCommission은 이익률(%)이라 금액이 아니다. 견적서 기본 수수료율로 낸다.
       benefitFee: totalCarPrice * defaults.commissionRate,
+      benefitRate: defaults.commissionRate,
       maintenanceOn: maintenanceJoined,
       maintenanceFee: maintenanceFeeTotal,
       tireFee: tireCostTotal,

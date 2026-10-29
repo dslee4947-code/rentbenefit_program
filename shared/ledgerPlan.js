@@ -35,6 +35,8 @@ export const quotePlanOf = (quote) => {
       ownCarInsurance: (calc.ownCarInsuranceFee || 0) * years,
       pandanbi: calc.pandanbi || 0,
       benefitFee: calc.companyCommission || 0,
+      // 견적서마다 수수료율이 다르다(대부분 3%, 1.5%인 차도 있다). 예상 수익금에 몇 %로 뺐는지 보여 준다
+      benefitRate: Number(vehicle.commissionRateP) || 0,
       maintenanceOn,
       maintenanceFee: calc.maintenanceFeeTotal || 0,
       tireFee: calc.tireCostTotal || 0,

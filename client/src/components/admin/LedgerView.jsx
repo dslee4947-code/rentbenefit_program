@@ -716,7 +716,7 @@ const bucketOf = (e) => {
   return 'operating';
 };
 
-function BudgetBoard({ plan, entries, income, salesCommission, recovered = {}, closed = false }) {
+function BudgetBoard({ plan, entries, income, salesCommission, benefitRate = null, recovered = {}, closed = false }) {
   const [open, setOpen] = useState(null);
   const ownLoan = hasOwnLoan(entries);
 
@@ -809,6 +809,19 @@ function BudgetBoard({ plan, entries, income, salesCommission, recovered = {}, c
   const premiumLeft = budget.insurance - projected.insurance;
   const ownCarLeft = budget.ownCar - projected.ownCar;
   const interestMonths = plan.months || 0;
+
+  // 정비 포함 차는 정비비와 타이어 교체비를 나눠 본다(대표님 2026-10-29). 얼라이먼트는 타이어에 들어 있다.
+  const tireUsed = groups.maintenance.filter((e) => matchMaintenance(e) === 'tire').reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const maintUsed = used.maintenance - tireUsed;
+  const maintenanceLeft = budget.maintenance - used.maintenance;
+
+  // 판관비와 베네핏 수수료(대표님 2026-10-29). 수수료율은 견적서 값(1.5%인 차도 있다), 견적서가 없으면 차량가 3%.
+  // 판관비는 위 '만기까지 쓸 돈'에 이미 들어 있고, 베네핏 수수료는 회사 몫이라 예상 수익금에서 따로 빼 영업이익을 낸다.
+  const benefitFee = Math.round(plan.benefitFee || 0);
+  const carPriceBase = benefitRate > 0 ? (plan.benefitFee || 0) / benefitRate : 0;
+  const pandanbiRate = carPriceBase > 0 ? (plan.pandanbi || 0) / carPriceBase : null;
+  const pctText = (r) => (r === null || r === undefined ? '' : `${Number((r * 100).toFixed(2))}%`);
+  const operatingProfit = projectedProfit - benefitFee;
   const repaymentLabel = plan.fundingRepaymentMode === 'balloon' ? '만기 인수가 상환' : '원리금 균등상환';
 
   const cards = [
@@ -860,6 +873,22 @@ function BudgetBoard({ plan, entries, income, salesCommission, recovered = {}, c
             )}
             {plan.depositInterestBenefit > 0 && <Row label="· 보증금 이자 이득 (보증금 × 금리 × 기간)" value={`- ${won(Math.round(plan.depositInterestBenefit))}`} muted />}
             {plan.advancePaymentInterest > 0 && <Row label="· 선수금분 이자" value={won(Math.round(plan.advancePaymentInterest))} muted />}
+            <Divider />
+            <Row label={`판관비 예산 (견적${pandanbiRate !== null ? ` · 차량가 ${pctText(pandanbiRate)}` : ''})`} value={won(budget.operating)} muted />
+            <Row label="지금까지 쓴 판관비 (자동차세·검사비·탁송료 등)" value={won(used.operating)} muted />
+            <Row
+              label={used.operating <= budget.operating ? '만기까지 판관비 (예산 다 쓴다고 봄)' : '만기까지 판관비 (예산 초과, 실제 넣음)'}
+              value={`- ${won(projected.operating)}`}
+              color={used.operating > budget.operating ? '#d9534f' : undefined}
+              muted={used.operating <= budget.operating}
+            />
+            <Row label={`베네핏 수수료 (차량가 × ${benefitRate !== null ? pctText(benefitRate) : '견적 수수료율'})`} value={`- ${won(benefitFee)}`} />
+            <Row
+              label="수수료까지 빼고 남는 영업이익"
+              value={won(operatingProfit)}
+              color={operatingProfit >= 0 ? '#2f6f4e' : '#d9534f'}
+              strong
+            />
           </div>
           <div>
             <Row label="보험료 예산 (견적 기본 보험료)" value={won(budget.insurance)} muted />
@@ -878,10 +907,24 @@ function BudgetBoard({ plan, entries, income, salesCommission, recovered = {}, c
               color={ownCarLeft >= 0 ? '#2f6f4e' : '#d9534f'}
               strong
             />
+            {plan.maintenanceOn && (
+              <>
+                <Divider />
+                <Row label="정비비 예산 (정비 단가표 항목)" value={won(plan.maintenanceFee || 0)} muted />
+                <Row label={`타이어 교체비 예산${plan.tireCount ? ` (${plan.tireCount}본·얼라이먼트)` : ''}`} value={won(plan.tireFee || 0)} muted />
+                <Row label="지금까지 쓴 정비비" value={won(maintUsed)} muted />
+                <Row label="지금까지 쓴 타이어 교체비" value={won(tireUsed)} muted />
+                <Row
+                  label={maintenanceLeft >= 0 ? '정비·타이어 남은 예산 (만기까지 쓸 돈으로 봄)' : '정비·타이어 예산 초과'}
+                  value={won(Math.abs(maintenanceLeft))}
+                  color={maintenanceLeft >= 0 ? '#2f6f4e' : '#d9534f'}
+                />
+              </>
+            )}
           </div>
         </div>
         <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: '0.3rem', lineHeight: 1.5 }}>
-          수리비는 앞으로 더 생기지 않는다고 보고 계산했습니다. 사고가 나면 그만큼 줄어듭니다. 이자는 계약 기간 총 이자를 그대로 넣었고, 정비·운영비·등록은 예산과 실제 중 큰 값, 지난 기간은 받은 렌트료 비율({Math.round(elapsed * 100)}%)로 봅니다.
+          수리비는 앞으로 더 생기지 않는다고 보고 계산했습니다. 사고가 나면 그만큼 줄어듭니다. 이자는 계약 기간 총 이자를 그대로 넣었고, 정비·타이어·판관비·등록은 예산과 실제 중 큰 값(정비 포함 차는 약속한 정비를 다 해 준다고 봄), 지난 기간은 받은 렌트료 비율({Math.round(elapsed * 100)}%)로 봅니다.
         </div>
       </div>
 
@@ -1506,6 +1549,7 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
           entries={entries}
           income={{ rentTotal, takeover: returned ? 0 : takeover, advance, rentReceived: actual.rentReceived, months: totalMonths, cms: cmsTotal }}
           salesCommission={actual.salesCommission}
+          benefitRate={plan.benefitRate ?? quotePlan?.benefitRate ?? (state.savedPlan?.source === '견적서' ? null : 0.03)}
           recovered={{ fines: actual.finesRecovered, maintenance: actual.maintRecovered }}
           closed={closed}
         />

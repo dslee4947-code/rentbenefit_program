@@ -656,43 +656,6 @@ function Row({ label, value, strong, muted, color }) {
   );
 }
 
-function Section({ no, title, children }) {
-  return (
-    <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.7rem 0.8rem' }}>
-      <div style={{ fontSize: '0.8rem', fontWeight: '800', marginBottom: '0.45rem' }}>{no}. {title}</div>
-      {children}
-    </div>
-  );
-}
-
-const Divider = () => <div style={{ borderTop: '1px dashed var(--border-color)', margin: '0.35rem 0' }} />;
-
-/**
- * 예산 현황 (갑지 1장 = 차 1대).
- *
- * 계약으로 받을 돈과, 견적에서 잡아 둔 나갈 돈을 분류별 예산으로 놓고 지금까지 쓴 돈과 남은 돈(쓸 수 있는 돈)을 보여 준다.
- * 입력은 원장 한 곳에서 하고, 여기서는 입력한 줄을 분류별로 모아 날짜순으로 보여 준다(분류 이름을 누르면 펼쳐짐).
- *
- * 보험료와 수리비는 나눠 본다(대표님 2026-10-28). 보험료는 견적의 기본 보험료에서, 차량 수리비는 자차보험료에서 나간다.
- * 자차보험료는 수리비를 막으려고 잡아 둔 돈이라 수리비를 쓰고 남은 만큼이 수익이 된다.
- * 판관비(차량가 3%)에서 자동차세·자동차 검사비·탁송료·과태료(미회수) 등 운영하며 나가는 돈을 쓴다(대표님 2026-10-28).
- * 정비는 정비 단가표(항목 1회 단가 × 계약 기간 횟수 + 타이어·얼라이먼트)로 잡은 예산과 실제 정비 출금을 맞댄다.
- * 금융 이자 예산은 견적서처럼 원리금 균등상환으로 낸 계약 기간 총 이자다. 실제는 자기 대출이 있는 차면 할부이자,
- * 회사 돈으로 산 차면 내부 금리로 매긴 이자(묶인 돈 × 내부 금리)다.
- */
-const BUDGET_BUCKETS = [
-  { key: 'purchase', name: '차량 구입', desc: '차량가 + 계약금 + 나중에 낸 개별소비세·교육세' },
-  { key: 'registration', name: '등록·취득세', desc: '취득세·공채·등록비용' },
-  { key: 'insurance', name: '보험료', desc: '보험료·공제조합 (견적 기본 보험료)' },
-  { key: 'ownCar', name: '자차 (수리·사고)', desc: '차량 수리비는 자차보험료에서 나간다' },
-  { key: 'maintenance', name: '정비', desc: '정비 단가표 항목 + 타이어·얼라이먼트' },
-  { key: 'finance', name: '금융 이자', desc: '예산: 원리금 균등상환 계약 기간 총 이자' },
-  { key: 'operating', name: '운영비 (판관비)', desc: '자동차세·자동차 검사비·탁송료·과태료(미회수)·기타' },
-  { key: 'vehicleWork', name: '차량작업', desc: '썬팅·블랙박스 등. 판매 수수료로 충당' },
-  { key: 'loan', name: '대출 원금 상환', desc: '빌린 돈을 갚는 것이라 예산 비교에서 뺌' },
-  { key: 'deposit', name: '보증금 · 출자금', desc: '돌려주거나 돌려받을 돈이라 예산 비교에서 뺌' }
-];
-
 /**
  * 개별소비세 출금인지. 면세로 산 차의 조건이 깨져 나중에 낸 개별소비세는 차를 살 때 냈어야 할 돈이라 차량 구입가로 본다
  * (2026-10-05 대표님 결정). 원장에서는 '개별소비세 환급'(분류 환급)·'개별소비세 납부'·'개소세'(분류 제세공과) 등으로 적혀 있어
@@ -715,282 +678,6 @@ const bucketOf = (e) => {
   if (cat === '차량작업') return 'vehicleWork';
   return 'operating';
 };
-
-function BudgetBoard({ plan, entries, income, salesCommission, benefitRate = null, recovered = {}, closed = false }) {
-  const [open, setOpen] = useState(null);
-  const ownLoan = hasOwnLoan(entries);
-
-  const groups = useMemo(() => {
-    const g = Object.fromEntries(BUDGET_BUCKETS.map((b) => [b.key, []]));
-    entries.forEach((e) => {
-      if (e.side !== '지출' || !(Number(e.amount) > 0)) return;
-      g[bucketOf(e)].push(e);
-    });
-    Object.values(g).forEach((list) => list.sort((a, b) => String(a.date || '9999').localeCompare(String(b.date || '9999'))));
-    return g;
-  }, [entries]);
-  const sum = (key) => groups[key].reduce((s, e) => s + (Number(e.amount) || 0), 0);
-  // 보험료 환급(입금)은 보험·수리에서 쓴 돈을 줄인다. 보험사를 바꾸며 돌려받은 보험료 등.
-  const insuranceRefund = entries
-    .filter(isInsuranceRefund)
-    .reduce((s, e) => s + (Number(e.amount) || 0), 0);
-
-  // 보험료는 해마다 나간다. 견적이 계약 전체보다 짧으면(연장한 차, 견적이 지금 계약 1년만 본 경우) 연 보험료로 전체 기간을 채운다
-  const insuranceScale = plan.months > 0 && income.months > plan.months ? income.months / plan.months : 1;
-  // 계약 기간 총 이자 = 원리금 균등상환 조달이자 − 보증금 이자 이득 + 선수금분 이자 (견적서와 같은 식)
-  const interestTotal = planInterestTotal(plan);
-  const budget = {
-    purchase: plan.netVehiclePrice || 0,
-    // 자동차세는 판관비에서 나가므로 등록 예산에 넣지 않는다
-    registration: plan.registrationCost || 0,
-    insurance: (plan.baseInsurance || 0) * insuranceScale,
-    ownCar: (plan.ownCarInsurance || 0) * insuranceScale,
-    maintenance: plan.maintenanceOn ? (plan.maintenanceFee || 0) + (plan.tireFee || 0) : 0,
-    finance: interestTotal,
-    operating: plan.pandanbi || 0,
-    vehicleWork: salesCommission || 0
-  };
-  const used = {
-    purchase: sum('purchase'),
-    registration: sum('registration'),
-    insurance: sum('insurance') - insuranceRefund,
-    ownCar: sum('ownCar'),
-    // 고객에게서 돌려받은 과태료·정비비(정비 미포함 고객)는 회사가 쓴 돈이 아니다(matchRecoveries)
-    maintenance: sum('maintenance') - (plan.maintenanceOn ? 0 : recovered.maintenance || 0),
-    // 차량 이자는 갑지에 적힌 이자만 쓴다(대표님 2026-10-28). 캐피탈·할부 차는 실제 할부이자, 담보대출로 산 차는 엑셀 갑지 '이자' 줄.
-    // 담보대출 이자를 회사 전체로 다시 나누는 계산(내부 금리)은 FP&A에서 이 줄을 대신하는 값으로 쓴다 — 더하면 이자가 두 번 잡힌다
-    finance: sum('finance'),
-    operating: sum('operating') - (recovered.fines || 0),
-    vehicleWork: sum('vehicleWork')
-  };
-  const budgeted = BUDGET_BUCKETS.filter((b) => b.key in budget && b.key !== 'vehicleWork');
-  const totalBudget = budgeted.reduce((s, b) => s + budget[b.key], 0);
-  const totalUsed = budgeted.reduce((s, b) => s + used[b.key], 0);
-  const totalIncome = income.rentTotal + income.takeover + income.advance;
-
-  const cell = { padding: '0.35rem 0.45rem', borderBottom: '1px solid var(--border-color)', fontSize: '0.76rem', verticalAlign: 'top' };
-  const num = { ...cell, textAlign: 'right', whiteSpace: 'nowrap' };
-  const pct = (u, b) => (b > 0 ? Math.round((u / b) * 100) : null);
-  const colorOf = (p) => (p === null ? 'inherit' : p > 100 ? '#d9534f' : p >= 80 ? '#e08a1e' : '#2f6f4e');
-
-  /**
-   * 월 렌트료를 다 받고 고객이 인수했을 때의 예상 수익금.
-   *
-   * 지금까지 실제로 쓴 돈에 남은 기간 동안 쓸 돈을 더해 분류마다 '만기까지 쓸 돈'을 낸다.
-   *   보험료: 지금까지 낸 속도(낸 보험료 ÷ 지난 기간)로 남은 기간을 채운다.
-   *   자차: 차량 수리비는 자차보험료에서 나간다. 수리비는 더 생기지 않는다고 보고, 자차보험료에서 남는 만큼이 수익이 된다.
-   *   금융 이자: 엑셀 갑지처럼 원리금 균등상환으로 낸 계약 기간 총 이자(대표님 2026-10-28)
-   *   정비(정비 포함 고객)·운영비·등록: 예산과 실제 중 큰 값(정비는 약속한 만큼은 해 줘야 한다)
-   *   차량 구입: 실제(없으면 예산)
-   * 받을 돈에는 판매 수수료를 더하고, 차량작업비와 CMS 수수료를 뺀다.
-   * 지난 기간은 '받은 렌트료 ÷ 계약 전체 렌트료'로 본다.
-   */
-  const elapsed = income.rentTotal > 0 ? Math.min(1, (income.rentReceived || 0) / income.rentTotal) : 0;
-  const premiumPaid = used.insurance;
-  const repairPaid = used.ownCar;
-  // 보험료는 1년치를 먼저 내므로 초반에는 속도가 높게 나온다. 1년(지난 비율)이 지나기 전에는 예산의 보험료 몫을 쓴다.
-  const yearShare = income.months > 0 ? Math.min(1, 12 / income.months) : 1;
-  const premiumProjected = elapsed >= yearShare && elapsed > 0
-    ? premiumPaid / elapsed
-    : Math.max(premiumPaid, plan.baseInsurance || 0);
-  const projected = {
-    purchase: used.purchase || budget.purchase,
-    registration: Math.max(used.registration, budget.registration),
-    insurance: premiumProjected,
-    ownCar: repairPaid,
-    maintenance: plan.maintenanceOn ? Math.max(used.maintenance, budget.maintenance) : used.maintenance,
-    finance: budget.finance,
-    operating: Math.max(used.operating, budget.operating),
-    vehicleWork: used.vehicleWork
-  };
-  const projectedCost = Object.values(projected).reduce((t, v) => t + v, 0) + (income.cms || 0);
-  const projectedIncome = totalIncome + (salesCommission || 0);
-  const projectedProfit = projectedIncome - projectedCost;
-  const premiumLeft = budget.insurance - projected.insurance;
-  const ownCarLeft = budget.ownCar - projected.ownCar;
-  const interestMonths = plan.months || 0;
-
-  // 정비 포함 차는 정비비와 타이어 교체비를 나눠 본다(대표님 2026-10-29). 얼라이먼트는 타이어에 들어 있다.
-  const tireUsed = groups.maintenance.filter((e) => matchMaintenance(e) === 'tire').reduce((s, e) => s + (Number(e.amount) || 0), 0);
-  const maintUsed = used.maintenance - tireUsed;
-  const maintenanceLeft = budget.maintenance - used.maintenance;
-
-  // 판관비와 베네핏 수수료(대표님 2026-10-29). 수수료율은 견적서 값(1.5%인 차도 있다), 견적서가 없으면 차량가 3%.
-  // 판관비는 위 '만기까지 쓸 돈'에 이미 들어 있고, 베네핏 수수료는 회사 몫이라 예상 수익금에서 따로 빼 영업이익을 낸다.
-  const benefitFee = Math.round(plan.benefitFee || 0);
-  const carPriceBase = benefitRate > 0 ? (plan.benefitFee || 0) / benefitRate : 0;
-  const pandanbiRate = carPriceBase > 0 ? (plan.pandanbi || 0) / carPriceBase : null;
-  const pctText = (r) => (r === null || r === undefined ? '' : `${Number((r * 100).toFixed(2))}%`);
-  const operatingProfit = projectedProfit - benefitFee;
-  const repaymentLabel = plan.fundingRepaymentMode === 'balloon' ? '만기 인수가 상환' : '원리금 균등상환';
-
-  const cards = [
-    ['받을 돈 (계약 전체)', totalIncome, `렌트료 ${toCommaString(income.rentTotal)} + 인수가 ${toCommaString(income.takeover)} + 선납금 ${toCommaString(income.advance)}`],
-    ['나갈 돈 예산 (견적)', totalBudget, '아래 분류 예산의 합 (차량작업 제외)'],
-    ['예상 남는 돈', totalIncome - totalBudget, '받을 돈 − 나갈 돈 예산'],
-    ['예산 중 아직 쓸 수 있는 돈', totalBudget - totalUsed, `지금까지 ${toCommaString(totalUsed)} 사용`]
-  ];
-
-  return (
-    <div style={{ gridColumn: '1 / -1', border: '1px solid #c9d6ea', borderRadius: '8px', padding: '0.8rem 0.9rem', background: '#fff' }}>
-      <div style={{ fontSize: '0.82rem', fontWeight: '800', marginBottom: '0.5rem' }}>예산 현황 · 받을 돈과 쓸 수 있는 돈</div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem', marginBottom: '0.7rem' }}>
-        {cards.map(([label, value, note]) => (
-          <div key={label} style={{ border: '1px solid var(--border-color)', borderRadius: '6px', padding: '0.45rem 0.55rem' }}>
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: '700' }}>{label}</div>
-            <div style={{ fontSize: '1rem', fontWeight: '800', color: value < 0 ? '#d9534f' : 'inherit' }}>{won(value)}</div>
-            <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)' }}>{note}</div>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ border: '2px solid #2f6f4e', background: '#f3faf6', borderRadius: '8px', padding: '0.6rem 0.75rem', marginBottom: '0.7rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '0.8rem', fontWeight: '800' }}>월 렌트료를 다 받고 인수했을 때 예상 수익금</span>
-          <span style={{ fontSize: '1.15rem', fontWeight: '800', color: projectedProfit < 0 ? '#d9534f' : '#2f6f4e' }}>{won(projectedProfit)}</span>
-        </div>
-        {/* 끝난 계약은 위 정산계가 실제 결과다. 이 칸은 계약 때 기준으로 본 값이라 참고만 한다(대표님 2026-10-28) */}
-        {closed && (
-          <div style={{ fontSize: '0.7rem', color: '#8a6d1f', marginTop: '0.15rem' }}>
-            거래완료된 차입니다. 실제 결과는 위 정산계이고, 이 금액은 계약 기준으로 본 참고용입니다(이자 추정·남은 회차 포함).
-          </div>
-        )}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.1rem 1.4rem', marginTop: '0.35rem' }}>
-          <div>
-            <Row label="받을 돈 + 판매 수수료" value={won(projectedIncome)} muted />
-            <Row label="만기까지 쓸 돈 (실적 반영)" value={`- ${won(projectedCost)}`} muted />
-            <Row label="견적대로 쓸 때와 비교" value={`${projectedProfit - (totalIncome - totalBudget) >= 0 ? '+' : '-'} ${won(Math.abs(projectedProfit - (totalIncome - totalBudget)))}`} muted />
-            <Divider />
-            {/* 엑셀 갑지는 이자를 원리금 균등상환으로 계산해 출금에 넣었다. 여기서는 계약 기간 총 이자를 한 줄로 보여 준다(대표님 2026-10-28) */}
-            <Row label={`계약 기간 총 이자 (${repaymentLabel})`} value={`- ${won(Math.round(interestTotal))}`} strong />
-            {plan.fundingPrincipal > 0 && (
-              <Row
-                label={`· 조달원금 ${toCommaString(Math.round(plan.fundingPrincipal))} × 연 ${((plan.interestRate || 0) * 100).toFixed(2)}% × ${interestMonths}개월`}
-                value={won(Math.round(plan.grossFundingInterest || 0))}
-                muted
-              />
-            )}
-            {plan.depositInterestBenefit > 0 && <Row label="· 보증금 이자 이득 (보증금 × 금리 × 기간)" value={`- ${won(Math.round(plan.depositInterestBenefit))}`} muted />}
-            {plan.advancePaymentInterest > 0 && <Row label="· 선수금분 이자" value={won(Math.round(plan.advancePaymentInterest))} muted />}
-            <Divider />
-            <Row label={`판관비 예산 (견적${pandanbiRate !== null ? ` · 차량가 ${pctText(pandanbiRate)}` : ''})`} value={won(budget.operating)} muted />
-            <Row label="지금까지 쓴 판관비 (자동차세·검사비·탁송료 등)" value={won(used.operating)} muted />
-            <Row
-              label={used.operating <= budget.operating ? '만기까지 판관비 (예산 다 쓴다고 봄)' : '만기까지 판관비 (예산 초과, 실제 넣음)'}
-              value={`- ${won(projected.operating)}`}
-              color={used.operating > budget.operating ? '#d9534f' : undefined}
-              muted={used.operating <= budget.operating}
-            />
-            <Row label={`베네핏 수수료 (차량가 × ${benefitRate !== null ? pctText(benefitRate) : '견적 수수료율'})`} value={`- ${won(benefitFee)}`} />
-            <Row
-              label="수수료까지 빼고 남는 영업이익"
-              value={won(operatingProfit)}
-              color={operatingProfit >= 0 ? '#2f6f4e' : '#d9534f'}
-              strong
-            />
-          </div>
-          <div>
-            <Row label="보험료 예산 (견적 기본 보험료)" value={won(budget.insurance)} muted />
-            <Row label={`만기까지 보험료 (낸 속도 기준${insuranceRefund ? `, 환급 ${toCommaString(insuranceRefund)} 뺌` : ''})`} value={won(premiumProjected)} muted />
-            <Row
-              label={premiumLeft >= 0 ? '보험료에서 남는 돈' : '보험료 예산 초과'}
-              value={won(Math.abs(premiumLeft))}
-              color={premiumLeft >= 0 ? '#2f6f4e' : '#d9534f'}
-            />
-            <Divider />
-            <Row label="자차보험료 예산" value={won(budget.ownCar)} muted />
-            <Row label="차량 수리비 (자차보험료에서 나감)" value={`- ${won(repairPaid)}`} muted />
-            <Row
-              label={ownCarLeft >= 0 ? '자차보험료에서 남는 돈 → 수익' : '자차보험료 초과'}
-              value={won(Math.abs(ownCarLeft))}
-              color={ownCarLeft >= 0 ? '#2f6f4e' : '#d9534f'}
-              strong
-            />
-            {plan.maintenanceOn && (
-              <>
-                <Divider />
-                <Row label="정비비 예산 (정비 단가표 항목)" value={won(plan.maintenanceFee || 0)} muted />
-                <Row label={`타이어 교체비 예산${plan.tireCount ? ` (${plan.tireCount}본·얼라이먼트)` : ''}`} value={won(plan.tireFee || 0)} muted />
-                <Row label="지금까지 쓴 정비비" value={won(maintUsed)} muted />
-                <Row label="지금까지 쓴 타이어 교체비" value={won(tireUsed)} muted />
-                <Row
-                  label={maintenanceLeft >= 0 ? '정비·타이어 남은 예산 (만기까지 쓸 돈으로 봄)' : '정비·타이어 예산 초과'}
-                  value={won(Math.abs(maintenanceLeft))}
-                  color={maintenanceLeft >= 0 ? '#2f6f4e' : '#d9534f'}
-                />
-              </>
-            )}
-          </div>
-        </div>
-        <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: '0.3rem', lineHeight: 1.5 }}>
-          수리비는 앞으로 더 생기지 않는다고 보고 계산했습니다. 사고가 나면 그만큼 줄어듭니다. 이자는 계약 기간 총 이자를 그대로 넣었고, 정비·타이어·판관비·등록은 예산과 실제 중 큰 값(정비 포함 차는 약속한 정비를 다 해 준다고 봄), 지난 기간은 받은 렌트료 비율({Math.round(elapsed * 100)}%)로 봅니다.
-        </div>
-      </div>
-
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr style={{ color: 'var(--text-muted)', background: 'var(--bg-main)' }}>
-            <th style={{ ...cell, textAlign: 'left' }}>분류</th>
-            <th style={num}>예산</th>
-            <th style={num}>사용</th>
-            <th style={num}>쓸 수 있는 돈</th>
-            <th style={num}>사용률</th>
-          </tr>
-        </thead>
-        <tbody>
-          {BUDGET_BUCKETS.map((b) => {
-            const list = groups[b.key];
-            const isBudgeted = b.key in budget;
-            if (!isBudgeted && !list.length) return null;
-            const bud = isBudgeted ? budget[b.key] : null;
-            const use = isBudgeted ? used[b.key] : list.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-            const p = isBudgeted ? pct(use, bud) : null;
-            const expanded = open === b.key;
-            let note = b.desc;
-            if (b.key === 'finance') {
-              note += ownLoan
-                ? ' · 캐피탈·할부로 산 차: 원장 할부이자 기준'
-                : groups.finance.length
-                  ? ' · 담보대출로 산 차: 엑셀 갑지 이자 줄 기준'
-                  : ' · 갑지에 이자 줄이 없습니다';
-            }
-            if (b.key === 'vehicleWork') note += ' · 예산 = 받은 판매 수수료';
-            return (
-              <React.Fragment key={b.key}>
-                <tr
-                  style={{ cursor: list.length ? 'pointer' : 'default', color: isBudgeted ? 'inherit' : 'var(--text-muted)' }}
-                  onClick={() => list.length && setOpen(expanded ? null : b.key)}
-                >
-                  <td style={cell}>
-                    <b>{list.length ? (expanded ? '▾ ' : '▸ ') : '· '}{b.name}</b> <span style={{ color: 'var(--text-muted)' }}>({list.length}건)</span>
-                    <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)' }}>{note}</div>
-                  </td>
-                  <td style={num}>{bud === null ? '-' : toCommaString(bud)}</td>
-                  <td style={num}>{toCommaString(use)}</td>
-                  <td style={{ ...num, fontWeight: '800', color: bud !== null && bud - use < 0 ? '#d9534f' : '#2f6f4e' }}>{bud === null ? '-' : toCommaString(bud - use)}</td>
-                  <td style={{ ...num, fontWeight: '800', color: colorOf(p) }}>{p === null ? '-' : `${p}%`}</td>
-                </tr>
-                {expanded && list.map((e, i) => (
-                  <tr key={e._id || `${b.key}-${i}`} style={{ background: '#fafbfd' }}>
-                    <td style={{ ...cell, paddingLeft: '1.4rem', color: 'var(--text-muted)' }} colSpan={2}>
-                      {e.date ? String(e.date).slice(0, 10) : '날짜 없음'} · {e.label || e.category} <span style={{ fontSize: '0.66rem' }}>({e.category})</span>
-                    </td>
-                    <td style={num}>{toCommaString(e.amount)}</td>
-                    <td style={cell} colSpan={2} />
-                  </tr>
-                ))}
-              </React.Fragment>
-            );
-          })}
-        </tbody>
-      </table>
-      <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: '0.35rem', lineHeight: 1.5 }}>
-        예산은 계약 기간 전체 금액이라 계약 중간이면 쓸 수 있는 돈이 남는 것이 정상입니다. 분류는 원장 줄 이름과 분류로 자동으로 나눕니다(입력은 원장 위쪽에서 그대로 하면 됩니다).
-      </div>
-    </div>
-  );
-}
 
 /**
  * 정비 항목별 견적 대 실제.
@@ -1063,166 +750,448 @@ function MaintenanceByItem({ plan, actual }) {
 }
 
 /**
- * 차 구입·등록·금융·세금: 견적에서 잡은 금액과 원장의 실제 출금.
- * 조달이자는 견적이 '빌렸다고 보고' 잡은 금융비용이다. 실제로는 할부이자 줄이나, 이자가 섞인 할부금 상환으로 나간다.
- */
-function PurchaseCheck({ plan, actual }) {
-  if (!(plan.netVehiclePrice > 0)) return null;
-  const diffRow = (label, planned, real, note) => {
-    const diff = real - planned;
-    const color = Math.abs(diff) < 1 ? '#2f6f4e' : (diff > 0 ? '#d9534f' : '#2f6f4e');
-    return (
-      <div key={label} style={{ marginBottom: '0.35rem' }}>
-        <Row label={`견적 ${label}`} value={won(planned)} muted />
-        <Row label={`실제 ${label}`} value={won(real)} />
-        {real > 0 && <Row label={diff > 0 ? '· 견적보다 더 나감' : '· 견적보다 덜 나감'} value={won(Math.abs(diff))} color={color} />}
-        {note && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{note}</div>}
-      </div>
-    );
-  };
-  return (
-    <Section no={4} title="차 구입 · 등록 · 금융 · 세금">
-      {diffRow('차량 구입가', plan.netVehiclePrice, actual.vehiclePurchase,
-        `견적: 차량가 + 옵션 − 할인 + 탁송료. 실제: 원장 차량가 ${won(actual.vehiclePrice)} + 계약금 ${won(actual.vehicleDeposit)}${actual.vehicleExcise ? ` + 나중에 낸 개별소비세·교육세 ${won(actual.vehicleExcise)}` : ''} (대출로 낸 금액 포함). 장기렌트는 면세로 사서 차량가에서 세금이 빠져 나가고, 나중에 돌려내는 개별소비세·교육세는 여기서 셉니다.`)}
-      {/*
-        계약금까지 더했는데도 견적보다 적게 나갔으면 할인을 받았거나 면세로 산 것이다.
-        면세로 산 차는 조건이 깨지면 개별소비세를 나중에 다시 내야 할 수 있어 따로 알린다(2026-10-05 대표님 안내).
-        1만 원 미만 차이는 단수 차이로 본다.
-      */}
-      {actual.vehiclePurchase > 0 && plan.netVehiclePrice - actual.vehiclePurchase >= 10000 && (
-        <div style={{ margin: '0.1rem 0 0.35rem', padding: '0.45rem 0.55rem', border: '1px solid #f0c36d', background: '#fff8e6', borderRadius: '6px', fontSize: '0.72rem', lineHeight: 1.55 }}>
-          <b>⚠ 계약금까지 더해도 견적보다 {won(plan.netVehiclePrice - actual.vehiclePurchase)} 적게 나갔습니다.</b><br />
-          할인을 받았거나 면세로 산 차입니다. 면세로 샀다면 조건이 깨질 때 <b>개별소비세를 나중에 다시 내야</b> 할 수 있으니 면세 조건을 확인하세요.
-          {actual.vehicleDeposit === 0 && <><br />원장에 계약금 출금이 없습니다. 계약금을 빠뜨리고 입력하지 않았는지도 확인하세요.</>}
-        </div>
-      )}
-      <Divider />
-      {diffRow('취득세·공채·등록', plan.registrationCost, actual.registration, '실제: 원장 등록비용·제세공과.')}
-      <Divider />
-      {diffRow('조달이자', plan.fundingInterest, actual.loanInterest,
-        actual.loanRepayment > 0
-          ? `할부금 상환 ${won(actual.loanRepayment)}에는 원금과 이자가 섞여 있어 이자만 따로 볼 수 없습니다.`
-          : '실제: 원장 이자 줄(캐피탈·할부 이자, 담보대출로 산 차는 엑셀 갑지 이자).')}
-      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-        자동차세({won(actual.carTax)})는 판관비에서 나가는 돈이라 2번 운영비에서 셉니다.
-      </div>
-    </Section>
-  );
-}
-
-/**
- * 계약 손익 기준표 (구상안 2단계, 2026-10-28).
+ * 수익성 검토 한 장 (대표님 2026-10-29).
  *
- * 계약할 때 정한 매출과 비용을 한 표로 보여 준다. 저장해 두면(서버 profitPlans) 렌트차량 DB를 고쳐도 바뀌지 않고,
- * 관리자가 [다시 계산]으로만 바꾼다. 칸마다 값을 어디서 가져왔는지(견적서·원장 계약 조건·렌트차량 DB·기본값)를 붙인다.
- * 실제 쓴 돈과의 비교는 바로 아래 예산 현황이 한다.
+ * 예전에는 기준표·예상 수익·예산 현황·1~4번 카드에 같은 숫자가 네 번씩 나오고, '남는 돈'이 칸마다 다른 전제로 여섯 가지가 나왔다.
+ * 새로 온 직원이 어느 숫자를 믿어야 할지 몰라 표 하나로 합쳤다. 항목마다 견적(계약 때) · 지금까지 · 만기 예상 · 차이를 놓고,
+ * 남는 돈은 영업이익(베네핏 수수료까지 뺀 돈)과 회사 몫(영업이익 + 베네핏 수수료) 둘만 쓴다.
+ *
+ * 만기 예상은 이렇게 본다.
+ *   차량 구입: 실제(없으면 견적)
+ *   보험료: 낸 속도로 남은 기간을 채운다. 1년이 지나기 전에는 1년치를 먼저 내 속도가 높게 나오므로 견적을 쓴다.
+ *   자차(수리·사고비): 수리비는 자차보험료에서 나간다. 앞으로 수리가 없다고 보고 실제만 넣어, 남는 자차보험료가 이익이 된다.
+ *   등록·정비·타이어·판관비: 견적과 실제 중 큰 값(정비 포함 고객에게는 약속한 정비를 다 해 준다)
+ *   이자·베네핏 수수료: 견적 그대로. 이자는 원리금 균등상환 계약 기간 총 이자다(대표님 2026-10-28).
+ *   자동차세는 판관비에서 나가는 돈이라 판관비 줄에 합친다(대표님 2026-10-28). 따로 두면 실제 자동차세가 두 번 잡힌다.
+ * 견적 칸의 남는 돈은 저장된 기준표의 남는 금액과 같다. CMS 수수료·판매 수수료·차량작업비는 견적에 없는 돈이라 견적 칸이 0이다.
+ * 줄을 누르면 그 항목의 원장 줄과 세부(정비 항목별, 판관비 분류별, 이자 계산)가 펼쳐진다.
  */
 const PLAN_SOURCE_COLOR = (text = '') => {
   if (/견적서|원장/.test(text)) return { background: '#dcfce7', color: '#166534' };
   if (/기본|3%|추정/.test(text)) return { background: '#fef3c7', color: '#92400e' };
   return { background: '#e2e8f0', color: '#334155' };
 };
+// 표 줄 → 기준표 칸(값의 출처). 추정한 기준표만 칸마다 출처를 붙인다
+const ROW_SOURCE_KEY = {
+  revenue: 'revenue', purchase: 'netVehiclePrice', registration: 'registrationCost', insurance: 'baseInsurance', ownCar: 'ownCarInsurance',
+  maintenance: 'maintenance', tire: 'maintenance', finance: 'interest', operating: 'pandanbi', benefitFee: 'benefitFee'
+};
 
-function ContractPlanCard({ plan, saved, liveSource, liveSources, canEdit, isAdmin, saving, onSave }) {
-  const sources = saved?.sources || liveSources || {};
-  const source = saved?.source || liveSource;
-  const tag = (key) => {
-    const text = source === '견적서' ? '견적서' : sources[key];
-    if (!text) return null;
-    return <span style={{ ...PLAN_SOURCE_COLOR(text), fontSize: '0.66rem', padding: '0 0.35rem', borderRadius: '4px', whiteSpace: 'nowrap' }}>{text}</span>;
-  };
+function EntryList({ list }) {
+  if (!list?.length) return <div style={{ color: 'var(--text-muted)' }}>원장에 적힌 줄이 없습니다.</div>;
+  return list.map((e, i) => (
+    <div key={e._id || i} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', color: 'var(--text-muted)' }}>
+      <span>{e.date ? String(e.date).slice(0, 10) : '날짜 없음'} · {e.label || e.category} <span style={{ fontSize: '0.66rem' }}>({e.category})</span></span>
+      <span style={{ whiteSpace: 'nowrap' }}>{toCommaString(e.amount)}</span>
+    </div>
+  ));
+}
+
+function ProfitBoard({ plan, saved, source, sources, entries, actual, terms, periods, maturityPlan, onMaturityChange, benefitRate, canEdit, isAdmin, saving, onSave, closed }) {
+  const [open, setOpen] = useState(null);
+  const groups = useMemo(() => {
+    const g = { purchase: [], registration: [], insurance: [], ownCar: [], maintenance: [], finance: [], operating: [], vehicleWork: [], loan: [], deposit: [] };
+    entries.forEach((e) => {
+      if (e.side !== '지출' || !(Number(e.amount) > 0)) return;
+      g[bucketOf(e)].push(e);
+    });
+    Object.values(g).forEach((list) => list.sort((a, b) => String(a.date || '9999').localeCompare(String(b.date || '9999'))));
+    return g;
+  }, [entries]);
   const n = (v) => Number(v) || 0;
-  const interest = planInterestTotal(plan);
-  const maintenance = plan.maintenanceOn ? n(plan.maintenanceFee) + n(plan.tireFee) : 0;
-  const revenue = planRevenue(plan);
+  const sumOf = (list) => list.reduce((s, e) => s + n(e.amount), 0);
+  const pctText = (r) => `${Number((r * 100).toFixed(2))}%`;
+
+  // 매출. 월 렌트료·인수가·선납금은 원장 계약 조건(실제 계약)을 먼저 쓰고, 연장한 갑지는 구간마다 렌트료 × 기간을 더한다.
+  // 차를 인수하는 건 마지막 구간이 끝날 때라 인수가는 마지막 구간 것만 넣는다. 보증금은 돌려줄 돈이라 넣지 않는다.
+  const multi = (periods || []).length > 1;
+  const singleRent = Number(terms?.monthlyRent) || plan.quoteMonthlyRent || 0;
+  const rentLines = multi
+    ? periods.map((p) => {
+      const monthly = Number(p.monthlyRent) || 0;
+      const months = Number(p.termMonths) || (p.seq === 1 ? plan.months : 0);
+      return { key: p.seq, label: `${periodName(p.seq)} ${toCommaString(monthly)} × ${months}개월`, months, total: monthly * months };
+    })
+    : [{ key: 1, label: `월 렌트료 ${toCommaString(singleRent)} × ${plan.months}개월`, months: plan.months, total: singleRent * plan.months }];
+  const last = multi ? periods[periods.length - 1] : null;
+  const takeover = multi ? n(last.takeoverPrice) : Number(terms?.takeoverPrice) || plan.takeoverPrice || 0;
+  const advance = multi ? periods.reduce((s, p) => s + n(p.advancePayment), 0) : Number(terms?.advancePayment) || plan.advancePayment || 0;
+  const totalMonths = rentLines.reduce((s, l) => s + l.months, 0);
+  const rentTotal = rentLines.reduce((s, l) => s + l.total, 0);
+  const returned = maturityPlan === '반납';
+  const revenueNow = rentTotal + (returned ? 0 : takeover) + advance;
+  const cmsTotal = CMS_FEE * totalMonths;
+  const elapsed = rentTotal > 0 ? Math.min(1, n(actual.rentReceived) / rentTotal) : 0;
+  // 견적이 계약 전체보다 짧으면(연장한 차) 보험료를 연 보험료로 전체 기간만큼 채운다
+  const scale = plan.months > 0 && totalMonths > plan.months ? totalMonths / plan.months : 1;
+
+  // 보험료 = 보험 + 공제조합 보험료 − 보험료 환급(입금)
+  const insuranceRefund = entries.filter(isInsuranceRefund).reduce((s, e) => s + n(e.amount), 0);
+  const premiumPaid = sumOf(groups.insurance) - insuranceRefund;
+  const yearShare = totalMonths > 0 ? Math.min(1, 12 / totalMonths) : 1;
+  const premiumProjected = elapsed >= yearShare && elapsed > 0 ? premiumPaid / elapsed : Math.max(premiumPaid, n(plan.baseInsurance) * scale);
+  const baseInsuranceYear = plan.months > 0 ? (n(plan.baseInsurance) * 12) / plan.months : 0;
+  const contractYears = Math.max(totalMonths, plan.months) / 12;
+  const monthsSincePremium = actual.firstPremiumDate
+    ? (new Date().getFullYear() - Number(actual.firstPremiumDate.slice(0, 4))) * 12 + (new Date().getMonth() + 1 - Number(actual.firstPremiumDate.slice(5, 7)))
+    : 0;
+  // 보험은 1년치를 먼저 내므로 시작한 해도 1년으로 센다
+  const premiumYears = actual.firstPremiumDate ? Math.min(Math.max(1, Math.floor(monthsSincePremium / 12) + 1), Math.ceil(contractYears)) : 0;
+  const premiumPerYear = premiumYears ? premiumPaid / premiumYears : 0;
+
+  const repair = sumOf(groups.ownCar);
+  const tireList = groups.maintenance.filter((e) => matchMaintenance(e) === 'tire');
+  const maintList = groups.maintenance.filter((e) => matchMaintenance(e) !== 'tire');
+  const tireUsed = sumOf(tireList);
+  const maintUsed = sumOf(maintList);
+  // 정비 미포함 고객의 정비비는 고객 몫이다. 돌려받은 것은 회사 비용이 아니다(matchRecoveries)
+  const maintUnrecovered = sumOf(groups.maintenance) - n(actual.maintRecovered);
+  // 과태료·통행료는 고객 몫이라 돌려받은 만큼 판관비에서 뺀다
+  const finesLeft = n(actual.finesPaid) - n(actual.finesRecovered);
+  const operatingUsed = sumOf(groups.operating) - n(actual.finesRecovered);
+  const operatingByCat = Object.entries(groups.operating.reduce((m, e) => ({ ...m, [e.category || '기타']: (m[e.category || '기타'] || 0) + n(e.amount) }), {}))
+    .sort((a, b) => b[1] - a[1]);
+  const purchaseUsed = sumOf(groups.purchase);
+  const vehicleWork = sumOf(groups.vehicleWork);
+  const salesCommission = n(actual.salesCommission);
+
+  const interestTotal = planInterestTotal(plan);
+  const maintenancePlan = plan.maintenanceOn ? n(plan.maintenanceFee) + n(plan.tireFee) : 0;
   const listed = n(plan.netVehiclePrice) + n(plan.registrationCost) + n(plan.baseInsurance) + n(plan.ownCarInsurance)
-    + n(plan.carTaxTotal) + interest + n(plan.pandanbi) + maintenance;
-  // 딜러 수수료·고잔가 수수료 등 위 칸에 없는 견적 비용
+    + n(plan.carTaxTotal) + interestTotal + n(plan.pandanbi) + maintenancePlan;
+  // 딜러 수수료·고잔가 수수료 등 위 줄에 없는 견적 비용
   const others = n(plan.costExCommission) - listed;
-  const profit = revenue - n(plan.costExCommission) - n(plan.benefitFee);
-  const rows = [
-    ['매출', `렌트료 ${toCommaString(Math.round(n(plan.quoteMonthlyRent)))} × ${n(plan.months)}개월 + 인수가 ${toCommaString(n(plan.takeoverPrice))}${n(plan.advancePayment) ? ` + 선납금 ${toCommaString(n(plan.advancePayment))}` : ''}`, revenue, 'revenue', true],
-    ['차량 구입', '차량가 + 옵션 − 할인 + 탁송료', -n(plan.netVehiclePrice), 'netVehiclePrice'],
-    ['등록·취득세', '취득세·공채·등록대행료', -n(plan.registrationCost), 'registrationCost'],
-    ['기본 보험료', '대인·대물 등', -n(plan.baseInsurance), 'baseInsurance'],
-    ['자차보험료', '차량 수리비는 여기서 나간다', -n(plan.ownCarInsurance), 'ownCarInsurance'],
-    ['자동차세', '계약 기간 전체 (판관비에서 나감)', -n(plan.carTaxTotal), 'carTaxTotal'],
-    ['이자', `${plan.fundingRepaymentMode === 'balloon' ? '만기 인수가 상환' : '원리금 균등상환'} 계약 기간 총 이자${n(plan.interestRate) ? ` · 연 ${(n(plan.interestRate) * 100).toFixed(2)}%` : ''}`, -interest, 'interest'],
-    ['판관비', '자동차세·검사비·탁송료 등 운영비', -n(plan.pandanbi), 'pandanbi'],
-    ...(plan.maintenanceOn ? [['정비', `정비 ${toCommaString(Math.round(n(plan.maintenanceFee)))} + 타이어 ${toCommaString(Math.round(n(plan.tireFee)))}`, -maintenance, 'maintenance']] : []),
-    ...(Math.abs(others) >= 1000 ? [['기타 견적 비용', '딜러 수수료 등', -others, null]] : []),
-    ['베네핏 수수료', '회사 몫', -n(plan.benefitFee), 'benefitFee']
+  const operatingPlan = n(plan.pandanbi) + n(plan.carTaxTotal);
+  const carPriceBase = benefitRate > 0 ? n(plan.benefitFee) / benefitRate : 0;
+  const ownLoan = hasOwnLoan(entries);
+
+  const income = [
+    {
+      key: 'revenue', name: '매출',
+      desc: `렌트료${takeover ? ` + 인수가${returned ? '(반납이라 뺌)' : ''}` : ''}${advance ? ' + 선납금' : ''}`,
+      plan: planRevenue(plan), used: n(actual.rentReceived), projected: revenueNow,
+      detail: (
+        <>
+          {rentLines.map((l) => <Row key={l.key} label={l.label} value={won(l.total)} muted />)}
+          <Row label={returned ? '인수가 (반납이라 매출에서 뺌)' : '인수가'} value={won(returned ? 0 : takeover)} muted />
+          {advance > 0 && <Row label="선납금" value={won(advance)} muted />}
+          <Row label="지금까지 받은 렌트료" value={`${won(actual.rentReceived)} / ${won(rentTotal)}`} />
+          <Meter used={n(actual.rentReceived)} budget={rentTotal} />
+          {plan.quoteMonthlyRent > 0 && !multi && Math.round(plan.quoteMonthlyRent) !== Math.round(singleRent) && (
+            <Row label="견적서 월 렌트료 (계약과 다름)" value={won(plan.quoteMonthlyRent)} muted />
+          )}
+        </>
+      )
+    },
+    ...(salesCommission > 0 ? [{
+      key: 'salesCommission', name: '판매 수수료', desc: '차를 팔고 SC로 받은 수수료. 견적에 없는 돈',
+      plan: 0, used: salesCommission, projected: salesCommission
+    }] : [])
   ];
-  const cell = { padding: '0.28rem 0.45rem', borderBottom: '1px solid var(--border-color)', fontSize: '0.76rem' };
+
+  const costs = [
+    {
+      key: 'purchase', name: '차량 구입', desc: '차량가 + 옵션 − 할인 + 탁송료',
+      plan: n(plan.netVehiclePrice), used: purchaseUsed, projected: purchaseUsed || n(plan.netVehiclePrice), list: groups.purchase,
+      detail: (
+        <div style={{ marginBottom: '0.3rem' }}>
+          실제 = 원장 차량가 {won(actual.vehiclePrice)} + 계약금 {won(actual.vehicleDeposit)}
+          {actual.vehicleExcise ? ` + 나중에 낸 개별소비세·교육세 ${won(actual.vehicleExcise)}` : ''} (대출로 낸 금액 포함)
+        </div>
+      )
+    },
+    {
+      key: 'registration', name: '등록·취득세', desc: '취득세·공채·등록대행료',
+      plan: n(plan.registrationCost), used: sumOf(groups.registration), projected: Math.max(sumOf(groups.registration), n(plan.registrationCost)), list: groups.registration
+    },
+    {
+      key: 'insurance', name: '보험료', desc: '대인·대물 등 기본 보험료 (공제조합 포함)',
+      plan: n(plan.baseInsurance), used: premiumPaid, projected: premiumProjected, list: groups.insurance,
+      detail: (
+        <div style={{ marginBottom: '0.3rem' }}>
+          <Row label="견적 1년 보험료" value={won(Math.round(baseInsuranceYear))} muted />
+          <Row label={`실제 1년 평균${premiumYears ? ` (${premiumYears}년치)` : ''}`} value={won(Math.round(premiumPerYear))} />
+          {insuranceRefund > 0 && <Row label="· 보험료 환급 (빼고 계산)" value={`- ${won(insuranceRefund)}`} muted />}
+          {actual.coopShare > 0 && <Row label="· 공제조합 출자금 (돌려받을 돈이라 보험료에서 뺌)" value={won(actual.coopShare)} muted />}
+        </div>
+      )
+    },
+    {
+      key: 'ownCar', name: '자차 (수리·사고비)', desc: '수리비는 자차보험료에서 나간다. 앞으로 수리가 없다고 보고 남는 만큼 이익',
+      plan: n(plan.ownCarInsurance), used: repair, projected: repair, list: groups.ownCar
+    },
+    ...(plan.maintenanceOn ? [
+      {
+        key: 'maintenance', name: '정비', desc: `정비 단가표 항목${plan.gradeLabel ? ` · ${plan.gradeLabel}` : ''}`,
+        plan: n(plan.maintenanceFee), used: maintUsed, projected: Math.max(maintUsed, n(plan.maintenanceFee)), list: maintList,
+        detail: <MaintenanceByItem plan={plan} actual={actual} />
+      },
+      {
+        key: 'tire', name: '타이어', desc: `${plan.tireCount ? `${plan.tireCount}본 · ` : ''}얼라이먼트 포함`,
+        plan: n(plan.tireFee), used: tireUsed, projected: Math.max(tireUsed, n(plan.tireFee)), list: tireList
+      }
+    ] : (groups.maintenance.length ? [{
+      key: 'maintenance', name: '정비 (고객 몫)', desc: '정비 미포함 고객. 회사가 낸 정비비 중 못 돌려받은 것',
+      plan: 0, used: maintUnrecovered, projected: maintUnrecovered,
+      detail: <RecoveryList matches={actual.maintMatches || []} />
+    }] : [])),
+    {
+      key: 'finance', name: '이자',
+      desc: `${plan.fundingRepaymentMode === 'balloon' ? '만기 인수가 상환' : '원리금 균등상환'} 계약 기간 총 이자${n(plan.interestRate) ? ` · 연 ${(n(plan.interestRate) * 100).toFixed(2)}%` : ''}`,
+      plan: interestTotal, used: sumOf(groups.finance), projected: interestTotal, list: groups.finance,
+      detail: (
+        <div style={{ marginBottom: '0.3rem' }}>
+          {plan.fundingPrincipal > 0 && (
+            <Row label={`조달원금 ${toCommaString(Math.round(plan.fundingPrincipal))} × 연 ${(n(plan.interestRate) * 100).toFixed(2)}% × ${plan.months}개월`} value={won(Math.round(n(plan.grossFundingInterest)))} muted />
+          )}
+          {plan.depositInterestBenefit > 0 && <Row label="− 보증금 이자 이득 (보증금 × 금리 × 기간)" value={`- ${won(Math.round(plan.depositInterestBenefit))}`} muted />}
+          {plan.advancePaymentInterest > 0 && <Row label="+ 선수금분 이자" value={won(Math.round(plan.advancePaymentInterest))} muted />}
+          <div>
+            지금까지 칸: {ownLoan ? '캐피탈·할부로 산 차라 원장 할부이자' : groups.finance.length ? '담보대출로 산 차라 엑셀 갑지 이자 줄' : '갑지에 이자 줄이 없습니다'}
+          </div>
+        </div>
+      )
+    },
+    {
+      key: 'operating', name: '판관비', desc: `자동차세·검사비·탁송료·못 받은 과태료 등${carPriceBase > 0 && plan.pandanbi ? ` · 차량가 ${pctText(n(plan.pandanbi) / carPriceBase)}` : ''}`,
+      plan: operatingPlan, used: operatingUsed, projected: Math.max(operatingUsed, operatingPlan), list: groups.operating,
+      detail: (
+        <div style={{ marginBottom: '0.3rem' }}>
+          {n(plan.carTaxTotal) > 0 && <Row label="견적 = 판관비 + 계약 기간 자동차세" value={`${toCommaString(Math.round(n(plan.pandanbi)))} + ${toCommaString(Math.round(n(plan.carTaxTotal)))}`} muted />}
+          {operatingByCat.map(([cat, sum]) => <Row key={cat} label={`· ${cat}`} value={won(sum)} muted />)}
+          {actual.finesPaid > 0 && (
+            <>
+              <Row label="− 과태료·통행료 돌려받음 (상계·고객 입금·렌트료·청구서)" value={`- ${won(actual.finesRecovered)}`} muted />
+              <RecoveryList matches={actual.fineMatches || []} />
+            </>
+          )}
+        </div>
+      )
+    },
+    ...(Math.abs(others) >= 1000 ? [{ key: 'others', name: '기타 견적 비용', desc: '딜러 수수료 등', plan: others, used: null, projected: others }] : []),
+    ...(vehicleWork > 0 ? [{
+      key: 'vehicleWork', name: '차량작업', desc: '썬팅·PPF·블랙박스 등. 판매 수수료로 충당',
+      plan: 0, used: vehicleWork, projected: vehicleWork, list: groups.vehicleWork
+    }] : []),
+    { key: 'cms', name: 'CMS 자동이체 수수료', desc: `${CMS_FEE}원 × ${totalMonths}회. 견적에 없는 돈`, plan: 0, used: null, projected: cmsTotal },
+    {
+      key: 'benefitFee', name: '베네핏 수수료', desc: `회사 몫 · 차량가 × ${benefitRate !== null && benefitRate !== undefined ? pctText(benefitRate) : '견적 수수료율'}`,
+      plan: n(plan.benefitFee), used: null, projected: n(plan.benefitFee)
+    }
+  ];
+
+  const total = (rows, k) => rows.reduce((s, r) => s + n(r[k]), 0);
+  const planProfit = total(income, 'plan') - total(costs, 'plan');
+  const projProfit = total(income, 'projected') - total(costs, 'projected');
+  const benefitFee = n(plan.benefitFee);
+  const diffOf = (r, isIncome) => (isIncome ? r.projected - r.plan : r.plan - r.projected);
+  const reasons = [...income.map((r) => ({ r, d: diffOf(r, true) })), ...costs.map((r) => ({ r, d: diffOf(r, false) }))]
+    .filter((x) => Math.abs(x.d) >= 1000)
+    .sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
+    .slice(0, 3);
+
+  // 만기에 반납받으면 인수가 대신 차를 중고로 팔아 계약 때 예상한 남는 돈을 채워야 한다
+  const beforeSale = projProfit - (returned ? 0 : takeover);
+  const targetSalePrice = planProfit - beforeSale;
+
+  const warnings = [];
+  const warn = (text, tone = 'warn') => warnings.push({ text, tone });
+  if (closed) warn('거래완료된 차입니다. 실제 결과는 위 정산계이고, 이 표는 계약 기준으로 본 참고용입니다(이자 추정·남은 회차 포함).', 'info');
+  if (purchaseUsed > 0 && n(plan.netVehiclePrice) - purchaseUsed >= 10000) {
+    warn(`차를 견적보다 ${won(n(plan.netVehiclePrice) - purchaseUsed)} 적게 주고 샀습니다. 할인을 받았거나 면세로 산 차입니다. 면세라면 조건이 깨질 때 개별소비세를 다시 내야 할 수 있으니 면세 조건을 확인하세요.${actual.vehicleDeposit === 0 ? ' 원장에 계약금 출금이 없습니다. 계약금을 빠뜨리지 않았는지도 확인하세요.' : ''}`);
+  }
+  if (baseInsuranceYear > 0 && premiumPerYear > baseInsuranceYear) {
+    warn(`보험료가 견적보다 많이 나갑니다. 1년 평균 ${won(Math.round(premiumPerYear))} / 견적 ${won(Math.round(baseInsuranceYear))} (${Math.round((premiumPerYear / baseInsuranceYear) * 100)}%)`);
+  }
+  if (repair > n(plan.ownCarInsurance) * scale) warn(`수리·사고비 ${won(repair)}가 자차보험료 ${won(Math.round(n(plan.ownCarInsurance) * scale))}를 넘었습니다.`);
+  costs.filter((r) => ['maintenance', 'tire', 'operating'].includes(r.key) && r.plan > 0 && r.used > r.plan)
+    .forEach((r) => warn(`${r.name}가 견적을 넘었습니다. 견적 ${won(Math.round(r.plan))}, 지금까지 ${won(Math.round(r.used))}`));
+  if (!plan.maintenanceOn && maintUnrecovered > 0) warn(`정비 미포함 고객인데 회사가 낸 정비비 ${won(maintUnrecovered)}를 아직 못 돌려받았습니다. 렌트료에 얹어 받거나 고객 입금을 받으세요.`);
+  if (finesLeft > 0) warn(`과태료·통행료 ${won(finesLeft)}를 아직 고객에게서 못 돌려받았습니다(판관비에 들어가 있습니다).`);
+  if (salesCommission > 0 && vehicleWork > salesCommission * VEHICLE_WORK_LIMIT_RATE) warn(`차량작업비가 판매 수수료의 ${Math.round((vehicleWork / salesCommission) * 100)}%입니다.`);
+  if (multi) warn('견적 칸은 최초 계약 기준입니다. 만기 예상에는 연장 구간의 렌트료와 보험료를 넣었습니다.', 'info');
+  warn(returned
+    ? `만기 반납: 중고차로 최소 ${won(targetSalePrice)}은 받아야 계약 때 예상한 남는 돈을 채웁니다(계약 인수가 ${won(takeover)}). 보증금은 돌려주는 돈이라 넣지 않았습니다.`
+    : `만기에 반납받으면 중고차로 ${won(targetSalePrice)} 이상 받아야 계약 때 예상한 남는 돈을 채웁니다.`, 'info');
+
+  const cell = { padding: '0.32rem 0.45rem', borderBottom: '1px solid var(--border-color)', fontSize: '0.76rem', verticalAlign: 'top' };
+  const num = { ...cell, textAlign: 'right', whiteSpace: 'nowrap' };
+  const signed = (v) => (Math.abs(v) < 1 ? '' : `${v > 0 ? '+' : '-'} ${toCommaString(Math.round(Math.abs(v)))}`);
+  const colorOf = (v) => (Math.abs(v) < 1 ? 'inherit' : v > 0 ? '#2f6f4e' : '#d9534f');
   const history = saved?.history || [];
 
+  const renderRow = (r, isIncome) => {
+    const expandable = Boolean(r.detail || r.list?.length);
+    const expanded = open === r.key;
+    const d = diffOf(r, isIncome);
+    const tagText = source !== '견적서' ? sources?.[ROW_SOURCE_KEY[r.key]] : null;
+    return (
+      <React.Fragment key={r.key}>
+        <tr style={{ cursor: expandable ? 'pointer' : 'default' }} onClick={() => expandable && setOpen(expanded ? null : r.key)}>
+          <td style={cell}>
+            <b>{expandable ? (expanded ? '▾ ' : '▸ ') : '· '}{r.name}</b>
+            {tagText && <span style={{ ...PLAN_SOURCE_COLOR(tagText), fontSize: '0.62rem', padding: '0 0.3rem', borderRadius: '4px', marginLeft: '0.3rem', whiteSpace: 'nowrap' }}>{tagText}</span>}
+            <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)' }}>{r.desc}</div>
+          </td>
+          <td style={num}>{r.plan ? toCommaString(Math.round(r.plan)) : '-'}</td>
+          <td style={{ ...num, color: 'var(--text-muted)' }}>{r.used === null || r.used === undefined ? '-' : toCommaString(Math.round(r.used))}</td>
+          <td style={{ ...num, fontWeight: '700' }}>{toCommaString(Math.round(r.projected))}</td>
+          <td style={{ ...num, fontWeight: '800', color: colorOf(d) }}>{signed(d)}</td>
+        </tr>
+        {expanded && (
+          <tr>
+            <td colSpan={5} style={{ ...cell, background: '#fafbfd', paddingLeft: '1.4rem', fontSize: '0.72rem', lineHeight: 1.55 }}>
+              {r.detail}
+              {r.list && <EntryList list={r.list} />}
+            </td>
+          </tr>
+        )}
+      </React.Fragment>
+    );
+  };
+  const groupRow = (label) => (
+    <tr><td colSpan={5} style={{ ...cell, background: 'var(--bg-main)', fontWeight: '800', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{label}</td></tr>
+  );
+
   return (
-    <div style={{ gridColumn: '1 / -1', border: '1.5px solid #4a6fa5', borderRadius: '8px', padding: '0.75rem 0.9rem', background: '#fff' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.45rem' }}>
-        <span style={{ fontSize: '0.82rem', fontWeight: '800', color: '#4a6fa5' }}>
-          계약 손익 기준표 · 최초 계약 {n(plan.months)}개월
+    <div style={{ display: 'grid', gap: '0.8rem' }}>
+      {/* 머리: 기준표 출처·저장 상태, 만기 처리 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '0.8rem', fontWeight: '800' }}>
+          최초 계약 {plan.months}개월
           <span style={{ ...PLAN_SOURCE_COLOR(source), fontSize: '0.68rem', padding: '0.05rem 0.4rem', borderRadius: '4px', marginLeft: '0.4rem' }}>
             {source === '견적서' ? '견적서 기준' : '추정 (견적서 없음)'}
           </span>
         </span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-          {saved
-            ? `저장됨 · ${String(saved.savedAt || '').slice(0, 10)} ${saved.savedBy || ''}`
-            : '아직 저장하지 않았습니다 · 지금 값으로 계산한 표'}
+        <span style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+          {saved ? `기준 저장됨 · ${String(saved.savedAt || '').slice(0, 10)} ${saved.savedBy || ''}` : '기준 저장 전 · 지금 값으로 계산'}
           {canEdit && (!saved || isAdmin) && (
             <button
               type="button"
               onClick={onSave}
               disabled={saving}
               style={{ padding: '0.25rem 0.6rem', fontSize: '0.74rem', fontWeight: '700', border: '1px solid #4a6fa5', borderRadius: '6px', background: saved ? '#fff' : '#4a6fa5', color: saved ? '#4a6fa5' : '#fff', cursor: 'pointer' }}
-              title={saved ? '관리자만: 지금 값으로 다시 계산해 기준을 바꿉니다. 바꾸기 전 값은 기록에 남습니다.' : '지금 값을 이 차의 계약 기준으로 저장합니다.'}
+              title={saved ? '관리자만: 지금 값으로 다시 계산해 기준을 바꿉니다. 바꾸기 전 값은 기록에 남습니다.' : '지금 값을 이 차의 계약 기준으로 저장합니다. 저장하면 렌트차량 DB를 고쳐도 견적 칸이 바뀌지 않습니다.'}
             >
-              {saving ? '저장 중…' : (saved ? '다시 계산' : '기준표로 저장')}
+              {saving ? '저장 중…' : (saved ? '다시 계산' : '기준으로 저장')}
             </button>
           )}
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            만기 처리
+            <select
+              value={maturityPlan || '미정'}
+              onChange={(e) => onMaturityChange(e.target.value)}
+              disabled={!canEdit}
+              title="미정이면 인수로 보고 계산합니다"
+              style={{ padding: '0.2rem 0.4rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.76rem', background: '#fff' }}
+            >
+              {['미정', '인수', '반납'].map((v) => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </label>
         </span>
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr style={{ color: 'var(--text-muted)', background: 'var(--bg-main)' }}>
-            <th style={{ ...cell, textAlign: 'left', width: '18%' }}>항목</th>
-            <th style={{ ...cell, textAlign: 'left' }}>내용</th>
-            <th style={{ ...cell, textAlign: 'right', width: '18%' }}>계약 기준</th>
-            <th style={{ ...cell, textAlign: 'left', width: '17%' }}>값의 출처</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(([label, desc, value, key, strong]) => (
-            <tr key={label}>
-              <td style={{ ...cell, fontWeight: strong ? '800' : '600' }}>{label}</td>
-              <td style={{ ...cell, color: 'var(--text-muted)' }}>{desc}</td>
-              <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap', fontWeight: strong ? '800' : '400' }}>{value < 0 ? `- ${toCommaString(Math.round(-value))}` : toCommaString(Math.round(value))}</td>
-              <td style={cell}>{key ? tag(key) : null}</td>
-            </tr>
-          ))}
-          <tr style={{ background: '#f3faf6' }}>
-            <td style={{ ...cell, fontWeight: '800' }}>남는 금액</td>
-            <td style={{ ...cell, color: 'var(--text-muted)' }}>영업이익 (베네핏 수수료 포함 회사 몫 {toCommaString(Math.round(profit + n(plan.benefitFee)))})</td>
-            <td style={{ ...cell, textAlign: 'right', fontWeight: '800', color: profit < 0 ? '#d9534f' : '#2f6f4e', whiteSpace: 'nowrap' }}>{toCommaString(Math.round(profit))}</td>
-            <td style={cell} />
-          </tr>
-        </tbody>
-      </table>
-      {(saved?.assumptions?.length > 0 || saved?.ledgerNotes?.length > 0) && (
-        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.35rem', lineHeight: 1.55 }}>
-          {saved.note ? `${saved.note} ` : ''}가정한 값: {saved.assumptions.join(' · ')}
-          {saved.ledgerNotes?.length > 0 && <div style={{ color: '#b45309' }}>원장 값을 쓴 칸: {saved.ledgerNotes.join(' · ')}</div>}
-        </div>
-      )}
-      {history.length > 0 && (
-        <details style={{ marginTop: '0.35rem', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-          <summary style={{ cursor: 'pointer' }}>바꾼 기록 {history.length}건</summary>
-          {history.map((h, i) => (
-            <div key={i}>
-              {String(h.replacedAt || '').slice(0, 10)} {h.replacedBy} 다시 계산 · 이전 남는 금액 {toCommaString(h.operatingProfit)}원 ({h.source}, {String(h.savedAt || '').slice(0, 10)} 저장){h.reason ? ` · 이유: ${h.reason}` : ''}
+
+      {/* ① 결론 */}
+      <div style={{ border: '2px solid #2f6f4e', background: '#f3faf6', borderRadius: '8px', padding: '0.7rem 0.8rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.5rem' }}>
+          {[
+            ['계약 때 예상 남는 돈', planProfit, `회사 몫 ${toCommaString(Math.round(planProfit + benefitFee))}`],
+            ['지금 예상 남는 돈', projProfit, `회사 몫 ${toCommaString(Math.round(projProfit + benefitFee))}`],
+            ['차이', projProfit - planProfit, projProfit >= planProfit ? '계약 때보다 더 남음' : '계약 때보다 덜 남음']
+          ].map(([label, value, note], i) => (
+            <div key={label}>
+              <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)' }}>{label}</div>
+              <div style={{ fontSize: '1.15rem', fontWeight: '800', color: i === 2 ? colorOf(value) : (value < 0 ? '#d9534f' : '#2f6f4e') }}>
+                {i === 2 ? signed(value) || '0' : toCommaString(Math.round(value))} 원
+              </div>
+              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{note}</div>
             </div>
           ))}
-        </details>
+        </div>
+        {reasons.length > 0 && (
+          <div style={{ fontSize: '0.74rem', marginTop: '0.45rem' }}>
+            <b>차이가 큰 항목</b>{' '}
+            {reasons.map(({ r, d }, i) => (
+              <span key={r.key}>{i > 0 && ' · '}{r.name} <b style={{ color: colorOf(d) }}>{signed(d)}</b></span>
+            ))}
+          </div>
+        )}
+        <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+          남는 돈 = 영업이익(베네핏 수수료까지 뺀 돈). 회사 몫 = 영업이익 + 베네핏 수수료.
+        </div>
+      </div>
+
+      {/* ② 항목표 */}
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', minWidth: '560px', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ color: 'var(--text-muted)' }}>
+              <th style={{ ...cell, textAlign: 'left' }}>항목</th>
+              <th style={{ ...num, width: '15%' }}>견적 (계약 때)</th>
+              <th style={{ ...num, width: '15%' }}>지금까지</th>
+              <th style={{ ...num, width: '15%' }}>만기 예상</th>
+              <th style={{ ...num, width: '13%' }}>차이</th>
+            </tr>
+          </thead>
+          <tbody>
+            {groupRow('들어오는 돈')}
+            {income.map((r) => renderRow(r, true))}
+            {groupRow('나가는 돈')}
+            {costs.map((r) => renderRow(r, false))}
+            <tr style={{ background: '#f3faf6' }}>
+              <td style={{ ...cell, fontWeight: '800' }}>남는 돈 (영업이익)</td>
+              <td style={{ ...num, fontWeight: '800', color: planProfit < 0 ? '#d9534f' : '#2f6f4e' }}>{toCommaString(Math.round(planProfit))}</td>
+              <td style={num} />
+              <td style={{ ...num, fontWeight: '800', color: projProfit < 0 ? '#d9534f' : '#2f6f4e' }}>{toCommaString(Math.round(projProfit))}</td>
+              <td style={{ ...num, fontWeight: '800', color: colorOf(projProfit - planProfit) }}>{signed(projProfit - planProfit)}</td>
+            </tr>
+            <tr>
+              <td style={{ ...cell, color: 'var(--text-muted)' }}>회사 몫 (영업이익 + 베네핏 수수료)</td>
+              <td style={{ ...num, color: 'var(--text-muted)' }}>{toCommaString(Math.round(planProfit + benefitFee))}</td>
+              <td style={num} />
+              <td style={{ ...num, color: 'var(--text-muted)' }}>{toCommaString(Math.round(projProfit + benefitFee))}</td>
+              <td style={num} />
+            </tr>
+          </tbody>
+        </table>
+        <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: '0.35rem', lineHeight: 1.55 }}>
+          만기 예상: 차량 구입은 실제, 보험료는 낸 속도로 채움, 수리비는 더 안 생긴다고 봄, 등록·정비·타이어·판관비는 견적과 실제 중 큰 값, 이자·베네핏 수수료는 견적 그대로.
+          차이는 +면 견적보다 남는 돈이 늘어난 것입니다. 줄을 누르면 원장 줄과 세부가 펼쳐집니다(지난 기간 {Math.round(elapsed * 100)}%, 받은 렌트료 기준).
+        </div>
+      </div>
+
+      {/* ③ 확인할 것 */}
+      {warnings.length > 0 && (
+        <div style={{ display: 'grid', gap: '0.3rem' }}>
+          {warnings.map((w, i) => (
+            <div
+              key={i}
+              style={{
+                fontSize: '0.74rem', lineHeight: 1.55, padding: '0.4rem 0.55rem', borderRadius: '6px',
+                ...(w.tone === 'warn' ? { border: '1px solid #f0c36d', background: '#fff8e6' } : { border: '1px solid #c9d6ea', background: '#f7f9fd' })
+              }}
+            >
+              {w.tone === 'warn' ? '⚠ ' : 'ⓘ '}{w.text}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(saved?.assumptions?.length > 0 || saved?.ledgerNotes?.length > 0 || history.length > 0) && (
+        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1.55 }}>
+          {saved?.assumptions?.length > 0 && <div>{saved.note ? `${saved.note} ` : ''}가정한 값: {saved.assumptions.join(' · ')}</div>}
+          {saved?.ledgerNotes?.length > 0 && <div style={{ color: '#b45309' }}>원장 값을 쓴 칸: {saved.ledgerNotes.join(' · ')}</div>}
+          {history.length > 0 && (
+            <details style={{ marginTop: '0.25rem' }}>
+              <summary style={{ cursor: 'pointer' }}>기준을 바꾼 기록 {history.length}건</summary>
+              {history.map((h, i) => (
+                <div key={i}>
+                  {String(h.replacedAt || '').slice(0, 10)} {h.replacedBy} 다시 계산 · 이전 남는 금액 {toCommaString(h.operatingProfit)}원 ({h.source}, {String(h.savedAt || '').slice(0, 10)} 저장){h.reason ? ` · 이유: ${h.reason}` : ''}
+                </div>
+              ))}
+            </details>
+          )}
+        </div>
       )}
     </div>
   );
@@ -1365,286 +1334,25 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
       </div>
     );
   } else {
-    // 견적 보험료를 1년치로 바꿔 둔다. 실제 보험료와는 해마다 얼마인지로 비교한다(아래)
-    const yearFactor = plan.months > 0 ? 12 / plan.months : 0;
-    const baseInsuranceYear = plan.baseInsurance * yearFactor;
-    const ownCarInsuranceYear = plan.ownCarInsurance * yearFactor;
-    const insuranceYear = baseInsuranceYear + ownCarInsuranceYear;
-    const pandanbiLeft = plan.pandanbi - actual.operating;
-    const opCats = Object.entries(actual.operatingByCat).sort((a, b) => b[1] - a[1]);
-    const commissionNet = actual.salesCommission - actual.vehicleWork;
-
-    /**
-     * 예상 이익 = 지금 받는 월 렌트료로 계약 기간을 채웠을 때의 매출 - 견적에서 잡아 둔 비용.
-     *
-     * 월 렌트료·인수가·선납금은 원장 고정 조건(실제 계약)을 먼저 쓰고, 비어 있으면 견적 값을 쓴다.
-     * 보증금은 돌려줄 돈이라 매출에 넣지 않는다.
-     * 기간은 견적 기간이다. 비용이 그 기간을 놓고 잡힌 값이라 기간을 바꾸면 비교가 맞지 않는다.
-     *
-     * 연장한 갑지는 구간마다 렌트료 × 기간을 더한다. 차를 인수하는 건 마지막 구간이 끝날 때라
-     * 인수가도 마지막 구간 것만 넣는다. 연장 구간의 보험·세금은 견적에 없어 비용에서 빠져 있다.
-     */
-    const multi = (periods || []).length > 1;
-    const rentLines = multi
-      ? periods.map((p) => {
-        const monthly = Number(p.monthlyRent) || 0;
-        const months = Number(p.termMonths) || (p.seq === 1 ? plan.months : 0);
-        return { key: p.seq, label: `${periodName(p.seq)} ${toCommaString(monthly)} × ${months}개월`, months, total: monthly * months };
-      })
-      : [{ key: 1, months: plan.months, total: (Number(terms?.monthlyRent) || plan.quoteMonthlyRent || 0) * plan.months }];
-    const rent = multi ? Number(periods[periods.length - 1].monthlyRent) || 0 : Number(terms?.monthlyRent) || plan.quoteMonthlyRent || 0;
-    const takeover = multi
-      ? Number(periods[periods.length - 1].takeoverPrice) || 0
-      : Number(terms?.takeoverPrice) || plan.takeoverPrice || 0;
-    const advance = multi
-      ? periods.reduce((sum, p) => sum + (Number(p.advancePayment) || 0), 0)
-      : Number(terms?.advancePayment) || plan.advancePayment || 0;
-    const totalMonths = rentLines.reduce((sum, l) => sum + l.months, 0);
-    const rentTotal = rentLines.reduce((sum, l) => sum + l.total, 0);
-
-    /**
-     * 보험료 정산(대표님 2026-10-23). 견적은 계약 기간(연장한 차는 지금 계약 1년만 본 추정치일 수 있다) 기준이라
-     * 연 보험료로 바꿔 계약 전체 기간을 채우고, 실제는 (보험 + 공제조합 보험료 − 보험료 환급)을 낸 햇수로 나눠 해마다 얼마인지 본다.
-     * 예전에는 5년치 실제 보험료를 1년치 견적과 비교해 763%가 나왔다(Benz-003).
-     */
-    const contractYears = Math.max(totalMonths, plan.months) / 12;
-    const insuranceBudget = insuranceYear * contractYears;
-    const ownCarBudget = ownCarInsuranceYear * contractYears;
-    const ownLeft = ownCarBudget - actual.repair;
-    const monthsSincePremium = actual.firstPremiumDate
-      ? (new Date().getFullYear() - Number(actual.firstPremiumDate.slice(0, 4))) * 12 + (new Date().getMonth() + 1 - Number(actual.firstPremiumDate.slice(5, 7)))
-      : 0;
-    // 보험은 1년치를 먼저 내므로 시작한 해도 1년으로 센다
-    const premiumYears = actual.firstPremiumDate ? Math.min(Math.max(1, Math.floor(monthsSincePremium / 12) + 1), Math.ceil(contractYears)) : 0;
-    const premiumPerYear = premiumYears ? actual.insuranceNet / premiumYears : 0;
-    const returned = maturityPlan === '반납';
-    // 반납이면 인수가가 들어오지 않는다. 대신 차를 중고차로 팔아 메워야 한다(아래 목표 매각가).
-    const revenue = rentTotal + (returned ? 0 : takeover) + advance;
-    const cost = plan.costExCommission || 0;
-    // CMS 수수료는 견적에 없는 비용이다. 렌트료를 받는 회차마다 한 번씩 나간다.
-    const cmsTotal = CMS_FEE * totalMonths;
-    const expected = revenue - cost - cmsTotal;
-    const operatingProfit = expected - plan.benefitFee;
-
-    // 지금까지 실제 비용이 예상을 넘은 만큼은 이익에서 깎인다. 정비 미포함 고객의 정비비는 전부 예상 밖 비용이다.
-    const maintenanceSpent = actual.maintenance + actual.tire;
-    // 보험료는 지금까지 낸 햇수만큼의 견적 기본 보험료와 비교한다(남은 해의 보험료는 아직 안 나갔다).
-    // 차량 수리비는 자차보험료(계약 전체)에서 나가고, 넘친 만큼만 예상보다 더 나간 돈이다(대표님 2026-10-28)
-    const overrun = Math.max(0, actual.insuranceNet - baseInsuranceYear * Math.max(premiumYears, 1))
-      + Math.max(0, actual.repair - ownCarBudget)
-      + Math.max(0, actual.operating - plan.pandanbi)
-      // 정비 미포함 고객의 정비비는 고객에게서 돌려받아야 한다. 못 받은 것만 회사 비용(예상 밖)이다
-      + (plan.maintenanceOn ? Math.max(0, maintenanceSpent - (plan.maintenanceFee + plan.tireFee)) : actual.maintUnrecovered);
-    // 판매 수수료와 차량작업비는 견적에 없는 돈이다. 수수료에서 작업비를 뺀 나머지가 이익에 더해진다.
-    const adjusted = expected - overrun + commissionNet;
-
-    /**
-     * 만기 반납 차의 중고차 목표 매각가.
-     *
-     * 목표 이익은 "고객이 인수했다면 남았을 이익"(견적이 전제한 이익)이다. 반납이면 인수가가 빠져
-     * 이익이 마이너스로 보이는데, 차를 팔아서 그 목표 이익까지 채우려면 최소 얼마를 받아야 하는지 낸다.
-     *   목표 매각가 = 목표 이익 - 차를 팔기 전 이익(초과 비용·판매 수수료 반영)
-     */
-    const targetProfit = rentTotal + takeover + advance - cost - cmsTotal;
-    // 인수가 없이 남는 이익. 반납이면 위 adjusted와 같고, 미정·인수일 때도 참고로 같은 기준으로 낸다.
-    const beforeSale = rentTotal + advance - cost - cmsTotal - overrun + commissionNet;
-    const targetSalePrice = targetProfit - beforeSale;
-    const profitColor = (n) => (n >= 0 ? '#2f6f4e' : '#d9534f');
-
     body = (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.8rem' }}>
-        <ContractPlanCard
-          plan={plan}
-          saved={state.savedPlan}
-          liveSource={quotePlan ? '견적서' : '추정'}
-          liveSources={quotePlan ? null : state.estimate?.sources}
-          canEdit={canEdit}
-          isAdmin={isAdmin}
-          saving={planSaving}
-          onSave={saveProfitPlan}
-        />
-        <div style={{ gridColumn: '1 / -1', border: '1px solid #c9d6ea', background: '#f7f9fd', borderRadius: '8px', padding: '0.8rem 0.9rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
-            <span style={{ fontSize: '0.8rem', fontWeight: '800' }}>예상 수익 (지금 월 렌트료 기준)</span>
-            <label style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-              만기 처리
-              <select
-                value={maturityPlan || '미정'}
-                onChange={(e) => onMaturityChange(e.target.value)}
-                disabled={!canEdit}
-                title="미정이면 인수로 보고 계산합니다"
-                style={{ padding: '0.2rem 0.4rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.76rem', background: '#fff' }}
-              >
-                {['미정', '인수', '반납'].map((v) => <option key={v} value={v}>{v}</option>)}
-              </select>
-            </label>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.3rem 1.6rem' }}>
-            <div>
-              {multi ? (
-                <>
-                  {rentLines.map((l) => <Row key={l.key} label={l.label} value={won(l.total)} muted />)}
-                  <Row label={`렌트료 합계 (${totalMonths}개월)`} value={won(rentTotal)} />
-                </>
-              ) : (
-                <>
-                  <Row
-                    label="월 렌트료"
-                    value={`${won(rent)}${plan.quoteMonthlyRent && Math.round(plan.quoteMonthlyRent) !== Math.round(rent) ? ` (견적 ${toCommaString(plan.quoteMonthlyRent)})` : ''}`}
-                  />
-                  <Row label={`렌트료 합계 (${plan.months}개월)`} value={won(rentTotal)} muted />
-                </>
-              )}
-              <Row label={returned ? '인수가 (반납이라 매출에서 뺌)' : '인수가'} value={won(returned ? 0 : takeover)} muted />
-              <Row label="선납금" value={won(advance)} muted />
-              <Row label="예상 매출" value={won(revenue)} strong />
-              <Row label="예상 비용 (견적)" value={`- ${won(cost)}`} strong />
-              <Row label={`CMS 자동이체 수수료 (${CMS_FEE}원 × ${totalMonths}회)`} value={`- ${won(cmsTotal)}`} muted />
-              {multi && (
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                  예상 비용은 최초 계약 기준입니다. 연장 구간의 보험료·자동차세 등은 들어 있지 않습니다.
-                </div>
-              )}
-            </div>
-            <div>
-              <Row label="예상 이익 (베네핏 수수료 포함)" value={won(expected)} strong color={profitColor(expected)} />
-              <Row label="· 베네핏 수수료" value={won(plan.benefitFee)} muted />
-              <Row label="· 영업이익" value={won(operatingProfit)} muted />
-              <Row label="매출 대비 이익률" value={revenue > 0 ? `${((expected / revenue) * 100).toFixed(1)}%` : '-'} muted />
-              <Divider />
-              <Row label="지금까지 예상보다 더 나간 비용" value={overrun ? `- ${won(overrun)}` : '없음'} color={overrun ? '#d9534f' : undefined} />
-              <Row label="판매 수수료 − 차량작업비" value={`${commissionNet >= 0 ? '+ ' : '- '}${won(Math.abs(commissionNet))}`} color={commissionNet < 0 ? '#d9534f' : undefined} />
-              <Row label="반영한 예상 이익" value={won(adjusted)} strong color={profitColor(adjusted)} />
-              <Row label="지금까지 받은 렌트료" value={`${won(actual.rentReceived)} / ${won(rentTotal)}`} muted />
-              <Meter used={actual.rentReceived} budget={rentTotal} />
-            </div>
-          </div>
-
-          {returned ? (
-            <div style={{ marginTop: '0.8rem', border: '1px solid #4a6fa5', background: '#fff', borderRadius: '8px', padding: '0.7rem 0.8rem' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: '800', color: '#4a6fa5', marginBottom: '0.4rem' }}>만기 반납 · 중고차 목표 매각가</div>
-              <Row label="목표 이익 (고객이 인수했다면 남았을 이익)" value={won(targetProfit)} />
-              <Row label="차를 팔기 전 이익 (반납 기준, 위 반영한 예상 이익)" value={won(beforeSale)} color={profitColor(beforeSale)} />
-              <Divider />
-              <Row label="중고차로 최소 이만큼은 받아야 합니다" value={won(targetSalePrice)} strong color="#4a6fa5" />
-              <Row
-                label="계약 인수가와 비교"
-                value={`${won(takeover)} ${targetSalePrice >= takeover ? '+' : '-'} ${won(Math.abs(targetSalePrice - takeover))}`}
-                muted
-              />
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.3rem', lineHeight: 1.5 }}>
-                초과 비용이 생기거나 판매 수수료에서 작업비를 더 쓰면 목표 매각가가 그만큼 올라갑니다.
-                보증금은 반납할 때 돌려주는 돈이라 계산에 넣지 않았습니다.
-              </div>
-            </div>
-          ) : (
-            <div style={{ marginTop: '0.5rem', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-              만기에 반납받으면 목표 이익을 채우려면 중고차로 {won(targetSalePrice)} 이상 받아야 합니다.
-            </div>
-          )}
-        </div>
-
-        <BudgetBoard
-          plan={plan}
-          entries={entries}
-          income={{ rentTotal, takeover: returned ? 0 : takeover, advance, rentReceived: actual.rentReceived, months: totalMonths, cms: cmsTotal }}
-          salesCommission={actual.salesCommission}
-          benefitRate={plan.benefitRate ?? quotePlan?.benefitRate ?? (state.savedPlan?.source === '견적서' ? null : 0.03)}
-          recovered={{ fines: actual.finesRecovered, maintenance: actual.maintRecovered }}
-          closed={closed}
-        />
-
-        <Section no={1} title="보험료 · 자차보험료">
-          <Row label="견적 보험료 (대인·대물 등, 1년)" value={won(baseInsuranceYear)} muted />
-          <Row label="견적 자차보험료 (1년)" value={won(ownCarInsuranceYear)} muted />
-          <Row label={`견적 보험료 합계 (1년 · 계약 ${Math.round(contractYears * 10) / 10}년이면 ${toCommaString(Math.round(insuranceBudget))})`} value={won(insuranceYear)} strong />
-          <Divider />
-          <Row label="보험 납부 (보험 + 공제조합 보험료)" value={won(actual.insurance)} muted />
-          {actual.insuranceRefund > 0 && <Row label="· 보험료 환급 (고객입금 열)" value={`- ${won(actual.insuranceRefund)}`} muted color="#2f6f4e" />}
-          <Row label={`실제 보험료${premiumYears ? ` (${premiumYears}년치)` : ''}`} value={won(actual.insuranceNet)} />
-          <Row label="1년 평균 보험료" value={won(Math.round(premiumPerYear))} strong />
-          <Meter used={premiumPerYear} budget={baseInsuranceYear} />
-          {actual.coopShare > 0 && <Row label="· 공제조합 출자금 (돌려받을 돈, 보험료에서 뺌)" value={won(actual.coopShare)} muted />}
-          <Divider />
-          <Row label={`자차보험료 (계약 ${Math.round(contractYears * 10) / 10}년)`} value={won(ownCarBudget)} muted />
-          <Row label="차량 수리 · 사고 비용 (자차보험료에서 나감)" value={won(actual.repair)} />
-          <Row label="자차보험료에서 쓴 금액" value={won(Math.min(actual.repair, ownCarBudget))} />
-          <Meter used={actual.repair} budget={ownCarBudget} />
-          <Row label={ownLeft >= 0 ? '자차보험료 남은 금액' : '자차보험료 초과'} value={won(Math.abs(ownLeft))} strong color={ownLeft >= 0 ? '#2f6f4e' : '#d9534f'} />
-        </Section>
-
-        <Section no={2} title="판관비 · 베네핏 수수료 · 판매 수수료">
-          <Row label="견적 판관비" value={won(plan.pandanbi)} strong />
-          <Row label="베네핏 수수료" value={won(plan.benefitFee)} strong />
-          <Divider />
-          <Row label="판매 수수료 (SC 입금)" value={won(actual.salesCommission)} strong />
-          <Row label="차량작업비 (썬팅·PPF·블랙박스 등)" value={won(actual.vehicleWork)} />
-          {actual.salesCommission > 0 ? (
-            <>
-              {/* 판매 수수료 중 작업비로 쓴 비율. 내부 기준(50%)을 넘으면 빨강, 40%부터 주황 */}
-              <Meter used={actual.vehicleWork} budget={actual.salesCommission} limit={VEHICLE_WORK_LIMIT_RATE * 100} />
-              <Row label="작업비 빼고 남은 판매 수수료" value={won(commissionNet)} strong color={commissionNet >= 0 ? '#2f6f4e' : '#d9534f'} />
-            </>
-          ) : (
-            <Row label="판매 수수료 입금이 아직 없습니다" value="" muted />
-          )}
-          <Divider />
-          {actual.finesPaid > 0 && (
-            <>
-              <Row label="과태료 · 미납통행료 (회사 대납)" value={won(actual.finesPaid)} muted />
-              <Row label="· 돌려받음 (상계·고객 입금·렌트료·청구서)" value={`- ${won(actual.finesRecovered)}`} muted color="#2f6f4e" />
-              <RecoveryList matches={actual.fineMatches} />
-            </>
-          )}
-          <Row label="운영하며 들어간 비용 (자동차세·검사비·탁송료 등, 판관비에서 나감)" value={won(actual.operating)} />
-          {opCats.map(([cat, sum]) => (
-            <Row key={cat} label={`· ${cat}`} value={won(sum)} muted />
-          ))}
-          {opCats.length === 0 && <Row label="· 아직 없음" value="" muted />}
-          <Meter used={actual.operating} budget={plan.pandanbi} />
-          <Row label={pandanbiLeft >= 0 ? '판관비 남은 금액' : '판관비 초과'} value={won(Math.abs(pandanbiLeft))} strong color={pandanbiLeft >= 0 ? '#2f6f4e' : '#d9534f'} />
-        </Section>
-
-        <Section no={3} title={plan.maintenanceOn ? '정비 (정비 포함 고객)' : '정비 (정비 미포함 고객)'}>
-          {plan.maintenanceOn ? (
-            <>
-              <Row label="견적 정비비 (정기점검 등)" value={won(plan.maintenanceFee)} muted />
-              <Row label="실제 정기점검" value={won(actual.maintenance)} />
-              <Meter used={actual.maintenance} budget={plan.maintenanceFee} />
-              <Divider />
-              <Row label="견적 타이어 교체비" value={won(plan.tireFee)} muted />
-              <Row label="실제 타이어" value={won(actual.tire)} />
-              <Meter used={actual.tire} budget={plan.tireFee} />
-              <Divider />
-              <Row
-                label={(plan.maintenanceFee + plan.tireFee) - (actual.maintenance + actual.tire) >= 0 ? '정비 예산 남은 금액' : '정비 예산 초과'}
-                value={won(Math.abs((plan.maintenanceFee + plan.tireFee) - (actual.maintenance + actual.tire)))}
-                strong
-                color={(plan.maintenanceFee + plan.tireFee) - (actual.maintenance + actual.tire) >= 0 ? '#2f6f4e' : '#d9534f'}
-              />
-              <MaintenanceByItem plan={plan} actual={actual} />
-            </>
-          ) : (
-            <>
-              {/* 정비 미포함 고객의 정비비는 고객 몫이다. 회사가 냈으면 렌트료에 얹어 받거나 고객이 통장으로 넣어 줘야 한다(대표님 2026-10-23) */}
-              <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>
-                견적에 정비가 들어 있지 않은 고객입니다. 회사가 정비비를 냈으면 렌트료에 얹어 받거나 고객이 따로 입금해 줘야 합니다.
-              </div>
-              <Row label="회사가 낸 정비비 (정기점검·타이어 등)" value={won(actual.maintPaid)} muted />
-              <Row label="· 돌려받음 (상계·고객 입금·렌트료·청구서)" value={`- ${won(actual.maintRecovered)}`} muted color="#2f6f4e" />
-              <RecoveryList matches={actual.maintMatches} />
-              <Row
-                label={actual.maintUnrecovered > 0 ? '못 받은 정비비 (회사 부담)' : '못 받은 정비비'}
-                value={won(actual.maintUnrecovered)}
-                strong
-                color={actual.maintUnrecovered > 0 ? '#d9534f' : '#2f6f4e'}
-              />
-            </>
-          )}
-        </Section>
-
-        <PurchaseCheck plan={plan} actual={actual} />
-      </div>
+      <ProfitBoard
+        plan={plan}
+        saved={state.savedPlan}
+        source={state.savedPlan?.source || (quotePlan ? '견적서' : '추정')}
+        sources={state.savedPlan?.sources || (quotePlan ? null : state.estimate?.sources) || {}}
+        entries={entries}
+        actual={actual}
+        terms={terms}
+        periods={periods}
+        maturityPlan={maturityPlan}
+        onMaturityChange={onMaturityChange}
+        benefitRate={plan.benefitRate ?? quotePlan?.benefitRate ?? (state.savedPlan?.source === '견적서' ? null : 0.03)}
+        canEdit={canEdit}
+        isAdmin={isAdmin}
+        saving={planSaving}
+        onSave={saveProfitPlan}
+        closed={closed}
+      />
     );
   }
 

@@ -34,7 +34,7 @@ export const findLedgerQuote = async (ledger) => {
   // 구간이 있으면 1구간의 계약만 본다. ledger.contract는 연장하면 연장 계약으로 바뀌어 견적과 상관없다.
   const contractId = first ? first.contract : ledger.contract;
   const contract = contractId
-    ? await Contract.findById(contractId).select('quote contractNo termMonths rentPeriodYears').lean()
+    ? await Contract.findById(contractId).select('quote contractNo termMonths rentPeriodYears pricing.monthlyFee').lean()
     : null;
 
   if (!contract) return { contract, quote: null, reason: '연결된 계약이 없습니다.' };
@@ -183,7 +183,17 @@ export const computeProfitPlan = async (ledger, { maintenanceRates } = {}) => {
 
   const fromQuote = quotePlanOf(quote);
   if (fromQuote) {
-    return { ok: true, plan: meta(fromQuote, { source: '견적서', quote: quote._id, sources: QUOTE_SOURCES, assumptions: [], ledgerNotes: [] }) };
+    /**
+     * 견적서보다 깎아서 계약한 차는 계약서 월 렌트료가 기준이다(대표님 2026-10-29, (주)대건 S450 견적 2,707,000 → 계약 1,866,000).
+     * 비용은 견적서 그대로 두고 매출만 계약 금액으로 바꾼다. 견적서 계산식은 입력값으로 렌트료를 다시 내므로 할인이 들어가지 않는다.
+     */
+    const contractRent = Number(contract?.pricing?.monthlyFee) || 0;
+    const ledgerNotes = [];
+    if (contractRent && Math.abs(contractRent - (Number(fromQuote.quoteMonthlyRent) || 0)) >= 1000) {
+      ledgerNotes.push(`월 렌트료: 견적서 ${Math.round(fromQuote.quoteMonthlyRent).toLocaleString()}원 대신 계약 ${contractRent.toLocaleString()}원(할인)`);
+      fromQuote.quoteMonthlyRent = contractRent;
+    }
+    return { ok: true, plan: meta(fromQuote, { source: '견적서', quote: quote._id, sources: QUOTE_SOURCES, assumptions: [], ledgerNotes }) };
   }
 
   const why = quote ? '견적서가 계산에 쓰는 입력값이 저장되기 전에 만든 것입니다.' : reason;

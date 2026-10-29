@@ -76,75 +76,152 @@ const needsExtensionForContract = (r) => Boolean(r.carAge && r.checks?.contractE
   && new Date(r.checks.contractEnd) - new Date(r.carAge.limit) > 86400000);
 
 /**
- * 할 일 보드. 검사·차령·정기점검을 한 줄씩 보지 않고, 마감이 가까운 순서로 네 칸에 나눠
- * 계약자별로 묶어 보여 준다(같은 회사 차 20대가 한 덩어리로 보인다). 차 번호를 누르면 상세가 열린다.
- * 차 한 대의 칸은 그 차의 일 중 가장 급한 일로 정한다.
+ * 달력 보기(구글 캘린더처럼). 검사일·차령 만료일·정기점검일을 그날 칸에 올린다.
+ * 같은 날 같은 계약자·같은 일은 한 줄로 묶는다(신흥정보통신 검사 12대). 줄을 누르면 아래에 차 목록이 나오고,
+ * 차 번호를 누르면 상세가 열린다. 날짜가 지났는데 아직 안 한 일은 달력 위 '밀린 일'에 모은다.
  */
 const TASK_KIND = {
   검사: { color: '#1d4ed8', bg: '#dbeafe' },
   차령: { color: '#c2410c', bg: '#ffedd5' },
   점검: { color: '#047857', bg: '#d1fae5' }
 };
-const TASK_BUCKETS = [
-  { id: 'over', label: '지남 · 바로 처리', color: '#b91c1c', bg: '#fef2f2', test: (d) => d < 0 },
-  { id: 'week', label: '7일 이내', color: '#c2410c', bg: '#fff7ed', test: (d) => d <= 7 },
-  { id: 'month', label: '30일 이내', color: '#a16207', bg: '#fefce8', test: (d) => d <= 30 },
-  { id: 'two', label: '2개월 이내', color: '#475569', bg: '#f8fafc', test: () => true }
-];
-const tasksOf = (r) => [
-  r.inspection && r.inspection.dday <= 61 && { kind: '검사', dday: r.inspection.dday, date: r.inspection.date },
-  r.carAge?.level && r.carAge.dday <= 61 && { kind: '차령', dday: r.carAge.dday, date: r.carAge.limit },
-  r.maintenance && r.maintenance.dday <= 30 && { kind: '점검', dday: r.maintenance.dday, date: r.maintenance.date }
-].filter(Boolean);
+const eventsOf = (r) => [
+  r.inspection && { kind: '검사', date: r.inspection.date, overdue: Boolean(inspectionLevelOf(r)) && r.inspection.dday < 0 },
+  // 차령은 연장할 일이 남은 차만(연장 완료 차는 1년 뒤 만료일이라 달력을 어지럽힌다)
+  r.carAge?.level && { kind: '차령', date: r.carAge.limit, overdue: ['expired', 'end'].includes(r.carAge.level) },
+  r.maintenance && { kind: '점검', date: r.maintenance.date, overdue: r.maintenance.status === '지남' }
+].filter(Boolean).map((e) => ({ ...e, r }));
 
-function TaskBoard({ rows, onOpen }) {
-  const cars = rows
-    .map((r) => ({ r, tasks: tasksOf(r) }))
-    .filter((c) => c.tasks.length)
-    .map((c) => ({ ...c, dday: Math.min(...c.tasks.map((t) => t.dday)) }));
-  if (!cars.length) return null;
+const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
+const monthKey = (ymd) => ymd.slice(0, 7);
+const shiftMonth = (key, n) => {
+  const d = new Date(Date.UTC(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1 + n, 1));
+  return d.toISOString().slice(0, 7);
+};
+
+/** 같은 계약자·같은 일끼리 묶는다 → [{ key, kind, party, list }] */
+const groupEvents = (events) => {
+  const m = new Map();
+  events.forEach((e) => {
+    const party = e.r.partyName || '계약자 없음';
+    const key = `${e.kind}|${party}`;
+    if (!m.has(key)) m.set(key, { key, kind: e.kind, party, list: [] });
+    m.get(key).list.push(e);
+  });
+  return [...m.values()].sort((a, b) => b.list.length - a.list.length);
+};
+
+function GroupChip({ g, active, onClick }) {
+  const k = TASK_KIND[g.kind];
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '0.6rem' }}>
-      {TASK_BUCKETS.map((b) => {
-        const inBucket = cars.filter((c) => TASK_BUCKETS.find((x) => x.test(c.dday)) === b);
-        // 계약자별로 묶고, 급한 차가 있는 묶음이 위로
-        const groups = new Map();
-        inBucket.sort((a, z) => a.dday - z.dday).forEach((c) => {
-          const key = c.r.partyName || '계약자 없음';
-          groups.set(key, [...(groups.get(key) || []), c]);
-        });
-        return (
-          <div key={b.id} style={{ border: `1px solid ${b.color}33`, borderTop: `3px solid ${b.color}`, background: b.bg, borderRadius: '8px', padding: '0.55rem', minHeight: '80px' }}>
-            <div style={{ fontWeight: 800, color: b.color, fontSize: '0.85rem', marginBottom: '0.4rem' }}>
-              {b.label} <span style={{ fontWeight: 700 }}>{inBucket.length}대</span>
-            </div>
-            {inBucket.length === 0 && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>없음</div>}
-            {[...groups.entries()].map(([party, list]) => (
-              <div key={party} style={{ marginBottom: '0.45rem' }}>
-                <div style={{ fontSize: '0.76rem', fontWeight: 800, color: 'var(--text-bright)' }}>
-                  {party} <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{list.length}대</span>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.2rem' }}>
-                  {list.map(({ r, tasks }) => (
-                    <button
-                      key={r.vehicleId}
-                      type="button"
-                      onClick={() => onOpen(r.vehicleId)}
-                      title={`${r.carModel}\n${tasks.map((t) => `${t.kind} ${t.date} (${ddayText(t.dday)})`).join('\n')}`}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.15rem 0.35rem', fontSize: '0.74rem', fontWeight: 700, color: 'var(--text-bright)', cursor: 'pointer' }}
-                    >
-                      {r.plateNo || r.carModel}
-                      {tasks.map((t) => (
-                        <span key={t.kind} style={{ fontSize: '0.66rem', fontWeight: 800, color: TASK_KIND[t.kind].color, background: TASK_KIND[t.kind].bg, borderRadius: '4px', padding: '0 0.2rem' }}>{t.kind}</span>
-                      ))}
-                    </button>
-                  ))}
-                </div>
+    <button
+      type="button"
+      onClick={onClick}
+      title={`${g.kind} · ${g.party}\n${g.list.map((e) => e.r.plateNo).join(', ')}`}
+      style={{ display: 'block', width: '100%', textAlign: 'left', border: active ? `1px solid ${k.color}` : '1px solid transparent', background: k.bg, color: k.color, borderRadius: '4px', padding: '0.05rem 0.25rem', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}
+    >
+      {g.kind} {g.list.length === 1 ? g.list[0].r.plateNo : `${g.party} ${g.list.length}대`}
+    </button>
+  );
+}
+
+function ServiceCalendar({ rows, onOpen }) {
+  const today = todayYmd();
+  const [month, setMonth] = useState(monthKey(today));
+  const [picked, setPicked] = useState(null); // { title, list }
+
+  const all = rows.flatMap(eventsOf);
+  const overdue = all.filter((e) => e.overdue);
+  const byDay = new Map();
+  all.filter((e) => !e.overdue && monthKey(e.date) === month).forEach((e) => {
+    byDay.set(e.date, [...(byDay.get(e.date) || []), e]);
+  });
+
+  // 그 달 1일이 든 주의 일요일부터 6주
+  const first = new Date(`${month}-01T00:00:00Z`);
+  const startNo = first.getTime() / 86400000 - first.getUTCDay();
+  const days = Array.from({ length: 42 }, (_, i) => new Date((startNo + i) * 86400000).toISOString().slice(0, 10));
+  const weeks = [0, 1, 2, 3, 4, 5].map((w) => days.slice(w * 7, w * 7 + 7)).filter((w) => w.some((d) => monthKey(d) === month));
+  const monthCount = [...byDay.values()].reduce((s, l) => s + l.length, 0);
+
+  const pick = (title, list) => setPicked(picked?.title === title ? null : { title, list });
+  const navBtn = { border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.25rem 0.6rem', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' };
+
+  return (
+    <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', background: '#fff', padding: '0.6rem' }}>
+      {overdue.length > 0 && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '0.45rem 0.55rem', marginBottom: '0.6rem' }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#b91c1c', marginBottom: '0.2rem' }}>밀린 일 {overdue.length}건 · 날짜가 지났는데 기록이 없습니다</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+            {groupEvents(overdue).map((g) => (
+              <div key={g.key} style={{ minWidth: '160px', maxWidth: '260px' }}>
+                <GroupChip g={g} active={picked?.title === `밀린 ${g.key}`} onClick={() => pick(`밀린 ${g.key}`, g.list)} />
               </div>
             ))}
           </div>
-        );
-      })}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem' }}>
+        <button type="button" style={navBtn} onClick={() => { setMonth(shiftMonth(month, -1)); setPicked(null); }}>‹</button>
+        <strong style={{ fontSize: '1rem', color: 'var(--text-bright)', minWidth: '7rem', textAlign: 'center' }}>{month.slice(0, 4)}년 {Number(month.slice(5, 7))}월</strong>
+        <button type="button" style={navBtn} onClick={() => { setMonth(shiftMonth(month, 1)); setPicked(null); }}>›</button>
+        <button type="button" style={navBtn} onClick={() => { setMonth(monthKey(today)); setPicked(null); }}>오늘</button>
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>이달 {monthCount}건</span>
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.3rem' }}>
+          {Object.entries(TASK_KIND).map(([name, k]) => (
+            <span key={name} style={{ fontSize: '0.7rem', fontWeight: 800, color: k.color, background: k.bg, borderRadius: '4px', padding: '0 0.3rem' }}>{name}</span>
+          ))}
+        </span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', borderTop: '1px solid var(--border-color)', borderLeft: '1px solid var(--border-color)' }}>
+        {WEEK.map((w, i) => (
+          <div key={w} style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 800, padding: '0.2rem', color: i === 0 ? '#dc2626' : i === 6 ? '#2563eb' : 'var(--text-muted)', borderRight: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-main)' }}>{w}</div>
+        ))}
+        {weeks.flat().map((d) => {
+          const inMonth = monthKey(d) === month;
+          const groups = groupEvents(byDay.get(d) || []);
+          const isToday = d === today;
+          return (
+            <div key={d} style={{ minHeight: '84px', padding: '0.2rem', borderRight: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', background: inMonth ? '#fff' : '#fafafa', minWidth: 0 }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 800, color: isToday ? '#fff' : inMonth ? 'var(--text-bright)' : 'var(--text-muted)', background: isToday ? 'var(--primary)' : 'none', borderRadius: '999px', width: '1.4rem', height: '1.4rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {Number(d.slice(8, 10))}
+              </div>
+              {groups.slice(0, 4).map((g) => (
+                <GroupChip key={g.key} g={g} active={picked?.title === `${d} ${g.key}`} onClick={() => pick(`${d} ${g.key}`, g.list)} />
+              ))}
+              {groups.length > 4 && (
+                <button type="button" onClick={() => pick(`${d} 전체`, byDay.get(d))} style={{ border: 'none', background: 'none', fontSize: '0.68rem', color: 'var(--text-muted)', cursor: 'pointer', padding: 0 }}>
+                  +{groups.length - 4}개 더
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {picked && (
+        <div style={{ marginTop: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-bright)', marginBottom: '0.3rem' }}>
+            {picked.title.replace(/\|/g, ' · ')} ({picked.list.length}대)
+            <button type="button" onClick={() => setPicked(null)} style={{ marginLeft: 'auto', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={14} /></button>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+            {picked.list.map((e) => (
+              <button
+                key={`${e.kind}-${e.r.vehicleId}`}
+                type="button"
+                onClick={() => onOpen(e.r.vehicleId)}
+                style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.25rem 0.45rem', fontSize: '0.76rem', cursor: 'pointer', textAlign: 'left' }}
+              >
+                <b style={{ color: TASK_KIND[e.kind].color }}>{e.kind}</b> <b>{e.r.plateNo || '-'}</b>{' '}
+                <span style={{ color: 'var(--text-muted)' }}>{e.r.carModel} · {e.date}{e.overdue ? ` (${ddayText(-Math.round((new Date(todayYmd()) - new Date(e.date)) / 86400000))})` : ''}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -211,6 +288,7 @@ function VehicleServiceView({ showToast, currentUser }) {
   const [loading, setLoading] = useState(true); // 처음 불러오기 전까지만 '불러오는 중'을 보여 준다
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('');
+  const [view, setView] = useState('calendar'); // 'calendar' | 'list'
   const [selectedId, setSelectedId] = useState(null);
   const [detail, setDetail] = useState(null); // { row, records }
   // 상세 입력 양식(테스트판). { record: null }이면 새 기록, record가 있으면 고치기
@@ -326,7 +404,15 @@ function VehicleServiceView({ showToast, currentUser }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
       <CalendarInboxPanel vehicles={rows} onImported={() => { load(); if (selectedId) loadDetail(selectedId); }} showToast={showToast} />
-      <TaskBoard rows={rows} onOpen={openVehicle} />
+      <div style={{ display: 'flex', gap: '0.3rem' }}>
+        {[['calendar', '달력'], ['list', '목록']].map(([id, label]) => (
+          <button key={id} type="button" onClick={() => setView(id)} style={{ border: '1px solid var(--border-color)', background: view === id ? 'var(--primary)' : '#fff', color: view === id ? '#fff' : 'var(--text-bright)', padding: '0.35rem 0.9rem', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 800, cursor: 'pointer' }}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {view === 'calendar' && <ServiceCalendar rows={rows} onOpen={openVehicle} />}
+      {view === 'list' && (<>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
         {FILTERS.map((f) => {
           const count = rows.filter(f.test).length;
@@ -430,6 +516,7 @@ function VehicleServiceView({ showToast, currentUser }) {
         차령(렌터카)은 최초등록일부터 배기량 2,000cc 미만 5년, 2,000cc 이상 8년이며, 끝나기 전 2개월 안에 검사를 받고 연장을 신청합니다(1년씩, 최대 2년).
         순서: 검사·차령 급한 차 → 정비 포함·단기렌트 중 점검 급한 차 → 나머지 정비 포함·단기렌트 → 정비 미포함.
       </div>
+      </>)}
 
       {selectedId && (
         <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(560px, 100%)', background: '#fff', boxShadow: '-6px 0 24px rgba(0,0,0,0.15)', zIndex: 1000, display: 'flex', flexDirection: 'column' }}>

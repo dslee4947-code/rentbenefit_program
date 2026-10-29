@@ -8,6 +8,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { colorCode } from '../../shared/colorCode.js';
 import {
   PMT, calculateQuoteOption, getMaintenanceBreakdown, getTireCount, describeTireProvision,
   fundingInterestFor, acquisitionTaxFor, publicBondFor, defaultMaintenanceItems
@@ -479,4 +480,14 @@ test('단기렌트 1개월 엑셀 식: 기준 요금·반기 감가가 엑셀 "�
   const q = quoteRental({ rates: { day: 107500, week: 430000, month: 1061000 }, start: '2026-10-29T09:00', end: '2026-12-15T10:00', region: '서울', holidays: [] });
   assert.equal(q.total, 2122000);
   assert.deepEqual(q.steps.map((st) => st.amount ?? null), [null, 1061000, 860000, 451500, 430000, 1061000, 2122000]);
+});
+
+test('단기렌트 요금표 색상 약자: 외장/내장, 이름에서 가장 앞에 나온 색', () => {
+  assert.equal(colorCode('옵시디언 블랙', '블랙 모노톤'), 'bl/bl');
+  assert.equal(colorCode('폴라 화이트', '브라운'), 'wh/br');
+  assert.equal(colorCode('PW', 'Bl'), 'wh/bl');
+  assert.equal(colorCode('Obsidian Black', 'Leather black'), 'bl/bl');
+  assert.equal(colorCode('비크블랙', '스모키그린(어스브라운 시트)'), 'bl/gn');
+  assert.equal(colorCode('마칼루 그레이', '에크루 카멜 모노톤'), 'gr/be');
+  assert.equal(colorCode('', ''), '');
 });

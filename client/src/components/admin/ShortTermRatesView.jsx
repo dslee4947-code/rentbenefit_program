@@ -277,6 +277,7 @@ const SHEET_CSS = `
     border-right: 1px solid ${SHEET_GOLD}; border-bottom: 1px solid ${SHEET_GOLD}; white-space: nowrap; }
   .st-sheet-table td { padding: 8px 8px; border-bottom: 1px solid #e9e6e0; border-right: 1px solid ${SHEET_GOLD}; white-space: nowrap; }
   .st-sheet-table th:last-child, .st-sheet-table td:last-child { border-right: none; }
+  .st-sheet-table td.color { font-weight: 700; letter-spacing: 0.04em; color: #475569; }
   .st-sheet-table tbody tr.even td { background: #f9f8f6; }
   /* 모든 차 줄을 같은 높이로 둔다. 장기 대여 차는 요금 칸을 이 높이의 절반씩 위(안내)·아래(요금)로 나눈다 */
   .st-sheet-table tbody tr:not(.brand):not(.blocked) td, .st-sheet-table tr.blocked td[rowspan] { height: 34px; padding-top: 0; padding-bottom: 0; }
@@ -334,7 +335,7 @@ function RateSheet({ sheetRef, cars, policy }) {
           <table className="st-sheet-table">
             <thead>
               <tr>
-                <th style={{ width: '6%' }}>NO</th><th>차종</th><th>1일(평일)</th><th>1주</th><th>1개월</th><th>차량번호</th><th>유종</th><th>연식</th>
+                <th style={{ width: '6%' }}>NO</th><th>차종</th><th>1일(평일)</th><th>1주</th><th>1개월</th><th>색상(외/내)</th><th>유종</th><th>연식</th>
               </tr>
             </thead>
             <tbody>
@@ -350,7 +351,7 @@ function RateSheet({ sheetRef, cars, policy }) {
                       <td rowSpan={2} className="no">{i + 1}</td>
                       <td rowSpan={2} className="model">{c.carModel}</td>
                       <td colSpan={3} className="c blocked-label">{longRentText(c.longRentUntil)}</td>
-                      <td rowSpan={2} className="c">{c.plateNo}</td>
+                      <td rowSpan={2} className="c color">{c.color || ''}</td>
                       <td rowSpan={2} className="c">{c.fuelType || ''}</td>
                       <td rowSpan={2} className="c">{yearMonth(c.ageStart)}</td>
                     </tr>
@@ -365,7 +366,7 @@ function RateSheet({ sheetRef, cars, policy }) {
                   {c.renting
                     ? <td colSpan={3} className="c" style={{ color: SHEET_GOLD, fontWeight: 800 }}>단기 렌트 중</td>
                     : <><td className="n">{won(c.rates.day)}</td><td className="n">{won(c.rates.week)}</td><td className="n month">{won(c.rates.month)}</td></>}
-                  <td className="c">{c.plateNo}</td>
+                  <td className="c color">{c.color || ''}</td>
                   <td className="c">{c.fuelType || ''}</td>
                   <td className="c">{yearMonth(c.ageStart)}</td>
                 </tr>

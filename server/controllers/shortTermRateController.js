@@ -3,6 +3,7 @@ import Vehicle from '../models/Vehicle.js';
 import { buildShortTermReport, shortTermRowFor, getInternalRate } from '../utils/shortTermReport.js';
 import { getMaintenanceRates } from '../utils/maintenanceRates.js';
 import { isPublicHoliday } from '../utils/koreanHolidays.js';
+import { colorCode } from '../../shared/colorCode.js';
 import {
   mergeRatePolicy, deriveRates, excelMonthlyRate, insurerGradeFor, insurerCcFor, rentalLifeFor, INSURER_RENTAL_TABLE, REGIONS
 } from '../../shared/shortTermRates.js';
@@ -81,6 +82,8 @@ const shortTermRows = async () => {
 export const getShortTermRates = async (req, res) => {
   try {
     const [{ value, updatedAt, updatedBy }, rows] = await Promise.all([loadCard(), shortTermRows()]);
+    const colors = await Vehicle.find({ _id: { $in: rows.map((r) => r.vehicleId).filter(Boolean) } }).select('exteriorColor interiorColor').lean();
+    const colorOf = new Map(colors.map((v) => [String(v._id), colorCode(v.exteriorColor, v.interiorColor)]));
     const policy = mergeRatePolicy(value.policy);
     const overrides = value.vehicles || {};
 
@@ -104,6 +107,8 @@ export const getShortTermRates = async (req, res) => {
         brand: brandName(r.carModel),
         plateNo: r.plateNo,
         fuelType: r.fuelType,
+        // 외장/내장 색 약자 (예: bl/br)
+        color: colorOf.get(String(r.vehicleId)) || '',
         cc: r.cc,
         carPrice: r.carPrice,
         ageStart: r.ageStart,

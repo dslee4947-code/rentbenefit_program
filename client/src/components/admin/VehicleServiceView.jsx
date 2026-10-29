@@ -76,21 +76,58 @@ const needsExtensionForContract = (r) => Boolean(r.carAge && r.checks?.contractE
   && new Date(r.checks.contractEnd) - new Date(r.carAge.limit) > 86400000);
 
 /**
- * 달력 보기(구글 캘린더처럼). 검사일·차령 만료일·정기점검일을 그날 칸에 올린다.
- * 같은 날 같은 계약자·같은 일은 한 줄로 묶는다(신흥정보통신 검사 12대). 줄을 누르면 아래에 차 목록이 나오고,
- * 차 번호를 누르면 상세가 열린다. 날짜가 지났는데 아직 안 한 일은 달력 위 '밀린 일'에 모은다.
+ * 달력 보기(구글 캘린더처럼).
+ *
+ * - 자동차검사·정기점검: 앞으로 할 일(예정). 칠한 칸으로 보인다.
+ * - 고장수리·사고수리: 일이 생긴 뒤 적는 기록. 테두리 칸 + ✓로 그날에 남는다.
+ * - 장기렌트는 계약사 이름으로, 단기렌트는 차량번호로 보인다. 같은 날 같은 계약사·같은 일은 한 줄로 묶는다.
+ * - 날짜가 지났는데 기록이 없는 예정 일은 달력 위 '밀린 일'에 모은다.
+ * - 차령 연장은 자동차검사 때 함께 신청하므로 따로 칸을 두지 않고 자동차검사 칸에 '차령'을 붙인다.
+ *
+ * 검사·점검 한 번에: 자동차검사는 검사일 2개월 전부터 1개월 뒤까지 받을 수 있다. 정기점검일이 그 기간 시작 뒤이고
+ * 검사일 2개월 뒤 안이면, 둘 중 이른 날에 한 번 입고해 같이 처리하도록 '검사+점검' 한 칸으로 묶는다.
+ * 점검은 당겨질 수만 있고 늦춰지지는 않는다. 검사도 검사일을 넘기지 않는다.
  */
-const TASK_KIND = {
-  검사: { color: '#1d4ed8', bg: '#dbeafe' },
-  차령: { color: '#c2410c', bg: '#ffedd5' },
-  점검: { color: '#047857', bg: '#d1fae5' }
+const KIND = {
+  자동차검사: { color: '#1d4ed8', bg: '#dbeafe' },
+  '검사+점검': { color: '#6d28d9', bg: '#ede9fe' },
+  정기점검: { color: '#047857', bg: '#d1fae5' },
+  고장수리: { color: '#b45309', bg: '#fff', record: true },
+  사고수리: { color: '#b91c1c', bg: '#fff', record: true }
 };
-const eventsOf = (r) => [
-  r.inspection && { kind: '검사', date: r.inspection.date, overdue: Boolean(inspectionLevelOf(r)) && r.inspection.dday < 0 },
-  // 차령은 연장할 일이 남은 차만(연장 완료 차는 1년 뒤 만료일이라 달력을 어지럽힌다)
-  r.carAge?.level && { kind: '차령', date: r.carAge.limit, overdue: ['expired', 'end'].includes(r.carAge.level) },
-  r.maintenance && { kind: '점검', date: r.maintenance.date, overdue: r.maintenance.status === '지남' }
-].filter(Boolean).map((e) => ({ ...e, r }));
+// 아래 정리표의 칸. '검사+점검'은 두 칸에 모두 들어간다.
+const SUMMARY_COLS = ['자동차검사', '정기점검', '고장수리', '사고수리'];
+const colsOf = (kind) => (kind === '검사+점검' ? ['자동차검사', '정기점검'] : [kind]);
+
+const plusDays = (ymd, n) => new Date(new Date(`${ymd}T00:00:00Z`).getTime() + n * 86400000).toISOString().slice(0, 10);
+const shortDate = (ymd) => `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}`;
+const isLong = (r) => r.status === '장기렌트';
+// 달력에 보이는 이름: 장기렌트는 계약사, 단기렌트는 차량번호
+const whoOf = (r) => (isLong(r) ? (r.partyName || r.plateNo || '-') : (r.plateNo || r.carModel || '-'));
+
+/** 검사와 점검을 같이 할 날. 같이 못 하면 null */
+const togetherDateOf = (r) => {
+  const i = r.inspection;
+  const m = r.maintenance;
+  if (!i || !m) return null;
+  if (m.date < i.windowStart || m.date > plusDays(i.date, 61)) return null;
+  return m.date < i.date ? m.date : i.date;
+};
+
+const eventsOf = (r, today) => {
+  const out = [];
+  const age = r.carAge?.level ? r.carAge : null;
+  const inspOverdue = ['over', 'grace'].includes(inspectionLevelOf(r)) || ['expired', 'end'].includes(age?.level);
+  const together = togetherDateOf(r);
+  if (together) {
+    out.push({ kind: '검사+점검', date: together, overdue: together < today || inspOverdue, age, note: `자동차검사 ${r.inspection.date} · 정기점검 ${r.maintenance.date}` });
+  } else {
+    if (r.inspection) out.push({ kind: '자동차검사', date: r.inspection.date, overdue: inspOverdue, age, note: `받을 수 있는 기간 ${r.inspection.windowStart} ~ ${r.inspection.windowEnd}` });
+    if (r.maintenance) out.push({ kind: '정기점검', date: r.maintenance.date, overdue: r.maintenance.status === '지남', note: r.maintenance.basis || '' });
+  }
+  (r.repairs || []).forEach((x) => out.push({ kind: x.kind, date: x.date, record: true, note: [x.status !== '완료' ? x.status : '', x.description, x.shop, x.amount ? won(x.amount) : ''].filter(Boolean).join(' · ') }));
+  return out.map((e) => ({ ...e, r }));
+};
 
 const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
 const monthKey = (ymd) => ymd.slice(0, 7);
@@ -99,29 +136,87 @@ const shiftMonth = (key, n) => {
   return d.toISOString().slice(0, 7);
 };
 
-/** 같은 계약자·같은 일끼리 묶는다 → [{ key, kind, party, list }] */
+/** 같은 일·같은 이름(장기=계약사, 단기=차량번호)끼리 묶는다 → [{ key, kind, who, list }] */
 const groupEvents = (events) => {
   const m = new Map();
   events.forEach((e) => {
-    const party = e.r.partyName || '계약자 없음';
-    const key = `${e.kind}|${party}`;
-    if (!m.has(key)) m.set(key, { key, kind: e.kind, party, list: [] });
+    const who = whoOf(e.r);
+    const key = `${e.kind}|${who}`;
+    if (!m.has(key)) m.set(key, { key, kind: e.kind, who, list: [] });
     m.get(key).list.push(e);
   });
-  return [...m.values()].sort((a, b) => b.list.length - a.list.length);
+  // 예정 일이 먼저, 그다음 대수가 많은 순
+  return [...m.values()].sort((a, b) => Number(Boolean(KIND[a.kind].record)) - Number(Boolean(KIND[b.kind].record)) || b.list.length - a.list.length);
 };
 
 function GroupChip({ g, active, onClick }) {
-  const k = TASK_KIND[g.kind];
+  const k = KIND[g.kind];
+  const hasAge = g.list.some((e) => e.age);
   return (
     <button
       type="button"
       onClick={onClick}
-      title={`${g.kind} · ${g.party}\n${g.list.map((e) => e.r.plateNo).join(', ')}`}
-      style={{ display: 'block', width: '100%', textAlign: 'left', border: active ? `1px solid ${k.color}` : '1px solid transparent', background: k.bg, color: k.color, borderRadius: '4px', padding: '0.05rem 0.25rem', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}
+      title={`${g.kind} · ${g.who}\n${g.list.map((e) => `${e.r.plateNo} ${e.note || ''}`).join('\n')}`}
+      style={{ display: 'block', width: '100%', textAlign: 'left', border: k.record || active ? `1px solid ${k.color}` : '1px solid transparent', ...(k.record ? { borderLeft: `3px solid ${k.color}` } : {}), background: active && k.record ? '#fef3c7' : k.bg, color: k.color, borderRadius: '4px', padding: '0.05rem 0.25rem', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}
     >
-      {g.kind} {g.list.length === 1 ? g.list[0].r.plateNo : `${g.party} ${g.list.length}대`}
+      {k.record ? '✓ ' : ''}{g.kind} {g.who}{g.list.length > 1 ? ` ${g.list.length}대` : ''}{hasAge ? ' · 차령' : ''}
     </button>
+  );
+}
+
+/** 이달 정리표: 계약사(단기는 '단기렌트')마다 이달 일을 칸별로 */
+function MonthSummary({ events, onOpen }) {
+  if (!events.length) return null;
+  const parties = new Map();
+  events.forEach((e) => {
+    const party = isLong(e.r) ? (e.r.partyName || '계약사 없음') : '단기렌트';
+    if (!parties.has(party)) parties.set(party, { party, cars: new Set(), cols: Object.fromEntries(SUMMARY_COLS.map((c) => [c, []])) });
+    const p = parties.get(party);
+    p.cars.add(e.r.vehicleId);
+    colsOf(e.kind).forEach((c) => p.cols[c].push(e));
+  });
+  const list = [...parties.values()].sort((a, b) => (a.party === '단기렌트') - (b.party === '단기렌트') || b.cars.size - a.cars.size);
+  const totals = Object.fromEntries(SUMMARY_COLS.map((c) => [c, new Set(events.filter((e) => colsOf(e.kind).includes(c)).map((e) => e.r.vehicleId)).size]));
+  const cell = { padding: '0.35rem 0.5rem', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top', fontSize: '0.76rem' };
+  return (
+    <div style={{ marginTop: '0.6rem', overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead style={{ background: 'var(--bg-main)' }}>
+          <tr>
+            <th style={{ ...cell, textAlign: 'left', width: '170px' }}>계약사 ({list.length}곳)</th>
+            {SUMMARY_COLS.map((c) => (
+              <th key={c} style={{ ...cell, textAlign: 'left', color: KIND[c].color }}>{KIND[c].record ? '✓ ' : ''}{c} {totals[c]}대</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((p) => (
+            <tr key={p.party}>
+              <td style={{ ...cell, fontWeight: 800, color: 'var(--text-bright)' }}>{p.party} <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{p.cars.size}대</span></td>
+              {SUMMARY_COLS.map((c) => (
+                <td key={c} style={cell}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.2rem' }}>
+                    {p.cols[c].sort((a, b) => (a.date < b.date ? -1 : 1)).map((e) => (
+                      <button
+                        key={`${e.kind}-${e.r.vehicleId}-${e.date}`}
+                        type="button"
+                        onClick={() => onOpen(e.r.vehicleId)}
+                        title={`${e.r.carModel}\n${e.note || ''}`}
+                        style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '4px', padding: '0 0.3rem', fontSize: '0.72rem', cursor: 'pointer', color: 'var(--text-bright)' }}
+                      >
+                        {e.r.plateNo || '-'} <span style={{ color: 'var(--text-muted)' }}>{shortDate(e.date)}</span>
+                        {e.kind === '검사+점검' && <b style={{ color: KIND['검사+점검'].color }}> 함께</b>}
+                        {e.age && c === '자동차검사' && <b style={{ color: '#c2410c' }}> 차령</b>}
+                      </button>
+                    ))}
+                  </div>
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -130,21 +225,20 @@ function ServiceCalendar({ rows, onOpen }) {
   const [month, setMonth] = useState(monthKey(today));
   const [picked, setPicked] = useState(null); // { title, list }
 
-  const all = rows.flatMap(eventsOf);
+  const all = rows.flatMap((r) => eventsOf(r, today));
   const overdue = all.filter((e) => e.overdue);
+  const inMonth = all.filter((e) => !e.overdue && monthKey(e.date) === month);
   const byDay = new Map();
-  all.filter((e) => !e.overdue && monthKey(e.date) === month).forEach((e) => {
-    byDay.set(e.date, [...(byDay.get(e.date) || []), e]);
-  });
+  inMonth.forEach((e) => byDay.set(e.date, [...(byDay.get(e.date) || []), e]));
 
-  // 그 달 1일이 든 주의 일요일부터 6주
+  // 그 달 1일이 든 주의 일요일부터
   const first = new Date(`${month}-01T00:00:00Z`);
   const startNo = first.getTime() / 86400000 - first.getUTCDay();
   const days = Array.from({ length: 42 }, (_, i) => new Date((startNo + i) * 86400000).toISOString().slice(0, 10));
   const weeks = [0, 1, 2, 3, 4, 5].map((w) => days.slice(w * 7, w * 7 + 7)).filter((w) => w.some((d) => monthKey(d) === month));
-  const monthCount = [...byDay.values()].reduce((s, l) => s + l.length, 0);
 
   const pick = (title, list) => setPicked(picked?.title === title ? null : { title, list });
+  const go = (n) => { setMonth(n === 0 ? monthKey(today) : shiftMonth(month, n)); setPicked(null); };
   const navBtn = { border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.25rem 0.6rem', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' };
 
   return (
@@ -162,15 +256,14 @@ function ServiceCalendar({ rows, onOpen }) {
         </div>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem' }}>
-        <button type="button" style={navBtn} onClick={() => { setMonth(shiftMonth(month, -1)); setPicked(null); }}>‹</button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem', flexWrap: 'wrap' }}>
+        <button type="button" style={navBtn} onClick={() => go(-1)}>‹</button>
         <strong style={{ fontSize: '1rem', color: 'var(--text-bright)', minWidth: '7rem', textAlign: 'center' }}>{month.slice(0, 4)}년 {Number(month.slice(5, 7))}월</strong>
-        <button type="button" style={navBtn} onClick={() => { setMonth(shiftMonth(month, 1)); setPicked(null); }}>›</button>
-        <button type="button" style={navBtn} onClick={() => { setMonth(monthKey(today)); setPicked(null); }}>오늘</button>
-        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>이달 {monthCount}건</span>
-        <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.3rem' }}>
-          {Object.entries(TASK_KIND).map(([name, k]) => (
-            <span key={name} style={{ fontSize: '0.7rem', fontWeight: 800, color: k.color, background: k.bg, borderRadius: '4px', padding: '0 0.3rem' }}>{name}</span>
+        <button type="button" style={navBtn} onClick={() => go(1)}>›</button>
+        <button type="button" style={navBtn} onClick={() => go(0)}>오늘</button>
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+          {Object.entries(KIND).map(([name, k]) => (
+            <span key={name} style={{ fontSize: '0.7rem', fontWeight: 800, color: k.color, background: k.bg, border: k.record ? `1px solid ${k.color}` : 'none', borderRadius: '4px', padding: '0 0.3rem' }}>{k.record ? '✓ ' : ''}{name}</span>
           ))}
         </span>
       </div>
@@ -180,12 +273,12 @@ function ServiceCalendar({ rows, onOpen }) {
           <div key={w} style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 800, padding: '0.2rem', color: i === 0 ? '#dc2626' : i === 6 ? '#2563eb' : 'var(--text-muted)', borderRight: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-main)' }}>{w}</div>
         ))}
         {weeks.flat().map((d) => {
-          const inMonth = monthKey(d) === month;
+          const thisMonth = monthKey(d) === month;
           const groups = groupEvents(byDay.get(d) || []);
           const isToday = d === today;
           return (
-            <div key={d} style={{ minHeight: '84px', padding: '0.2rem', borderRight: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', background: inMonth ? '#fff' : '#fafafa', minWidth: 0 }}>
-              <div style={{ fontSize: '0.72rem', fontWeight: 800, color: isToday ? '#fff' : inMonth ? 'var(--text-bright)' : 'var(--text-muted)', background: isToday ? 'var(--primary)' : 'none', borderRadius: '999px', width: '1.4rem', height: '1.4rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div key={d} style={{ minHeight: '84px', padding: '0.2rem', borderRight: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', background: thisMonth ? '#fff' : '#fafafa', minWidth: 0 }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 800, color: isToday ? '#fff' : thisMonth ? 'var(--text-bright)' : 'var(--text-muted)', background: isToday ? 'var(--primary)' : 'none', borderRadius: '999px', width: '1.4rem', height: '1.4rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {Number(d.slice(8, 10))}
               </div>
               {groups.slice(0, 4).map((g) => (
@@ -210,18 +303,25 @@ function ServiceCalendar({ rows, onOpen }) {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
             {picked.list.map((e) => (
               <button
-                key={`${e.kind}-${e.r.vehicleId}`}
+                key={`${e.kind}-${e.r.vehicleId}-${e.date}`}
                 type="button"
                 onClick={() => onOpen(e.r.vehicleId)}
                 style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.25rem 0.45rem', fontSize: '0.76rem', cursor: 'pointer', textAlign: 'left' }}
               >
-                <b style={{ color: TASK_KIND[e.kind].color }}>{e.kind}</b> <b>{e.r.plateNo || '-'}</b>{' '}
-                <span style={{ color: 'var(--text-muted)' }}>{e.r.carModel} · {e.date}{e.overdue ? ` (${ddayText(-Math.round((new Date(todayYmd()) - new Date(e.date)) / 86400000))})` : ''}</span>
+                <b style={{ color: KIND[e.kind].color }}>{e.kind}</b> <b>{e.r.plateNo || '-'}</b>{' '}
+                <span style={{ color: 'var(--text-muted)' }}>{e.r.carModel} · {e.date}{e.note ? ` · ${e.note}` : ''}</span>
+                {e.age && <b style={{ color: '#c2410c' }}> · 차령 연장 함께 신청</b>}
               </button>
             ))}
           </div>
         </div>
       )}
+
+      <MonthSummary events={inMonth} onOpen={onOpen} />
+      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.4rem', lineHeight: 1.6 }}>
+        자동차검사는 검사일 2개월 전부터 1개월 뒤까지 받을 수 있습니다. 정기점검일이 그 안(검사일 2개월 뒤까지)에 있으면 이른 날에 한 번 입고해 같이 처리하도록 <b style={{ color: KIND['검사+점검'].color }}>검사+점검</b>으로 묶었습니다.
+        ✓ 고장수리·사고수리는 일이 생긴 뒤 남긴 기록입니다.
+      </div>
     </div>
   );
 }

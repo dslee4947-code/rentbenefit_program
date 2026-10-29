@@ -3,7 +3,7 @@ import Vehicle from '../models/Vehicle.js';
 import { saveDocument, readSavedFile } from '../utils/documentStorageService.js';
 import { mimeTypeOf } from '../utils/oneDriveStorage.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
-import { planVehicle, kstYmd, addMonths, SERVICE_KINDS, INSPECTION_RULE, MAINTENANCE_RULE, CAR_AGE_RULE } from '../utils/vehicleServicePlan.js';
+import { planVehicle, kstYmd, addMonths, SERVICE_KINDS, REPAIR_KINDS, INSPECTION_RULE, MAINTENANCE_RULE, CAR_AGE_RULE } from '../utils/vehicleServicePlan.js';
 import { SERVICE_ACTIVE_STATUSES, partyNameOf, syncVehicleServiceSchedules, loadServiceRecords } from '../utils/vehicleServiceScheduleJob.js';
 
 // 화면에서 고칠 수 있는 항목. 차량과 파일은 올릴 때만 정해진다.
@@ -93,6 +93,10 @@ const rowOf = (v, records) => {
     generalMaintenance: v.maintenance?.generalMaintenance || '',
     currentMileage: v.currentMileage || 0,
     recordCount: records.length,
+    // 달력에 '일어난 날'로 올리는 고장·사고 수리(최근 13개월). 진행 중인 수리도 함께.
+    repairs: records
+      .filter((r) => REPAIR_KINDS.includes(r.kind) && kstYmd(r.date) >= addMonths(kstYmd(new Date()), -13))
+      .map((r) => ({ kind: r.kind, date: kstYmd(r.date), status: r.status || '완료', amount: r.amount || 0, description: r.description || '', shop: r.shop || '' })),
     ...plan,
     ...usageOf(v, records, plan)
   };
@@ -207,7 +211,7 @@ export const getServicePlan = async (req, res) => {
       .populate('company', 'name')
       .lean();
     // 같은 번호판의 예전 차량 문서에 붙은 기록도 함께 센다(loadServiceRecords 설명)
-    const byVehicle = await loadServiceRecords(vehicles, 'vehicle kind date mileage amount description status');
+    const byVehicle = await loadServiceRecords(vehicles, 'vehicle kind date mileage amount description status shop');
 
     const rows = vehicles.map((v) => rowOf(v, byVehicle.get(String(v._id)) || []));
     res.json({ success: true, rows, kinds: SERVICE_KINDS, rules: { inspection: INSPECTION_RULE, maintenance: MAINTENANCE_RULE, carAge: CAR_AGE_RULE } });

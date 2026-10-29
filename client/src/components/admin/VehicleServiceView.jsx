@@ -83,6 +83,7 @@ const needsExtensionForContract = (r) => Boolean(r.carAge && r.checks?.contractE
  * - 장기렌트는 계약사 이름으로, 단기렌트는 차량번호로 보인다. 같은 날 같은 계약사·같은 일은 한 줄로 묶는다.
  * - 날짜가 지났는데 기록이 없는 예정 일은 달력 위 '밀린 일'에 모은다.
  * - 차령 연장은 자동차검사 때 함께 신청하므로 따로 칸을 두지 않고 자동차검사 칸에 '차령'을 붙인다.
+ * - 장기렌트는 계약 종료일(마지막 날)에 '계약만료'를 올린다.
  *
  * 검사·점검 한 번에: 자동차검사는 검사일 2개월 전부터 1개월 뒤까지 받을 수 있다. 정기점검일이 그 기간 시작 뒤이고
  * 검사일 2개월 뒤 안이면, 둘 중 이른 날에 한 번 입고해 같이 처리하도록 '검사+점검' 한 칸으로 묶는다.
@@ -96,10 +97,11 @@ const KIND = {
   '검사+점검': { color: '#6d28d9', bg: '#ede9fe' },
   정기점검: { color: '#047857', bg: '#d1fae5' },
   고장수리: { color: '#b45309', bg: '#fff', record: true },
-  사고수리: { color: '#b91c1c', bg: '#fff', record: true }
+  사고수리: { color: '#b91c1c', bg: '#fff', record: true },
+  계약만료: { color: '#334155', bg: '#e2e8f0' }
 };
 // 아래 정리표의 칸. '검사+점검'은 두 칸에 모두 들어간다.
-const SUMMARY_COLS = ['자동차검사', '정기점검', '고장수리', '사고수리'];
+const SUMMARY_COLS = ['자동차검사', '정기점검', '고장수리', '사고수리', '계약만료'];
 const colsOf = (kind) => (kind === '검사+점검' ? ['자동차검사', '정기점검'] : [kind]);
 
 const plusDays = (ymd, n) => new Date(new Date(`${ymd}T00:00:00Z`).getTime() + n * 86400000).toISOString().slice(0, 10);
@@ -136,6 +138,8 @@ const eventsOf = (r, today) => {
     if (r.inspection) out.push({ kind: '자동차검사', date: r.inspection.date, overdue: inspOverdue, age, note: `받을 수 있는 기간 ${r.inspection.windowStart} ~ ${r.inspection.windowEnd}` });
     if (r.maintenance) out.push({ kind: '정기점검', date: r.maintenance.date, overdue: r.maintenance.status === '지남', note: r.maintenance.basis || '' });
   }
+  // 장기렌트 계약 종료일. 지났는데 아직 장기렌트로 남아 있으면 반납·인수·연장 처리가 안 된 것이라 밀린 일로 올린다.
+  if (r.contractEnd) out.push({ kind: '계약만료', date: r.contractEnd, overdue: r.contractEnd < today, note: `${r.contractNo ? `계약 ${r.contractNo} · ` : ''}${r.contractEnd < today ? '만료 지남 — 반납·인수·연장 처리 필요' : '반납·인수·연장 확인'}` });
   (r.repairs || []).forEach((x) => out.push({ kind: x.kind, date: x.date, record: true, note: [x.status !== '완료' ? x.status : '', x.description, x.shop, x.amount ? won(x.amount) : ''].filter(Boolean).join(' · ') }));
   return out.map((e) => ({ ...e, r: r._row }));
 };

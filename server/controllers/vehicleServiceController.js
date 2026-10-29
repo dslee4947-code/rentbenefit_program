@@ -3,6 +3,7 @@ import Vehicle from '../models/Vehicle.js';
 import { saveDocument, readSavedFile } from '../utils/documentStorageService.js';
 import { mimeTypeOf } from '../utils/oneDriveStorage.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
+import { vehicleEndOf, lastDayOf } from '../utils/contractTerm.js';
 import { planVehicle, kstYmd, addMonths, SERVICE_KINDS, REPAIR_KINDS, INSPECTION_RULE, MAINTENANCE_RULE, CAR_AGE_RULE } from '../utils/vehicleServicePlan.js';
 import { SERVICE_ACTIVE_STATUSES, partyNameOf, syncVehicleServiceSchedules, loadServiceRecords } from '../utils/vehicleServiceScheduleJob.js';
 
@@ -21,9 +22,12 @@ const DOC_KIND_OF = {
 
 const VEHICLE_FIELDS = 'plateNo carModel status registrationDate inspectionValidity cc fuelType deliveryDate rentBillingDate maintenance contract company contractorName currentMileage paymentTerm';
 
+// 계약 만료일(차마다 인도일 기준)을 세는 데 필요한 칸까지
+const CONTRACT_FIELDS = 'leaseCompany termMonths contractNo contractKind contractDate deliveryDate status';
+
 const loadVehicle = (filter) => Vehicle.findOne(filter)
   .select(VEHICLE_FIELDS)
-  .populate('contract', 'leaseCompany termMonths')
+  .populate('contract', CONTRACT_FIELDS)
   .populate('company', 'name')
   .lean();
 
@@ -93,6 +97,9 @@ const rowOf = (v, records) => {
     generalMaintenance: v.maintenance?.generalMaintenance || '',
     currentMileage: v.currentMileage || 0,
     recordCount: records.length,
+    // 장기렌트 계약 종료일(마지막 날). 달력에 '계약만료'로 올린다.
+    contractEnd: v.status === '장기렌트' && v.contract?.termMonths ? kstYmd(lastDayOf(vehicleEndOf(v.contract, v))) : '',
+    contractNo: v.contract?.contractNo || '',
     // 달력에 '일어난 날'로 올리는 고장·사고 수리(최근 13개월). 진행 중인 수리도 함께.
     repairs: records
       .filter((r) => REPAIR_KINDS.includes(r.kind) && kstYmd(r.date) >= addMonths(kstYmd(new Date()), -13))
@@ -211,7 +218,7 @@ export const getServicePlan = async (req, res) => {
   try {
     const vehicles = await Vehicle.find({ status: { $in: SERVICE_ACTIVE_STATUSES } })
       .select(VEHICLE_FIELDS)
-      .populate('contract', 'leaseCompany')
+      .populate('contract', CONTRACT_FIELDS)
       .populate('company', 'name')
       .lean();
     // 같은 번호판의 예전 차량 문서에 붙은 기록도 함께 센다(loadServiceRecords 설명)

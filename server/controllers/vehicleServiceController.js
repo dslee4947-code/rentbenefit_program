@@ -3,7 +3,7 @@ import Vehicle from '../models/Vehicle.js';
 import { saveDocument, readSavedFile } from '../utils/documentStorageService.js';
 import { mimeTypeOf } from '../utils/oneDriveStorage.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
-import { planVehicle, kstYmd, addMonths, SERVICE_KINDS, INSPECTION_RULE, MAINTENANCE_RULE } from '../utils/vehicleServicePlan.js';
+import { planVehicle, kstYmd, addMonths, SERVICE_KINDS, INSPECTION_RULE, MAINTENANCE_RULE, CAR_AGE_RULE } from '../utils/vehicleServicePlan.js';
 import { SERVICE_ACTIVE_STATUSES, partyNameOf, syncVehicleServiceSchedules, loadServiceRecords } from '../utils/vehicleServiceScheduleJob.js';
 
 // 화면에서 고칠 수 있는 항목. 차량과 파일은 올릴 때만 정해진다.
@@ -19,7 +19,7 @@ const DOC_KIND_OF = {
   기타: 'repair'
 };
 
-const VEHICLE_FIELDS = 'plateNo carModel status registrationDate inspectionValidity deliveryDate rentBillingDate maintenance contract company contractorName currentMileage paymentTerm';
+const VEHICLE_FIELDS = 'plateNo carModel status registrationDate inspectionValidity cc fuelType deliveryDate rentBillingDate maintenance contract company contractorName currentMileage paymentTerm';
 
 const loadVehicle = (filter) => Vehicle.findOne(filter)
   .select(VEHICLE_FIELDS)
@@ -210,7 +210,7 @@ export const getServicePlan = async (req, res) => {
     const byVehicle = await loadServiceRecords(vehicles, 'vehicle kind date mileage amount description status');
 
     const rows = vehicles.map((v) => rowOf(v, byVehicle.get(String(v._id)) || []));
-    res.json({ success: true, rows, kinds: SERVICE_KINDS, rules: { inspection: INSPECTION_RULE, maintenance: MAINTENANCE_RULE } });
+    res.json({ success: true, rows, kinds: SERVICE_KINDS, rules: { inspection: INSPECTION_RULE, maintenance: MAINTENANCE_RULE, carAge: CAR_AGE_RULE } });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

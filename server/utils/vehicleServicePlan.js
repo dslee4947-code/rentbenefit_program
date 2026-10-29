@@ -295,8 +295,88 @@ export const nextMaintenance = (vehicle, records, today = new Date()) => {
 };
 
 /**
+ * 렌터카(자동차대여사업용 승용차) 차령.
+ *
+ * 여객자동차 운수사업법 시행령 별표 2: 경형·소형·중형 5년, 대형 8년.
+ * 규모는 자동차관리법 시행규칙 별표 1로 정한다. 배기량 2,000cc 이상이 대형이고 그 아래는 모두 5년이다.
+ * 전기차는 배기량이 없어 크기로 정하는데, 대형은 길이·너비·높이가 모두 소형을 넘어야 해서(높이 2m) 승용 전기차는 중형 이하로 본다.
+ *
+ * 차령 연장: 차령이 끝나기 전 2개월 안에 검사(대여 승용차는 정기검사로 갈음)를 받으면서 함께 신청한다.
+ * 그래서 그 기간 안(또는 그 뒤)에 자동차검사를 받았으면 연장도 끝난 것으로 본다(대표님 2026-10-29).
+ * 연장은 1년씩, 모두 합쳐 2년을 넘을 수 없다. 연장 기간에는 1년마다 다시 검사를 받는다.
+ * 환경친화적자동차는 시·도 조례로 2년을 더 주는 곳이 있어 따로 확인한다.
+ */
+export const CAR_AGE_RULE = Object.freeze({
+  largeCc: 2000, // 이 배기량 이상이 대형
+  baseYears: 5, // 경형·소형·중형
+  largeYears: 8, // 대형
+  maxExtendYears: 2, // 연장 한도
+  applyBeforeMonths: 2, // 만료 2개월 전부터 검사·연장 신청
+  noticeDays: 183 // 이 안으로 들어오면 미리 알린다(6개월)
+});
+
+const sizeClassOf = (vehicle) => {
+  const cc = Number(vehicle?.cc) || 0;
+  // 전기차의 cc 칸에는 모터 출력(kW)이 들어 있기도 해서 배기량으로 보지 않는다
+  if (/전기|수소/.test(vehicle?.fuelType || '') || !cc) return { size: '중형 이하(전기·배기량 없음)', large: false, byCc: false };
+  if (cc >= CAR_AGE_RULE.largeCc) return { size: '대형', large: true, byCc: true };
+  return { size: cc < 1000 ? '경형' : cc < 1600 ? '소형' : '중형', large: false, byCc: true };
+};
+
+/**
+ * @param {object} vehicle registrationDate, cc, fuelType, inspectionValidity
+ * @param {object[]} records 끝난 정비·검사 기록. 자동차검사 날짜로 연장을 센다.
+ * @returns {object|null} {size, years, expiry, limit, maxLimit, applyStart, dday, level, extendedOn} 등록일이 없으면 null
+ *   level: 'end' 연장 한도까지 지남 · 'expired' 차령(연장분 포함) 지남 · 'apply' 연장 신청 기간 · 'last' 더 연장 못 함(만료 2개월 이내) · 'soon' 6개월 이내
+ */
+export const carAgeOf = (vehicle, records, today = new Date()) => {
+  const reg = kstYmd(vehicle?.registrationDate);
+  if (!reg) return null;
+  const R = CAR_AGE_RULE;
+  const { size, large, byCc } = sizeClassOf(vehicle);
+  const years = large ? R.largeYears : R.baseYears;
+  const expiry = addDays(addMonths(reg, years * 12), -1);
+  const maxLimit = addDays(addMonths(reg, (years + R.maxExtendYears) * 12), -1);
+  // 사이버검사소 유효기간 시작일도 검사 받은 날로 본다(기록을 안 남긴 검사)
+  const inspected = [...sortedDates(records, '자동차검사'), kstYmd(vehicle?.inspectionValidity?.from)].filter(Boolean).sort();
+  let limit = expiry;
+  const extendedOn = [];
+  for (const d of inspected) {
+    if (limit >= maxLimit) break;
+    if (d >= addMonths(limit, -R.applyBeforeMonths)) {
+      const next = addMonths(limit, 12);
+      limit = next > maxLimit ? maxLimit : next;
+      extendedOn.push(d);
+    }
+  }
+  const applyStart = addMonths(limit, -R.applyBeforeMonths);
+  const todayYmd = kstYmd(today);
+  const dday = ddayOf(limit, todayYmd);
+
+  let level = null;
+  if (maxLimit < todayYmd) level = 'end';
+  else if (limit < todayYmd) level = 'expired';
+  else if (applyStart <= todayYmd) level = limit >= maxLimit ? 'last' : 'apply';
+  else if (dday <= R.noticeDays) level = 'soon';
+
+  return {
+    size,
+    byCc,
+    cc: Number(vehicle?.cc) || null,
+    years,
+    expiry,
+    limit,
+    maxLimit,
+    applyStart,
+    dday,
+    level,
+    extendedOn // 연장으로 본 검사 날짜(1년씩)
+  };
+};
+
+/**
  * 차 한 대의 계획을 한 번에. 화면과 캘린더 작업이 이것만 부른다.
- * @returns {{inspection: object|null, maintenance: object|null, lastRecord: object|null, repairTotal: number}}
+ * @returns {{inspection: object|null, maintenance: object|null, carAge: object|null, lastRecord: object|null, repairTotal: number}}
  */
 export const planVehicle = (vehicle, records, today = new Date()) => {
   // 다음 날짜는 실제로 끝난 기록으로만 센다. '예정'·'입고'·'수리 중'을 받은 것으로 치면 아직 안 받은 검사의 색이 빠진다.
@@ -307,6 +387,7 @@ export const planVehicle = (vehicle, records, today = new Date()) => {
   return {
     inspection: nextInspection(vehicle, records, today),
     maintenance: nextMaintenance(vehicle, records, today),
+    carAge: carAgeOf(vehicle, records, today),
     lastRecord: last ? { kind: last.kind, date: kstYmd(last.date), description: last.description || '', amount: last.amount || 0 } : null,
     repairTotal: (records || []).filter((r) => REPAIR_KINDS.includes(r.kind)).reduce((s, r) => s + (Number(r.amount) || 0), 0)
   };

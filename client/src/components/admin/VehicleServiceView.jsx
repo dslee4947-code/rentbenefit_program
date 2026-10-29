@@ -57,6 +57,98 @@ const inspectionLevelOf = (r, today = todayYmd()) => {
 };
 const MAINT_COLOR = { 지남: 'var(--error)', '30일 이내': '#d97706' };
 
+/**
+ * 렌터카 차령(서버 utils/vehicleServicePlan.js carAgeOf).
+ * 배기량 2,000cc 미만 5년, 2,000cc 이상 8년. 끝나기 전 2개월 안에 자동차검사를 받으면서 연장을 신청한다(1년씩, 최대 2년).
+ * 그래서 그 기간에 자동차검사 기록이 있으면 연장 완료로 본다.
+ */
+const CAR_AGE_LEVEL = {
+  end: { rank: 0, label: '연장 한도 지남', bg: '#fee2e2', fg: '#b91c1c', tip: '연장 2년까지 다 썼습니다. 운행할 수 없어 매각·말소해야 합니다.' },
+  expired: { rank: 0, label: '차령 지남', bg: '#fee2e2', fg: '#b91c1c', tip: '차령이 지났는데 그 뒤 자동차검사 기록이 없습니다. 검사를 받았으면 기록을 남기고, 아니면 바로 검사·연장 신청(또는 운행 중지)해야 합니다.' },
+  last: { rank: 1, label: '연장 불가·만료 임박', bg: '#ffedd5', fg: '#c2410c', tip: '더 연장할 수 없습니다. 만료 전에 매각·반납을 정해야 합니다.' },
+  apply: { rank: 1, label: '연장 신청 기간', bg: '#ffedd5', fg: '#c2410c', tip: '자동차검사를 받으면서 연장 신청할 기간입니다. 검사 기록을 남기면 연장 완료로 바뀝니다.' },
+  soon: { rank: 2, label: '6개월 이내', bg: '#fef9c3', fg: '#a16207', tip: '곧 연장 신청 기간입니다. 계약 기간과 매각 여부를 미리 정하세요.' }
+};
+const carAgeLevelOf = (r) => r.carAge?.level || null;
+// 계약이 차령(연장 포함)보다 늦게 끝나면 연장이 꼭 필요한 차다.
+// checks.contractEnd는 인도일 + 계약 개월(마지막 날의 다음 날)이라 하루를 빼고 비교한다.
+const needsExtensionForContract = (r) => Boolean(r.carAge && r.checks?.contractEnd
+  && new Date(r.checks.contractEnd) - new Date(r.carAge.limit) > 86400000);
+
+/**
+ * 할 일 보드. 검사·차령·정기점검을 한 줄씩 보지 않고, 마감이 가까운 순서로 네 칸에 나눠
+ * 계약자별로 묶어 보여 준다(같은 회사 차 20대가 한 덩어리로 보인다). 차 번호를 누르면 상세가 열린다.
+ * 차 한 대의 칸은 그 차의 일 중 가장 급한 일로 정한다.
+ */
+const TASK_KIND = {
+  검사: { color: '#1d4ed8', bg: '#dbeafe' },
+  차령: { color: '#c2410c', bg: '#ffedd5' },
+  점검: { color: '#047857', bg: '#d1fae5' }
+};
+const TASK_BUCKETS = [
+  { id: 'over', label: '지남 · 바로 처리', color: '#b91c1c', bg: '#fef2f2', test: (d) => d < 0 },
+  { id: 'week', label: '7일 이내', color: '#c2410c', bg: '#fff7ed', test: (d) => d <= 7 },
+  { id: 'month', label: '30일 이내', color: '#a16207', bg: '#fefce8', test: (d) => d <= 30 },
+  { id: 'two', label: '2개월 이내', color: '#475569', bg: '#f8fafc', test: () => true }
+];
+const tasksOf = (r) => [
+  r.inspection && r.inspection.dday <= 61 && { kind: '검사', dday: r.inspection.dday, date: r.inspection.date },
+  r.carAge?.level && r.carAge.dday <= 61 && { kind: '차령', dday: r.carAge.dday, date: r.carAge.limit },
+  r.maintenance && r.maintenance.dday <= 30 && { kind: '점검', dday: r.maintenance.dday, date: r.maintenance.date }
+].filter(Boolean);
+
+function TaskBoard({ rows, onOpen }) {
+  const cars = rows
+    .map((r) => ({ r, tasks: tasksOf(r) }))
+    .filter((c) => c.tasks.length)
+    .map((c) => ({ ...c, dday: Math.min(...c.tasks.map((t) => t.dday)) }));
+  if (!cars.length) return null;
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '0.6rem' }}>
+      {TASK_BUCKETS.map((b) => {
+        const inBucket = cars.filter((c) => TASK_BUCKETS.find((x) => x.test(c.dday)) === b);
+        // 계약자별로 묶고, 급한 차가 있는 묶음이 위로
+        const groups = new Map();
+        inBucket.sort((a, z) => a.dday - z.dday).forEach((c) => {
+          const key = c.r.partyName || '계약자 없음';
+          groups.set(key, [...(groups.get(key) || []), c]);
+        });
+        return (
+          <div key={b.id} style={{ border: `1px solid ${b.color}33`, borderTop: `3px solid ${b.color}`, background: b.bg, borderRadius: '8px', padding: '0.55rem', minHeight: '80px' }}>
+            <div style={{ fontWeight: 800, color: b.color, fontSize: '0.85rem', marginBottom: '0.4rem' }}>
+              {b.label} <span style={{ fontWeight: 700 }}>{inBucket.length}대</span>
+            </div>
+            {inBucket.length === 0 && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>없음</div>}
+            {[...groups.entries()].map(([party, list]) => (
+              <div key={party} style={{ marginBottom: '0.45rem' }}>
+                <div style={{ fontSize: '0.76rem', fontWeight: 800, color: 'var(--text-bright)' }}>
+                  {party} <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{list.length}대</span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.2rem' }}>
+                  {list.map(({ r, tasks }) => (
+                    <button
+                      key={r.vehicleId}
+                      type="button"
+                      onClick={() => onOpen(r.vehicleId)}
+                      title={`${r.carModel}\n${tasks.map((t) => `${t.kind} ${t.date} (${ddayText(t.dday)})`).join('\n')}`}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.15rem 0.35rem', fontSize: '0.74rem', fontWeight: 700, color: 'var(--text-bright)', cursor: 'pointer' }}
+                    >
+                      {r.plateNo || r.carModel}
+                      {tasks.map((t) => (
+                        <span key={t.kind} style={{ fontSize: '0.66rem', fontWeight: 800, color: TASK_KIND[t.kind].color, background: TASK_KIND[t.kind].bg, borderRadius: '4px', padding: '0 0.2rem' }}>{t.kind}</span>
+                      ))}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /** 상세 패널의 날짜 한 칸: 날짜 + D-day */
 function Due({ item, color }) {
   return (
@@ -73,6 +165,8 @@ const FILTERS = [
   { id: 'insp-due', label: '검사 2개월 이내', color: '#a16207', test: (r) => inspectionLevelOf(r) === 'due' },
   { id: 'maint-over', label: '점검 지남', color: 'var(--error)', test: (r) => r.maintenance?.status === '지남' },
   { id: 'maint-soon', label: '점검 30일 이내', color: '#d97706', test: (r) => r.maintenance?.status === '30일 이내' },
+  { id: 'age-now', label: '차령 연장 신청', color: '#c2410c', test: (r) => ['end', 'expired', 'last', 'apply'].includes(carAgeLevelOf(r)) },
+  { id: 'age-soon', label: '차령 6개월 이내', color: '#a16207', test: (r) => carAgeLevelOf(r) === 'soon' },
   { id: 'insp-unverified', label: '검사 기록 없음', color: '#6d28d9', test: (r) => Boolean(r.inspection?.unverified) }
 ];
 
@@ -82,7 +176,7 @@ const groupText = (r) => (r.status === '장기렌트' ? (r.generalMaintenance ==
 
 /**
  * 목록 순서.
- * 1) 자동차검사가 급한 차 (기간 지남 → 검사일 지남 → 2개월 이내), 정비 포함 여부와 상관없이
+ * 1) 자동차검사나 차령 연장이 급한 차 (기간 지남 → 검사일 지남·연장 신청 기간 → 2개월·6개월 이내), 정비 포함 여부와 상관없이
  * 2) 정비 포함·단기렌트 차 중 정기점검이 지났거나 30일 안인 차
  * 3) 나머지 정비 포함·단기렌트 차
  * 4) 정비 미포함 차
@@ -90,7 +184,8 @@ const groupText = (r) => (r.status === '장기렌트' ? (r.generalMaintenance ==
  */
 const rankOf = (r) => {
   const level = inspectionLevelOf(r);
-  if (level) return INSPECTION_LEVEL[level].rank;
+  const age = carAgeLevelOf(r);
+  if (level || age) return Math.min(level ? INSPECTION_LEVEL[level].rank : 9, age ? CAR_AGE_LEVEL[age].rank : 9);
   if (!isCareGroup(r)) return 6;
   if (r.maintenance?.status === '지남') return 3;
   if (r.maintenance?.status === '30일 이내') return 4;
@@ -231,6 +326,7 @@ function VehicleServiceView({ showToast, currentUser }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
       <CalendarInboxPanel vehicles={rows} onImported={() => { load(); if (selectedId) loadDetail(selectedId); }} showToast={showToast} />
+      <TaskBoard rows={rows} onOpen={openVehicle} />
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
         {FILTERS.map((f) => {
           const count = rows.filter(f.test).length;
@@ -260,19 +356,23 @@ function VehicleServiceView({ showToast, currentUser }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
           <thead style={{ background: 'var(--bg-main)', color: 'var(--text-muted)' }}>
             <tr>
-              {['차량번호', '구분', '차종', '계약자', '자동차검사', '정기점검', '최근 기록'].map((h) => (
+              {['차량번호', '구분', '차종', '계약자', '자동차검사', '차령', '정기점검', '최근 기록'].map((h) => (
                 <th key={h} style={{ ...cell, textAlign: 'left', fontWeight: 700 }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {visible.length === 0 ? (
-              <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>
+              <tr><td colSpan={8} style={{ ...cell, textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>
                 {loading ? '불러오는 중...' : '해당하는 차량이 없습니다.'}
               </td></tr>
             ) : visible.map((r) => {
               const level = inspectionLevelOf(r);
-              const urgent = level ? INSPECTION_LEVEL[level] : null;
+              const inspUrgent = level ? INSPECTION_LEVEL[level] : null;
+              const ageLevel = carAgeLevelOf(r);
+              const age = ageLevel ? CAR_AGE_LEVEL[ageLevel] : null;
+              // 줄 색은 검사·차령 중 더 급한 쪽을 따른다
+              const urgent = [inspUrgent, age].filter(Boolean).sort((a, b) => a.rank - b.rank)[0] || null;
               const insp = r.inspection;
               const maint = r.maintenance;
               return (
@@ -289,12 +389,22 @@ function VehicleServiceView({ showToast, currentUser }) {
                     {insp ? (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
                         <span>{insp.date}</span>
-                        {urgent && <b style={{ color: urgent.fg }}>{ddayText(insp.dday)} {urgent.label}</b>}
+                        {inspUrgent && <b style={{ color: inspUrgent.fg }}>{ddayText(insp.dday)} {inspUrgent.label}</b>}
                         {/* 검사를 받은 차는 다음 검사일이 내년으로 넘어가 음영이 없어진다. 따로 '완료' 표시는 두지 않는다 */}
                         {level === 'grace' && <span style={small}>(마감 {insp.windowEnd})</span>}
                         {insp.unverified && <span title="검사 기록이 없어 지난 검사는 받은 것으로 보고 이번 차례를 보여 줍니다. 사이버검사소에서 확인 후 차를 눌러 검사 기록을 남겨 주세요." style={{ fontSize: '0.7rem', fontWeight: 700, color: '#6d28d9' }}>기록 없음</span>}
                       </span>
                     ) : <span style={small}>등록일 없음</span>}
+                  </td>
+                  <td style={cell} title={r.carAge ? `${r.carAge.size}${r.carAge.cc && r.carAge.byCc ? ` ${r.carAge.cc.toLocaleString()}cc` : ''} · 차령 ${r.carAge.years}년${age ? ` · ${age.tip}` : ''}` : ''}>
+                    {r.carAge ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <span>{r.carAge.limit}</span>
+                        <span style={small}>{r.carAge.years}년{r.carAge.extendedOn?.length ? ` · 연장 ${r.carAge.extendedOn.length}회 완료` : ''}</span>
+                        {age && <b style={{ color: age.fg }}>{ddayText(r.carAge.dday)} {age.label}</b>}
+                        {!age && needsExtensionForContract(r) && <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#a16207' }}>계약 중 만료</span>}
+                      </span>
+                    ) : <span style={small}>-</span>}
                   </td>
                   <td style={cell}>
                     {maint ? (
@@ -317,7 +427,8 @@ function VehicleServiceView({ showToast, currentUser }) {
           <span key={l.label} style={{ background: l.bg, color: l.fg, fontWeight: 800, padding: '0 0.35rem', borderRadius: '4px', marginRight: '0.3rem' }}>{l.label}</span>
         ))}
         자동차검사는 검사일 2개월 전부터 1개월 뒤까지 받을 수 있고, 검사일 전에 끝내는 것을 목표로 합니다.
-        순서: 검사 급한 차 → 정비 포함·단기렌트 중 점검 급한 차 → 나머지 정비 포함·단기렌트 → 정비 미포함.
+        차령(렌터카)은 최초등록일부터 배기량 2,000cc 미만 5년, 2,000cc 이상 8년이며, 끝나기 전 2개월 안에 검사를 받고 연장을 신청합니다(1년씩, 최대 2년).
+        순서: 검사·차령 급한 차 → 정비 포함·단기렌트 중 점검 급한 차 → 나머지 정비 포함·단기렌트 → 정비 미포함.
       </div>
 
       {selectedId && (
@@ -363,6 +474,30 @@ function VehicleServiceView({ showToast, currentUser }) {
                 ) : <div style={small}>일반정비 미가입 차량입니다.</div>}
               </div>
             </div>
+
+            {selectedRow?.carAge && (() => {
+              const a = selectedRow.carAge;
+              const lv = CAR_AGE_LEVEL[a.level];
+              return (
+                <div style={{ border: `1px solid ${lv?.fg || 'var(--border-color)'}`, background: lv?.bg, borderRadius: '8px', padding: '0.6rem' }}>
+                  <div style={{ ...small, fontWeight: 800 }}>렌터카 차령</div>
+                  <div style={{ fontWeight: 800, color: 'var(--text-bright)' }}>
+                    {a.limit} 만료{' '}
+                    <span style={{ fontSize: '0.78rem', color: lv?.fg || 'var(--text-muted)' }}>{ddayText(a.dday)}{lv ? ` ${lv.label}` : ''}</span>
+                  </div>
+                  <div style={small}>
+                    {a.size}{a.cc && a.byCc ? ` (${a.cc.toLocaleString()}cc)` : ''} → 기본 차령 {a.years}년, 기본 만료 {a.expiry}
+                    {a.extendedOn?.length ? ` · 연장 완료(자동차검사 ${a.extendedOn.join(', ')})` : ''}
+                  </div>
+                  <div style={small}>{a.limit < a.maxLimit ? `다음 연장: ${a.applyStart} ~ ${a.limit}에 자동차검사를 받으면서 신청 · ` : '더 연장할 수 없음 · '}연장 한도 {a.maxLimit}</div>
+                  {lv && <div style={{ ...small, color: lv.fg, fontWeight: 700 }}>{lv.tip}</div>}
+                  {needsExtensionForContract(selectedRow) && (
+                    <div style={{ ...small, color: '#b45309' }}>⚠ 계약이 {selectedRow.checks.contractEnd}에 끝나 차령보다 늦습니다. 연장 신청이 필요합니다.</div>
+                  )}
+                  {!a.byCc && <div style={small}>배기량이 없어 크기 기준(승용 전기차는 중형 이하)으로 보았습니다. 친환경차는 시·도 조례로 2년을 더 주는 곳이 있으니 확인하세요.</div>}
+                </div>
+              );
+            })()}
 
             {/* 정기점검 횟수 · 계약 대비 주행 · 지금까지 고친 부위 */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>

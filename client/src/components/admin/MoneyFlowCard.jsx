@@ -143,6 +143,69 @@ function NodeLabel({ n, revenue, net }) {
   );
 }
 
+
+// ───────────── 현금 기준: 남는 돈에서 차 구입을 빼고, 모자란 돈을 어디서 메웠는지 가로 폭포 그림으로
+const WF_W = 1160; const WF_LABEL = 300; const WF_VALUE = 130; const WF_ROW = 34; const WF_BAR = 20;
+
+function cashSteps(d, net) {
+  const afterCars = net - d.carBuy - d.loanRepay + d.sale;
+  const funded = d.funding.reduce((s, [, v]) => s + v, 0);
+  const gap = -(afterCars + funded);
+  const steps = [
+      { label: '차를 굴려서 남은 돈', v: net, kind: 'profit' },
+      { label: '새 차 구입', v: -d.carBuy, kind: 'cost' },
+      ...(d.loanRepay ? [{ label: '차량 할부 상환 (캐피탈·할부)', v: -d.loanRepay, kind: 'cost' }] : []),
+      ...(d.sale ? [{ label: '인수·매각으로 돌려받음', v: d.sale, kind: 'profit' }] : []),
+      { label: '차 구입까지 넣은 결과', v: afterCars, total: true },
+      ...d.funding.map(([label, v]) => ({ label, v, kind: 'fund' })),
+      ...(Math.abs(gap) >= 10000 ? [{ label: gap > 0 ? '장부에 없는 돈 (통장 잔액·대출·할부 차값 등)' : '장부에 없이 남은 돈 (통장 잔액 증가 등)', v: gap, kind: 'gap' }] : []),
+      { label: '맞춘 결과', v: 0, total: true }
+  ];
+  // 막대마다 시작·끝 위치. 합계 줄은 0에서, 나머지는 앞 줄이 끝난 곳에서 이어진다
+  const rows = [];
+  let run = 0;
+  for (const st of steps) {
+    const from = st.total ? 0 : run;
+    const to = st.total ? st.v : run + st.v;
+    if (!st.total) run = to;
+    rows.push({ ...st, from, to });
+  }
+  return { afterCars, gap, rows };
+}
+
+function CashWaterfall({ cash }) {
+  const { rows } = cash;
+  const lo = Math.min(0, ...rows.map((r) => Math.min(r.from, r.to)));
+  const hi = Math.max(0, ...rows.map((r) => Math.max(r.from, r.to)));
+  const x0 = WF_LABEL; const x1 = WF_W - WF_VALUE;
+  const X = (v) => x0 + ((v - lo) / (hi - lo || 1)) * (x1 - x0);
+  const H2 = rows.length * WF_ROW + 30;
+  const color = (r) => (r.total ? (r.v < 0 ? C.cost : '#334155')
+    : r.kind === 'gap' ? '#9ca3af' : r.kind === 'fund' ? (r.v >= 0 ? C.rev : C.cost) : r.v >= 0 ? C.profit : C.cost);
+  return (
+    <svg viewBox={`0 0 ${WF_W} ${H2}`} style={{ width: '100%', minWidth: '760px', height: 'auto', display: 'block' }} role="img" aria-label="현금 기준 돈 흐름">
+      <line x1={X(0)} x2={X(0)} y1={6} y2={H2 - 20} stroke="#94a3b8" strokeDasharray="3 3" />
+      <text x={X(0)} y={H2 - 6} textAnchor="middle" fill={C.muted} fontSize={12}>0</text>
+      {rows.map((r, i) => {
+        const y = 10 + i * WF_ROW;
+        const a = X(Math.min(r.from, r.to)); const b = X(Math.max(r.from, r.to));
+        const fund = r.kind === 'fund' || r.kind === 'gap';
+        return (
+          <g key={r.label}>
+            {r.total && <line x1={0} x2={WF_W} y1={y - 5} y2={y - 5} stroke="var(--border-color)" />}
+            {r.kind === 'fund' && i > 0 && rows[i - 1].total && <text x={4} y={y - 9} fill={C.rev} fontSize={12} fontWeight={800}>{cash.afterCars < 0 ? '모자란 돈을 메운 곳' : '그 밖에 오고 간 돈'}</text>}
+            <text x={WF_LABEL - 12} y={y + WF_BAR / 2 + 5} textAnchor="end" fill={r.total ? 'var(--text-main)' : fund ? C.muted : 'var(--text-main)'} fontSize={r.total ? 15 : 14} fontWeight={r.total ? 900 : 700}>{r.label}</text>
+            <rect x={a} y={y} width={Math.max(b - a, 2)} height={WF_BAR} rx={3} fill={color(r)} fillOpacity={r.kind === 'gap' ? 0.6 : 1} />
+            <text x={WF_W - 4} y={y + WF_BAR / 2 + 5} textAnchor="end" fill={color(r)} fontSize={14} fontWeight={800}>
+              {r.total && r.v === 0 ? '0' : `${r.v > 0 && !r.total ? '+' : ''}${won(r.v)}`}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 const card = { background: 'var(--bg-surface)', padding: '1.5rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-premium)' };
 const chip = (on) => ({ padding: '0.3rem 0.8rem', borderRadius: '999px', border: `1px solid ${on ? 'var(--primary)' : 'var(--border-color)'}`, background: on ? 'var(--primary)' : 'transparent', color: on ? '#fff' : 'var(--text-muted)', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' });
 const td = { padding: '0.3rem 0.6rem', borderBottom: '1px solid var(--border-color)', fontSize: '0.82rem' };
@@ -152,6 +215,7 @@ function MoneyFlowCard({ showToast }) {
   const [key, setKey] = useState('last12');
   const [tip, setTip] = useState(null);
   const [showTable, setShowTable] = useState(false);
+  const [mode, setMode] = useState('flow'); // flow: 장사 흐름, cash: 통장 기준(차 구입 포함)
 
   useEffect(() => {
     fetch(`${API_HOST}/api/company-book/money-flow`)
@@ -163,6 +227,8 @@ function MoneyFlowCard({ showToast }) {
   const d = periods?.find((p) => p.key === key) || periods?.[periods.length - 1];
   const t = useMemo(() => (d ? totals(d) : null), [d]);
   const chart = useMemo(() => (d && t.op - Math.max(0, d.interest) >= 0 ? layout(d) : null), [d, t]);
+
+  const cash = useMemo(() => (d ? cashSteps(d, t.net) : null), [d, t]);
 
   if (!periods) return <div style={{ ...card, color: 'var(--text-muted)', fontSize: '0.9rem' }}>돈 흐름을 계산하는 중…</div>;
   if (!d) return null;
@@ -192,7 +258,11 @@ function MoneyFlowCard({ showToast }) {
         <div>
           <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>렌트베네핏은 이렇게 벌고 쓴다</h3>
           <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-            {d.range} · 차량 손익 원장 + 회사 장부 · 띠에 마우스를 올리면 금액
+            {d.range} · 차량 손익 원장 + 회사 장부{mode === 'flow' ? ' · 띠에 마우스를 올리면 금액' : ''}
+          </div>
+          <div style={{ display: 'flex', gap: '0.3rem', marginTop: '0.5rem' }} role="group" aria-label="보는 기준">
+            <button type="button" style={chip(mode === 'flow')} aria-pressed={mode === 'flow'} onClick={() => setMode('flow')}>장사 흐름 (차 구입 제외)</button>
+            <button type="button" style={chip(mode === 'cash')} aria-pressed={mode === 'cash'} onClick={() => setMode('cash')}>현금 기준 (차 구입 포함)</button>
           </div>
         </div>
         <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }} role="group" aria-label="기간">
@@ -204,75 +274,93 @@ function MoneyFlowCard({ showToast }) {
         </div>
       </div>
 
-      {chart ? (
-        <div style={{ position: 'relative', overflowX: 'auto', marginTop: '0.5rem' }} onMouseLeave={() => setTip(null)}>
-          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', minWidth: '760px', height: 'auto', display: 'block' }} role="img" aria-label={`영업수익 ${won(t.revenue)}, 영업비용 ${won(t.cost)}, 남는 돈 ${won(t.net)}`}>
-            {chart.bands.map((b) => (
-              <path
-                key={b.key}
-                d={b.d}
-                fill={b.fill}
-                fillOpacity={tip?.key === b.key ? 1 : 0.85}
-                onMouseMove={(e) => {
-                  const r = e.currentTarget.ownerSVGElement.parentNode.getBoundingClientRect();
-                  setTip({ key: b.key, text: b.tip, x: e.clientX - r.left, y: e.clientY - r.top });
-                }}
-              />
-            ))}
-            {chart.nodes.map((n) => (
-              <g key={n.id}>
-                <rect x={n.x} y={n.y} width={NODE_W} height={n.h} rx={2} fill={C[n.kind]} />
-                <NodeLabel n={n} revenue={t.revenue} net={t.net} />
-              </g>
-            ))}
-          </svg>
-          {tip && (
-            <div style={{ position: 'absolute', left: tip.x + 12, top: tip.y + 12, background: '#111827', color: '#fff', padding: '0.35rem 0.6rem', borderRadius: '6px', fontSize: '0.8rem', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
-              {tip.text}
+      {mode === 'cash' ? (
+        <>
+          <div style={{ margin: '0.8rem 0 0.4rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            장사로 남은 돈에서 차 산 돈을 빼면 <b style={{ color: cash.afterCars < 0 ? C.cost : C.profit }}>{won(cash.afterCars)}</b>입니다.
+            {cash.afterCars < 0 && ' 모자란 돈은 아래처럼 보증금·차입금·대출로 메웠습니다.'}
+          </div>
+          <div style={{ overflowX: 'auto' }}><CashWaterfall cash={cash} /></div>
+          {cash.gap >= 10000 && (
+            <div style={{ marginTop: '0.6rem', fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+              회색 '장부에 없는 돈'은 회사 장부·원장에 적히지 않은 돈입니다. 그해 통장에 있던 돈을 쓴 것, 장부에 없는 담보대출,
+              캐피탈이 차값을 대신 내 준 할부 차(원장에는 차값 전체가 적힘) 등이 섞여 있습니다. 자금팀 일일업무보고·통장 잔액을 받으면 나눠 보여 드립니다(할 일 30번).
             </div>
           )}
-        </div>
+        </>
       ) : (
-        <div style={{ margin: '1rem 0', padding: '0.8rem 1rem', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '8px', fontSize: '0.85rem', color: '#9a3412' }}>
-          이 기간은 비용이 매출보다 커서(시작 해) 흐름도 대신 아래 표로 보여 줍니다.
-        </div>
-      )}
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '0.7rem', marginTop: '0.8rem' }}>
-        {notes.map(([k, v, p]) => (
-          <div key={k} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.6rem 0.8rem' }}>
-            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 700 }}>{k}</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>{v}</div>
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{p}</div>
-          </div>
-        ))}
-      </div>
-
-      {(showTable || !chart) ? (
-        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '0.8rem' }}>
-          <thead>
-            <tr>
-              {['구분', '항목', '금액', '영업수익 대비'].map((h, i) => (
-                <th key={h} style={{ ...td, fontWeight: 800, background: 'var(--bg-main)', textAlign: i >= 2 ? 'right' : 'left' }}>{h}</th>
+        <>
+      {chart ? (
+          <div style={{ position: 'relative', overflowX: 'auto', marginTop: '0.5rem' }} onMouseLeave={() => setTip(null)}>
+            <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', minWidth: '760px', height: 'auto', display: 'block' }} role="img" aria-label={`영업수익 ${won(t.revenue)}, 영업비용 ${won(t.cost)}, 남는 돈 ${won(t.net)}`}>
+              {chart.bands.map((b) => (
+                <path
+                  key={b.key}
+                  d={b.d}
+                  fill={b.fill}
+                  fillOpacity={tip?.key === b.key ? 1 : 0.85}
+                  onMouseMove={(e) => {
+                    const r = e.currentTarget.ownerSVGElement.parentNode.getBoundingClientRect();
+                    setTip({ key: b.key, text: b.tip, x: e.clientX - r.left, y: e.clientY - r.top });
+                  }}
+                />
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(([g, l, v], i) => (
-              <tr key={i}>
-                <td style={{ ...td, fontWeight: 700 }}>{g}</td>
-                <td style={{ ...td, fontWeight: /합계|이익|손실|남는/.test(l) ? 800 : 400 }}>{l}</td>
-                <td style={{ ...td, textAlign: 'right' }}>{v === '' ? '' : won(v)}</td>
-                <td style={{ ...td, textAlign: 'right', color: 'var(--text-muted)' }}>{v === '' ? '' : pct(v, t.revenue)}</td>
+              {chart.nodes.map((n) => (
+                <g key={n.id}>
+                  <rect x={n.x} y={n.y} width={NODE_W} height={n.h} rx={2} fill={C[n.kind]} />
+                  <NodeLabel n={n} revenue={t.revenue} net={t.net} />
+                </g>
+              ))}
+            </svg>
+            {tip && (
+              <div style={{ position: 'absolute', left: tip.x + 12, top: tip.y + 12, background: '#111827', color: '#fff', padding: '0.35rem 0.6rem', borderRadius: '6px', fontSize: '0.8rem', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+                {tip.text}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ margin: '1rem 0', padding: '0.8rem 1rem', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '8px', fontSize: '0.85rem', color: '#9a3412' }}>
+            이 기간은 비용이 매출보다 커서(시작 해) 흐름도 대신 아래 표로 보여 줍니다.
+          </div>
+        )}
+  
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '0.7rem', marginTop: '0.8rem' }}>
+          {notes.map(([k, v, p]) => (
+            <div key={k} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.6rem 0.8rem' }}>
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 700 }}>{k}</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>{v}</div>
+              <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{p}</div>
+            </div>
+          ))}
+        </div>
+  
+        {(showTable || !chart) ? (
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '0.8rem' }}>
+            <thead>
+              <tr>
+                {['구분', '항목', '금액', '영업수익 대비'].map((h, i) => (
+                  <th key={h} style={{ ...td, fontWeight: 800, background: 'var(--bg-main)', textAlign: i >= 2 ? 'right' : 'left' }}>{h}</th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : null}
-      {chart && (
-        <button type="button" onClick={() => setShowTable((v) => !v)} style={{ marginTop: '0.6rem', background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', padding: 0 }}>
-          {showTable ? '표 닫기' : '표로 보기'}
-        </button>
+            </thead>
+            <tbody>
+              {rows.map(([g, l, v], i) => (
+                <tr key={i}>
+                  <td style={{ ...td, fontWeight: 700 }}>{g}</td>
+                  <td style={{ ...td, fontWeight: /합계|이익|손실|남는/.test(l) ? 800 : 400 }}>{l}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{v === '' ? '' : won(v)}</td>
+                  <td style={{ ...td, textAlign: 'right', color: 'var(--text-muted)' }}>{v === '' ? '' : pct(v, t.revenue)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : null}
+        {chart && (
+          <button type="button" onClick={() => setShowTable((v) => !v)} style={{ marginTop: '0.6rem', background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', padding: 0 }}>
+            {showTable ? '표 닫기' : '표로 보기'}
+          </button>
+        )}
+        </>
       )}
     </div>
   );

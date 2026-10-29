@@ -133,6 +133,17 @@ const FLOW_COST_GROUPS = [
   ['유류·세차·통행료', { ledger: ['유류·세차', '과태료·통행료'] }]
 ];
 const OTHER_COST = '기타 운영비';
+// 현금 기준 화면: 차 사고 모자란 돈을 어디서 메웠나. 순서대로 보여 준다
+const FUND = {
+  deposit: '고객 보증금 (받음 − 돌려줌)',
+  owner: '대표님 차입금 (빌림 − 갚음)',
+  loan: '은행·공제조합 대출 (받음 − 갚음)',
+  advance: '고객 선납금',
+  vat: '부가세 (환급 − 납부)',
+  equity: '자본금',
+  asset: '회사가 맡긴 돈 (보증금·적금)'
+};
+const FUND_OF_SECTION = { debt: FUND.loan, vat: FUND.vat, equity: FUND.equity, asset: FUND.asset };
 const flowGroupOf = (side, key) => FLOW_COST_GROUPS.find(([, g]) => (g[side] || []).includes(key))?.[0] || OTHER_COST;
 const SKIP_COST = ['할부금', '할부이자', '차량가', '계약금', '등록비용', '제세공과', '대출금', '보증금', '환급'];
 
@@ -140,7 +151,7 @@ const SKIP_COST = ['할부금', '할부이자', '차량가', '계약금', '등�
  * @route GET /api/company-book/money-flow
  * "렌트베네핏은 이렇게 벌고 쓴다" 흐름도 자료. 차량 손익 원장(렌트료·단기 매출·차량 운영비)과 회사 장부(판관비·이자)를 기간별로 더한다(만 원 아님, 원).
  * 기간: 연도마다 + 최근 12개월(이번 달 포함). 월은 한국 날짜 기준.
- * 차 구입·할부 상환·인수·매각 대금은 매출·비용이 아니라 흐름 밖 참고 값으로 따로 보낸다.
+ * 차 구입·할부 상환·인수·매각 대금은 매출·비용이 아니라 흐름 밖 값으로 따로 보낸다. 현금 기준 화면이 이 값과 funding(보증금·차입금·대출·부가세)으로 통장 흐름을 맞춘다.
  * 원장의 '이자' 줄(갑지 이자)은 회사 장부 대출이자와 같은 돈이라 넣지 않는다(이자 두 번 금지, 2026-10-28).
  */
 export const getMoneyFlow = async (req, res) => {
@@ -154,11 +165,16 @@ export const getMoneyFlow = async (req, res) => {
       const keys = [m.slice(0, 4)];
       if (m >= from12 && m <= now) keys.push('last12');
       return keys.map((k) => {
-        if (!buckets.has(k)) buckets.set(k, { income: {}, costs: {}, refund: 0, interest: 0, carBuy: 0, loanRepay: 0, sale: 0 });
+        if (!buckets.has(k)) buckets.set(k, { income: {}, costs: {}, refund: 0, interest: 0, carBuy: 0, loanRepay: 0, sale: 0, funding: {} });
         return buckets.get(k);
       });
     };
     const add = (o, k, v) => { o[k] = (o[k] || 0) + v; };
+
+    const txs = await CompanyTransaction.find({ excluded: { $ne: true } }).select('date direction amount account').lean();
+    // 공제조합 대출처럼 원장(대출금)과 회사 장부(은행 대출)에 같은 돈이 함께 적힌 줄이 있다. 금액이 같고 7일 안이면 장부 쪽만 센다
+    const bookLoans = txs.filter((t) => t.account === 'bankLoan' && t.direction === '입금');
+    const inBook = (e) => bookLoans.some((t) => t.amount === Number(e.amount) && Math.abs(new Date(t.date) - new Date(e.date)) <= 7 * 864e5);
 
     const ledgers = await VehicleLedger.find({})
       .select('ledgerType entries.side entries.category entries.amount entries.date entries.label')
@@ -175,16 +191,20 @@ export const getMoneyFlow = async (req, res) => {
             else if (l.ledgerType === '단기렌트' && !['보증금', '대출금', '인수가', '차량가'].includes(e.category)) add(b.income, '단기·사고대차', a);
             else if (['수수료', '캐시백'].includes(e.category) && l.ledgerType === '장기렌트') add(b.income, '판매수수료·캐시백', a);
             else if (e.category === '인수가' || /판매\s*(금|대금)|매각/.test(e.label || '')) b.sale += a;
+            else if (e.category === '보증금') add(b.funding, FUND.deposit, a);
+            else if (e.category === '선납금') add(b.funding, FUND.advance, a);
+            else if (e.category === '대출금' && !inBook(e)) add(b.funding, FUND.loan, a);
           } else if (['할부금', '할부이자'].includes(e.category)) {
             if (e.label !== '이자') b.loanRepay += a;
           } else if (['차량가', '계약금', '등록비용', '제세공과'].includes(e.category)) b.carBuy += a;
+          else if (e.category === '보증금') add(b.funding, FUND.deposit, -a);
+          else if (e.category === '대출금') add(b.funding, FUND.loan, -a);
           else if (e.category === '환급') b.refund -= a; // 환급은 지출 쪽에 마이너스로 적혀 있다
           else if (!SKIP_COST.includes(e.category)) add(b.costs, flowGroupOf('ledger', e.category), a);
         }
       }
     }
 
-    const txs = await CompanyTransaction.find({ excluded: { $ne: true } }).select('date direction amount account').lean();
     for (const t of txs) {
       const m = monthOf(t.date);
       if (m > now) continue;
@@ -193,6 +213,8 @@ export const getMoneyFlow = async (req, res) => {
       for (const b of bucketsOf(m)) {
         if (section === 'opex') add(b.costs, flowGroupOf('book', t.account), v);
         if (section === 'finance') b.interest += v;
+        // 빌리고 갚은 돈·부가세·자본금·맡긴 돈은 비용이 아니라 현금 기준 화면의 '돈을 어디서 마련했나'로 간다(들어오면 +)
+        if (FUND_OF_SECTION[section]) add(b.funding, t.account === 'ownerLoan' ? FUND.owner : FUND_OF_SECTION[section], -v);
       }
     }
 
@@ -211,7 +233,8 @@ export const getMoneyFlow = async (req, res) => {
         interest: Math.round(b.interest),
         carBuy: Math.round(b.carBuy),
         loanRepay: Math.round(b.loanRepay),
-        sale: Math.round(b.sale)
+        sale: Math.round(b.sale),
+        funding: Object.values(FUND).map((n) => [n, Math.round(b.funding[n] || 0)]).filter(([, v]) => v !== 0)
       }))
       .filter((p) => p.income.length);
     res.json({ success: true, periods });

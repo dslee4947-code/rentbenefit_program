@@ -2918,6 +2918,19 @@ function LedgerView({ showToast, currentUser }) {
         </datalist>
       ))}
 
+      {/* 계약 조건·구간과 회사 할부·대출은 입력칸이라 평소에는 접어 둔다(대표님 2026-10-29, 수익성 검토 정리).
+          조건이 아직 없는 갑지는 펼쳐서 바로 적게 한다. */}
+      <details open={!ledger.contractPeriods?.length && !Number(t.monthlyRent)} style={{ ...card, padding: '0.8rem 1.2rem' }}>
+        <summary style={{ cursor: 'pointer', fontSize: '0.88rem', fontWeight: '800' }}>
+          계약 조건 · 회사 할부 (입력칸)
+          <span style={{ fontSize: '0.74rem', fontWeight: '600', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
+            {periodName(periods[periods.length - 1]?.seq || 1)} 월 {toCommaString(periods[periods.length - 1]?.monthlyRent || t.monthlyRent || 0)}원
+            {periods[periods.length - 1]?.termMonths || t.termMonths ? ` · ${periods[periods.length - 1]?.termMonths || t.termMonths}개월` : ''}
+            {t.paymentDay ? ` · 결제일 ${t.paymentDay}` : ''}
+            {loan.executed ? ' · 회사 할부 실행함' : ''}
+          </span>
+        </summary>
+        <div style={{ display: 'grid', gap: '1rem', marginTop: '0.8rem' }}>
       {/* 계약 조건 · 구간. 최초 계약과 연장마다 한 줄. 예전에는 '계약 구간'과 '고정 조건(마지막 계약만)'이 따로 있어
           보증금·인수가가 어느 계약 것인지 안 보였다(대표님 2026-10-23, 화우 Benz-003) */}
       <div style={{ ...card, padding: '1.2rem' }}>
@@ -3050,6 +3063,8 @@ function LedgerView({ showToast, currentUser }) {
           </div>
         </div>
       </div>
+        </div>
+      </details>
 
       {/* 차량 연결 팝업 */}
       {linkOpen && (

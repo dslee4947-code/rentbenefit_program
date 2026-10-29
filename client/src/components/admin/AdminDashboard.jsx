@@ -16,6 +16,7 @@ import StorageSettingView from './StorageSettingView.jsx';
 import MaintenanceRatesView from './MaintenanceRatesView.jsx';
 import CompanyFundingView from './CompanyFundingView.jsx';
 import CompanyBookView from './CompanyBookView.jsx';
+import VehicleDepreciationView from './VehicleDepreciationView.jsx';
 import MonthlyBillingView from './MonthlyBillingView.jsx';
 import InvoiceArchiveView from './InvoiceArchiveView.jsx';
 import FineNoticeView from './FineNoticeView.jsx';
@@ -49,13 +50,13 @@ import {
   Wrench,
   Landmark,
   Archive,
-  Receipt, Tags, MailCheck } from 'lucide-react';
+  Receipt, Tags, MailCheck, TrendingDown } from 'lucide-react';
 
 function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   const getTabFromHash = () => {
     const hash = window.location.hash.replace('#/', '');
     // 메뉴를 새로 추가하면 여기에도 넣어야 한다. 빠지면 주소는 바뀌는데 화면은 대시보드로 되돌아간다.
-    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'contract-docs', 'delivery-prep', 'delivery-docs', 'vehicles', 'vehicle-service', 'calendar', 'users', 'billing', 'invoice-archive', 'fine-notices', 'ledgers', 'handbook', 'storage-settings', 'maintenance-rates', 'company-funding', 'company-book', 'short-term-rates', 'mypage'];
+    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'contract-docs', 'delivery-prep', 'delivery-docs', 'vehicles', 'vehicle-service', 'calendar', 'users', 'billing', 'invoice-archive', 'fine-notices', 'ledgers', 'handbook', 'storage-settings', 'maintenance-rates', 'company-funding', 'company-book', 'vehicle-depreciation', 'short-term-rates', 'mypage'];
     return validTabs.includes(hash) ? hash : 'dashboard';
   };
 
@@ -147,7 +148,8 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
       { id: 'storage-settings', name: '파일 저장 경로', icon: <FolderTree size={ICON_SIZE} /> },
       { id: 'maintenance-rates', name: '정비 단가표', icon: <Wrench size={ICON_SIZE} /> },
       { id: 'company-funding', name: '회사 자금·내부 금리', icon: <Landmark size={ICON_SIZE} /> },
-      { id: 'company-book', name: '회사 장부', icon: <Receipt size={ICON_SIZE} /> }
+      { id: 'company-book', name: '회사 장부', icon: <Receipt size={ICON_SIZE} /> },
+      { id: 'vehicle-depreciation', name: '차량별 감가상각', icon: <TrendingDown size={ICON_SIZE} /> }
     ] },
     { label: '도움말', items: [
       { id: 'handbook', name: '업무 매뉴얼', icon: <BookOpen size={ICON_SIZE} /> }
@@ -529,6 +531,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'maintenance-rates' && '정비 단가표'}
               {activeTab === 'company-funding' && '회사 자금 · 내부 금리'}
               {activeTab === 'company-book' && '회사 장부'}
+              {activeTab === 'vehicle-depreciation' && '차량별 감가상각'}
               {activeTab === 'handbook' && '업무 매뉴얼'}
               {activeTab === 'mypage' && '마이페이지'}
             </h1>
@@ -554,6 +557,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'storage-settings' && '견적서·계약서·청구서 파일이 원드라이브의 어느 폴더에 어떤 이름으로 저장될지 정합니다.'}
               {activeTab === 'maintenance-rates' && '차종 등급별 정비 항목 1회 단가와 타이어 가격을 정합니다. 견적서의 정비 원가가 이 값으로 계산됩니다.'}
               {activeTab === 'company-book' && '차 한 대에 속하지 않는 회사의 돈(월급·임대료·대출이자·대표 차입금·부가세)을 계정별로 모아, 비용과 비용이 아닌 돈을 나눠 봅니다.'}
+              {activeTab === 'vehicle-depreciation' && '차를 산 돈을 쓰는 동안 매달 나눠 비용으로 봅니다. 인수형은 인수가까지, 반납형·단기는 5년에 20%가 남는다고 보고 나눕니다.'}
               {activeTab === 'company-funding' && '회사 대출 목록을 적으면 잔액 가중 평균 금리가 내부 금리가 됩니다. 손익 원장이 회사 돈으로 산 차에 이 금리로 이자를 매깁니다.'}
               {activeTab === 'handbook' && '문의 접수부터 견적·계약·출고·청구·정산까지, 업무 순서와 화면 사용법을 정리한 인수인계 문서입니다.'}
               {activeTab === 'mypage' && '내 계정의 비밀번호와 개인정보를 수정합니다.'}
@@ -704,6 +708,9 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
 
           {activeTab === 'company-book' && currentUser?.role === 'admin' && (
             <CompanyBookView showToast={showToast} />
+          )}
+          {activeTab === 'vehicle-depreciation' && currentUser?.role === 'admin' && (
+            <VehicleDepreciationView showToast={showToast} />
           )}
           {activeTab === 'company-funding' && currentUser?.role === 'admin' && (
             <CompanyFundingView showToast={showToast} />

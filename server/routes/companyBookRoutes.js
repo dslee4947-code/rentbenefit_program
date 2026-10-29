@@ -2,6 +2,8 @@ import express from 'express';
 import {
   listTransactions,
   getSummary,
+  getDepreciation,
+  getMoneyFlow,
   createTransaction,
   updateTransaction,
   deleteTransaction,
@@ -16,6 +18,8 @@ const router = express.Router();
 router.use(checkAdminPermission);
 
 router.get('/summary', getSummary);
+router.get('/depreciation', getDepreciation);
+router.get('/money-flow', getMoneyFlow);
 router.post('/import', uploadSingleFile(), importExcel);
 
 router.route('/transactions')

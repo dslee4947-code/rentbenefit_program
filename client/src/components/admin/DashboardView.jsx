@@ -15,6 +15,7 @@ import {
   Truck
 } from 'lucide-react';
 import ExecutiveSummary from './ExecutiveSummary.jsx';
+import MoneyFlowCard from './MoneyFlowCard.jsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -111,6 +112,8 @@ function DashboardView({ setActiveTab, showToast, currentUser }) {
     <div className="dashboard-view-container fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       
       {isExecutive && <ExecutiveSummary gapData={gapData} setActiveTab={setActiveTab} showToast={showToast} />}
+      {/* 회사 장부(급여·대표 차입금)가 들어간 값이라 관리자에게만 */}
+      {isExecutive && <MoneyFlowCard showToast={showToast} />}
 
       {/* 4 Core Summary Cards */}
       {!isExecutive && (

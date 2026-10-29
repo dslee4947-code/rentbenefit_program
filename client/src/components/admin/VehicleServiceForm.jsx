@@ -28,11 +28,16 @@ const toLocalInput = (d) => {
 
 const emptyLeg = (method = '직원') => ({ method, from: '', to: '', distanceKm: '', vendor: '', fee: '' });
 
-const formOf = (record) => {
+/**
+ * @param {object|null} record 고칠 기록
+ * @param {{kind: string, date: string}} [preset] 달력 빈칸을 눌러 새로 적을 때. 앞날이면 '예정'으로 입고 날에, 지난 날·오늘이면 '완료'로 출고 날에 넣는다.
+ */
+const formOf = (record, preset) => {
   if (!record) {
+    const future = preset?.date && preset.date > new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
     return {
-      kind: '정기점검', status: '완료', staff: '', shop: '',
-      inAt: '', outAt: '', mileageIn: '', mileageOut: '', fuelIn: '', fuelOut: '',
+      kind: preset?.kind || '정기점검', status: future ? '예정' : '완료', staff: '', shop: '',
+      inAt: future ? `${preset.date}T10:00` : '', outAt: preset?.date && !future ? `${preset.date}T18:00` : '', mileageIn: '', mileageOut: '', fuelIn: '', fuelOut: '',
       transport: { in: emptyLeg(), out: emptyLeg() },
       payer: '', insurer: '', claimNo: '', fault: '', deductible: '', loaner: '',
       costs: { repair: '', vat: '', insurancePaid: '' },
@@ -64,10 +69,11 @@ const formOf = (record) => {
  * @param {object} props
  * @param {object} props.row 차량 한 줄(서버 rowOf: checks, usage, notices 포함)
  * @param {object|null} props.record 고칠 기록. 없으면 새로 적는다
+ * @param {{kind: string, date: string}} [props.preset] 달력에서 날짜·종류를 골라 열 때
  * @param {{year:number, perKm:number}[]} props.transportRates 해마다 외주 탁송 km당 단가
  */
-export default function VehicleServiceForm({ row, record, transportRates = [], onClose, onSaved, showToast }) {
-  const [form, setForm] = useState(() => formOf(record));
+export default function VehicleServiceForm({ row, record, preset, transportRates = [], onClose, onSaved, showToast }) {
+  const [form, setForm] = useState(() => formOf(record, preset));
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');

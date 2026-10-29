@@ -87,6 +87,9 @@ const needsExtensionForContract = (r) => Boolean(r.carAge && r.checks?.contractE
  * 검사·점검 한 번에: 자동차검사는 검사일 2개월 전부터 1개월 뒤까지 받을 수 있다. 정기점검일이 그 기간 시작 뒤이고
  * 검사일 2개월 뒤 안이면, 둘 중 이른 날에 한 번 입고해 같이 처리하도록 '검사+점검' 한 칸으로 묶는다.
  * 점검은 당겨질 수만 있고 늦춰지지는 않는다. 검사도 검사일을 넘기지 않는다.
+ *
+ * 날짜 칸의 빈 곳을 누르면 그날로 자동차검사·정기점검·고장수리·사고수리를 적는다(DayPicker).
+ * 앞날은 '예정'으로 저장돼 그날에 '예약'으로 보이고, 계산한 날짜는 숨긴다. 받고 나서 '완료'로 바꾸면 다음 회차로 넘어간다.
  */
 const KIND = {
   자동차검사: { color: '#1d4ed8', bg: '#dbeafe' },
@@ -118,6 +121,14 @@ const eventsOf = (r, today) => {
   const out = [];
   const age = r.carAge?.level ? r.carAge : null;
   const inspOverdue = ['over', 'grace'].includes(inspectionLevelOf(r)) || ['expired', 'end'].includes(age?.level);
+  const booked = r.bookings || [];
+  const bookedKinds = new Set(booked.map((b) => b.kind));
+  booked.forEach((b) => out.push({
+    kind: KIND[b.kind] ? b.kind : '정기점검', label: b.kind, date: b.date, booked: true, overdue: b.date < today,
+    age: b.kind === '자동차검사' ? age : null, note: [b.status, b.shop].filter(Boolean).join(' · ')
+  }));
+  // 잡아 둔 일정이 있으면 그 종류의 계산 날짜는 보여 주지 않는다
+  r = { ...r, inspection: bookedKinds.has('자동차검사') ? null : r.inspection, maintenance: bookedKinds.has('정기점검') ? null : r.maintenance, _row: r };
   const together = togetherDateOf(r);
   if (together) {
     out.push({ kind: '검사+점검', date: together, overdue: together < today || inspOverdue, age, note: `자동차검사 ${r.inspection.date} · 정기점검 ${r.maintenance.date}` });
@@ -126,7 +137,7 @@ const eventsOf = (r, today) => {
     if (r.maintenance) out.push({ kind: '정기점검', date: r.maintenance.date, overdue: r.maintenance.status === '지남', note: r.maintenance.basis || '' });
   }
   (r.repairs || []).forEach((x) => out.push({ kind: x.kind, date: x.date, record: true, note: [x.status !== '완료' ? x.status : '', x.description, x.shop, x.amount ? won(x.amount) : ''].filter(Boolean).join(' · ') }));
-  return out.map((e) => ({ ...e, r }));
+  return out.map((e) => ({ ...e, r: r._row }));
 };
 
 const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
@@ -149,17 +160,23 @@ const groupEvents = (events) => {
   return [...m.values()].sort((a, b) => Number(Boolean(KIND[a.kind].record)) - Number(Boolean(KIND[b.kind].record)) || b.list.length - a.list.length);
 };
 
-function GroupChip({ g, active, onClick }) {
+/**
+ * 달력 칸 한 줄. 누르거나 두 번 누르면 그 자리에 정보 창이 뜬다(아래로 내려가지 않게).
+ * 차가 한 대뿐인 줄을 두 번 누르면 바로 차 상세가 열린다.
+ */
+function GroupChip({ g, active, onClick, onDouble }) {
   const k = KIND[g.kind];
   const hasAge = g.list.some((e) => e.age);
+  const booked = g.list.every((e) => e.booked);
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={(ev) => { ev.stopPropagation(); onClick(ev.currentTarget.getBoundingClientRect()); }}
+      onDoubleClick={(ev) => { ev.stopPropagation(); onDouble?.(); }}
       title={`${g.kind} · ${g.who}\n${g.list.map((e) => `${e.r.plateNo} ${e.note || ''}`).join('\n')}`}
       style={{ display: 'block', width: '100%', textAlign: 'left', border: k.record || active ? `1px solid ${k.color}` : '1px solid transparent', ...(k.record ? { borderLeft: `3px solid ${k.color}` } : {}), background: active && k.record ? '#fef3c7' : k.bg, color: k.color, borderRadius: '4px', padding: '0.05rem 0.25rem', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}
     >
-      {k.record ? '✓ ' : ''}{g.kind} {g.who}{g.list.length > 1 ? ` ${g.list.length}대` : ''}{hasAge ? ' · 차령' : ''}
+      {k.record ? '✓ ' : ''}{booked ? '📌 ' : ''}{g.kind} {g.who}{g.list.length > 1 ? ` ${g.list.length}대` : ''}{hasAge ? ' · 차령' : ''}
     </button>
   );
 }
@@ -220,10 +237,73 @@ function MonthSummary({ events, onOpen }) {
   );
 }
 
-function ServiceCalendar({ rows, onOpen }) {
+const PICK_KINDS = ['자동차검사', '정기점검', '고장수리', '사고수리'];
+
+/** 날짜 칸 빈 곳을 눌렀을 때: 종류 고르고 → 차 고르면 상세 입력 양식이 그 날짜로 열린다 */
+function DayPicker({ date, rows, onPick, onClose }) {
+  const [kind, setKind] = useState('자동차검사');
+  const [q, setQ] = useState('');
+  const today = todayYmd();
+  const key = q.trim().replace(/\s+/g, '').toLowerCase();
+  // 그 종류의 일이 그날 앞뒤로 잡힌 차를 위로(검사 기간 안인 차, 점검일이 가까운 차)
+  const nearOf = (r) => {
+    if (kind === '자동차검사' && r.inspection) return Math.abs(new Date(r.inspection.date) - new Date(date)) / 86400000 - (r.inspection.windowStart <= date && date <= r.inspection.windowEnd ? 1000 : 0);
+    if (kind === '정기점검' && r.maintenance) return Math.abs(new Date(r.maintenance.date) - new Date(date)) / 86400000;
+    return 99999;
+  };
+  const list = rows
+    .filter((r) => kind !== '정기점검' || r.maintenance)
+    .filter((r) => !key || [r.plateNo, r.carModel, r.partyName].some((x) => String(x || '').replace(/\s+/g, '').toLowerCase().includes(key)))
+    .sort((a, b) => nearOf(a) - nearOf(b) || String(a.partyName).localeCompare(String(b.partyName)))
+    .slice(0, 60);
+  const inWindow = (r) => kind === '자동차검사' && r.inspection && r.inspection.windowStart <= date && date <= r.inspection.windowEnd;
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: '10px', width: 'min(560px, 100%)', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0.8rem 1rem', borderBottom: '1px solid var(--border-color)' }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-bright)' }}>{date} 일정·기록 넣기</div>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{date > today ? '앞날이라 "예정"으로 저장합니다. 받고 나서 "완료"로 바꾸세요.' : '지난 날·오늘이라 "완료" 기록으로 저장합니다.'}</div>
+          </div>
+          <button type="button" onClick={onClose} style={{ marginLeft: 'auto', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: '0.7rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+            {PICK_KINDS.map((k) => (
+              <button key={k} type="button" onClick={() => setKind(k)} style={{ border: `1px solid ${KIND[k].color}`, background: kind === k ? KIND[k].color : '#fff', color: kind === k ? '#fff' : KIND[k].color, borderRadius: '999px', padding: '0.35rem 0.8rem', fontSize: '0.82rem', fontWeight: 800, cursor: 'pointer' }}>{k}</button>
+            ))}
+          </div>
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="차량번호·계약사·차종으로 찾기" style={{ padding: '0.45rem 0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.85rem' }} />
+          {kind === '정기점검' && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>정기점검은 일반정비 가입 차와 단기렌트 차만 나옵니다.</div>}
+        </div>
+        <div style={{ overflowY: 'auto', padding: '0 1rem 1rem' }}>
+          {list.length === 0 && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '0.5rem 0' }}>해당하는 차가 없습니다.</div>}
+          {list.map((r) => (
+            <button
+              key={r.vehicleId}
+              type="button"
+              onClick={() => onPick(r.vehicleId, kind)}
+              style={{ display: 'flex', width: '100%', alignItems: 'center', gap: '0.5rem', border: 'none', borderBottom: '1px solid var(--border-color)', background: '#fff', padding: '0.45rem 0.2rem', cursor: 'pointer', textAlign: 'left', fontSize: '0.8rem' }}
+            >
+              <b style={{ minWidth: '6.5rem', color: 'var(--text-bright)' }}>{r.plateNo || '-'}</b>
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isLong(r) ? r.partyName : '단기렌트'} · {r.carModel}</span>
+              <span style={{ fontSize: '0.72rem', color: inWindow(r) ? KIND['자동차검사'].color : 'var(--text-muted)', fontWeight: inWindow(r) ? 800 : 400, whiteSpace: 'nowrap' }}>
+                {kind === '자동차검사' && r.inspection ? `검사일 ${shortDate(r.inspection.date)}${inWindow(r) ? ' · 기간 안' : ''}` : ''}
+                {kind === '정기점검' && r.maintenance ? `점검일 ${shortDate(r.maintenance.date)}` : ''}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ServiceCalendar({ rows, onOpen, onAdd, canWrite }) {
   const today = todayYmd();
   const [month, setMonth] = useState(monthKey(today));
   const [picked, setPicked] = useState(null); // { title, list }
+  const [addDate, setAddDate] = useState(null); // 빈 곳을 누른 날짜
 
   const all = rows.flatMap((r) => eventsOf(r, today));
   const overdue = all.filter((e) => e.overdue);
@@ -237,7 +317,9 @@ function ServiceCalendar({ rows, onOpen }) {
   const days = Array.from({ length: 42 }, (_, i) => new Date((startNo + i) * 86400000).toISOString().slice(0, 10));
   const weeks = [0, 1, 2, 3, 4, 5].map((w) => days.slice(w * 7, w * 7 + 7)).filter((w) => w.some((d) => monthKey(d) === month));
 
-  const pick = (title, list) => setPicked(picked?.title === title ? null : { title, list });
+  // 정보 창은 누른 줄 바로 아래(화면 밖으로 나가면 위)에 띄운다
+  const pick = (title, list, rect) => setPicked({ title, list, rect });
+  const openOne = (list) => { if (list.length === 1) { setPicked(null); onOpen(list[0].r.vehicleId); } };
   const go = (n) => { setMonth(n === 0 ? monthKey(today) : shiftMonth(month, n)); setPicked(null); };
   const navBtn = { border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.25rem 0.6rem', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' };
 
@@ -249,7 +331,7 @@ function ServiceCalendar({ rows, onOpen }) {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
             {groupEvents(overdue).map((g) => (
               <div key={g.key} style={{ minWidth: '160px', maxWidth: '260px' }}>
-                <GroupChip g={g} active={picked?.title === `밀린 ${g.key}`} onClick={() => pick(`밀린 ${g.key}`, g.list)} />
+                <GroupChip g={g} active={picked?.title === `밀린 ${g.key}`} onClick={(rect) => pick(`밀린 ${g.key}`, g.list, rect)} onDouble={() => openOne(g.list)} />
               </div>
             ))}
           </div>
@@ -277,15 +359,20 @@ function ServiceCalendar({ rows, onOpen }) {
           const groups = groupEvents(byDay.get(d) || []);
           const isToday = d === today;
           return (
-            <div key={d} style={{ minHeight: '84px', padding: '0.2rem', borderRight: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', background: thisMonth ? '#fff' : '#fafafa', minWidth: 0 }}>
+            <div
+              key={d}
+              onClick={canWrite ? () => setAddDate(d) : undefined}
+              title={canWrite ? '빈 곳을 누르면 이 날짜로 자동차검사·정기점검·고장수리·사고수리를 넣습니다' : undefined}
+              style={{ minHeight: '84px', padding: '0.2rem', borderRight: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', background: thisMonth ? '#fff' : '#fafafa', minWidth: 0, cursor: canWrite ? 'pointer' : 'default' }}
+            >
               <div style={{ fontSize: '0.72rem', fontWeight: 800, color: isToday ? '#fff' : thisMonth ? 'var(--text-bright)' : 'var(--text-muted)', background: isToday ? 'var(--primary)' : 'none', borderRadius: '999px', width: '1.4rem', height: '1.4rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {Number(d.slice(8, 10))}
               </div>
               {groups.slice(0, 4).map((g) => (
-                <GroupChip key={g.key} g={g} active={picked?.title === `${d} ${g.key}`} onClick={() => pick(`${d} ${g.key}`, g.list)} />
+                <GroupChip key={g.key} g={g} active={picked?.title === `${d} ${g.key}`} onClick={(rect) => pick(`${d} ${g.key}`, g.list, rect)} onDouble={() => openOne(g.list)} />
               ))}
               {groups.length > 4 && (
-                <button type="button" onClick={() => pick(`${d} 전체`, byDay.get(d))} style={{ border: 'none', background: 'none', fontSize: '0.68rem', color: 'var(--text-muted)', cursor: 'pointer', padding: 0 }}>
+                <button type="button" onClick={(ev) => { ev.stopPropagation(); pick(`${d} 전체`, byDay.get(d), ev.currentTarget.getBoundingClientRect()); }} style={{ border: 'none', background: 'none', fontSize: '0.68rem', color: 'var(--text-muted)', cursor: 'pointer', padding: 0 }}>
                   +{groups.length - 4}개 더
                 </button>
               )}
@@ -294,34 +381,49 @@ function ServiceCalendar({ rows, onOpen }) {
         })}
       </div>
 
-      {picked && (
-        <div style={{ marginTop: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '0.5rem' }}>
+      {picked && (() => {
+        const W = Math.min(420, window.innerWidth - 32);
+        const left = Math.max(16, Math.min(picked.rect?.left ?? 16, window.innerWidth - W - 16));
+        const below = (picked.rect?.bottom ?? 100) + 4;
+        const place = below > window.innerHeight * 0.6 ? { bottom: window.innerHeight - (picked.rect?.top ?? 0) + 4 } : { top: below };
+        return (
+        <>
+        <div onClick={() => setPicked(null)} style={{ position: 'fixed', inset: 0, zIndex: 900 }} />
+        <div style={{ position: 'fixed', left, ...place, width: W, maxHeight: '50vh', overflowY: 'auto', zIndex: 901, background: '#fff', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.5rem', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>
           <div style={{ display: 'flex', alignItems: 'center', fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-bright)', marginBottom: '0.3rem' }}>
             {picked.title.replace(/\|/g, ' · ')} ({picked.list.length}대)
             <button type="button" onClick={() => setPicked(null)} style={{ marginLeft: 'auto', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={14} /></button>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
             {picked.list.map((e) => (
               <button
                 key={`${e.kind}-${e.r.vehicleId}-${e.date}`}
                 type="button"
-                onClick={() => onOpen(e.r.vehicleId)}
+                onClick={() => { setPicked(null); onOpen(e.r.vehicleId); }}
+                title="누르면 차 상세가 열립니다"
                 style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.25rem 0.45rem', fontSize: '0.76rem', cursor: 'pointer', textAlign: 'left' }}
               >
-                <b style={{ color: KIND[e.kind].color }}>{e.kind}</b> <b>{e.r.plateNo || '-'}</b>{' '}
-                <span style={{ color: 'var(--text-muted)' }}>{e.r.carModel} · {e.date}{e.note ? ` · ${e.note}` : ''}</span>
+                <b style={{ color: KIND[e.kind].color }}>{e.booked ? '📌 ' : ''}{e.label || e.kind}</b> <b>{e.r.plateNo || '-'}</b>{' '}
+                <span style={{ color: 'var(--text-muted)' }}>{isLong(e.r) ? `${e.r.partyName} · ` : ''}{e.r.carModel} · {e.date}</span>
+                {e.note && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{e.note}</div>}
                 {e.age && <b style={{ color: '#c2410c' }}> · 차령 연장 함께 신청</b>}
               </button>
             ))}
           </div>
         </div>
-      )}
+        </>
+        );
+      })()}
 
       <MonthSummary events={inMonth} onOpen={onOpen} />
       <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.4rem', lineHeight: 1.6 }}>
         자동차검사는 검사일 2개월 전부터 1개월 뒤까지 받을 수 있습니다. 정기점검일이 그 안(검사일 2개월 뒤까지)에 있으면 이른 날에 한 번 입고해 같이 처리하도록 <b style={{ color: KIND['검사+점검'].color }}>검사+점검</b>으로 묶었습니다.
-        ✓ 고장수리·사고수리는 일이 생긴 뒤 남긴 기록입니다.
+        ✓ 고장수리·사고수리는 일이 생긴 뒤 남긴 기록입니다. 📌는 날짜를 잡아 둔 일정입니다.
+        {canWrite ? ' 날짜 칸의 빈 곳을 누르면 그날로 일정·기록을 넣을 수 있습니다.' : ''}
       </div>
+      {addDate && (
+        <DayPicker date={addDate} rows={rows} onClose={() => setAddDate(null)} onPick={(id, kind) => { setAddDate(null); onAdd(id, kind, addDate); }} />
+      )}
     </div>
   );
 }
@@ -511,7 +613,14 @@ function VehicleServiceView({ showToast, currentUser }) {
           </button>
         ))}
       </div>
-      {view === 'calendar' && <ServiceCalendar rows={rows} onOpen={openVehicle} />}
+      {view === 'calendar' && (
+        <ServiceCalendar
+          rows={rows}
+          onOpen={openVehicle}
+          canWrite={canWrite}
+          onAdd={(id, kind, date) => { openVehicle(id); setFormOpen({ record: null, preset: { kind, date } }); }}
+        />
+      )}
       {view === 'list' && (<>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
         {FILTERS.map((f) => {
@@ -789,6 +898,7 @@ function VehicleServiceView({ showToast, currentUser }) {
         <VehicleServiceForm
           row={selectedRow}
           record={formOpen.record}
+          preset={formOpen.preset}
           transportRates={transportRates}
           onClose={() => setFormOpen(null)}
           onSaved={afterSave}

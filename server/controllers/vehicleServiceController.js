@@ -97,6 +97,10 @@ const rowOf = (v, records) => {
     repairs: records
       .filter((r) => REPAIR_KINDS.includes(r.kind) && kstYmd(r.date) >= addMonths(kstYmd(new Date()), -13))
       .map((r) => ({ kind: r.kind, date: kstYmd(r.date), status: r.status || '완료', amount: r.amount || 0, description: r.description || '', shop: r.shop || '' })),
+    // 달력에서 미리 잡아 둔 검사·점검 등(아직 끝나지 않은 기록). 계산한 날짜 대신 이 날에 보인다.
+    bookings: records
+      .filter((r) => !REPAIR_KINDS.includes(r.kind) && r.status && r.status !== '완료')
+      .map((r) => ({ kind: r.kind, date: kstYmd(r.date), status: r.status, shop: r.shop || '' })),
     ...plan,
     ...usageOf(v, records, plan)
   };

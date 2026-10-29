@@ -368,12 +368,13 @@ test('단기렌트 차령 가감: 1년차 ×1.1 · 2년차 ×1.0 · 3년차 ×0.
   assert.equal(p.months[0].target, 700000);
 });
 
-test('단기렌트 단가표: 1일=1개월×10%(2,500원 올림)·1주=1일×4, 대여료·탁송료 계산', async () => {
+test('단기렌트 단가표: 1개월 1만 원·1일=1개월×10%(5천 원)·1주=1일×4(1만 원) 반올림, 대여료·탁송료 계산', async () => {
+  // K5 1,096,000 → 1,100,000 / 110,000 / 440,000, 레이 439,000 → 440,000 → 1일 44,000 → 45,000, S500 5,871,000 → 5,870,000 → 1일 587,000 → 585,000
   const { deriveRates, quoteRental, insurerGradeFor, insurerAmountFor, mergeRatePolicy, DEFAULT_RATE_POLICY } = await import('../../shared/shortTermRates.js');
-  // 엑셀 단가표와 같은 규칙: K5 1,096,000 → 110,000 / 440,000, 레이 439,000 → 45,000, S500 5,871,000 → 587,500
-  assert.deepEqual(deriveRates(1096000), { day: 110000, week: 440000, month: 1096000 });
+  assert.deepEqual(deriveRates(1096000), { day: 110000, week: 440000, month: 1100000 });
   assert.equal(deriveRates(439000).day, 45000);
-  assert.equal(deriveRates(5871000).day, 587500);
+  assert.deepEqual(deriveRates(1234000), { day: 125000, week: 500000, month: 1230000 });
+  assert.equal(deriveRates(5871000).day, 585000);
   const rates = deriveRates(1096000);
   const policy = mergeRatePolicy(null);
   // 1일 대여(평일, 서울): 렌트료 + 1일 탁송료 3만 원
@@ -391,7 +392,7 @@ test('단기렌트 단가표: 1일=1개월×10%(2,500원 올림)·1주=1일×4, 
   assert.equal(six.allowanceKm, 1050);
   // 26일은 1개월 요금으로 끊고, 주행 한도도 1개월(2,500km). 경기·인천은 왕복 탁송료
   const month = quoteRental({ rates, start: '2026-10-06T10:00', end: '2026-11-01T09:00', region: '경기·인천', holidays: [], policy, expectedKm: 3000 });
-  assert.equal(month.rent, 1096000);
+  assert.equal(month.rent, 1100000);
   assert.equal(month.allowanceKm, 2500);
   assert.equal(month.excess, 500 * 200);
   assert.equal(month.delivery, 40000 + DEFAULT_RATE_POLICY.delivery.holidayFee); // 11/1은 일요일

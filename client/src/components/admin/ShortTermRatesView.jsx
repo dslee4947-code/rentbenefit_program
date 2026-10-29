@@ -34,7 +34,7 @@ const TABS = [
  * 단기렌트 · 사고대차 단가표 (엑셀 "12. 단기 렌트비용.xls"를 옮긴 화면).
  *
  * 1개월 요금 = 손익 원장의 단기렌트 월 목표(견적 3년 · 인수가 30% · 정비 포함, 차령 가감).
- * 1일 = 1개월 × 10%(2,500원 단위 올림), 1주 = 1일 × 4 — 엑셀 단가표의 규칙. 요금 규칙 탭에서 바꾼다.
+ * 1개월은 1만 원, 1일 = 1개월 × 10%(5천 원 단위 반올림), 1주 = 1일 × 4(1만 원 단위 반올림). 요금 규칙 탭에서 바꾼다.
  */
 function ShortTermRatesView({ showToast, currentUser }) {
   const [data, setData] = useState(null);
@@ -173,7 +173,7 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
       <p style={{ margin: '0 0 0.7rem', fontSize: '0.76rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
         <b>1개월</b> = {policy.monthly?.method === 'quote'
           ? '단기렌트 월 목표(견적 3년 · 인수가 30% · 정비 포함, 차령 가감)'
-          : `엑셀 단기렌트 계산식(차량가를 ${policy.monthly?.termMonths || 36}개월에 회수 · 연 ${((policy.monthly?.interestRate ?? 0.06) * 100).toFixed(1)}% · 등록 후 반기마다 ${Math.round((policy.monthly?.stepRate ?? 0.03) * 100)}%씩 내림)`} · <b>1일(평일)</b> = 1개월 × {Math.round(policy.dayRatio * 100)}% ({toCommaString(policy.dayRoundUnit)}원 단위 올림) · <b>1주</b> = 1일 × {policy.weekDays}.
+          : `엑셀 단기렌트 계산식(차량가를 ${policy.monthly?.termMonths || 36}개월에 회수 · 연 ${((policy.monthly?.interestRate ?? 0.06) * 100).toFixed(1)}% · 등록 후 반기마다 ${Math.round((policy.monthly?.stepRate ?? 0.03) * 100)}%씩 내림)`} · <b>1일(평일)</b> = 1개월 × {Math.round(policy.dayRatio * 100)}% ({toCommaString(policy.dayRoundUnit)}원 단위 반올림) · <b>1주</b> = 1일 × {policy.weekDays} ({toCommaString(policy.weekRoundUnit)}원 단위 반올림) · <b>1개월</b>은 {toCommaString(policy.monthRoundUnit)}원 단위 반올림.
         칸에 금액을 적으면 그 차만 직접 정한 요금을 씁니다(비우면 계산값). 주말·공휴일 1일 렌트는 {Math.round(policy.weekendSurchargeRate * 100)}% 추가 · 부가세·자차 포함.
       </p>
       <div style={{ overflowX: 'auto' }}>
@@ -677,7 +677,9 @@ function Policy({ policy, setPolicy, isAdmin, saving, onSave }) {
         {row('· 반기마다 내림', numIn(['monthly', 'stepRate'], policy.monthly.stepRate, { pct: true }), `% × 최대 ${policy.monthly.maxSteps}번 (3년 하반기까지)`)}
       </>}
       {row('1일 = 1개월 ×', numIn(['dayRatio'], policy.dayRatio, { pct: true }), '%')}
-      {row('1일 요금 올림 단위', numIn(['dayRoundUnit'], policy.dayRoundUnit), '원')}
+      {row('1일 요금 반올림 단위', numIn(['dayRoundUnit'], policy.dayRoundUnit), '원')}
+      {row('1주 요금 반올림 단위', numIn(['weekRoundUnit'], policy.weekRoundUnit), '원')}
+      {row('1개월 요금 반올림 단위', numIn(['monthRoundUnit'], policy.monthRoundUnit), '원')}
       {row('1주 = 1일 ×', numIn(['weekDays'], policy.weekDays), '일치')}
       {row('주말·공휴일 1일 할증', numIn(['weekendSurchargeRate'], policy.weekendSurchargeRate, { pct: true }), '%')}
       {row('포함 주행거리', <>1일 {numIn(['kmPerDay'], policy.kmPerDay)} · 1주 {numIn(['kmPerWeek'], policy.kmPerWeek)} · 월 {numIn(['kmPerMonth'], policy.kmPerMonth)}</>, 'km')}

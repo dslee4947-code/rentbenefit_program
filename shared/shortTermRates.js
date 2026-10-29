@@ -15,7 +15,9 @@
 
 export const DEFAULT_RATE_POLICY = {
   dayRatio: 0.1, // 1일 = 1개월 × 이 비율
-  dayRoundUnit: 2500, // 1일 요금을 이 단위로 올림
+  dayRoundUnit: 5000, // 1일 요금을 이 단위로 반올림
+  weekRoundUnit: 10000, // 1주 요금을 이 단위로 반올림
+  monthRoundUnit: 10000, // 1개월 요금을 이 단위로 반올림
   weekDays: 4, // 1주 = 1일 × 이 값
   weekendSurchargeRate: 0.1, // 주말(토·일)·공휴일에 1일 요금으로 빌리면 더 받는 비율
   kmPerDay: 150,
@@ -78,6 +80,8 @@ export const mergeRatePolicy = (saved) => ({
   monthly: { ...DEFAULT_RATE_POLICY.monthly, ...(saved?.monthly || {}) }
 });
 
+// 반올림 (소수 오차를 먼저 지움)
+const roundTo = (v, unit) => Math.round(Math.round(v * 100) / 100 / unit) * unit;
 const roundUp = (v, unit) => Math.ceil(Math.round(v * 100) / 100 / unit) * unit;
 
 /**
@@ -121,10 +125,9 @@ export const excelMonthlyRate = ({ carPrice, ageStart, asOf = new Date(), policy
 
 /** 1개월 요금에서 1일·1주 요금을 낸다. */
 export const deriveRates = (monthly, policy = DEFAULT_RATE_POLICY) => {
-  const month = Math.round((Number(monthly) || 0) / 1000) * 1000;
-  const unit = Number(policy.dayRoundUnit) || 1000;
-  const day = Math.ceil((month * (Number(policy.dayRatio) || 0.1)) / unit) * unit;
-  const week = day * (Number(policy.weekDays) || 4);
+  const month = roundTo(Number(monthly) || 0, Number(policy.monthRoundUnit) || 10000);
+  const day = roundTo(month * (Number(policy.dayRatio) || 0.1), Number(policy.dayRoundUnit) || 5000);
+  const week = roundTo(day * (Number(policy.weekDays) || 4), Number(policy.weekRoundUnit) || 10000);
   return { day, week, month };
 };
 

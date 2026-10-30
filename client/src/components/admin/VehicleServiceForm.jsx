@@ -14,6 +14,22 @@ const PAYERS = ['자차 보험', '상대방 보험', '보증·리콜(무상)', '
 const FUELS = ['', '바닥', '1/4', '1/2', '3/4', '가득'];
 const CONSUMABLES = ['엔진오일·오일필터', '에어필터', '에어컨 필터', '브레이크 패드(앞)', '브레이크 패드(뒤)', '브레이크 오일', '타이어', '와이퍼', '배터리', '냉각수'];
 
+// 내역서 작업 줄 이름으로 바꾼 소모품을 짚는다. 에어컨 필터를 에어필터보다 먼저 본다.
+const CONSUMABLE_WORDS = [
+  ['엔진오일·오일필터', /엔진\s*오일|오일\s*필터/],
+  ['에어컨 필터', /에어컨\s*필터|항균\s*필터|캐빈\s*필터/],
+  ['에어필터', /에어\s*(필터|클리너|크리너)|공기\s*필터/],
+  ['브레이크 패드(앞)', /(앞|프론트|FR).{0,6}패드|패드.{0,4}(앞|프론트|FR)/i],
+  ['브레이크 패드(뒤)', /(뒤|리어|RR).{0,6}패드|패드.{0,4}(뒤|리어|RR)/i],
+  ['브레이크 오일', /브레이크\s*(오일|액)/],
+  ['타이어', /타이어/],
+  ['와이퍼', /와이퍼/],
+  ['배터리', /배터리|밧데리/],
+  ['냉각수', /냉각수|부동액/]
+];
+const READ_SOURCE = { 'pdf-text': 'PDF 글자', xlsx: '엑셀', clova: '사진·스캔 글자 인식(OCR)', text: '고친 글자' };
+const emptyLine = () => ({ name: '', qty: 1, unitPrice: '', parts: '', labor: '', amount: '' });
+
 const num = (v) => Number(String(v ?? '').replace(/,/g, '')) || 0;
 const won = (n) => `${Math.round(n).toLocaleString()}원`;
 
@@ -41,7 +57,7 @@ const formOf = (record, preset) => {
       transport: { in: emptyLeg(), out: emptyLeg() },
       payer: '', insurer: '', claimNo: '', fault: '', deductible: '', loaner: '',
       costs: { repair: '', vat: '', insurancePaid: '' },
-      request: '', description: '', memo: '', parts: [], consumables: []
+      request: '', description: '', memo: '', parts: [], consumables: [], lines: [], invoice: null
     };
   }
   const leg = (l) => ({ ...emptyLeg(l?.method || ''), ...Object.fromEntries(Object.entries(l || {}).map(([k, v]) => [k, v ?? ''])) });
@@ -56,7 +72,8 @@ const formOf = (record, preset) => {
     deductible: record.deductible ?? '', loaner: record.loaner || '',
     costs: { repair: record.costs?.repair ?? (record.costs ? '' : record.amount || ''), vat: record.costs?.vat ?? '', insurancePaid: record.costs?.insurancePaid ?? '' },
     request: record.request || '', description: record.description || '', memo: record.memo || '',
-    parts: record.parts || [], consumables: record.consumables || []
+    parts: record.parts || [], consumables: record.consumables || [],
+    lines: (record.lines || []).map((l) => Object.fromEntries(Object.entries(l).map(([k, v]) => [k, v ?? '']))), invoice: record.invoice || null
   };
 };
 
@@ -64,7 +81,9 @@ const formOf = (record, preset) => {
  * 정비·수리 한 건 상세 입력 (테스트판, 2026-10).
  * 시안: docs/mockups/vehicle-service-form-v1.html
  *
- * 아직 하지 않는 것(다음 단계): 원장 자동 기록, 수리 내역서 글자 읽기, 지도 API 거리 자동 계산.
+ * 수리 내역서(PDF·엑셀·사진)를 올리면 글자를 읽어 업체·날짜·주행거리·작업 줄·공급가·부가세를 채운다(서버 utils/repairInvoice.js).
+ * 읽은 글자는 화면에서 고쳐 다시 정리할 수 있다. 저장은 사람이 확인한 뒤 한다.
+ * 아직 하지 않는 것(다음 단계): 원장 자동 기록, 지도 API 거리 자동 계산.
  *
  * @param {object} props
  * @param {object} props.row 차량 한 줄(서버 rowOf: checks, usage, notices 포함)
@@ -77,6 +96,9 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
+  const [reading, setReading] = useState(false);
+  const [readInfo, setReadInfo] = useState(null); // { source, parsed, filled: [] } 마지막으로 읽은 결과
+  const [showText, setShowText] = useState(false);
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
   const setLeg = (side, patch) => setForm((f) => ({ ...f, transport: { ...f.transport, [side]: { ...f.transport[side], ...patch } } }));
@@ -91,6 +113,65 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
   const toggleConsumable = (c) => setForm((f) => ({
     ...f, consumables: f.consumables.includes(c) ? f.consumables.filter((x) => x !== c) : [...f.consumables, c]
   }));
+
+  /**
+   * 내역서에서 읽은 값을 양식에 넣는다. 작업 줄·공급가·부가세는 내역서를 따르고,
+   * 업체·날짜·주행거리·작업 내용처럼 사람이 먼저 적었을 수 있는 칸은 비어 있을 때만 채운다.
+   */
+  const applyParsed = (p, text) => {
+    const filled = [];
+    const f = form; // 읽는 동안에는 양식을 만지지 않는다(버튼이 '읽는 중')
+    const next = { ...f, lines: p.lines.map((l) => ({ ...l })), invoice: { bizNo: p.bizNo, issuedDate: p.issuedDate, partsTotal: p.partsTotal, laborTotal: p.laborTotal, supply: p.supply, vat: p.vat, discount: p.discount, total: p.total, text } };
+    filled.push(`작업 ${p.lines.length}줄`);
+    if (p.supply || p.vat) { next.costs = { ...f.costs, repair: p.supply || f.costs.repair, vat: p.vat || f.costs.vat }; filled.push('수리비·부가세'); }
+    if (!f.shop && p.shop) { next.shop = p.shop; filled.push('업체'); }
+    if (!f.inAt && p.inDate) { next.inAt = `${p.inDate}T10:00`; filled.push('입고일'); }
+    const out = p.outDate || p.issuedDate;
+    if (!f.outAt && out) { next.outAt = `${out}T18:00`; filled.push('출고일'); }
+    if (p.mileage && !f.mileageOut && !f.mileageIn) { next.mileageOut = String(p.mileage); filled.push('주행거리'); }
+    if (!f.description && p.lines.length) { next.description = p.lines.map((l) => l.name).join(', '); filled.push('작업 내용'); }
+    if (!f.insurer && p.insurer) { next.insurer = p.insurer; filled.push('보험사'); }
+    if (!f.claimNo && p.claimNo) { next.claimNo = p.claimNo; filled.push('접수번호'); }
+    const found = CONSUMABLE_WORDS.filter(([, re]) => p.lines.some((l) => re.test(l.name))).map(([c]) => c);
+    const added = found.filter((c) => !f.consumables.includes(c));
+    if (added.length) { next.consumables = [...f.consumables, ...added]; filled.push(`소모품 ${added.length}개`); }
+    setForm(next);
+    return filled;
+  };
+
+  /** 파일 또는 고친 글자를 서버에 보내 정리한다 */
+  const readInvoice = async ({ file, text }) => {
+    setReading(true);
+    try {
+      const fd = new FormData();
+      if (file) fd.append('file', file);
+      else fd.append('text', text);
+      const res = await fetch(`${API_HOST}/api/vehicle-services/read-invoice`, { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) { showToast?.(data.message || '내역서를 읽지 못했습니다.', 'error'); return; }
+      const filled = applyParsed(data.parsed, data.text);
+      setReadInfo({ source: data.source, parsed: data.parsed, filled });
+      // 읽은 내역서 파일은 기록에 함께 붙인다
+      if (file) setFiles((fs) => (fs.some((x) => x.name === file.name && x.size === file.size) ? fs : [...fs, file]));
+      showToast?.(`내역서를 정리했습니다. 작업 ${data.parsed.lines.length}줄 · 합계 ${won(data.parsed.total)}`, 'success');
+    } catch {
+      showToast?.('서버 통신 오류가 발생했습니다.', 'error');
+    } finally {
+      setReading(false);
+    }
+  };
+
+  const setLine = (i, patch) => setForm((f) => ({
+    ...f,
+    lines: f.lines.map((l, j) => {
+      if (j !== i) return l;
+      const n = { ...l, ...patch };
+      // 부품·공임을 고치면 금액은 둘의 합
+      if ('parts' in patch || 'labor' in patch) n.amount = String(num(n.parts) + num(n.labor) || num(n.amount) || '');
+      return n;
+    })
+  }));
+  const lineSum = (k) => form.lines.reduce((s, l) => s + num(l[k]), 0);
 
   // ── 자동 계산
   const days = form.inAt && form.outAt ? Math.max(0, Math.round((new Date(form.outAt) - new Date(form.inAt)) / 86400000)) : null;
@@ -139,6 +220,14 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
       }
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) { showToast?.(data.message || '저장하지 못했습니다.', 'error'); return; }
+      // 고치는 기록에 새로 올린 내역서·사진은 따로 붙인다
+      if (record && files.length) {
+        const fd = new FormData();
+        files.forEach((f) => fd.append('files', f));
+        const up = await fetch(`${API_HOST}/api/vehicle-services/${record._id}/files`, { method: 'POST', body: fd });
+        const upData = await up.json().catch(() => ({}));
+        if (!up.ok || !upData.success) showToast?.(upData.message || '파일을 붙이지 못했습니다. 내용은 저장했습니다.', 'error');
+      }
       showToast?.(data.message || '저장했습니다.', 'success');
       onSaved?.();
     } catch {
@@ -219,6 +308,99 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gap: '0.8rem' }}>
+          {/* 0. 수리 내역서 */}
+          <div style={{ ...card, gridColumn: '1 / -1', borderColor: 'var(--primary)' }}>
+            <h3 style={h2}>📄 수리 내역서로 채우기<span style={tag}>PDF · 엑셀 · 사진(스캔) — 읽은 값은 저장 전에 확인하세요</span></h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <label style={{ border: 'none', background: 'var(--primary)', color: '#fff', borderRadius: '7px', padding: '0.4rem 0.9rem', fontWeight: 800, fontSize: '0.8rem', cursor: reading ? 'wait' : 'pointer' }}>
+                {reading ? '읽는 중…' : '내역서 올리기'}
+                <input type="file" accept=".pdf,.xlsx,.xls,image/*" style={{ display: 'none' }} disabled={reading}
+                  onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) readInvoice({ file: f }); }} />
+              </label>
+              <button type="button" onClick={() => setShowText((v) => !v)} style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '7px', padding: '0.38rem 0.8rem', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer' }}>
+                {showText ? '글자 닫기' : form.invoice?.text ? '읽은 글자 보기·고치기' : '글자 붙여 넣기'}
+              </button>
+              {readInfo && (
+                <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                  {READ_SOURCE[readInfo.source] || readInfo.source}로 읽음 · 채운 칸: {readInfo.filled.join(', ') || '없음'}
+                </span>
+              )}
+            </div>
+            {readInfo?.parsed?.plateNo && row?.plateNo && readInfo.parsed.plateNo !== row.plateNo.replace(/\s/g, '') && (
+              <div style={{ ...hint, color: '#b91c1c', fontWeight: 700 }}>⚠ 내역서 차량번호는 {readInfo.parsed.plateNo}인데 이 차는 {row.plateNo}입니다. 다른 차 내역서가 아닌지 확인해 주세요.</div>
+            )}
+            {readInfo?.parsed?.kindGuess && readInfo.parsed.kindGuess !== form.kind && (
+              <div style={hint}>
+                내역서로 보면 <b>{readInfo.parsed.kindGuess}</b> 같습니다.{' '}
+                <button type="button" onClick={() => set({ kind: readInfo.parsed.kindGuess })} style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0 0.4rem', fontSize: '0.7rem', cursor: 'pointer' }}>종류 바꾸기</button>
+              </div>
+            )}
+            {(readInfo?.parsed?.warnings || []).map((w) => <div key={w} style={{ ...hint, color: '#b45309' }}>⚠ {w}</div>)}
+            {showText && (
+              <div style={{ marginTop: '0.4rem' }}>
+                <textarea style={{ ...input, minHeight: '140px', fontFamily: 'monospace', fontSize: '0.74rem' }}
+                  value={form.invoice?.text || ''}
+                  onChange={(e) => setForm((f) => ({ ...f, invoice: { ...(f.invoice || {}), text: e.target.value } }))}
+                  placeholder={'내역서 글자를 붙여 넣거나, 읽은 글자를 고친 뒤 [글자로 다시 정리]를 누르세요.\n예) 엔진오일 1 45,000 45,000 20,000 / 공급가액 253,000 / 부가세 25,300 / 합계 278,300'} />
+                <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginTop: '0.3rem' }}>
+                  <button type="button" disabled={reading || !form.invoice?.text?.trim()} onClick={() => readInvoice({ text: form.invoice.text })}
+                    style={{ border: 'none', background: 'var(--text-bright)', color: '#fff', borderRadius: '7px', padding: '0.35rem 0.8rem', fontWeight: 800, fontSize: '0.76rem', cursor: 'pointer' }}>글자로 다시 정리</button>
+                  <span style={hint}>한 줄에 작업 하나: 이름 뒤에 [수량 단가 부품 공임] 또는 [금액]. 합계 줄은 공급가액·부가세·합계 라벨로 찾습니다.</span>
+                </div>
+              </div>
+            )}
+
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.76rem', marginTop: '0.6rem' }}>
+              <thead>
+                <tr style={{ color: 'var(--text-muted)', background: 'var(--bg-main)' }}>
+                  {['작업 · 부품', '수량', '단가', '부품', '공임', '금액', ''].map((h, i) => <th key={i} style={{ textAlign: i === 0 ? 'left' : 'right', padding: '0.3rem', fontWeight: 700, width: i === 0 ? 'auto' : i === 1 ? '54px' : i === 6 ? '28px' : '104px' }}>{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {form.lines.length === 0 && (
+                  <tr><td colSpan={7} style={{ padding: '0.5rem', color: 'var(--text-muted)', textAlign: 'center' }}>내역서를 올리면 작업 줄이 여기에 정리됩니다. 직접 줄을 더해 적어도 됩니다.</td></tr>
+                )}
+                {form.lines.map((l, i) => (
+                  <tr key={i} style={{ borderTop: '1px solid var(--border-color)' }}>
+                    <td style={{ padding: '0.15rem' }}><input style={{ ...input, padding: '0.2rem 0.35rem' }} value={l.name} onChange={(e) => setLine(i, { name: e.target.value })} placeholder="엔진오일 교환" /></td>
+                    <td style={{ padding: '0.15rem' }}><input style={{ ...input, padding: '0.2rem 0.35rem', textAlign: 'right' }} inputMode="decimal" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value.replace(/[^0-9.]/g, '') })} /></td>
+                    {['unitPrice', 'parts', 'labor', 'amount'].map((k) => (
+                      <td key={k} style={{ padding: '0.15rem' }}><MoneyInput style={{ ...input, padding: '0.2rem 0.35rem', textAlign: 'right' }} value={l[k]} onChange={(e) => setLine(i, { [k]: e.target.value })} /></td>
+                    ))}
+                    <td style={{ textAlign: 'center' }}>
+                      <button type="button" title="줄 지우기" onClick={() => setForm((f) => ({ ...f, lines: f.lines.filter((_, j) => j !== i) }))} style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}><X size={13} /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: '2px solid var(--border-color)', fontWeight: 800 }}>
+                  <td style={{ padding: '0.3rem' }}>
+                    <button type="button" onClick={() => setForm((f) => ({ ...f, lines: [...f.lines, emptyLine()] }))} style={{ border: '1px dashed var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.15rem 0.6rem', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>+ 줄 더하기</button>
+                    <span style={{ marginLeft: '0.6rem' }}>작업 합</span>
+                  </td>
+                  <td /><td />
+                  {['parts', 'labor', 'amount'].map((k) => <td key={k} style={{ textAlign: 'right', padding: '0.3rem' }}>{lineSum(k).toLocaleString()}</td>)}
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '0.3rem', marginTop: '0.45rem' }}>
+              {[['부품 합계', form.invoice?.partsTotal], ['공임 합계', form.invoice?.laborTotal], ['할인', form.invoice?.discount], ['공급가액', form.invoice?.supply], ['부가세', form.invoice?.vat], ['내역서 합계', form.invoice?.total]].map(([k, v]) => (
+                <div key={k} style={{ ...auto, textAlign: 'center' }}><div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{k}</div><b>{num(v) ? num(v).toLocaleString() : '-'}</b></div>
+              ))}
+            </div>
+            <div style={{ ...hint, display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              {form.invoice?.bizNo ? `사업자번호 ${form.invoice.bizNo} · ` : ''}공급가액·부가세는 ④ 수리비·부가세 칸에 들어갑니다.
+              {form.lines.length > 0 && (
+                <button type="button" onClick={() => { const sup = lineSum('amount') - num(form.invoice?.discount); setCost({ repair: String(sup), vat: String(Math.round(sup * 0.1)) }); }}
+                  style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.05rem 0.5rem', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}>
+                  작업 합으로 수리비 다시 계산 (부가세 10%)
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* 1. 기본 */}
           <div style={card}>
             <h3 style={h2}>① 기본 정보</h3>
@@ -356,16 +538,17 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
 
           {/* 6. 증빙 */}
           <div style={{ ...card, gridColumn: '1 / -1' }}>
-            <h3 style={h2}>⑥ 수리 내역서 · 견적서 · 사진</h3>
-            {record ? (
-              <div style={hint}>테스트판에서는 파일을 새 기록에서만 올릴 수 있습니다. 이 기록의 파일 {(record.attachments || []).length || (record.fileName ? 1 : 0)}개</div>
-            ) : (
-              <>
-                <input type="file" multiple onChange={(e) => setFiles([...e.target.files])} style={{ fontSize: '0.8rem' }} />
-                {files.length > 0 && <div style={hint}>{files.map((f) => f.name).join(', ')}</div>}
-                <div style={hint}>파일은 계약자 OneDrive 폴더의 차량번호 폴더에 날짜별로 저장됩니다. 내역서 글자 자동 읽기(부품·공임·합계 표 채우기)는 다음 단계에서 붙입니다.</div>
-              </>
+            <h3 style={h2}>⑥ 붙일 파일 (내역서 · 견적서 · 사진)</h3>
+            {record && <div style={hint}>이 기록에 이미 붙은 파일 {(record.attachments || []).length || (record.fileName ? 1 : 0)}개. 새로 고르면 저장할 때 더 붙습니다.</div>}
+            <input type="file" multiple onChange={(e) => { const picked = [...e.target.files]; e.target.value = ''; setFiles((fs) => [...fs, ...picked]); }} style={{ fontSize: '0.8rem' }} />
+            {files.length > 0 && (
+              <div style={{ ...hint, display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                {files.map((f, i) => (
+                  <span key={`${f.name}-${i}`}>📎 {f.name} <button type="button" onClick={() => setFiles((fs) => fs.filter((_, j) => j !== i))} style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer', padding: 0 }}>×</button></span>
+                ))}
+              </div>
             )}
+            <div style={hint}>위에서 읽은 내역서도 여기에 함께 붙습니다. 파일은 계약자 OneDrive 폴더의 차량번호 폴더에 날짜별로 저장됩니다.</div>
           </div>
         </div>
       </div>

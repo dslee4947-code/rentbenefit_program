@@ -1,3 +1,5 @@
+import { previousBusinessDay } from './koreanHolidays.js';
+
 /**
  * 차량마다 다음 자동차검사·정기점검이 언제인지 계산한다.
  *
@@ -375,6 +377,18 @@ export const carAgeOf = (vehicle, records, today = new Date()) => {
 };
 
 /**
+ * AS 일정은 평일에만 잡는다(대표님 2026-10-30). 계산한 날이 주말·공휴일이면 그 전 평일로 당긴다.
+ * 뒤로 미루면 검사 기한을 넘길 수 있어 앞으로 당긴다. 원래 날은 movedFrom에 남긴다.
+ * 사람이 직접 잡은 일정(예정 기록)은 그 날 진행하는 것이라 옮기지 않는다.
+ */
+const onWeekday = (plan, today) => {
+  if (!plan?.date) return plan;
+  const moved = kstYmd(previousBusinessDay(`${plan.date}T00:00:00+09:00`));
+  if (!moved || moved === plan.date) return plan;
+  return { ...plan, date: moved, movedFrom: plan.date, dday: ddayOf(moved, today) };
+};
+
+/**
  * 차 한 대의 계획을 한 번에. 화면과 캘린더 작업이 이것만 부른다.
  * @returns {{inspection: object|null, maintenance: object|null, carAge: object|null, lastRecord: object|null, repairTotal: number}}
  */
@@ -385,8 +399,8 @@ export const planVehicle = (vehicle, records, today = new Date()) => {
   const sorted = [...records].sort((a, b) => (kstYmd(a.date) < kstYmd(b.date) ? 1 : -1));
   const last = sorted[0];
   return {
-    inspection: nextInspection(vehicle, records, today),
-    maintenance: nextMaintenance(vehicle, records, today),
+    inspection: onWeekday(nextInspection(vehicle, records, today), today),
+    maintenance: onWeekday(nextMaintenance(vehicle, records, today), today),
     carAge: carAgeOf(vehicle, records, today),
     lastRecord: last ? { kind: last.kind, date: kstYmd(last.date), description: last.description || '', amount: last.amount || 0 } : null,
     repairTotal: (records || []).filter((r) => REPAIR_KINDS.includes(r.kind)).reduce((s, r) => s + (Number(r.amount) || 0), 0)

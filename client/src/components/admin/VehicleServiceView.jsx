@@ -119,6 +119,9 @@ const togetherDateOf = (r) => {
   return m.date < i.date ? m.date : i.date;
 };
 
+// 서버가 주말·공휴일 날짜를 그 전 평일로 당겼으면 원래 날을 알려 준다
+const movedText = (p) => (p?.movedFrom ? ` · 원래 ${p.movedFrom}(쉬는 날이라 앞 평일로)` : '');
+
 const eventsOf = (r, today) => {
   const out = [];
   const age = r.carAge?.level ? r.carAge : null;
@@ -133,10 +136,10 @@ const eventsOf = (r, today) => {
   r = { ...r, inspection: bookedKinds.has('자동차검사') ? null : r.inspection, maintenance: bookedKinds.has('정기점검') ? null : r.maintenance, _row: r };
   const together = togetherDateOf(r);
   if (together) {
-    out.push({ kind: '검사+점검', date: together, overdue: together < today || inspOverdue, age, note: `자동차검사 ${r.inspection.date} · 정기점검 ${r.maintenance.date}` });
+    out.push({ kind: '검사+점검', date: together, overdue: together < today || inspOverdue, age, note: `자동차검사 ${r.inspection.date} · 정기점검 ${r.maintenance.date}${movedText(r.inspection)}${movedText(r.maintenance)}` });
   } else {
-    if (r.inspection) out.push({ kind: '자동차검사', date: r.inspection.date, overdue: inspOverdue, age, note: `받을 수 있는 기간 ${r.inspection.windowStart} ~ ${r.inspection.windowEnd}` });
-    if (r.maintenance) out.push({ kind: '정기점검', date: r.maintenance.date, overdue: r.maintenance.status === '지남', note: r.maintenance.basis || '' });
+    if (r.inspection) out.push({ kind: '자동차검사', date: r.inspection.date, overdue: inspOverdue, age, note: `받을 수 있는 기간 ${r.inspection.windowStart} ~ ${r.inspection.windowEnd}${movedText(r.inspection)}` });
+    if (r.maintenance) out.push({ kind: '정기점검', date: r.maintenance.date, overdue: r.maintenance.status === '지남', note: `${r.maintenance.basis || ''}${movedText(r.maintenance)}` });
   }
   // 장기렌트 계약 종료일. 지났는데 아직 장기렌트로 남아 있으면 반납·인수·연장 처리가 안 된 것이라 밀린 일로 올린다.
   if (r.contractEnd) out.push({ kind: '계약만료', date: r.contractEnd, overdue: r.contractEnd < today, note: `${r.contractNo ? `계약 ${r.contractNo} · ` : ''}${r.contractEnd < today ? '만료 지남 — 반납·인수·연장 처리 필요' : '반납·인수·연장 확인'}` });
@@ -480,7 +483,7 @@ const urgencyDday = (r) => {
 };
 
 /**
- * 차량 정비·검사 관리.
+ * 렌트 차량 AS (예전 이름 '정비·검사 관리').
  *
  * 운행 중인 차(장기렌트·단기렌트)마다 다음 자동차검사와 정기점검이 언제인지 보여 주고,
  * 정비·수리 기록을 남긴다. 기록을 남기면 다음 날짜가 바로 다시 계산되고 캘린더도 따라간다.
@@ -879,6 +882,11 @@ function VehicleServiceView({ showToast, currentUser }) {
                       )}
                       {(r.parts || []).length > 0 && <div style={small}>수리 부위: {r.parts.map((p) => `${p.zone}(${p.action})`).join(', ')}</div>}
                       {(r.consumables || []).length > 0 && <div style={small}>소모품: {r.consumables.join(', ')}</div>}
+                      {(r.lines || []).length > 0 && (
+                        <div style={small}>
+                          내역서 {r.lines.length}줄{r.invoice?.total ? ` · 합계 ${won(r.invoice.total)}` : ''}: {r.lines.slice(0, 4).map((l) => l.name).join(', ')}{r.lines.length > 4 ? ` 외 ${r.lines.length - 4}줄` : ''}
+                        </div>
+                      )}
                       {(r.attachments || []).length > 1 && (
                         <div style={{ ...small, display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                           {r.attachments.map((a, i) => (

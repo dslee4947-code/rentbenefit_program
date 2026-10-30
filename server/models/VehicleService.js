@@ -72,6 +72,15 @@ const VehicleServiceSchema = new Schema({
   // 정기점검 회차. 정기점검으로 처음 저장할 때 그 차의 정기점검 수 + 1로 붙는다.
   checkRound: Number,
 
+  // 수리 내역서에서 정리한 작업 줄과 합계 (2026-10-30, utils/repairInvoice.js).
+  // 내역서 글자를 읽어 양식에 채우고 사람이 확인해 저장한다. 읽은 글자(text)도 남겨 나중에 다시 정리할 수 있게 한다.
+  lines: [{ _id: false, name: String, qty: Number, unitPrice: Number, parts: Number, labor: Number, amount: Number }],
+  invoice: {
+    bizNo: String, issuedDate: String,
+    partsTotal: Number, laborTotal: Number, supply: Number, vat: Number, discount: Number, total: Number,
+    text: String
+  },
+
   // 수리 내역서·견적서·사진 여러 장
   attachments: [{ _id: false, fileName: String, savedPath: String, label: String }]
 }, { timestamps: true });

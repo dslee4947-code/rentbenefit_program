@@ -134,7 +134,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
     ] },
     { label: '차량', items: [
       { id: 'vehicles', name: '렌트차량 DB', icon: <Car size={ICON_SIZE} /> },
-      { id: 'vehicle-service', name: '정비·검사 관리', icon: <Wrench size={ICON_SIZE} /> },
+      { id: 'vehicle-service', name: '렌트 차량 AS', icon: <Wrench size={ICON_SIZE} /> },
       { id: 'short-term-rates', name: '단기렌트·사고대차 단가표', icon: <Tags size={ICON_SIZE} /> }
     ] },
     { label: '청구·정산', items: [
@@ -523,7 +523,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'delivery-prep' && '출고 준비'}
               {activeTab === 'delivery-docs' && '인도 서류 발송'}
               {activeTab === 'vehicles' && '렌트차량 DB 관리'}
-              {activeTab === 'vehicle-service' && '차량 정비·검사 관리'}
+              {activeTab === 'vehicle-service' && '렌트 차량 AS'}
               {activeTab === 'billing' && '장기렌트 청구서'}
               {activeTab === 'invoice-archive' && '청구서 보관함'}
               {activeTab === 'fine-notices' && '고지서 관리'}
@@ -550,7 +550,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'delivery-prep' && '계약은 완료됐지만 차량번호/차대번호 등 실물 등록이 아직 안 끝난 차량을 정리합니다.'}
               {activeTab === 'delivery-docs' && '차량 인도 다음 날 아침, 고객에게 계약사실 증명원과 상환스케쥴을 보냅니다.'}
               {activeTab === 'vehicles' && '전체 렌트 차량의 계약정보, 잔여일정, 담당 정비 내역을 상세 조회합니다.'}
-              {activeTab === 'vehicle-service' && '차마다 다음 자동차검사·정기점검 날짜를 챙기고, 정비·수리 이력과 누적 수리비를 남깁니다.'}
+              {activeTab === 'vehicle-service' && '차마다 다음 자동차검사·정기점검 날짜를 챙기고, 정비·수리 이력과 누적 수리비를 남깁니다. 수리 내역서를 올리면 작업 내역·금액이 정리됩니다.'}
               {activeTab === 'billing' && '계약 건별 대여료 및 기타 추가 납입 항목을 취합하여 프리미엄 청구서를 발행 및 관리합니다.'}
               {activeTab === 'invoice-archive' && '계약별로 1회차부터 모든 청구서를 보고, 과태료·자부담금을 더해 PDF로 만듭니다.'}
               {activeTab === 'fine-notices' && '범칙금·과태료·미납통행료 고지서를 모아 보고, 기한 안에 고객이 냈는지 확인해 청구 여부를 정합니다.'}

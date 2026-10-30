@@ -5,7 +5,7 @@ import '../models/Contract.js';
 import '../models/Company.js';
 import VehicleService from '../models/VehicleService.js';
 import { ACCIDENT_RENTAL_PARTY, SHORT_TERM_RENTAL_STATUS } from './accidentRentalCompany.js';
-import { planVehicle, addDays } from './vehicleServicePlan.js';
+import { planVehicle, addDays, kstYmd } from './vehicleServicePlan.js';
 
 // 정비·검사를 챙기는 차. 재고·거래완료 차는 우리가 굴리지 않으니 일정을 띄우지 않는다.
 export const SERVICE_ACTIVE_STATUSES = ['장기렌트', SHORT_TERM_RENTAL_STATUS];
@@ -131,12 +131,18 @@ export const syncVehicleServiceSchedules = async ({ dryRun = false } = {}) => {
   let removed = 0;
 
   for (const v of vehicles) {
-    const plan = planVehicle(v, recordsByVehicle.get(String(v._id)) || []);
+    const records = recordsByVehicle.get(String(v._id)) || [];
+    const plan = planVehicle(v, records);
     const partyName = partyNameOf(v);
 
     for (const { type, label, pick } of TYPES) {
-      const item = pick(plan);
-      if (!item) continue;
+      const planned = pick(plan);
+      if (!planned) continue;
+      // 직접 잡은 일정(예정·입고·수리 중 기록)이 있으면 그날 진행한다. 계산한 날 대신 그 날짜로 올린다.
+      const booking = records
+        .filter((r) => r.kind === label && r.status && r.status !== '완료' && r.date)
+        .sort((a, b) => new Date(a.date) - new Date(b.date))[0];
+      const item = booking ? { ...planned, date: kstYmd(booking.date) } : planned;
       const key = serviceKeyOf(type, v._id);
       keep.add(key);
       const dueDate = kstMidnight(item.date);

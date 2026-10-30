@@ -4,6 +4,7 @@ import { saveDocument, readSavedFile } from '../utils/documentStorageService.js'
 import { mimeTypeOf } from '../utils/oneDriveStorage.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
 import { vehicleEndOf, lastDayOf } from '../utils/contractTerm.js';
+import { readInvoiceText, parseRepairInvoice } from '../utils/repairInvoice.js';
 import { planVehicle, kstYmd, addMonths, SERVICE_KINDS, REPAIR_KINDS, INSPECTION_RULE, MAINTENANCE_RULE, CAR_AGE_RULE } from '../utils/vehicleServicePlan.js';
 import { SERVICE_ACTIVE_STATUSES, partyNameOf, syncVehicleServiceSchedules, loadServiceRecords } from '../utils/vehicleServiceScheduleJob.js';
 
@@ -175,6 +176,17 @@ const applyDetail = (record, b) => {
       .map((p) => ({ zone: String(p.zone), action: p.action, memo: String(p.memo || '') }));
   }
   if (Array.isArray(b.consumables)) record.consumables = b.consumables.map(String);
+  if (Array.isArray(b.lines)) {
+    record.lines = b.lines.filter((l) => String(l?.name || '').trim())
+      .map((l) => ({ name: String(l.name).trim(), ...Object.fromEntries(['qty', 'unitPrice', 'parts', 'labor', 'amount'].map((k) => [k, numberOrUndefined(l[k])])) }));
+  }
+  if (b.invoice) {
+    const inv = b.invoice;
+    record.invoice = {
+      bizNo: String(inv.bizNo || ''), issuedDate: String(inv.issuedDate || ''), text: String(inv.text || ''),
+      ...Object.fromEntries(['partsTotal', 'laborTotal', 'supply', 'vat', 'discount', 'total'].map((k) => [k, numberOrUndefined(inv[k])]))
+    };
+  }
 
   // 예전 칸과 맞춘다: 날짜는 출고(없으면 입고), 주행거리는 출고 때 값, 금액은 수리비 + 부가세
   if (!record.date && (record.outAt || record.inAt)) record.date = record.outAt || record.inAt;
@@ -207,6 +219,70 @@ const refreshSchedules = () => {
 const raiseVehicleMileage = async (vehicleId, mileage) => {
   if (!(Number(mileage) > 0)) return;
   await Vehicle.updateOne({ _id: vehicleId, currentMileage: { $lt: Number(mileage) } }, { $set: { currentMileage: Number(mileage) } });
+};
+
+/** 올린 파일을 계약자 OneDrive 폴더의 차량번호 폴더에 넣는다 → attachments 항목들 */
+const saveAttachments = async (vehicle, kind, dateRaw, uploads) => {
+  const attachments = [];
+  for (const [i, f] of uploads.entries()) {
+    const ext = (f.originalname.match(/\.[^.]+$/) || ['.pdf'])[0];
+    // 차량번호_날짜_종류: 같은 차의 영수증이 폴더에서 날짜순으로 늘어선다
+    const saved = await saveDocument({
+      partyName: partyNameOf(vehicle) || '계약사미상',
+      kind: DOC_KIND_OF[kind],
+      subFolder: vehicle.plateNo || '차량번호미상',
+      fileName: `${vehicle.plateNo || '차량'}_${kstYmd(dateRaw)}_${kind}${uploads.length > 1 ? `_${i + 1}` : ''}${ext}`,
+      fileBuffer: f.buffer,
+      keepPrevious: true // 같은 날 두 건(점검+수리)이면 이름이 같다. 덮지 않고 이름을 바꿔 남긴다
+    });
+    attachments.push({ fileName: saved.fileName, savedPath: saved.localPath, label: Buffer.from(f.originalname, 'latin1').toString('utf8') });
+  }
+  return attachments;
+};
+
+/**
+ * 수리 내역서를 읽어 양식에 채울 값을 돌려준다. 저장하지 않는다.
+ * 파일을 올리면 글자를 꺼내 정리하고, 화면에서 고친 글자(text)를 보내면 그 글자로 다시 정리한다.
+ *
+ * @route POST /api/vehicle-services/read-invoice
+ */
+export const readRepairInvoiceFile = async (req, res) => {
+  try {
+    let text = typeof req.body?.text === 'string' ? req.body.text : '';
+    let source = 'text';
+    if (req.file) {
+      const name = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+      ({ text, source } = await readInvoiceText(req.file.buffer, req.file.mimetype, name));
+    }
+    if (!text.trim()) return res.status(400).json({ success: false, message: '읽을 글자가 없습니다. 파일을 올리거나 내역서 글자를 붙여 넣어 주세요.' });
+    const parsed = parseRepairInvoice(text);
+    console.log(`[수리 내역서] ${source} ${text.length}자 · 줄 ${parsed.lines.length} · 합계 ${parsed.total}`);
+    res.json({ success: true, source, text, parsed });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 이미 있는 기록에 내역서·사진을 더 붙인다. 달력에서 '예정'으로 만든 뒤 수리가 끝나고 내역서를 받는 경우.
+ *
+ * @route POST /api/vehicle-services/:id/files
+ */
+export const addVehicleServiceFiles = async (req, res) => {
+  try {
+    const record = await VehicleService.findById(req.params.id);
+    if (!record) return res.status(404).json({ success: false, message: '기록을 찾을 수 없습니다.' });
+    if (!req.files?.length) return res.status(400).json({ success: false, message: '올린 파일이 없습니다.' });
+    const vehicle = await loadVehicle({ _id: record.vehicle });
+    if (!vehicle) return res.status(400).json({ success: false, message: '차량을 찾을 수 없습니다.' });
+    const added = await saveAttachments(vehicle, record.kind, record.date, req.files);
+    record.attachments = [...(record.attachments || []), ...added];
+    if (!record.savedPath) { record.fileName = added[0].fileName; record.savedPath = added[0].savedPath; }
+    await record.save();
+    res.json({ success: true, record, message: `파일 ${added.length}개를 붙였습니다.` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
 
 /**
@@ -267,20 +343,7 @@ export const createVehicleService = async (req, res) => {
 
     // 영수증·수리 내역서·사진. 예전 양식은 file 한 장, 상세 양식은 files 여러 장
     const uploads = [...(req.files?.file || []), ...(req.files?.files || []), ...(req.file ? [req.file] : [])];
-    const attachments = [];
-    for (const [i, f] of uploads.entries()) {
-      const ext = (f.originalname.match(/\.[^.]+$/) || ['.pdf'])[0];
-      // 차량번호_날짜_종류: 같은 차의 영수증이 폴더에서 날짜순으로 늘어선다
-      const saved = await saveDocument({
-        partyName: partyNameOf(vehicle) || '계약사미상',
-        kind: DOC_KIND_OF[kind],
-        subFolder: vehicle.plateNo || '차량번호미상',
-        fileName: `${vehicle.plateNo || '차량'}_${kstYmd(dateRaw)}_${kind}${uploads.length > 1 ? `_${i + 1}` : ''}${ext}`,
-        fileBuffer: f.buffer,
-        keepPrevious: true // 같은 날 두 건(점검+수리)이면 이름이 같다. 덮지 않고 이름을 바꿔 남긴다
-      });
-      attachments.push({ fileName: saved.fileName, savedPath: saved.localPath, label: Buffer.from(f.originalname, 'latin1').toString('utf8') });
-    }
+    const attachments = await saveAttachments(vehicle, kind, dateRaw, uploads);
 
     // 정기점검은 그 차의 몇 번째인지 붙인다
     const checkRound = kind === '정기점검'

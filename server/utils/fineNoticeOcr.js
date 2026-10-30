@@ -224,7 +224,7 @@ const toDate = (y, m, d, hh, mm) => {
  * @param {string[]} labels 찾을 라벨들 (앞에 있을수록 먼저 본다)
  * @returns {{date: string, time: string, label: string}|null}
  */
-const findLabeledDate = (flat, labels) => {
+export const findLabeledDate = (flat, labels) => {
   for (const label of labels) {
     const re = new RegExp(`${spaced(label)}\\s*[:\\-]?\\s*${DATE_RE}${TIME_RE}`);
     const m = re.exec(flat);

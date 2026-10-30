@@ -37,17 +37,18 @@ const sanitize = (body, { partial = false } = {}) => {
 };
 
 /**
- * @route GET /api/company-book/transactions?year=2025&account=salary&q=급여
+ * @route GET /api/company-book/transactions?year=2025&account=salary&q=급여  (accounts=interest,loanFee 처럼 여러 계정도 된다)
  * year를 비우면 전체. 합계에서 뺀 줄(excluded)도 같이 준다(화면에서 흐리게 보여 준다).
  */
 export const listTransactions = async (req, res) => {
   try {
-    const { year, account, section, q } = req.query;
+    const { year, account, accounts, section, q } = req.query;
     const filter = {};
     if (year && /^\d{4}$/.test(year)) {
       filter.date = { $gte: new Date(Date.UTC(+year, 0, 1) - 9 * 3600000), $lt: new Date(Date.UTC(+year + 1, 0, 1) - 9 * 3600000) };
     }
     if (account) filter.account = account;
+    else if (accounts) filter.account = { $in: String(accounts).split(',').filter(Boolean) }; // 요약 카드의 근거 보기(여러 계정)
     else if (section) filter.account = { $in: COMPANY_ACCOUNTS.filter((a) => a.section === section).map((a) => a.key) };
     if (q) {
       const rx = new RegExp(String(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Upload, Plus, Trash2, EyeOff, Eye, AlertTriangle } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { toCommaString, parseNumber } from '../../utils/format.js';
 import { COMPANY_ACCOUNTS, COMPANY_SECTIONS, accountOf, signedAmount } from '../../../../shared/companyAccounts.js';
 
@@ -34,12 +35,200 @@ const td = { padding: '0.35rem 0.55rem', borderBottom: '1px solid var(--border-c
 const inp = (w, right) => ({ width: w, padding: '0.3rem 0.4rem', border: '1px solid var(--border-color)', borderRadius: '5px', fontSize: '0.8rem', textAlign: right ? 'right' : 'left', background: 'var(--bg-surface)', color: 'var(--text-main)' });
 const tabBtn = (active) => ({ padding: '0.45rem 1rem', border: 'none', borderBottom: active ? '3px solid var(--primary)' : '3px solid transparent', background: 'none', fontWeight: active ? '800' : '600', color: active ? 'var(--primary)' : 'var(--text-muted)', cursor: 'pointer', fontSize: '0.9rem' });
 
-function Kpi({ label, value, sub, warn }) {
+function Kpi({ label, value, sub, warn, onClick }) {
   return (
-    <div style={card}>
-      <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', fontWeight: '600' }}>{label}</div>
+    <div style={{ ...card, cursor: onClick ? 'pointer' : 'default' }} onClick={onClick} title={onClick ? '눌러서 이 금액이 나온 근거 보기' : undefined}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem', color: 'var(--text-muted)', fontWeight: '600' }}>
+        <span>{label}</span>
+        {onClick && <span style={{ color: 'var(--primary)', whiteSpace: 'nowrap' }}>근거 보기 ›</span>}
+      </div>
       <div style={{ fontSize: '1.35rem', fontWeight: '800', color: warn ? '#d9534f' : 'var(--text-main)' }}>{value}</div>
       {sub && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{sub}</div>}
+    </div>
+  );
+}
+
+// ───────────────────────── 숫자 카드의 근거 (어느 줄을 어떻게 더했나)
+
+const sourceOf = (t) => (t.source === 'excel' ? `${t.sourceSheet || ''} › ${t.sourceColumn || ''}${t.sourceRow ? ` · ${t.sourceRow}행` : ''}` : '직접 입력');
+
+/**
+ * 요약 카드를 누르면 뜨는 창. 카드 금액에 들어간 줄을 날짜순으로 모두 보여 주고,
+ * 계정별·엑셀 칸별·기간별로 나눠 더한 표와 누적 합계를 같이 보여 준다. 엑셀로도 받을 수 있다.
+ * spec: { title, formula, year(없으면 전체 기간), accounts[], value(카드 금액), byYear(기간 표를 연도별로) }
+ */
+function SourceDialog({ spec, onClose, onOpenAccount, showToast }) {
+  const [items, setItems] = useState(null);
+
+  useEffect(() => {
+    const qs = new URLSearchParams({ accounts: spec.accounts.join(',') });
+    if (spec.year) qs.set('year', spec.year);
+    fetch(`${API_HOST}/api/company-book/transactions?${qs}`)
+      .then((r) => r.json())
+      .then((d) => { if (!d.success) throw new Error(d.message); setItems(d.items); })
+      .catch((err) => { showToast(err.message || '근거 줄을 불러오지 못했습니다.', 'error'); setItems([]); });
+  }, [spec, showToast]);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  // 날짜 오래된 순으로 누적을 쌓는다. 합계에서 뺀 줄은 보여 주되 더하지 않는다
+  const rows = useMemo(() => {
+    const sorted = [...(items || [])].sort((a, b) => new Date(a.date) - new Date(b.date) || String(a._id).localeCompare(String(b._id)));
+    const out = [];
+    for (const t of sorted) {
+      const v = t.excluded ? 0 : signedAmount(t);
+      out.push({ ...t, v, run: (out.length ? out[out.length - 1].run : 0) + v });
+    }
+    return out;
+  }, [items]);
+  const total = rows.length ? rows[rows.length - 1].run : 0;
+  const counted = rows.filter((t) => !t.excluded);
+
+  const groupBy = (keyOf, labelOf) => {
+    const m = new Map();
+    for (const t of counted) {
+      const k = keyOf(t);
+      const g = m.get(k) || { key: k, label: labelOf(t), n: 0, out: 0, in: 0, v: 0 };
+      g.n += 1;
+      g[t.direction === '출금' ? 'out' : 'in'] += t.amount;
+      g.v += t.v;
+      m.set(k, g);
+    }
+    return [...m.values()];
+  };
+  const byAccount = groupBy((t) => t.account, (t) => accountOf(t.account).name).sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
+  const bySource = groupBy((t) => sourceOf({ ...t, sourceRow: null }), (t) => sourceOf({ ...t, sourceRow: null })).sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
+  const periodKey = (t) => {
+    const d = new Date(t.date);
+    return spec.byYear ? `${d.getFullYear()}년` : `${d.getMonth() + 1}월`;
+  };
+  const byPeriod = [];
+  for (const g of groupBy(periodKey, periodKey).sort((a, b) => parseInt(a.key, 10) - parseInt(b.key, 10))) {
+    byPeriod.push({ ...g, run: (byPeriod.length ? byPeriod[byPeriod.length - 1].run : 0) + g.v });
+  }
+
+  const download = () => {
+    const wb = XLSX.utils.book_new();
+    const head = [[spec.title], [`계산: ${spec.formula}`], [`합계: ${total}원`], []];
+    const detail = [...head, ['번호', '날짜', '계정', '내역', '출금', '입금', '반영 금액', '누적', '출처', '메모']];
+    rows.forEach((t, i) => detail.push([i + 1, ymd(t.date), accountOf(t.account).name, t.description, t.direction === '출금' ? t.amount : '', t.direction === '입금' ? t.amount : '', t.excluded ? `합계 제외(${t.excludeReason || ''})` : t.v, t.run, sourceOf(t), t.memo || '']));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(detail), '근거 줄');
+    const sheetOf = (title, list, withRun) => XLSX.utils.aoa_to_sheet([
+      [title, '줄 수', '출금', '입금', '반영 금액', ...(withRun ? ['누적'] : [])],
+      ...list.map((g) => [g.label, g.n, g.out, g.in, g.v, ...(withRun ? [g.run] : [])])
+    ]);
+    XLSX.utils.book_append_sheet(wb, sheetOf(spec.byYear ? '연도' : '월', byPeriod, true), spec.byYear ? '연도별' : '월별');
+    XLSX.utils.book_append_sheet(wb, sheetOf('계정', byAccount), '계정별');
+    XLSX.utils.book_append_sheet(wb, sheetOf('엑셀 시트 › 칸', bySource), '출처별');
+    XLSX.writeFile(wb, `회사장부_근거_${spec.title.replace(/[\\/:*?"<>|\s]+/g, '_')}_${ymd(new Date())}.xlsx`);
+  };
+
+  const won = (n) => (n ? toCommaString(Math.round(n)) : '-');
+  const sumTable = (title, list, withRun) => (
+    <div style={{ flex: '1 1 300px', minWidth: 0 }}>
+      <div style={{ fontWeight: '800', fontSize: '0.84rem', marginBottom: '0.3rem' }}>{title}</div>
+      <div style={{ overflow: 'auto', maxHeight: '260px', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+        <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: '100%' }}>
+          <thead><tr>{['', '줄', '출금', '입금', '반영', ...(withRun ? ['누적'] : [])].map((h, i) => <th key={i} style={{ ...th, textAlign: i ? 'right' : 'left' }}>{h}</th>)}</tr></thead>
+          <tbody>
+            {list.map((g) => (
+              <tr key={g.key}>
+                <td style={{ ...td, textAlign: 'left', whiteSpace: 'normal' }}>{g.label}</td>
+                <td style={td}>{g.n}</td>
+                <td style={td}>{won(g.out)}</td>
+                <td style={{ ...td, color: '#2e7d32' }}>{won(g.in)}</td>
+                <td style={{ ...td, fontWeight: '700' }}>{won(g.v)}</td>
+                {withRun && <td style={{ ...td, fontWeight: '700' }}>{won(g.run)}</td>}
+              </tr>
+            ))}
+            <tr style={{ fontWeight: '800', background: 'var(--bg-main)' }}>
+              <td style={{ ...td, textAlign: 'left' }}>합계</td>
+              <td style={td}>{counted.length}</td>
+              <td style={td}>{won(list.reduce((s, g) => s + g.out, 0))}</td>
+              <td style={{ ...td, color: '#2e7d32' }}>{won(list.reduce((s, g) => s + g.in, 0))}</td>
+              <td style={td}>{won(total)}</td>
+              {withRun && <td style={td}>{won(total)}</td>}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const matches = Math.round(total) === Math.round(spec.value);
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '3vh 1rem', overflow: 'auto' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ ...card, width: 'min(1250px, 100%)', display: 'flex', flexDirection: 'column', gap: '0.9rem', boxShadow: '0 10px 40px rgba(0,0,0,0.25)' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.8rem', flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: '1.05rem', fontWeight: '800' }}>{spec.title} — 근거</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem', lineHeight: 1.6 }}>{spec.formula}</div>
+          </div>
+          <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+            <div style={{ fontSize: '1.3rem', fontWeight: '800' }}>{toCommaString(Math.round(total))}원</div>
+            {items && (
+              <div style={{ fontSize: '0.74rem', color: matches ? '#15803d' : '#d9534f', fontWeight: '700' }}>
+                {matches ? `✓ 카드 금액(${man(spec.value)}만 원)과 같습니다` : `카드 금액 ${toCommaString(Math.round(spec.value))}원과 다릅니다`}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+          <button type="button" disabled={!items?.length} onClick={download} style={{ padding: '0.4rem 0.9rem', border: '1px solid var(--border-color)', borderRadius: '6px', background: 'var(--bg-surface)', fontWeight: '700', cursor: 'pointer' }}>엑셀로 받기</button>
+          {spec.accounts.length === 1 && (
+            <button type="button" onClick={() => { onClose(); onOpenAccount(spec.accounts[0], spec.year); }} style={{ padding: '0.4rem 0.9rem', border: '1px solid var(--border-color)', borderRadius: '6px', background: 'var(--bg-surface)', fontWeight: '700', cursor: 'pointer' }}>줄 목록에서 고치기</button>
+          )}
+          <button type="button" onClick={onClose} style={{ marginLeft: 'auto', padding: '0.4rem 0.9rem', border: 'none', borderRadius: '6px', background: 'var(--primary)', color: '#fff', fontWeight: '700', cursor: 'pointer' }}>닫기</button>
+        </div>
+
+        {items === null ? (
+          <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>근거 줄을 불러오는 중…</div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap' }}>
+              {sumTable(spec.byYear ? '연도별 (누적 = 그해 말 잔액)' : '월별', byPeriod, true)}
+              {sumTable('계정별', byAccount)}
+              {sumTable('엑셀 시트 › 칸별 (어디서 가져왔나)', bySource)}
+            </div>
+
+            <div>
+              <div style={{ fontWeight: '800', fontSize: '0.84rem', marginBottom: '0.3rem' }}>
+                더한 줄 {counted.length.toLocaleString()}개{rows.length > counted.length && <span style={{ color: 'var(--text-muted)', fontWeight: '600' }}> · 흐린 줄 {rows.length - counted.length}개는 겹친 줄 등이라 합계에서 뺐습니다</span>}
+              </div>
+              <div style={{ overflow: 'auto', maxHeight: '50vh', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: '100%' }}>
+                  <thead>
+                    <tr>{['#', '날짜', '계정', '내역', '출금', '입금', '반영 금액', '누적', '출처 (엑셀 시트 › 칸 · 행)', '메모'].map((h) => <th key={h} style={{ ...th, textAlign: ['출금', '입금', '반영 금액', '누적', '#'].includes(h) ? 'right' : 'left' }}>{h}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {rows.length === 0 && <tr><td colSpan={10} style={{ ...td, textAlign: 'left', color: 'var(--text-muted)' }}>이 금액에 들어간 줄이 없습니다.</td></tr>}
+                    {rows.map((t, i) => (
+                      <tr key={t._id} style={{ opacity: t.excluded ? 0.45 : 1 }}>
+                        <td style={{ ...td, color: 'var(--text-muted)' }}>{i + 1}</td>
+                        <td style={{ ...td, textAlign: 'left' }}>{ymd(t.date)}</td>
+                        <td style={{ ...td, textAlign: 'left' }}>{accountOf(t.account).name}</td>
+                        <td style={{ ...td, textAlign: 'left', whiteSpace: 'normal', minWidth: '180px' }}>{t.description}</td>
+                        <td style={td}>{t.direction === '출금' ? toCommaString(t.amount) : ''}</td>
+                        <td style={{ ...td, color: '#2e7d32' }}>{t.direction === '입금' ? toCommaString(t.amount) : ''}</td>
+                        <td style={{ ...td, fontWeight: '700', color: t.v < 0 ? '#2e7d32' : undefined }}>{t.excluded ? '합계 제외' : toCommaString(t.v)}</td>
+                        <td style={td}>{toCommaString(t.run)}</td>
+                        <td style={{ ...td, textAlign: 'left', color: 'var(--text-muted)', fontSize: '0.74rem' }}>{sourceOf(t)}</td>
+                        <td style={{ ...td, textAlign: 'left', whiteSpace: 'normal', color: 'var(--text-muted)', fontSize: '0.74rem' }}>{[t.memo, t.excluded ? t.excludeReason : ''].filter(Boolean).join(' · ')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -60,9 +249,11 @@ function AccountSelect({ value, onChange, style }) {
 
 // ───────────────────────── 요약 (연도별 / 월별 표)
 
-function SummaryTab({ summary, onOpenAccount }) {
+function SummaryTab({ summary, onOpenAccount, showToast }) {
   const years = useMemo(() => [...new Set(summary.rows.map((r) => r.year))].sort(), [summary]);
   const [focusYear, setFocusYear] = useState(null);
+  const [source, setSource] = useState(null); // 근거를 보고 있는 카드
+  const closeSource = useCallback(() => setSource(null), []);
   const [mode, setMode] = useState('year'); // year: 연도별, month: focusYear의 월별
   const year = focusYear || years[years.length - 1];
 
@@ -125,12 +316,30 @@ function SummaryTab({ summary, onOpenAccount }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '0.8rem' }}>
-        <Kpi label={`${year}년 본사 비용(판관비)`} value={`${man(opexNow)}만 원`} sub={pct(opexNow, opexPrev) !== null ? `전년 ${man(opexPrev)}만 원 대비 ${pct(opexNow, opexPrev) > 0 ? '+' : ''}${pct(opexNow, opexPrev)}%` : '전년 자료 없음'} />
-        <Kpi label={`${year}년 인건비`} value={`${man(laborNow)}만 원`} sub={`본사 비용의 ${opexNow ? Math.round((laborNow / opexNow) * 100) : 0}%${pct(laborNow, laborPrev) !== null ? `, 전년 대비 ${pct(laborNow, laborPrev) > 0 ? '+' : ''}${pct(laborNow, laborPrev)}%` : ''}`} />
-        <Kpi label={`${year}년 대출이자`} value={`${man(sumOf(['interest', 'loanFee'], y0))}만 원`} sub="은행대출 시트 기준(차량 할부이자는 원장에 있음)" />
-        <Kpi label="대표 차입금 잔액" value={`${man(ownerLoan)}만 원`} sub="대표님이 넣은 돈 − 회사가 갚은 돈 (자본금은 따로)" />
-        <Kpi label={`${year}년 분류 필요`} value={`${man(unsorted)}만 원`} sub="법인카드 결제 총액·기타. 카드사 내역으로 나눠야 합니다" warn={unsorted > 0} />
+        <Kpi
+          label={`${year}년 본사 비용(판관비)`} value={`${man(opexNow)}만 원`}
+          sub={pct(opexNow, opexPrev) !== null ? `전년 ${man(opexPrev)}만 원 대비 ${pct(opexNow, opexPrev) > 0 ? '+' : ''}${pct(opexNow, opexPrev)}%` : '전년 자료 없음'}
+          onClick={() => setSource({ title: `${year}년 본사 비용(판관비)`, year: y0, accounts: opexKeys, value: opexNow, formula: `${year}년 1~12월, 판매비와 관리비 계정(인건비·사무실·수수료·영업·차량 공통·분류 필요)의 나간 돈 − 들어온 돈(환급). 합계에서 뺀 줄은 넣지 않습니다.` })}
+        />
+        <Kpi
+          label={`${year}년 인건비`} value={`${man(laborNow)}만 원`}
+          sub={`본사 비용의 ${opexNow ? Math.round((laborNow / opexNow) * 100) : 0}%${pct(laborNow, laborPrev) !== null ? `, 전년 대비 ${pct(laborNow, laborPrev) > 0 ? '+' : ''}${pct(laborNow, laborPrev)}%` : ''}`}
+          onClick={() => setSource({ title: `${year}년 인건비`, year: y0, accounts: LABOR, value: laborNow, formula: `${year}년 1~12월, 급여 + 4대보험·퇴직연금·원천세 계정의 나간 돈 − 들어온 돈(환급).` })}
+        />
+        <Kpi
+          label={`${year}년 대출이자`} value={`${man(sumOf(['interest', 'loanFee'], y0))}만 원`} sub="은행대출 시트 기준(차량 할부이자는 원장에 있음)"
+          onClick={() => setSource({ title: `${year}년 대출이자`, year: y0, accounts: ['interest', 'loanFee'], value: sumOf(['interest', 'loanFee'], y0), formula: `${year}년 1~12월, 대출이자 + 대출 부대비용(약정수수료·채권) 계정의 나간 돈 − 들어온 돈. 차량 할부이자는 차량 손익 원장에 있어 여기 없습니다.` })}
+        />
+        <Kpi
+          label="대표 차입금 잔액" value={`${man(ownerLoan)}만 원`} sub="대표님이 넣은 돈 − 회사가 갚은 돈 (자본금은 따로)"
+          onClick={() => setSource({ title: '대표 차입금 잔액', year: null, accounts: ['ownerLoan'], value: ownerLoan, byYear: true, formula: '처음부터 지금까지 대표 차입금 계정에서 회사로 들어온 돈(대표님이 넣은 돈) − 회사에서 나간 돈(대표님께 갚은 돈). 누적 칸이 그날까지의 잔액입니다. 자본금은 따로 셉니다.' })}
+        />
+        <Kpi
+          label={`${year}년 분류 필요`} value={`${man(unsorted)}만 원`} sub="법인카드 결제 총액·기타. 카드사 내역으로 나눠야 합니다" warn={unsorted > 0}
+          onClick={() => setSource({ title: `${year}년 분류 필요`, year: y0, accounts: ['card', 'other'], value: unsorted, formula: `${year}년 1~12월, 법인카드(내역 모름) + 기타 계정. 줄 목록에서 알맞은 계정으로 바꾸면 여기서 빠집니다.` })}
+        />
       </div>
+      {source && <SourceDialog spec={source} onClose={closeSource} onOpenAccount={onOpenAccount} showToast={showToast} />}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
         <button type="button" style={tabBtn(mode === 'year')} onClick={() => setMode('year')}>연도별</button>
@@ -421,6 +630,7 @@ function CompanyBookView({ showToast }) {
         <SummaryTab
           key={summary.rows.length}
           summary={summary}
+          showToast={showToast}
           onOpenAccount={(account, year) => { setFilter({ year: year ? String(year) : '', account, q: '' }); setTab('list'); }}
         />
       )}

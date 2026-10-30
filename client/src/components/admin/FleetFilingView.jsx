@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import FleetFilingDocs from './FleetFilingDocs.jsx';
 import { makeA4PagesPdf } from '../../utils/printFit.js';
-import { FILING_KINDS, filingSheetOf, defaultReasonOf, defaultRegistrationLabelOf, carTypeKey } from '../../../../shared/fleetFiling.js';
+import { FILING_KINDS, filingSheetOf, defaultReasonOf, defaultRegistrationLabelOf, carTypeKey, compareFleet } from '../../../../shared/fleetFiling.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 const API = `${API_HOST}/api/fleet-filings`;
@@ -274,6 +274,121 @@ function CarTypesPanel({ info, canEdit, onSaveInfo }) {
   );
 }
 
+/* ── 차량 현황 대조 ─────────────────────────────────────────── */
+
+const STATUS_TAG = { 장기렌트: ['장기', '#1e3a8a'], 단기렌트: ['단기', '#047857'], 재고: ['재고', '#6b7280'], 계약중: ['출고 전', '#b45309'] };
+
+function VehicleChip({ v, rate }) {
+  const [label, color] = STATUS_TAG[v.status] || [v.status, '#6b7280'];
+  const detail = v.status === '단기렌트'
+    ? (rate ? `1개월 ${Math.round(rate).toLocaleString()}원` : '단기 요금 없음')
+    : v.status === '재고' ? '대기' : (v.party || '계약사 없음');
+  return (
+    <span title={v.carModel} style={{ display: 'inline-flex', gap: '0.3rem', alignItems: 'center', border: `1px solid ${color}55`, borderRadius: '6px', padding: '0.1rem 0.4rem', fontSize: '0.76rem', background: 'var(--bg-surface)', whiteSpace: 'nowrap' }}>
+      <b style={{ color }}>{label}</b>
+      <span>{v.plateNo || v.code}</span>
+      <span style={{ color: 'var(--text-muted)' }}>{detail}</span>
+    </span>
+  );
+}
+
+/**
+ * 구청 신고 대수(신구사업대비표) ↔ 렌트차량 DB를 차종마다 맞춰 본다(대표님 2026-10-30).
+ * 장기는 계약사, 단기는 단기 1개월 요금을 붙인다. 30초마다·창으로 돌아올 때 새로 읽어 상태가 바뀌면 바로 보인다.
+ */
+function FleetComparePanel({ info, vehicles, onRefresh, refreshedAt }) {
+  const [onlyDiff, setOnlyDiff] = useState(false);
+  const [open, setOpen] = useState({});
+  const [q, setQ] = useState('');
+  const [rates, setRates] = useState({});
+
+  useEffect(() => {
+    let alive = true;
+    const loadRates = () => fetch(`${API_HOST}/api/short-term-rates`)
+      .then((r) => r.json())
+      .then((d) => { if (alive && d.success) setRates(Object.fromEntries((d.cars || []).map((c) => [String(c.vehicleId), c.rates?.month]))); })
+      .catch(() => {});
+    loadRates();
+    const tick = () => { onRefresh(); loadRates(); };
+    const timer = setInterval(tick, 30000);
+    window.addEventListener('focus', tick);
+    return () => { alive = false; clearInterval(timer); window.removeEventListener('focus', tick); };
+  }, [onRefresh]);
+
+  const { rows, unmatched } = useMemo(() => compareFleet(info.carTypes, vehicles), [info.carTypes, vehicles]);
+  const registered = rows.reduce((s, r) => s + r.registered, 0);
+  const running = rows.reduce((s, r) => s + r.running.length, 0) + unmatched.filter((v) => v.status !== '계약중').length;
+  const pending = vehicles.filter((v) => v.status === '계약중').length;
+  const count = (st) => vehicles.filter((v) => v.status === st).length;
+  const diffRows = rows.filter((r) => r.diff !== 0);
+  const words = q.trim().toLowerCase();
+  const shown = rows.filter((r) => (!onlyDiff || r.diff !== 0 || r.pending.length)
+    && (!words || `${r.name} ${r.running.map((v) => `${v.code} ${v.plateNo} ${v.party} ${v.carModel}`).join(' ')}`.toLowerCase().includes(words)));
+
+  return (
+    <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', alignItems: 'center' }}>
+        <b style={{ fontSize: '0.95rem' }}>차량 현황 대조</b>
+        <span style={{ fontSize: '0.84rem' }}>
+          구청 신고 <b>{registered}대</b> · 렌트차량 DB 운용 <b style={{ color: running === registered ? '#15803d' : '#d9534f' }}>{running}대</b>
+          <span style={{ color: 'var(--text-muted)' }}> (장기 {count('장기렌트')} · 단기 {count('단기렌트')} · 재고 {count('재고')}){pending ? ` · 출고 전 ${pending}대` : ''}</span>
+        </span>
+        <span style={{ fontSize: '0.8rem', color: diffRows.length ? '#d9534f' : '#15803d', fontWeight: 700 }}>
+          {diffRows.length ? `대수가 다른 차종 ${diffRows.length}개` : '차종별 대수가 모두 맞습니다'}
+        </span>
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+          <label style={{ fontSize: '0.8rem', display: 'flex', gap: '0.25rem', alignItems: 'center' }}><input type="checkbox" checked={onlyDiff} onChange={(e) => setOnlyDiff(e.target.checked)} />다른 것만</label>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="차종·번호·계약사" style={{ ...input, width: '150px' }} />
+          <button type="button" style={btn()} onClick={onRefresh}>새로고침</button>
+        </span>
+      </div>
+      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+        렌트차량 DB의 장기렌트·단기렌트·재고를 신고된 차로 셉니다. 계약중(출고 전)은 따로 보여 주고, 출고되면 증차 공문이 필요합니다. {refreshedAt && `${refreshedAt} 기준 · 30초마다 새로 읽습니다.`}
+      </div>
+      <div style={{ overflow: 'auto', maxHeight: '70vh' }}>
+        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
+          <thead><tr>{['차종', '신고', 'DB', '차이', '차량 (장기: 계약사 · 단기: 1개월 요금)'].map((h) => <th key={h} style={{ ...th, position: 'sticky', top: 0, zIndex: 1 }}>{h}</th>)}</tr></thead>
+          <tbody>
+            {shown.map((r, i) => {
+              const list = [...r.running, ...r.pending];
+              const many = list.length > 10 && !open[i];
+              return (
+                <tr key={`${r.name}-${i}`} style={{ background: r.diff ? '#fef2f2' : undefined }}>
+                  <td style={{ ...td, fontWeight: 800, whiteSpace: 'nowrap' }}>{r.name}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{r.registered}</td>
+                  <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{r.running.length}</td>
+                  <td style={{ ...td, textAlign: 'right', fontWeight: 800, color: r.diff > 0 ? '#d9534f' : r.diff < 0 ? '#b45309' : '#15803d', whiteSpace: 'nowrap' }}>
+                    {r.diff === 0 ? '✓' : r.diff > 0 ? `+${r.diff} 신고 부족` : `${r.diff} 차 없음`}
+                  </td>
+                  <td style={td}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                      {(many ? list.slice(0, 10) : list).map((v) => <VehicleChip key={v._id} v={v} rate={rates[String(v._id)]} />)}
+                      {list.length > 10 && (
+                        <button type="button" style={{ ...btn(), padding: '0.05rem 0.5rem', fontSize: '0.74rem' }} onClick={() => setOpen((o) => ({ ...o, [i]: !o[i] }))}>
+                          {many ? `… ${list.length - 10}대 더 보기` : '접기'}
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {unmatched.length > 0 && (
+        <div style={{ fontSize: '0.8rem' }}>
+          <b style={{ color: '#b45309' }}>대비표 차종에 없는 차 {unmatched.length}대</b>
+          <span style={{ color: 'var(--text-muted)' }}> — 처음 들이는 차종이면 증차 공문에서 새 차종으로 넣고, 이름만 다르면 shared/fleetFiling.js의 차종 규칙에 한 줄 더합니다.</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.3rem' }}>
+            {unmatched.map((v) => <span key={v._id} style={{ fontSize: '0.76rem' }}><VehicleChip v={v} rate={rates[String(v._id)]} /> {v.carModel}</span>)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── 기본 정보 ─────────────────────────────────────────────── */
 
 function InfoPanel({ info, canEdit, onSaveInfo }) {
@@ -318,12 +433,18 @@ function FleetFilingView({ showToast, currentUser }) {
   const [showHistory, setShowHistory] = useState(false);
   const fileRef = useRef(null);
   const noticeRef = useRef(null);
-  const [noticePick, setNoticePick] = useState(null); // 맞는 공문을 못 고른 구청 알림 { file, notice, candidates, message }
+  const [noticePick, setNoticePick] = useState(null);
+  const [refreshedAt, setRefreshedAt] = useState(''); // 맞는 공문을 못 고른 구청 알림 { file, notice, candidates, message }
   const canEdit = currentUser?.role && currentUser.role !== 'viewer';
 
   const load = useCallback(() => fetch(API)
     .then((r) => r.json())
-    .then((d) => { if (!d.success) throw new Error(d.message); setData(d); return d; })
+    .then((d) => {
+      if (!d.success) throw new Error(d.message);
+      setData(d);
+      setRefreshedAt(new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      return d;
+    })
     .catch((err) => showToast(err.message || '증차·감차 공문을 불러오지 못했습니다.', 'error')), [showToast]);
 
   useEffect(() => { load(); }, [load]);
@@ -465,7 +586,7 @@ function FleetFilingView({ showToast, currentUser }) {
       <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', borderBottom: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
         <button type="button" style={tabBtn(tab === 'filings')} onClick={() => setTab('filings')}>공문 {own.length}</button>
         <button type="button" style={tabBtn(tab === 'types')} onClick={() => setTab('types')}>차종별 신고 대수</button>
-        <button type="button" style={tabBtn(tab === 'info')} onClick={() => setTab('info')}>법인·차고지</button>
+        <button type="button" style={tabBtn(tab === 'info')} onClick={() => setTab('info')}>법인·차고지 · 차량 현황</button>
         {canEdit && (
           <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem', paddingBottom: '0.3rem' }}>
             <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={(e) => upload(e.target.files?.[0])} />
@@ -538,7 +659,12 @@ function FleetFilingView({ showToast, currentUser }) {
       )}
 
       {tab === 'types' && <CarTypesPanel key={data.info.updatedAt} info={info} canEdit={canEdit} onSaveInfo={saveInfo} />}
-      {tab === 'info' && <InfoPanel key={data.info.updatedAt} info={info} canEdit={canEdit} onSaveInfo={saveInfo} />}
+      {tab === 'info' && (
+        <>
+          <FleetComparePanel info={info} vehicles={data.vehicles || []} onRefresh={load} refreshedAt={refreshedAt} />
+          <InfoPanel key={data.info.updatedAt} info={info} canEdit={canEdit} onSaveInfo={saveInfo} />
+        </>
+      )}
     </div>
   );
 }

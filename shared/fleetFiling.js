@@ -141,3 +141,100 @@ export const applyFilingToCarTypes = (carTypes, items, sign = 1) => {
   });
   return list;
 };
+
+/**
+ * 렌트차량 DB의 차종 이름 → 신구사업대비표 차종(대표님 2026-10-30 "G80 8대이면 G80을 계약한 계약사를 나열").
+ *
+ * 차량 DB는 'Ray Van 스탠다드 A/T', 'Grander 르블랑', 'G80 2.5T AWD'처럼 세부 사양까지 적혀 있고 영어·한글이 섞여 있다.
+ * 위에서부터 처음 맞는 규칙의 대비표 차종으로 본다. 규칙에 없으면 대비표 이름이 차종 이름 앞에 오는지로 맞춘다.
+ * 대비표에 차종이 새로 생기거나 이름이 바뀌면 여기에 한 줄 더한다.
+ */
+export const FLEET_MODEL_RULES = [
+  [/^(더\s*뉴\s*)?(ray|레이)/i, 'Ray van'],                // 레이·레이 밴 모두 대비표 'Ray van' 한 줄로 신고
+  [/maybach|마이바흐/i, 'May S580'],
+  [/^s\s?580/i, 'S580'],
+  [/^s\s?500/i, 'S500'],
+  [/^s\s?450/i, 'S450'],
+  [/^s\s?400\s?d/i, 'S400d'],
+  [/^gle\s?450/i, 'GLE450'],
+  [/^gle\s?350\s?e/i, 'GLE350e'],
+  [/^gls\s?400/i, 'GLS400d'],
+  [/^g\s?(63|450|500)\b/i, 'Benz-G'],
+  [/^cle\s?200/i, 'CLE200'],
+  [/^c\s?300/i, 'C300'],
+  [/^e\s?(\d{3})/i, (m) => `E${m[1]}`],
+  [/casper|캐스퍼/i, '캐스퍼'],
+  [/^k5/i, 'K5(H)'],
+  [/^gv80.*(hev|하이브리드|\(h\))/i, 'GV80(H)'],
+  [/^gv80/i, 'GV80'],
+  [/^gv70/i, 'GV70'],
+  [/^g90/i, 'G90'],
+  [/^g80/i, 'G80'],
+  [/^grander\s*르블랑|^그랜저\s*ig/i, '그랜저'],          // 옛 그랜저(IG) 1대
+  [/grander|그랜저|grandeur/i, '그랜저(신)'],
+  [/avante|아반떼/i, '아반떼'],
+  [/carnival|카니발/i, 'Canival'],
+  [/sportage|스포티지/i, '스포티지'],
+  [/sorento|쏘렌토/i, '쏘렌토'],
+  [/(cona|코나).*(전기|ev)/i, '코나(전기차)'],
+  [/cona|코나|kona/i, '코나(H)'],
+  [/mojave|mohave|모하비/i, '모하비'],
+  [/niro|니로/i, '니로(H)'],
+  [/palisade|팰리세이드|펠리세이드/i, '팰리세이드'],
+  [/^rx\s?350/i, 'RX 350h'],
+  [/^es\s?300/i, 'ES300h'],
+  [/alphard|알파드/i, '알파드'],
+  [/koleos|콜레오스/i, '콜레오스'],
+  [/sonata|쏘나타/i, '쏘나타'],
+  [/ioniq\s?6|ionic\s?6|아이오닉\s?6/i, '아이오닉6'],
+  [/tucson|투싼/i, '투싼'],
+  [/model\s?s\b/i, '모델 S'],
+  [/seltos|셀토스/i, '셀토스']
+];
+
+/** 차 한 대가 대비표의 어느 차종인지. 대비표에 없는 차종이면 null. */
+export const carTypeOfVehicle = (carModel, carTypes) => {
+  const model = String(carModel || '').trim();
+  const has = (name) => (carTypes || []).find((t) => carTypeKey(t.name) === carTypeKey(name));
+  for (const [re, target] of FLEET_MODEL_RULES) {
+    const m = model.match(re);
+    if (m) {
+      const t = has(typeof target === 'function' ? target(m) : target);
+      if (t) return t.name;
+    }
+  }
+  const key = carTypeKey(model);
+  const byPrefix = (carTypes || []).filter((t) => carTypeKey(t.name) && key.startsWith(carTypeKey(t.name)))
+    .sort((a, b) => carTypeKey(b.name).length - carTypeKey(a.name).length)[0];
+  return byPrefix ? byPrefix.name : null;
+};
+
+// 구청에 신고된 차로 세는 렌트차량 DB 상태. 계약중은 아직 출고 전이라 따로 센다(출고되면 증차 공문이 필요).
+export const FLEET_RUNNING_STATUSES = ['장기렌트', '단기렌트', '재고'];
+
+/**
+ * 대비표 차종마다 신고 대수 ↔ 렌트차량 DB 차를 맞춘다.
+ * @returns {{rows: object[], unmatched: object[], pending: object[]}}
+ */
+export const compareFleet = (carTypes, vehicles) => {
+  const rows = (carTypes || []).map((t) => ({ name: t.name, registered: Number(t.count) || 0, running: [], pending: [] }));
+  // 대비표에 같은 이름 줄이 둘 있으면(S450 두 줄) 앞 줄부터 신고 대수만큼 채운다
+  const byName = new Map();
+  rows.forEach((r) => {
+    const k = carTypeKey(r.name);
+    if (!byName.has(k)) byName.set(k, []);
+    byName.get(k).push(r);
+  });
+  const unmatched = [];
+  (vehicles || []).forEach((v) => {
+    const name = carTypeOfVehicle(v.carModel, carTypes);
+    const same = name ? byName.get(carTypeKey(name)) : null;
+    const running = FLEET_RUNNING_STATUSES.includes(v.status);
+    const row = same && (same.find((r) => (running ? r.running.length : r.pending.length) < r.registered) || same[0]);
+    if (!row) { if (running || v.status === '계약중') unmatched.push(v); return; }
+    if (running) row.running.push(v);
+    else if (v.status === '계약중') row.pending.push(v);
+  });
+  rows.forEach((r) => { r.diff = r.running.length - r.registered; });
+  return { rows, unmatched };
+};

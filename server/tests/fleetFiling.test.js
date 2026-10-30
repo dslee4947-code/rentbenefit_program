@@ -71,3 +71,23 @@ test('구청 처리 알림: 민원번호·처리일·대수를 읽고, 문장과
 시행 교통행정과-2 ( 2025. 6. 11. )`);
   assert.deepEqual(c.plates, ['125호3053']);
 });
+
+test('렌트차량 DB 차를 대비표 차종에 맞춘다', async () => {
+  const { carTypeOfVehicle, compareFleet } = await import('../../shared/fleetFiling.js');
+  const types = ['Ray van', 'S450', 'G80', '그랜저', '그랜저(신)', 'GV80', 'GV80(H)', 'K5(H)', 'E350', 'Benz-G', 'May S580', 'S580', '코나(전기차)', '코나(H)'].map((name) => ({ name, count: 1 }));
+  const cases = {
+    'Ray Van 스탠다드 A/T': 'Ray van', '더 뉴 레이 가솔린 시그니처(A/T 2026MY)': 'Ray van', 'G80 2.5T AWD': 'G80',
+    'Grander 르블랑': '그랜저', '그랜저(H) 1.6T 하이브리드 프리미엄': '그랜저(신)', 'Grander GN7 하이브리드 1.6T 2WD 프리미엄': '그랜저(신)',
+    'GV80 Coupe 3.5 AWD': 'GV80', 'GV80 HEV 27MY 5인승 AWD 19인치': 'GV80(H)', 'K5(H) 하이브리드 프레스티지': 'K5(H)',
+    'E350 4Matic AV': 'E350', 'G63 Edition': 'Benz-G', 'MAYBACH S580 4Matic L': 'May S580', 'S580 4Matic L': 'S580',
+    'Cona SX2 런칭 전기모터 2WD 롱레인지': '코나(전기차)', '코나 하이브리드 2WD H-Pick': '코나(H)', 'Model Y Premium': null
+  };
+  Object.entries(cases).forEach(([model, want]) => assert.equal(carTypeOfVehicle(model, types), want, model));
+
+  // 같은 이름 줄이 둘이면 신고 대수만큼 나눠 담고, 계약중은 출고 전으로 따로
+  const { rows } = compareFleet([{ name: 'S450', count: 1 }, { name: 'S450', count: 1 }], [
+    { carModel: 'S450', status: '장기렌트' }, { carModel: 'S450 4matic', status: '단기렌트' }, { carModel: 'S450', status: '계약중' }
+  ]);
+  assert.deepEqual(rows.map((r) => [r.running.length, r.diff]), [[1, 0], [1, 0]]);
+  assert.equal(rows[0].pending.length, 1);
+});

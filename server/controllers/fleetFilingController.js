@@ -73,14 +73,32 @@ const vehicleStats = async () => {
   return Object.fromEntries(rows.map((r) => [r._id || '미정', r.count]));
 };
 
+// 신고 현황과 맞춰 볼 차(거래완료 뺀 전부). 화면을 열 때마다 새로 읽어, 장기 → 단기로 바뀌어도 바로 보인다.
+const fleetVehicles = async () => {
+  const list = await Vehicle.find({ status: { $in: ['장기렌트', '단기렌트', '재고', '계약중'] } })
+    .populate('company', 'name')
+    .select('code carModel plateNo status company contractorName monthlyFee registrationDate')
+    .lean();
+  return list.map((v) => ({
+    _id: v._id,
+    code: v.code || '',
+    carModel: v.carModel,
+    plateNo: v.plateNo || '',
+    status: v.status,
+    party: v.company?.name || v.contractorName || '',
+    monthlyFee: v.monthlyFee || null
+  }));
+};
+
 export const getFleetFilings = async (req, res) => {
   try {
-    const [info, filings, stats] = await Promise.all([
+    const [info, filings, stats, vehicles] = await Promise.all([
       loadInfo(),
       FleetFiling.find().sort({ filedAt: -1, createdAt: -1 }).lean(),
-      vehicleStats()
+      vehicleStats(),
+      fleetVehicles()
     ]);
-    res.json({ success: true, info, filings, vehicleStats: stats });
+    res.json({ success: true, info, filings, vehicleStats: stats, vehicles });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

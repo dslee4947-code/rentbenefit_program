@@ -151,8 +151,10 @@ function Login({
           {/* Email input */}
           <div className="login-input-group">
             <input
-              type="email"
-              placeholder="Email"
+              // 이메일이 아닌 아이디(예: rent-003)로 만든 계정도 들어올 수 있게 글자 칸으로 둔다
+              type="text"
+              autoComplete="username"
+              placeholder="Email / ID"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="login-custom-input"

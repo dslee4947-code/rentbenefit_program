@@ -30,6 +30,7 @@
 | `printFitted(element, { orientation, marginMm, onePage, title })` | **인쇄 / PDF 다운로드 버튼.** 브라우저 인쇄 창을 연다. 인쇄 창에서 "PDF로 저장"을 고르면 같은 모양의 PDF가 된다. `title`은 저장할 때의 기본 파일 이름이다. |
 | `makeFittedPdf(element, { orientation, marginMm, imageType })` | **PDF 파일(Blob)이 필요할 때.** 서버 보관이나 메일 첨부에 쓴다. 인쇄 창 없이 만든다. |
 | `measurePrintFit(element, options)` | 배율만 계산한다(위 두 함수가 안에서 쓴다). |
+| `makeA4PagesPdf(pages)` | **A4 크기로 그린 쪽 여러 장을 PDF 한 파일로 묶을 때.** 세로·가로가 섞인 서류 묶음(구청 증차 서류)에 쓴다. 쪽마다 `data-orientation`을 단다. |
 
 ### 설정값
 
@@ -95,6 +96,7 @@ const blob = await makeFittedPdf(element, { orientation: 'portrait', marginMm: 8
 | 차량 손익 원장 | `LedgerView.jsx` 인쇄 버튼 | `window.print()`로 화면 전체를 찍음 | - | ⏳ 다음 대상: 원장 문서 부분에 `print-fit`을 달고 나머지는 숨긴다 |
 | 업무 매뉴얼 | `HandbookView.jsx` 인쇄 버튼 | `window.print()`로 화면 전체를 찍음 | - | ⏳ 긴 글이라 `onePage: false`로 적용 |
 | 단기렌트 요금표 | `ShortTermRatesView.jsx` (`RateSheet`, 비교견적서 양식) | `printFitted` | - | ✅ 적용 (2026-10-28) |
+| 증차·감차 공문 (신청서·신구사업대비표·매매계약서) | `FleetFilingDocs.jsx` → `FleetFilingView.jsx` | 묶은 PDF를 새 창에 열어 인쇄 | `makeA4PagesPdf` (쪽마다 세로·가로 A4 그대로) | ✅ 적용 (2026-10-30) |
 
 새 인쇄·PDF 기능을 만들거나 위 ⏳ 항목을 고치면 이 표를 함께 고친다.
 

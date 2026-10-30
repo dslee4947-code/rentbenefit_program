@@ -1,4 +1,5 @@
 import html2pdf from 'html2pdf.js';
+import { jsPDF } from 'jspdf';
 
 /**
  * 화면에 보이는 문서를 모양 그대로 A4에 맞춰 인쇄하거나 PDF로 만든다.
@@ -144,4 +145,32 @@ export const makeFittedPdf = async (element, { orientation = 'portrait', marginM
     element.classList.remove('print-fit-capture');
     element.style.removeProperty('--print-fit-width');
   }
+};
+
+/**
+ * A4 크기로 그려 둔 쪽 여러 장을 PDF 한 파일(Blob)로 묶는다. 쪽마다 세로·가로가 달라도 된다.
+ *
+ * 구청에 내는 증차 서류처럼 신청서(세로)·신구사업대비표(가로)·매매계약서(세로)를 한 묶음으로 낼 때 쓴다.
+ * 쪽은 이미 A4 크기(세로 794×1123px, 가로 1123×794px)로 그려 두고 data-orientation="landscape"로 방향을 적는다.
+ * 배율을 따로 줄이지 않고 쪽 하나를 종이 한 장에 그대로 찍는다.
+ * @param {HTMLElement[]} pages
+ * @param {{imageType?: 'jpeg'|'png'}} [options]
+ * @returns {Promise<Blob>}
+ */
+export const makeA4PagesPdf = async (pages, { imageType = 'jpeg' } = {}) => {
+  let pdf = null;
+  for (const page of pages) {
+    const orientation = page.dataset.orientation === 'landscape' ? 'landscape' : 'portrait';
+    const { w, h } = A4_MM[orientation];
+    const canvas = await html2pdf()
+      .set({ margin: 0, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation } })
+      .from(page)
+      .toCanvas()
+      .get('canvas');
+    if (!pdf) pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation });
+    else pdf.addPage('a4', orientation);
+    const data = imageType === 'png' ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.92);
+    pdf.addImage(data, imageType === 'png' ? 'PNG' : 'JPEG', 0, 0, w, h);
+  }
+  return pdf ? pdf.output('blob') : null;
 };

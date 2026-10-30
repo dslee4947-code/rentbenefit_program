@@ -27,6 +27,7 @@ export const ACTIONS = Object.freeze({
   VEHICLE_SERVICE_RECORD: '정비·검사 기록',
   LEDGER_EDIT: '원장 수정',
   COMPANY_BOOK_EDIT: '회사 장부 수정',
+  FLEET_FILING: '증차·감차 공문',
   SYNC: '동기화'
 });
 

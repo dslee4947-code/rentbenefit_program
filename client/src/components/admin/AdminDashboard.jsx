@@ -22,6 +22,7 @@ import InvoiceArchiveView from './InvoiceArchiveView.jsx';
 import FineNoticeView from './FineNoticeView.jsx';
 import LedgerView from './LedgerView.jsx';
 import ShortTermRatesView from './ShortTermRatesView.jsx';
+import FleetFilingView from './FleetFilingView.jsx';
 import MyPageView from './MyPageView.jsx';
 import HandbookView from './HandbookView.jsx';
 
@@ -50,13 +51,13 @@ import {
   Wrench,
   Landmark,
   Archive,
-  Receipt, Tags, MailCheck, TrendingDown } from 'lucide-react';
+  Receipt, Tags, MailCheck, TrendingDown, Stamp } from 'lucide-react';
 
 function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   const getTabFromHash = () => {
     const hash = window.location.hash.replace('#/', '');
     // 메뉴를 새로 추가하면 여기에도 넣어야 한다. 빠지면 주소는 바뀌는데 화면은 대시보드로 되돌아간다.
-    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'contract-docs', 'delivery-prep', 'delivery-docs', 'vehicles', 'vehicle-service', 'calendar', 'users', 'billing', 'invoice-archive', 'fine-notices', 'ledgers', 'handbook', 'storage-settings', 'maintenance-rates', 'company-funding', 'company-book', 'vehicle-depreciation', 'short-term-rates', 'mypage'];
+    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'contract-docs', 'delivery-prep', 'delivery-docs', 'vehicles', 'vehicle-service', 'calendar', 'users', 'billing', 'invoice-archive', 'fine-notices', 'ledgers', 'handbook', 'storage-settings', 'maintenance-rates', 'company-funding', 'company-book', 'vehicle-depreciation', 'short-term-rates', 'fleet-filings', 'mypage'];
     return validTabs.includes(hash) ? hash : 'dashboard';
   };
 
@@ -124,7 +125,9 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
       { id: 'inquiries', name: '문의 대기', icon: <MessageCircleQuestion size={ICON_SIZE} /> },
       { id: 'customers', name: '고객 DB 관리', icon: <Users size={ICON_SIZE} /> },
       { id: 'companies', name: '법인 관리', icon: <Building2 size={ICON_SIZE} /> },
-      { id: 'quote-input', name: '견적서', icon: <Coins size={ICON_SIZE} /> }
+      { id: 'quote-input', name: '견적서', icon: <Coins size={ICON_SIZE} /> },
+      // 차를 들이거나 뺄 때 구청에 내는 변경등록신청서(대표님 2026-10-30)
+      { id: 'fleet-filings', name: '증차·감차 공문', icon: <Stamp size={ICON_SIZE} /> }
     ] },
     { label: '계약·출고', items: [
       { id: 'contract-register', name: '계약서 등록', icon: <FileSignature size={ICON_SIZE} /> },
@@ -527,6 +530,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'fine-notices' && '고지서 관리'}
               {activeTab === 'ledgers' && '차량 손익 원장 (갑지)'}
               {activeTab === 'short-term-rates' && '단기렌트 · 사고대차 단가표'}
+              {activeTab === 'fleet-filings' && '증차 · 감차 공문'}
               {activeTab === 'calendar' && '캘린더 관리 일정표'}
               {activeTab === 'users' && '사용자 권한 관리'}
               {activeTab === 'storage-settings' && '파일 저장 경로'}
@@ -553,6 +557,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'invoice-archive' && '계약별로 1회차부터 모든 청구서를 보고, 과태료·자부담금을 더해 PDF로 만듭니다.'}
               {activeTab === 'fine-notices' && '범칙금·과태료·미납통행료 고지서를 모아 보고, 기한 안에 고객이 냈는지 확인해 청구 여부를 정합니다.'}
               {activeTab === 'ledgers' && '차량 1대에 들어간 돈과 들어온 돈을 갑지 한 장으로 모아 정산 결과를 확인합니다.'}
+              {activeTab === 'fleet-filings' && '차를 들이거나 뺄 때 구청에 내는 변경등록신청서·신구사업대비표·매매계약서를 만들고, 구청 처리가 끝나면 차종별 신고 대수에 반영합니다.'}
               {activeTab === 'short-term-rates' && '단기렌트 차량별 1일·1주·1개월 요금, 대여료·탁송료 계산, 사고대차 보험사 기준표와 보험 담당자를 한곳에서 봅니다.'}
               {activeTab === 'calendar' && '정기점검, 종합검사, 렌트만료, 계산서발행 예정일을 한눈에 보여주는 관리 일정표입니다.'}
               {activeTab === 'users' && '가입된 사내 직원들의 권한(조회/수정 및 삭제/관리자)을 조정하고 승인합니다.'}
@@ -667,6 +672,10 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               showToast={showToast}
               currentUser={currentUser}
             />
+          )}
+
+          {activeTab === 'fleet-filings' && (
+            <FleetFilingView showToast={showToast} currentUser={currentUser} />
           )}
 
           {activeTab === 'short-term-rates' && (

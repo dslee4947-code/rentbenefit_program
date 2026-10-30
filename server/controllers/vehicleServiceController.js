@@ -1,5 +1,6 @@
 import VehicleService from '../models/VehicleService.js';
 import Vehicle from '../models/Vehicle.js';
+import CalendarInbox from '../models/CalendarInbox.js';
 import { saveDocument, readSavedFile } from '../utils/documentStorageService.js';
 import { mimeTypeOf } from '../utils/oneDriveStorage.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
@@ -301,6 +302,16 @@ export const getServicePlan = async (req, res) => {
     const byVehicle = await loadServiceRecords(vehicles, 'vehicle kind date mileage amount description status shop');
 
     const rows = vehicles.map((v) => rowOf(v, byVehicle.get(String(v._id)) || []));
+
+    // 구글 업무캘린더에서 읽었지만 아직 '확인 대기'인 일정. 기록으로 옮기기 전에도 달력에 보이게 한다
+    // (2026-10-30 임태형 이사님 그랜저 사고수리·정기점검·검사가 대기에만 있어 달력에 안 보였다).
+    const waiting = await CalendarInbox.find({ status: '대기', vehicle: { $ne: null } }).select('vehicle start title parsed.kinds htmlLink').lean();
+    const waitingByVehicle = new Map();
+    waiting.forEach((w) => {
+      const key = String(w.vehicle);
+      waitingByVehicle.set(key, [...(waitingByVehicle.get(key) || []), { id: w._id, date: kstYmd(w.start), kinds: w.parsed?.kinds || [], title: w.title || '', link: w.htmlLink || '' }]);
+    });
+    rows.forEach((r) => { r.pending = waitingByVehicle.get(String(r.vehicleId)) || []; });
     res.json({ success: true, rows, kinds: SERVICE_KINDS, rules: { inspection: INSPECTION_RULE, maintenance: MAINTENANCE_RULE, carAge: CAR_AGE_RULE } });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

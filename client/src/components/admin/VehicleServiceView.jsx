@@ -99,7 +99,9 @@ const KIND = {
   정기점검: { short: '정', color: '#047857', bg: '#d1fae5' },
   고장수리: { short: '고', color: '#b45309', bg: '#fff', record: true },
   사고수리: { short: '사', color: '#b91c1c', bg: '#fff', record: true },
-  계약만료: { short: '만료', color: '#334155', bg: '#e2e8f0' }
+  계약만료: { short: '만료', color: '#334155', bg: '#e2e8f0' },
+  // 구글 캘린더 일정 중 종류를 못 가른 점검 등. 정리표 칸은 없다
+  기타: { short: '기타', color: '#475569', bg: '#f1f5f9' }
 };
 // 아래 정리표의 칸. '검사+점검'은 두 칸에 모두 들어간다.
 const SUMMARY_COLS = ['자동차검사', '정기점검', '고장수리', '사고수리', '계약만료'];
@@ -128,7 +130,12 @@ const eventsOf = (r, today) => {
   const age = r.carAge?.level ? r.carAge : null;
   const inspOverdue = ['over', 'grace'].includes(inspectionLevelOf(r)) || ['expired', 'end'].includes(age?.level);
   const booked = r.bookings || [];
-  const bookedKinds = new Set(booked.map((b) => b.kind));
+  // 구글 캘린더 '확인 대기' 일정도 잡아 둔 일정처럼 그날에 보인다. 위 [확인 대기]에서 기록으로 옮기면 바뀐다.
+  const pending = (r.pending || []).flatMap((w) => (w.kinds.length ? w.kinds : ['기타']).map((kind) => ({ ...w, kind })));
+  pending.filter((w) => KIND[w.kind]).forEach((w) => out.push({
+    kind: w.kind, date: w.date, pending: true, overdue: false, note: `구글 캘린더 확인 대기 — 위 [확인 대기]에서 기록으로 옮겨 주세요 · ${w.title}`
+  }));
+  const bookedKinds = new Set([...booked.map((b) => b.kind), ...pending.map((w) => w.kind)]);
   booked.forEach((b) => out.push({
     kind: KIND[b.kind] ? b.kind : '정기점검', label: b.kind, date: b.date, booked: true, overdue: b.date < today,
     age: b.kind === '자동차검사' ? age : null, note: [b.status, b.shop].filter(Boolean).join(' · ')
@@ -176,15 +183,16 @@ function GroupChip({ g, active, onClick, onDouble }) {
   const k = KIND[g.kind];
   const hasAge = g.list.some((e) => e.age);
   const booked = g.list.every((e) => e.booked);
+  const pending = g.list.every((e) => e.pending);
   return (
     <button
       type="button"
       onClick={(ev) => { ev.stopPropagation(); onClick(ev.currentTarget.getBoundingClientRect()); }}
       onDoubleClick={(ev) => { ev.stopPropagation(); onDouble?.(); }}
       title={`${g.kind} · ${g.who}\n${g.list.map((e) => `${e.r.plateNo} ${e.note || ''}`).join('\n')}`}
-      style={{ display: 'block', width: '100%', textAlign: 'left', border: k.record || active ? `1px solid ${k.color}` : '1px solid transparent', ...(k.record ? { borderLeft: `3px solid ${k.color}` } : {}), background: active && k.record ? '#fef3c7' : k.bg, color: k.color, borderRadius: '4px', padding: '0.05rem 0.25rem', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}
+      style={{ display: 'block', width: '100%', textAlign: 'left', border: pending ? `1px dashed ${k.color}` : k.record || active ? `1px solid ${k.color}` : '1px solid transparent', ...(k.record && !pending ? { borderLeft: `3px solid ${k.color}` } : {}), background: active && k.record ? '#fef3c7' : k.bg, color: k.color, borderRadius: '4px', padding: '0.05rem 0.25rem', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}
     >
-      {booked ? '📌' : ''}<b style={{ fontWeight: 900 }}>{k.short}</b> {g.who}{g.list.length > 1 ? ` ${g.list.length}대` : ''}{hasAge ? ' · 차령' : ''}
+      {pending ? '⏳' : booked ? '📌' : ''}<b style={{ fontWeight: 900 }}>{k.short}</b> {g.who}{g.list.length > 1 ? ` ${g.list.length}대` : ''}{hasAge ? ' · 차령' : ''}
     </button>
   );
 }
@@ -198,7 +206,7 @@ function MonthSummary({ events, onOpen }) {
     if (!parties.has(party)) parties.set(party, { party, cars: new Set(), cols: Object.fromEntries(SUMMARY_COLS.map((c) => [c, []])) });
     const p = parties.get(party);
     p.cars.add(e.r.vehicleId);
-    colsOf(e.kind).forEach((c) => p.cols[c].push(e));
+    colsOf(e.kind).forEach((c) => p.cols[c]?.push(e));
   });
   const list = [...parties.values()].sort((a, b) => (a.party === '단기렌트') - (b.party === '단기렌트') || b.cars.size - a.cars.size);
   const totals = Object.fromEntries(SUMMARY_COLS.map((c) => [c, new Set(events.filter((e) => colsOf(e.kind).includes(c)).map((e) => e.r.vehicleId)).size]));
@@ -426,7 +434,7 @@ function ServiceCalendar({ rows, onOpen, onAdd, canWrite }) {
       <MonthSummary events={inMonth} onOpen={onOpen} />
       <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.4rem', lineHeight: 1.6 }}>
         자동차검사는 검사일 2개월 전부터 1개월 뒤까지 받을 수 있습니다. 정기점검일이 그 안(검사일 2개월 뒤까지)에 있으면 이른 날에 한 번 입고해 같이 처리하도록 <b style={{ color: KIND['검사+점검'].color }}>검사+점검</b>으로 묶었습니다.
-        검=자동차검사 · 정=정기점검 · 고=고장수리 · 사=사고수리. 고·사(테두리 칸)는 일이 생긴 뒤 남긴 기록입니다. 📌는 날짜를 잡아 둔 일정입니다.
+        검=자동차검사 · 정=정기점검 · 고=고장수리 · 사=사고수리. 고·사(테두리 칸)는 일이 생긴 뒤 남긴 기록입니다. 📌는 날짜를 잡아 둔 일정, ⏳(점선)는 구글 캘린더에서 읽었지만 아직 확인 대기인 일정입니다.
         {canWrite ? ' 날짜 칸의 빈 곳을 누르면 그날로 일정·기록을 넣을 수 있습니다.' : ''}
       </div>
       {addDate && (

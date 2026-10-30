@@ -129,15 +129,15 @@ function SourceDialog({ spec, onClose, onOpenAccount, showToast }) {
 
   const won = (n) => (n ? toCommaString(Math.round(n)) : '-');
   const sumTable = (title, list, withRun) => (
-    <div style={{ flex: '1 1 300px', minWidth: 0 }}>
+    <div style={{ width: '100%' }}>
       <div style={{ fontWeight: '800', fontSize: '0.84rem', marginBottom: '0.3rem' }}>{title}</div>
-      <div style={{ overflow: 'auto', maxHeight: '260px', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+      <div style={{ overflow: 'auto', maxHeight: '340px', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
         <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: '100%' }}>
           <thead><tr>{['', '줄', '출금', '입금', '반영', ...(withRun ? ['누적'] : [])].map((h, i) => <th key={i} style={{ ...th, textAlign: i ? 'right' : 'left' }}>{h}</th>)}</tr></thead>
           <tbody>
             {list.map((g) => (
               <tr key={g.key}>
-                <td style={{ ...td, textAlign: 'left', whiteSpace: 'normal' }}>{g.label}</td>
+                <td style={{ ...td, textAlign: 'left', width: '30%' }}>{g.label}</td>
                 <td style={td}>{g.n}</td>
                 <td style={td}>{won(g.out)}</td>
                 <td style={{ ...td, color: '#2e7d32' }}>{won(g.in)}</td>
@@ -191,7 +191,7 @@ function SourceDialog({ spec, onClose, onOpenAccount, showToast }) {
           <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>근거 줄을 불러오는 중…</div>
         ) : (
           <>
-            <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
               {sumTable(spec.byYear ? '연도별 (누적 = 그해 말 잔액)' : '월별', byPeriod, true)}
               {sumTable('계정별', byAccount)}
               {sumTable('엑셀 시트 › 칸별 (어디서 가져왔나)', bySource)}

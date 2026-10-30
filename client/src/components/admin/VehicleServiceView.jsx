@@ -501,10 +501,15 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-bright)' }}>
-              {sections.map((x) => KIND[x.kind]?.short).join('·')} {r.plateNo} {r.carModel}
+              {/* 달력 칸처럼: 상태 아이콘 + 일마다 제 색 글자, 그다음 계약사와 차종 앞 두 단어 */}
+              {STATE[STATE_ORDER.find((s) => list.some((e) => e.state === s))]?.icon || ''}
+              {sections.map((x, i) => (
+                <span key={x.key}>{i > 0 ? '·' : ''}<span style={{ fontWeight: 900, color: KIND[x.kind]?.color, background: KIND[x.kind]?.bg, borderRadius: '4px', padding: '0 3px' }}>{KIND[x.kind]?.short}</span></span>
+              ))}{' '}
+              {isLong(r) ? (r.partyName || '-') : '단기'} {String(r.carModel || '').trim().split(/\s+/).slice(0, 2).join(' ')}
             </div>
             <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-              {date} · {isLong(r) ? r.partyName : '단기'}{pendingRow ? ` · ⏳ 구글 캘린더 확인 대기` : ''}
+              {date} · {r.plateNo}{pendingRow ? ` · ⏳ 구글 캘린더 확인 대기` : ''}
             </div>
           </div>
           <button type="button" onClick={() => onOpenFull(r.vehicleId)} title="차 상세" style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.2rem 0.5rem', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>차 상세</button>

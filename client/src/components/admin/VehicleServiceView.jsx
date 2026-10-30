@@ -134,29 +134,31 @@ const eventsOf = (r, today) => {
   // 구글 캘린더 '확인 대기' 일정도 잡아 둔 일정처럼 그날에 보인다. 위 [확인 대기]에서 기록으로 옮기면 바뀐다.
   const pending = (r.pending || []).flatMap((w) => (w.kinds.length ? w.kinds : ['기타']).map((kind) => ({ ...w, kind })));
   pending.filter((w) => KIND[w.kind]).forEach((w) => out.push({
-    kind: w.kind, date: w.date, pending: true, overdue: false, note: `구글 캘린더 확인 대기 — 위 [확인 대기]에서 기록으로 옮겨 주세요 · ${w.title}`
+    kind: w.kind, date: w.date, pending: true, overdue: false, move: { type: 'pending', id: w.id }, note: `구글 캘린더 확인 대기 — 위 [확인 대기]에서 기록으로 옮겨 주세요 · ${w.title}`
   }));
   const bookedKinds = new Set([...booked.map((b) => b.kind), ...pending.map((w) => w.kind)]);
   booked.forEach((b) => out.push({
-    kind: KIND[b.kind] ? b.kind : '정기점검', label: b.kind, date: b.date, booked: true, overdue: b.date < today,
+    kind: KIND[b.kind] ? b.kind : '정기점검', label: b.kind, date: b.date, booked: true, overdue: b.date < today, move: { type: 'record', id: b.id },
     age: b.kind === '자동차검사' ? age : null, note: [b.status, b.shop].filter(Boolean).join(' · ')
   }));
   // 잡아 둔 일정이 있으면 그 종류의 계산 날짜는 보여 주지 않는다
   r = { ...r, inspection: bookedKinds.has('자동차검사') ? null : r.inspection, maintenance: bookedKinds.has('정기점검') ? null : r.maintenance, _row: r };
   const together = togetherDateOf(r);
   if (together) {
-    out.push({ kind: '검사+점검', date: together, overdue: together < today || inspOverdue, age, note: `자동차검사 ${r.inspection.date} · 정기점검 ${r.maintenance.date}${movedText(r.inspection)}${movedText(r.maintenance)}` });
+    out.push({ kind: '검사+점검', date: together, overdue: together < today || inspOverdue, age, moves: ['자동차검사', '정기점검'].map((kind) => ({ type: 'plan', vehicleId: r.vehicleId, kind })), note: `자동차검사 ${r.inspection.date} · 정기점검 ${r.maintenance.date}${movedText(r.inspection)}${movedText(r.maintenance)}` });
   } else {
-    if (r.inspection) out.push({ kind: '자동차검사', date: r.inspection.date, overdue: inspOverdue, age, note: `받을 수 있는 기간 ${r.inspection.windowStart} ~ ${r.inspection.windowEnd}${movedText(r.inspection)}` });
-    if (r.maintenance) out.push({ kind: '정기점검', date: r.maintenance.date, overdue: r.maintenance.status === '지남', note: `${r.maintenance.basis || ''}${movedText(r.maintenance)}` });
+    if (r.inspection) out.push({ kind: '자동차검사', date: r.inspection.date, overdue: inspOverdue, age, move: { type: 'plan', vehicleId: r.vehicleId, kind: '자동차검사' }, note: `받을 수 있는 기간 ${r.inspection.windowStart} ~ ${r.inspection.windowEnd}${movedText(r.inspection)}` });
+    if (r.maintenance) out.push({ kind: '정기점검', date: r.maintenance.date, overdue: r.maintenance.status === '지남', move: { type: 'plan', vehicleId: r.vehicleId, kind: '정기점검' }, note: `${r.maintenance.basis || ''}${movedText(r.maintenance)}` });
   }
   // 장기렌트 계약 종료일. 지났는데 아직 장기렌트로 남아 있으면 반납·인수·연장 처리가 안 된 것이라 밀린 일로 올린다.
   if (r.contractEnd) out.push({ kind: '계약만료', date: r.contractEnd, overdue: r.contractEnd < today, note: `${r.contractNo ? `계약 ${r.contractNo} · ` : ''}${r.contractEnd < today ? '만료 지남 — 반납·인수·연장 처리 필요' : '반납·인수·연장 확인'}` });
-  (r.repairs || []).forEach((x) => out.push({ kind: x.kind, date: x.date, record: true, note: [x.status !== '완료' ? x.status : '', x.description, x.shop, x.amount ? won(x.amount) : ''].filter(Boolean).join(' · ') }));
+  (r.repairs || []).forEach((x) => out.push({ kind: x.kind, date: x.date, record: true, move: { type: 'record', id: x.id }, note: [x.status !== '완료' ? x.status : '', x.description, x.shop, x.amount ? won(x.amount) : ''].filter(Boolean).join(' · ') }));
   return out.map((e) => ({ ...e, r: r._row }));
 };
 
 const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
+// 옮길 수 있는 일정의 열쇠들. 계약만료는 계약에서 오는 날짜라 옮기지 않는다
+const movesOf = (list) => list.flatMap((e) => e.moves || (e.move ? [e.move] : []));
 const monthKey = (ymd) => ymd.slice(0, 7);
 const shiftMonth = (key, n) => {
   const d = new Date(Date.UTC(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1 + n, 1));
@@ -199,7 +201,7 @@ const groupEvents = (events) => {
  * 달력 칸 한 줄. 누르거나 두 번 누르면 그 자리에 정보 창이 뜬다(아래로 내려가지 않게).
  * 차가 한 대뿐인 줄을 두 번 누르면 바로 차 상세가 열린다.
  */
-function GroupChip({ g, active, onClick, onDouble }) {
+function GroupChip({ g, active, onClick, onDouble, onDragStart }) {
   // 일이 하나면 그 일 색으로 칠하고, 여럿이면 흰 칸에 글자마다 제 색을 입힌다
   const k = g.kinds.length === 1 ? KIND[g.kind] : { color: '#334155', bg: '#fff', record: g.kinds.every((x) => KIND[x]?.record) };
   const hasAge = g.list.some((e) => e.age);
@@ -211,8 +213,10 @@ function GroupChip({ g, active, onClick, onDouble }) {
       type="button"
       onClick={(ev) => { ev.stopPropagation(); onClick(ev.currentTarget.getBoundingClientRect()); }}
       onDoubleClick={(ev) => { ev.stopPropagation(); onDouble?.(); }}
+      draggable={Boolean(onDragStart)}
+      onDragStart={onDragStart ? (ev) => { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', g.key); onDragStart(g); } : undefined}
       title={`${g.kinds.join('·')} · ${name}\n${g.list.map((e) => `${e.r.plateNo} ${e.note || ''}`).join('\n')}`}
-      style={{ display: 'block', width: '100%', textAlign: 'left', border: pending ? `1px dashed ${k.color}` : k.record || active ? `1px solid ${k.color}` : '1px solid transparent', ...(k.record && !pending ? { borderLeft: `3px solid ${k.color}` } : {}), background: active && k.record ? '#fef3c7' : k.bg, color: k.color, ...(g.kinds.length > 1 ? { border: `1px ${pending ? 'dashed' : 'solid'} #cbd5e1` } : {}), borderRadius: '4px', padding: '0.05rem 0.25rem', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}
+      style={{ display: 'block', width: '100%', textAlign: 'left', border: pending ? `1px dashed ${k.color}` : k.record || active ? `1px solid ${k.color}` : '1px solid transparent', ...(k.record && !pending ? { borderLeft: `3px solid ${k.color}` } : {}), background: active && k.record ? '#fef3c7' : k.bg, color: k.color, ...(g.kinds.length > 1 ? { border: `1px ${pending ? 'dashed' : 'solid'} #cbd5e1` } : {}), borderRadius: '4px', padding: '0.05rem 0.25rem', fontSize: '0.68rem', fontWeight: 700, cursor: onDragStart ? 'grab' : 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}
     >
       {pending ? '⏳' : booked ? '📌' : ''}{g.kinds.map((x, i) => (
         <span key={x}>{i > 0 ? '·' : ''}<b style={{ fontWeight: 900, color: KIND[x]?.color, ...(g.kinds.length > 1 ? { background: KIND[x]?.bg, borderRadius: '3px', padding: '0 1px' } : {}) }}>{KIND[x]?.short}</b></span>
@@ -339,11 +343,47 @@ function DayPicker({ date, rows, onPick, onClose }) {
   );
 }
 
-function ServiceCalendar({ rows, onOpen, onAdd, canWrite }) {
+function ServiceCalendar({ rows, onOpen, onAdd, onMoved, canWrite, showToast }) {
   const today = todayYmd();
   const [month, setMonth] = useState(monthKey(today));
   const [picked, setPicked] = useState(null); // { title, list }
   const [addDate, setAddDate] = useState(null); // 빈 곳을 누른 날짜
+  const [dragging, setDragging] = useState(null); // 끌고 있는 칸 { list }
+  const [dropDay, setDropDay] = useState('');
+  const [moving, setMoving] = useState(false);
+
+  /**
+   * 일정을 다른 날로 옮긴다. 구글 캘린더처럼 칸을 끌어 놓거나, 정보 창에서 날짜를 바꾼다.
+   * 계산한 검사·점검을 옮기면 그날로 '예정'이 잡힌다(그날 진행). 주말이면 한 번 묻는다.
+   */
+  const moveTo = async (list, to) => {
+    const items = movesOf(list);
+    if (!/^20\d{2}-\d{2}-\d{2}$/.test(to || '') || !items.length) { if (!items.length) showToast?.('계약만료는 옮길 수 없습니다.', 'error'); return; }
+    if (list.every((e) => e.date === to)) return;
+    const cars = new Set(list.map((e) => e.r.vehicleId)).size;
+    const dow = new Date(`${to}T00:00:00Z`).getUTCDay();
+    const asks = [
+      cars > 1 ? `${cars}대 일정을 ${to}로 함께 옮깁니다.` : '',
+      dow === 0 || dow === 6 ? `${to}는 ${WEEK[dow]}요일입니다. AS는 평일에 잡습니다.` : '',
+      to < today ? '지난 날짜로 옮깁니다.' : ''
+    ].filter(Boolean);
+    if (asks.length && !window.confirm(`${asks.join('\n')}\n그래도 옮길까요?`)) return;
+    setMoving(true);
+    try {
+      const res = await fetch(`${API_HOST}/api/vehicle-services/move`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to, items })
+      });
+      const data = await res.json().catch(() => ({}));
+      showToast?.(data.message || (res.ok ? '옮겼습니다.' : '옮기지 못했습니다.'), res.ok && data.success ? 'success' : 'error');
+      if (res.ok && data.success) { setPicked(null); onMoved?.(); }
+    } catch {
+      showToast?.('서버 통신 오류가 발생했습니다.', 'error');
+    } finally {
+      setMoving(false);
+    }
+  };
+  const canDrag = (g) => canWrite && !moving && movesOf(g.list).length > 0;
+  const startDrag = (g) => { setPicked(null); setDragging(g); };
 
   const all = rows.flatMap((r) => eventsOf(r, today));
   const overdue = all.filter((e) => e.overdue);
@@ -371,7 +411,7 @@ function ServiceCalendar({ rows, onOpen, onAdd, canWrite }) {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
             {groupEvents(overdue).map((g) => (
               <div key={g.key} style={{ minWidth: '160px', maxWidth: '260px' }}>
-                <GroupChip g={g} active={picked?.title === `밀린 ${g.key}`} onClick={(rect) => pick(`밀린 ${g.key}`, g.list, rect)} onDouble={() => openOne(g.list)} />
+                <GroupChip g={g} active={picked?.title === `밀린 ${g.key}`} onClick={(rect) => pick(`밀린 ${g.key}`, g.list, rect)} onDouble={() => openOne(g.list)} onDragStart={canDrag(g) ? startDrag : undefined} />
               </div>
             ))}
           </div>
@@ -390,7 +430,7 @@ function ServiceCalendar({ rows, onOpen, onAdd, canWrite }) {
         </span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', borderTop: '1px solid var(--border-color)', borderLeft: '1px solid var(--border-color)' }}>
+      <div onDragEnd={() => { setDragging(null); setDropDay(''); }} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', borderTop: '1px solid var(--border-color)', borderLeft: '1px solid var(--border-color)', opacity: moving ? 0.6 : 1 }}>
         {WEEK.map((w, i) => (
           <div key={w} style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 800, padding: '0.2rem', color: i === 0 ? '#dc2626' : i === 6 ? '#2563eb' : 'var(--text-muted)', borderRight: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-main)' }}>{w}</div>
         ))}
@@ -402,14 +442,17 @@ function ServiceCalendar({ rows, onOpen, onAdd, canWrite }) {
             <div
               key={d}
               onClick={canWrite ? () => setAddDate(d) : undefined}
-              title={canWrite ? '빈 곳을 누르면 이 날짜로 자동차검사·정기점검·고장수리·사고수리를 넣습니다' : undefined}
-              style={{ minHeight: '84px', padding: '0.2rem', borderRight: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', background: thisMonth ? '#fff' : '#fafafa', minWidth: 0, cursor: canWrite ? 'pointer' : 'default' }}
+              onDragOver={dragging ? (ev) => { ev.preventDefault(); if (dropDay !== d) setDropDay(d); } : undefined}
+              onDragLeave={dragging ? () => setDropDay((x) => (x === d ? '' : x)) : undefined}
+              onDrop={dragging ? (ev) => { ev.preventDefault(); const g = dragging; setDragging(null); setDropDay(''); moveTo(g.list, d); } : undefined}
+              title={canWrite ? '빈 곳을 누르면 이 날짜로 자동차검사·정기점검·고장수리·사고수리를 넣습니다. 일정 칸은 끌어다 다른 날에 놓으면 옮겨집니다' : undefined}
+              style={{ minHeight: '84px', padding: '0.2rem', borderRight: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', background: dropDay === d ? '#dbeafe' : thisMonth ? '#fff' : '#fafafa', outline: dropDay === d ? '2px dashed var(--primary)' : 'none', outlineOffset: '-2px', minWidth: 0, cursor: canWrite ? 'pointer' : 'default' }}
             >
               <div style={{ fontSize: '0.72rem', fontWeight: 800, color: isToday ? '#fff' : thisMonth ? 'var(--text-bright)' : 'var(--text-muted)', background: isToday ? 'var(--primary)' : 'none', borderRadius: '999px', width: '1.4rem', height: '1.4rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {Number(d.slice(8, 10))}
               </div>
               {groups.slice(0, 4).map((g) => (
-                <GroupChip key={g.key} g={g} active={picked?.title === `${d} ${g.key}`} onClick={(rect) => pick(`${d} ${g.key}`, g.list, rect)} onDouble={() => openOne(g.list)} />
+                <GroupChip key={g.key} g={g} active={picked?.title === `${d} ${g.key}`} onClick={(rect) => pick(`${d} ${g.key}`, g.list, rect)} onDouble={() => openOne(g.list)} onDragStart={canDrag(g) ? startDrag : undefined} />
               ))}
               {groups.length > 4 && (
                 <button type="button" onClick={(ev) => { ev.stopPropagation(); pick(`${d} 전체`, byDay.get(d), ev.currentTarget.getBoundingClientRect()); }} style={{ border: 'none', background: 'none', fontSize: '0.68rem', color: 'var(--text-muted)', cursor: 'pointer', padding: 0 }}>
@@ -431,7 +474,14 @@ function ServiceCalendar({ rows, onOpen, onAdd, canWrite }) {
         <div onClick={() => setPicked(null)} style={{ position: 'fixed', inset: 0, zIndex: 900 }} />
         <div style={{ position: 'fixed', left, ...place, width: W, maxHeight: '50vh', overflowY: 'auto', zIndex: 901, background: '#fff', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.5rem', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>
           <div style={{ display: 'flex', alignItems: 'center', fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-bright)', marginBottom: '0.3rem' }}>
-            {picked.title.replace(/\|/g, ' · ')} ({picked.list.length}대)
+            {picked.title.replace(/\|/g, ' · ')} ({new Set(picked.list.map((e) => e.r.vehicleId)).size}대)
+            {canWrite && movesOf(picked.list).length > 0 && (
+              <label style={{ marginLeft: '0.5rem', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                {picked.list.length > 1 ? '모두' : ''} 날짜 바꾸기
+                <input type="date" disabled={moving} value={picked.list[0].date} onChange={(ev) => moveTo(picked.list, ev.target.value)}
+                  style={{ fontSize: '0.74rem', padding: '0.05rem 0.2rem', border: '1px solid var(--border-color)', borderRadius: '5px' }} />
+              </label>
+            )}
             <button type="button" onClick={() => setPicked(null)} style={{ marginLeft: 'auto', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={14} /></button>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
@@ -447,6 +497,13 @@ function ServiceCalendar({ rows, onOpen, onAdd, canWrite }) {
                 <span style={{ color: 'var(--text-muted)' }}>{isLong(e.r) ? `${e.r.partyName} · ` : ''}{e.r.carModel} · {e.date}</span>
                 {e.note && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{e.note}</div>}
                 {e.age && <b style={{ color: '#c2410c' }}> · 차령 연장 함께 신청</b>}
+                {canWrite && picked.list.length > 1 && movesOf([e]).length > 0 && (
+                  <span onClick={(ev) => ev.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', marginLeft: '0.4rem', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                    이 차만
+                    <input type="date" disabled={moving} value={e.date} onChange={(ev) => moveTo([e], ev.target.value)}
+                      style={{ fontSize: '0.7rem', padding: 0, border: '1px solid var(--border-color)', borderRadius: '4px' }} />
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -457,7 +514,7 @@ function ServiceCalendar({ rows, onOpen, onAdd, canWrite }) {
 
       <MonthSummary events={inMonth} onOpen={onOpen} />
       <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.4rem', lineHeight: 1.6 }}>
-        자동차검사는 검사일 2개월 전부터 1개월 뒤까지 받을 수 있습니다. 정기점검일이 그 안(검사일 2개월 뒤까지)에 있으면 이른 날에 한 번 입고해 같이 처리하도록 한 칸(<b>정·검</b>)으로 묶었습니다. 한 차가 같은 날 여러 일을 하면 정·검·사처럼 한 칸에 앞글자를 늘어놓습니다.
+        자동차검사는 검사일 2개월 전부터 1개월 뒤까지 받을 수 있습니다. 정기점검일이 그 안(검사일 2개월 뒤까지)에 있으면 이른 날에 한 번 입고해 같이 처리하도록 한 칸(<b>정·검</b>)으로 묶었습니다. 한 차가 같은 날 여러 일을 하면 정·검·사처럼 한 칸에 앞글자를 늘어놓습니다. 일정 칸은 끌어다 다른 날에 놓거나, 눌러서 [날짜 바꾸기]로 옮깁니다(계산한 검사·점검을 옮기면 그날로 예정이 잡힙니다).
         검=자동차검사 · 정=정기점검 · 고=고장수리 · 사=사고수리. 고·사(테두리 칸)는 일이 생긴 뒤 남긴 기록입니다. 📌는 날짜를 잡아 둔 일정, ⏳(점선)는 구글 캘린더에서 읽었지만 아직 확인 대기인 일정입니다.
         {canWrite ? ' 날짜 칸의 빈 곳을 누르면 그날로 일정·기록을 넣을 수 있습니다.' : ''}
       </div>
@@ -659,6 +716,8 @@ function VehicleServiceView({ showToast, currentUser }) {
           onOpen={openVehicle}
           canWrite={canWrite}
           onAdd={(id, kind, date) => { openVehicle(id); setFormOpen({ record: null, preset: { kind, date } }); }}
+          onMoved={() => { load(); if (selectedId) loadDetail(selectedId); }}
+          showToast={showToast}
         />
       )}
       {view === 'list' && (<>

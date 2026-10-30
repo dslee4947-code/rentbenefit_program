@@ -105,11 +105,11 @@ const rowOf = (v, records) => {
     // 달력에 '일어난 날'로 올리는 고장·사고 수리(최근 13개월). 진행 중인 수리도 함께.
     repairs: records
       .filter((r) => REPAIR_KINDS.includes(r.kind) && kstYmd(r.date) >= addMonths(kstYmd(new Date()), -13))
-      .map((r) => ({ kind: r.kind, date: kstYmd(r.date), status: r.status || '완료', amount: r.amount || 0, description: r.description || '', shop: r.shop || '' })),
+      .map((r) => ({ id: r._id, kind: r.kind, date: kstYmd(r.date), status: r.status || '완료', amount: r.amount || 0, description: r.description || '', shop: r.shop || '' })),
     // 달력에서 미리 잡아 둔 검사·점검 등(아직 끝나지 않은 기록). 계산한 날짜 대신 이 날에 보인다.
     bookings: records
       .filter((r) => !REPAIR_KINDS.includes(r.kind) && r.status && r.status !== '완료')
-      .map((r) => ({ kind: r.kind, date: kstYmd(r.date), status: r.status, shop: r.shop || '' })),
+      .map((r) => ({ id: r._id, kind: r.kind, date: kstYmd(r.date), status: r.status, shop: r.shop || '' })),
     ...plan,
     ...usageOf(v, records, plan)
   };
@@ -281,6 +281,74 @@ export const addVehicleServiceFiles = async (req, res) => {
     if (!record.savedPath) { record.fileName = added[0].fileName; record.savedPath = added[0].savedPath; }
     await record.save();
     res.json({ success: true, record, message: `파일 ${added.length}개를 붙였습니다.` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 달력에서 일정을 다른 날로 옮긴다 (끌어 놓기 또는 날짜 바꾸기).
+ *
+ *  record   이미 있는 기록(잡아 둔 일정·수리 기록). 날짜와 입고·출고 시각을 같은 날수만큼 옮긴다
+ *  pending  구글 캘린더 '확인 대기' 일정. 확인 대기 안의 날짜만 옮긴다(구글 일정 자체는 고치지 않는다).
+ *           구글에서 그 일정을 다시 고치면 다음 읽기 때 구글 날짜로 돌아온다
+ *  plan     계산한 검사·점검 날짜. 옮긴 날로 '예정' 기록을 만든다 — 날을 잡았으니 그날 진행한다
+ *
+ * @route POST /api/vehicle-services/move  { to: 'YYYY-MM-DD', items: [{ type, id?, vehicleId?, kind? }] }
+ */
+export const moveVehicleServices = async (req, res) => {
+  try {
+    const { to, items } = req.body || {};
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(to || '')) || !Array.isArray(items) || !items.length) {
+      return res.status(400).json({ success: false, message: '옮길 일정과 날짜를 알려 주세요.' });
+    }
+    const toDate = new Date(`${to}T00:00:00+09:00`);
+    const shift = (d, days) => (d ? new Date(new Date(d).getTime() + days * DAY) : d);
+    const daysFrom = (d) => Math.round((toDate - new Date(`${kstYmd(d)}T00:00:00+09:00`)) / DAY);
+    const who = req.user?.name || req.user?.email || '';
+    const seen = new Set();
+    let moved = 0;
+
+    for (const it of items) {
+      const key = `${it.type}|${it.id || ''}|${it.vehicleId || ''}|${it.kind || ''}`;
+      if (seen.has(key)) continue; // 확인 대기 한 건이 정·검·사 세 칸으로 보여도 한 번만 옮긴다
+      seen.add(key);
+      if (it.type === 'record') {
+        // eslint-disable-next-line no-await-in-loop
+        const rec = await VehicleService.findById(it.id);
+        if (!rec) continue;
+        const days = daysFrom(rec.date);
+        if (!days) continue;
+        rec.date = shift(rec.date, days);
+        if (rec.inAt) rec.inAt = shift(rec.inAt, days);
+        if (rec.outAt) rec.outAt = shift(rec.outAt, days);
+        // eslint-disable-next-line no-await-in-loop
+        await rec.save();
+        moved += 1;
+      } else if (it.type === 'pending') {
+        // eslint-disable-next-line no-await-in-loop
+        const item = await CalendarInbox.findById(it.id);
+        if (!item || item.status !== '대기') continue;
+        const days = daysFrom(item.start);
+        if (!days) continue;
+        item.start = shift(item.start, days);
+        // eslint-disable-next-line no-await-in-loop
+        await item.save();
+        moved += 1;
+      } else if (it.type === 'plan' && SERVICE_KINDS.includes(it.kind)) {
+        // eslint-disable-next-line no-await-in-loop
+        const vehicle = await Vehicle.findById(it.vehicleId).select('plateNo').lean();
+        if (!vehicle) continue;
+        // eslint-disable-next-line no-await-in-loop
+        await VehicleService.create({
+          vehicle: vehicle._id, plateNo: vehicle.plateNo || '', kind: it.kind, date: toDate, status: '예정',
+          inAt: new Date(`${to}T10:00:00+09:00`), source: 'manual', memo: '달력에서 날짜를 잡음', createdBy: who
+        });
+        moved += 1;
+      }
+    }
+    refreshSchedules();
+    res.json({ success: true, moved, message: moved ? `${moved}건을 ${to}로 옮겼습니다.` : '옮길 것이 없습니다(이미 그 날짜입니다).' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

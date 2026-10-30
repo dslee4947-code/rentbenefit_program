@@ -8,7 +8,8 @@ import {
   deleteVehicleService,
   getVehicleServiceFile,
   readRepairInvoiceFile,
-  addVehicleServiceFiles
+  addVehicleServiceFiles,
+  moveVehicleServices
 } from '../controllers/vehicleServiceController.js';
 import {
   getCalendarInbox,
@@ -32,6 +33,8 @@ router.post('/calendar-inbox/:id/dismiss', checkWritePermission, dismissCalendar
 // file: 예전 간단 양식(한 장) / files: 상세 양식(수리 내역서·견적서·사진 여러 장)
 router.post('/', checkWritePermission, upload.fields([{ name: 'file', maxCount: 1 }, { name: 'files', maxCount: 10 }]), createVehicleService);
 // 수리 내역서 글자 읽기 → 양식 칸 채우기(저장하지 않음). file 또는 고친 글자(text)
+// 달력에서 일정 옮기기 (끌어 놓기·날짜 바꾸기)
+router.post('/move', checkWritePermission, moveVehicleServices);
 router.post('/read-invoice', checkWritePermission, upload.single('file'), readRepairInvoiceFile);
 router.get('/:id/file', getVehicleServiceFile);
 router.post('/:id/files', checkWritePermission, upload.array('files', 10), addVehicleServiceFiles);

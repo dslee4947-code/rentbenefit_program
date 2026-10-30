@@ -114,6 +114,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   // 16개를 한 줄로 늘어놓으면 원하는 메뉴를 매번 위에서부터 훑어야 한다.
   // 마이페이지는 아래 사용자 정보 칸에서 들어간다.
   const ICON_SIZE = 18;
+  const isFinanceTeam = currentUser?.financeTeam === true;
   const menuGroups = [
     { label: null, items: [
       { id: 'dashboard', name: '통계 대시보드', icon: <LayoutDashboard size={ICON_SIZE} /> },
@@ -146,7 +147,10 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
     currentUser?.role === 'admin' && { label: '관리', items: [
       { id: 'users', name: '사용자 권한 관리', icon: <Key size={ICON_SIZE} />, badge: pendingUserCount },
       { id: 'storage-settings', name: '파일 저장 경로', icon: <FolderTree size={ICON_SIZE} /> },
-      { id: 'maintenance-rates', name: '정비 단가표', icon: <Wrench size={ICON_SIZE} /> },
+      { id: 'maintenance-rates', name: '정비 단가표', icon: <Wrench size={ICON_SIZE} /> }
+    ] },
+    // 회사 돈은 자금팀만 본다(대표님 2026-10-30). 사용자 권한 관리에서 '자금팀'을 켠 사람에게만 보인다.
+    isFinanceTeam && { label: '자금팀', items: [
       { id: 'company-funding', name: '회사 자금·내부 금리', icon: <Landmark size={ICON_SIZE} /> },
       { id: 'company-book', name: '회사 장부', icon: <Receipt size={ICON_SIZE} /> },
       { id: 'vehicle-depreciation', name: '차량별 감가상각', icon: <TrendingDown size={ICON_SIZE} /> }
@@ -706,13 +710,13 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
             />
           )}
 
-          {activeTab === 'company-book' && currentUser?.role === 'admin' && (
+          {activeTab === 'company-book' && isFinanceTeam && (
             <CompanyBookView showToast={showToast} />
           )}
-          {activeTab === 'vehicle-depreciation' && currentUser?.role === 'admin' && (
+          {activeTab === 'vehicle-depreciation' && isFinanceTeam && (
             <VehicleDepreciationView showToast={showToast} />
           )}
-          {activeTab === 'company-funding' && currentUser?.role === 'admin' && (
+          {activeTab === 'company-funding' && isFinanceTeam && (
             <CompanyFundingView showToast={showToast} />
           )}
 

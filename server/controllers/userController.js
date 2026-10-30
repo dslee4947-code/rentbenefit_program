@@ -174,6 +174,9 @@ export const updateUser = async (req, res) => {
       if (req.body.status) {
         user.status = req.body.status;
       }
+      if (typeof req.body.financeTeam === 'boolean') {
+        user.financeTeam = req.body.financeTeam;
+      }
       if (req.body.address !== undefined) {
         user.address = req.body.address;
       }
@@ -323,6 +326,7 @@ export const loginUser = async (req, res) => {
       email: user.email,
       user_type: user.user_type,
       role: user.role || 'viewer', // Include role in response
+      financeTeam: user.financeTeam === true,
       status: user.status,
       address: user.address,
       token: generateToken(user._id),

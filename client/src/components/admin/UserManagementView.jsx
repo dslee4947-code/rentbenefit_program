@@ -139,6 +139,27 @@ function UserManagementView({ showToast, currentUser }) {
     }
   };
 
+  // 자금팀 메뉴(회사 자금·내부 금리, 회사 장부, 차량별 감가상각)를 볼 수 있는지. 권한(조회·수정·관리자)과 따로 켠다.
+  const handleFinanceTeamChange = async (userId, on) => {
+    try {
+      const response = await fetch(`${API_HOST}/api/users/${userId}`, {
+        method: 'PUT',
+        headers: authHeaders(),
+        body: JSON.stringify({ financeTeam: on })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        showToast(on ? '자금팀 메뉴를 열었습니다. 다시 로그인하면 메뉴가 보입니다.' : '자금팀 메뉴를 닫았습니다.', 'success');
+        setUsers(prev => prev.map(u => u._id === userId ? { ...u, financeTeam: on } : u));
+      } else {
+        showToast(data.message || '자금팀 설정 실패', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('서버 통신 오류', 'error');
+    }
+  };
+
   const handleToggleSuspend = async (userId, currentStatus) => {
     const nextStatus = currentStatus === 'SUSPENDED' ? 'ACTIVE' : 'SUSPENDED';
     const confirmMsg = nextStatus === 'SUSPENDED'
@@ -442,6 +463,17 @@ function UserManagementView({ showToast, currentUser }) {
                         {user.role === 'editor' && <Shield size={18} style={{ color: '#1890ff' }} />}
                         {(user.role === 'viewer' || !user.role) && <ShieldAlert size={18} style={{ color: '#bfbfbf' }} />}
                       </div>
+                      <label
+                        title="회사 자금·내부 금리, 회사 장부, 차량별 감가상각을 볼 수 있음"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.4rem', fontSize: '0.78rem', fontWeight: '600', color: user.financeTeam ? '#1e3a8a' : 'var(--text-muted)', cursor: 'pointer' }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={user.financeTeam === true}
+                          onChange={(e) => handleFinanceTeamChange(user._id, e.target.checked)}
+                        />
+                        자금팀 메뉴
+                      </label>
                     </td>
                     <td style={{ padding: '1rem', textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', justifyContent: 'center' }}>

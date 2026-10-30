@@ -36,6 +36,12 @@ const userSchema = new mongoose.Schema(
       enum: ['viewer', 'editor', 'admin'],
       default: 'viewer'
     },
+    // 자금팀 메뉴(회사 자금·내부 금리, 회사 장부, 차량별 감가상각) 열람 (대표님 2026-10-30 "자금팀만 들어가서 볼 수 있게")
+    // 관리자 권한과 따로 둔다. 관리자라도 이 칸이 꺼져 있으면 자금팀 메뉴를 못 본다.
+    financeTeam: {
+      type: Boolean,
+      default: false
+    },
     // 가입 승인 상태 (관리자 승인 전에는 PENDING, 로그인 불가)
     status: {
       type: String,

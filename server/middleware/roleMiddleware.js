@@ -31,6 +31,23 @@ export const checkWritePermission = (req, res, next) => {
   next();
 };
 
+// 자금팀 메뉴(회사 자금·내부 금리, 회사 장부, 차량별 감가상각)는 사용자 권한 관리에서 '자금팀'을 켠 사람만 본다.
+// 고치기는 거기에 더해 조회 권한(viewer)이 아니어야 한다.
+export const checkFinancePermission = (req, res, next) => {
+  if (!req.user || req.user.financeTeam !== true) {
+    return res.status(403).json({
+      message: '자금팀 권한이 필요합니다. 사용자 권한 관리에서 자금팀을 켜 주세요.'
+    });
+  }
+  if (req.method !== 'GET' && req.user.role === 'viewer') {
+    return res.status(403).json({
+      message: '수정 및 삭제 권한이 없습니다. 관리자 승인을 받으셔야 합니다.'
+    });
+  }
+
+  next();
+};
+
 // req.user는 protect 미들웨어가 JWT를 검증한 뒤 주입한 실제 DB 유저이며,
 // 클라이언트가 임의로 조작할 수 있는 헤더 값이 아니다.
 export const checkAdminPermission = (req, res, next) => {

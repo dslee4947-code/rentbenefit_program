@@ -210,7 +210,7 @@ export const updateMaintenanceRatesSetting = async (req, res) => {
 
 /**
  * 회사 대출 목록과 내부 금리.
- * 대출 목록(금액·금리)은 관리자만 본다. 다른 사람에게는 손익 원장 계산에 필요한 내부 금리만 준다.
+ * 대출 목록(금액·금리)은 자금팀만 본다. 다른 사람에게는 손익 원장 계산에 필요한 내부 금리만 준다.
  *
  * @route GET /api/settings/company-funding
  */
@@ -219,19 +219,19 @@ export const getCompanyFundingSetting = async (req, res) => {
     const doc = await Setting.findOne({ key: COMPANY_FUNDING_KEY }).lean();
     const funding = doc?.value || { loans: [], manualRate: null };
     const internal = computeInternalRate(funding);
-    const isAdmin = req.user?.role === 'admin';
+    const isFinance = req.user?.financeTeam === true;
     res.json({
       success: true,
       internalRate: internal.rate,
       source: internal.source,
-      ...(isAdmin ? { funding, updatedAt: doc?.updatedAt || null, updatedBy: doc?.updatedBy || '' } : {})
+      ...(isFinance ? { funding, updatedAt: doc?.updatedAt || null, updatedBy: doc?.updatedBy || '' } : {})
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-/** @route PUT /api/settings/company-funding (관리자만) */
+/** @route PUT /api/settings/company-funding (자금팀만) */
 export const updateCompanyFundingSetting = async (req, res) => {
   try {
     const body = req.body?.funding || {};

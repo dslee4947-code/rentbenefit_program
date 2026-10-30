@@ -8,7 +8,7 @@ import {
   getCompanyFundingSetting,
   updateCompanyFundingSetting
 } from '../controllers/settingController.js';
-import { checkAdminPermission } from '../middleware/roleMiddleware.js';
+import { checkAdminPermission, checkFinancePermission } from '../middleware/roleMiddleware.js';
 
 const router = express.Router();
 
@@ -25,6 +25,6 @@ router.put('/maintenance-rates', checkAdminPermission, updateMaintenanceRatesSet
 
 // 회사 자금(대출 목록·내부 금리): 내부 금리는 누구나(원장 계산), 대출 목록은 관리자만 보고 바꾼다
 router.get('/company-funding', getCompanyFundingSetting);
-router.put('/company-funding', checkAdminPermission, updateCompanyFundingSetting);
+router.put('/company-funding', checkFinancePermission, updateCompanyFundingSetting);
 
 export default router;

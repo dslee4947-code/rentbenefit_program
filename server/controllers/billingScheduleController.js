@@ -1464,31 +1464,6 @@ export const sendApprovalReminder = async () => {
 };
 
 /**
- * 아침 9시: 오늘(또는 지난 날짜에) 보낼 승인 청구서가 남아 있으면 담당자에게 [보내기]를 눌러 달라고 알린다.
- * 서버는 보내지 않는다. 남은 건이 없으면 메일도 보내지 않는다.
- */
-export const sendTodaySendReminder = async () => {
-  const items = await buildAutoSendQueue(7);
-  const today = dayKey(new Date());
-  const ready = items.filter((it) => it.autoStatus === '승인' && dayKey(it.sendDate) <= today);
-  if (!ready.length) return { sent: false };
-  const total = ready.reduce((sum, it) => sum + (Number(it.round.total) || 0), 0);
-  const rows = ready.map((it) => digestRow([
-    formatYmd(it.sendDate),
-    it.company?.name || it.customer?.name || '',
-    `${it.round.no}회차`,
-    `${Number(it.round.total || 0).toLocaleString()}원`,
-    it.round.autoSend?.to || ''
-  ]));
-  const html = `<div style="font-family:'Malgun Gothic',sans-serif;font-size:14px">
-    <p><b>오늘 보낼 청구서 ${ready.length}건(${total.toLocaleString()}원)이 승인되어 기다리고 있습니다.</b><br>
-    자동으로 보내지 않습니다. 장기렌트 청구서 &gt; 청구서 발송 센터 &gt; ② 보내기 대기에서 날짜별 [보내기]를 눌러 주세요.</p>
-    ${digestTable(['발송일', '계약자', '회차', '청구액', '받는 주소'], rows)}</div>`;
-  await sendInternalMail({ subject: `[청구서] 오늘 보낼 청구서 ${ready.length}건 - [보내기]를 눌러 주세요`, html });
-  return { sent: true, count: ready.length };
-};
-
-/**
  * 아침 발송 결과를 담당자 메일로 알린다. 보낸 것이 없으면 보내지 않는다.
  * @param {object} summary runAutoSend의 결과
  */

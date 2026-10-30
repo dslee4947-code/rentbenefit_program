@@ -41,8 +41,8 @@ import { syncOutlookContacts } from './utils/outlookSyncService.js';
 import { syncInvoiceSendSchedules } from './utils/invoiceScheduleJob.js';
 import { syncFineNoticeSchedules } from './utils/fineNoticeScheduleJob.js';
 import { syncVehicleServiceSchedules } from './utils/vehicleServiceScheduleJob.js';
-import { sendTodaySendReminder, sendApprovalReminder, refreshAllUnbilledInterest } from './controllers/billingScheduleController.js';
-import { runDeliveryDocsSend, sendDeliveryDocsReminder } from './controllers/deliveryDocsController.js';
+import { refreshAllUnbilledInterest } from './controllers/billingScheduleController.js';
+import { runDeliveryDocsSend } from './controllers/deliveryDocsController.js';
 import { syncCalendarInbox } from './utils/calendarInboxSync.js';
 import { syncInspectionValidity } from './utils/cybertsInspection.js';
 import { isGoogleCalendarConfigured } from './utils/googleCalendar.js';
@@ -121,27 +121,16 @@ connectDB().then(async () => {
   console.log('[Cron Scheduler] 연체 이자 내역 갱신 예약 완료 (매일 03:40).');
 
   // 청구서는 자동으로 보내지 않는다(2026-10-30 대표님). 승인한 청구서는 발송일에 담당자가
-  // 청구서 발송 센터에서 날짜별 [보내기]를 눌러야 나간다. 아침 9시에는 오늘 보낼 건이 있다고 담당자에게 알리기만 한다.
-  cron.schedule('0 9 * * *', () => {
-    sendTodaySendReminder().catch((err) => console.error('[청구서 발송 알림] 실패:', err.message));
-  }, CRON_OPTIONS);
-
-  // 오후 4시: 내일 보낼 청구서 중 승인 안 한 건을 담당자 메일로 알린다(없으면 보내지 않는다).
-  // 퇴근 전에 처리할 시간이 남도록 4시에 둔다.
-  cron.schedule('0 16 * * 1-5', () => {
-    sendApprovalReminder().catch((err) => console.error('[청구서 승인 알림] 실패:', err.message));
-  }, CRON_OPTIONS);
-  console.log('[Cron Scheduler] 청구서 발송 알림 예약 완료 (매일 09:00 오늘 보낼 건 · 16:00 승인 대기). 자동 발송은 하지 않음.');
+  // 청구서 발송 센터에서 날짜별 [보내기]를 눌러야 나간다.
+  // 담당자 알림 메일(9시 '오늘 보낼 청구서', 16시 '내일 발송 승인 대기')도 보내지 않는다. 다른 메일과 섞여
+  // 관리가 어렵다고 하셔서(2026-10-30 대표님) 할 일은 프로그램 화면(청구서 발송 센터)에서만 본다.
 
   // 인도 서류(계약사실 증명원·상환스케쥴) 발송. 인도일 다음 날 아침 9시, 담당자가 승인한 건만 보낸다.
   cron.schedule('5 9 * * *', () => {
     runDeliveryDocsSend().catch((err) => console.error('[인도 서류 발송] 실패:', err.message));
   }, CRON_OPTIONS);
-  // 오후 4시: 내일 나갈 인도 서류 중 승인 안 한 건을 담당자 메일로 알린다(없으면 보내지 않는다)
-  cron.schedule('5 16 * * *', () => {
-    sendDeliveryDocsReminder().catch((err) => console.error('[인도 서류 승인 알림] 실패:', err.message));
-  }, CRON_OPTIONS);
-  console.log('[Cron Scheduler] 인도 서류 발송 예약 완료 (매일 09:05, 승인 알림 16:05).');
+  // 승인 안 한 인도 서류 알림 메일은 보내지 않는다(2026-10-30 대표님). 인도 서류 화면에서 본다.
+  console.log('[Cron Scheduler] 인도 서류 발송 예약 완료 (매일 09:05). 담당자 알림 메일은 보내지 않음.');
 
   // 구글 업무캘린더 → 정비 기록 '확인 대기'. 직원이 핸드폰 캘린더에 적은 정비 일정을 10분마다 읽어 온다.
   // 열쇠(GOOGLE_SERVICE_ACCOUNT_KEY)가 없는 서버에서는 아무것도 하지 않는다.

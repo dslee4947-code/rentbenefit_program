@@ -57,7 +57,7 @@ const RESULT_STYLE = {
  *   ③ 발송 결과  나간 것·실패한 것·멈춘 것. 실패한 건은 여기서 다시 보낸다.
  *   ④ 입금 확인  출금일이 지났는데 입금 처리가 안 된 건. 입금완료·미납을 찍는다.
  *
- * 화면을 열지 않아도 되게 메일로도 알린다: 오후 4시에 '내일 승인 대기', 아침 9시에 '오늘 보낼 청구서'.
+ * 담당자 알림 메일은 보내지 않는다(2026-10-30). 할 일은 이 화면 위쪽 네 칸에서 본다.
  *
  * 승인한 뒤 금액·서류·받는 주소가 바뀌면 서버가 보내지 않고 '보류'로 남긴다. 담당자가 확인한 것과
  * 다른 청구서가 고객에게 나가는 일, 같은 청구서가 두 번 나가는 일은 서버가 막는다.
@@ -526,7 +526,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-        <span>하루 흐름: 오후 4시 '승인 대기' 메일 → ① 확인·승인 → 발송일에 ② [보내기] → ③ 확인 → 출금일 뒤 ④ 입금 확인</span>
+        <span>하루 흐름: ① 확인·승인 → 발송일에 ② [보내기] → ③ 확인 → 출금일 뒤 ④ 입금 확인</span>
         <button type="button" style={{ ...btn(), marginLeft: 'auto' }} onClick={loadAll} disabled={Boolean(busy)}><RefreshCw size={12} /> 새로고침</button>
       </div>
 

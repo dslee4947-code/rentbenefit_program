@@ -110,7 +110,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
     fetchPendingCount();
   }, [currentUser, activeTab]);
 
-  // 메뉴를 업무 순서(영업 → 계약·출고 → 차량 → 청구·정산)대로 묶는다.
+  // 메뉴를 업무 순서(영업 → 계약·출고 → 차량 → 자금팀)대로 묶는다.
   // 16개를 한 줄로 늘어놓으면 원하는 메뉴를 매번 위에서부터 훑어야 한다.
   // 마이페이지는 아래 사용자 정보 칸에서 들어간다.
   const ICON_SIZE = 18;
@@ -137,23 +137,21 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
       { id: 'vehicle-service', name: '렌트 차량 AS', icon: <Wrench size={ICON_SIZE} /> },
       { id: 'short-term-rates', name: '단기렌트·사고대차 단가표', icon: <Tags size={ICON_SIZE} /> }
     ] },
-    { label: '청구·정산', items: [
+    // 청구·정산과 회사 돈은 자금팀만 본다(대표님 2026-10-30). 사용자 권한 관리에서 '자금팀 메뉴'를 켠 사람에게만 보인다.
+    isFinanceTeam && { label: '자금팀', items: [
       { id: 'billing', name: '장기렌트 청구서', icon: <FileText size={ICON_SIZE} /> },
       { id: 'invoice-archive', name: '청구서 보관함', icon: <Archive size={ICON_SIZE} /> },
-      // 고지서는 렌트료 청구서에 얹어 받는 돈이라 청구·정산에 둔다(대표님 2026-10-28)
+      // 고지서는 렌트료 청구서에 얹어 받는 돈이라 청구서 옆에 둔다(대표님 2026-10-28)
       { id: 'fine-notices', name: '고지서 관리', icon: <FileWarning size={ICON_SIZE} /> },
-      { id: 'ledgers', name: '차량 손익 원장', icon: <Wallet size={ICON_SIZE} /> }
+      { id: 'ledgers', name: '차량 손익 원장', icon: <Wallet size={ICON_SIZE} /> },
+      { id: 'company-funding', name: '회사 자금·내부 금리', icon: <Landmark size={ICON_SIZE} /> },
+      { id: 'company-book', name: '회사 장부', icon: <Receipt size={ICON_SIZE} /> },
+      { id: 'vehicle-depreciation', name: '차량별 감가상각', icon: <TrendingDown size={ICON_SIZE} /> }
     ] },
     currentUser?.role === 'admin' && { label: '관리', items: [
       { id: 'users', name: '사용자 권한 관리', icon: <Key size={ICON_SIZE} />, badge: pendingUserCount },
       { id: 'storage-settings', name: '파일 저장 경로', icon: <FolderTree size={ICON_SIZE} /> },
       { id: 'maintenance-rates', name: '정비 단가표', icon: <Wrench size={ICON_SIZE} /> }
-    ] },
-    // 회사 돈은 자금팀만 본다(대표님 2026-10-30). 사용자 권한 관리에서 '자금팀'을 켠 사람에게만 보인다.
-    isFinanceTeam && { label: '자금팀', items: [
-      { id: 'company-funding', name: '회사 자금·내부 금리', icon: <Landmark size={ICON_SIZE} /> },
-      { id: 'company-book', name: '회사 장부', icon: <Receipt size={ICON_SIZE} /> },
-      { id: 'vehicle-depreciation', name: '차량별 감가상각', icon: <TrendingDown size={ICON_SIZE} /> }
     ] },
     { label: '도움말', items: [
       { id: 'handbook', name: '업무 매뉴얼', icon: <BookOpen size={ICON_SIZE} /> }
@@ -654,17 +652,17 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
             <VehicleServiceView showToast={showToast} currentUser={currentUser} />
           )}
 
-          {activeTab === 'invoice-archive' && (
+          {activeTab === 'invoice-archive' && isFinanceTeam && (
             <InvoiceArchiveView showToast={showToast} currentUser={currentUser} />
           )}
-          {activeTab === 'billing' && (
+          {activeTab === 'billing' && isFinanceTeam && (
             <MonthlyBillingView
               showToast={showToast}
               currentUser={currentUser}
             />
           )}
 
-          {activeTab === 'fine-notices' && (
+          {activeTab === 'fine-notices' && isFinanceTeam && (
             <FineNoticeView
               showToast={showToast}
               currentUser={currentUser}
@@ -675,7 +673,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
             <ShortTermRatesView showToast={showToast} currentUser={currentUser} />
           )}
 
-          {activeTab === 'ledgers' && (
+          {activeTab === 'ledgers' && isFinanceTeam && (
             <LedgerView
               showToast={showToast}
               currentUser={currentUser}

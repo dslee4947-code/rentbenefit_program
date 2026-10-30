@@ -157,6 +157,8 @@ const eventsOf = (r, today) => {
 };
 
 const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
+// 날짜 칸 하나에 보이는 줄 수. 넘치면 '+N개 더'
+const MAX_CHIPS = 7;
 // 옮길 수 있는 일정의 열쇠들. 계약만료는 계약에서 오는 날짜라 옮기지 않는다
 const movesOf = (list) => list.flatMap((e) => e.moves || (e.move ? [e.move] : []));
 const monthKey = (ymd) => ymd.slice(0, 7);
@@ -446,17 +448,17 @@ function ServiceCalendar({ rows, onOpen, onAdd, onMoved, canWrite, showToast }) 
               onDragLeave={dragging ? () => setDropDay((x) => (x === d ? '' : x)) : undefined}
               onDrop={dragging ? (ev) => { ev.preventDefault(); const g = dragging; setDragging(null); setDropDay(''); moveTo(g.list, d); } : undefined}
               title={canWrite ? '빈 곳을 누르면 이 날짜로 자동차검사·정기점검·고장수리·사고수리를 넣습니다. 일정 칸은 끌어다 다른 날에 놓으면 옮겨집니다' : undefined}
-              style={{ minHeight: '84px', padding: '0.2rem', borderRight: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', background: dropDay === d ? '#dbeafe' : thisMonth ? '#fff' : '#fafafa', outline: dropDay === d ? '2px dashed var(--primary)' : 'none', outlineOffset: '-2px', minWidth: 0, cursor: canWrite ? 'pointer' : 'default' }}
+              style={{ minHeight: '150px', padding: '0.2rem', borderRight: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', background: dropDay === d ? '#dbeafe' : thisMonth ? '#fff' : '#fafafa', outline: dropDay === d ? '2px dashed var(--primary)' : 'none', outlineOffset: '-2px', minWidth: 0, cursor: canWrite ? 'pointer' : 'default' }}
             >
               <div style={{ fontSize: '0.72rem', fontWeight: 800, color: isToday ? '#fff' : thisMonth ? 'var(--text-bright)' : 'var(--text-muted)', background: isToday ? 'var(--primary)' : 'none', borderRadius: '999px', width: '1.4rem', height: '1.4rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {Number(d.slice(8, 10))}
               </div>
-              {groups.slice(0, 4).map((g) => (
+              {groups.slice(0, MAX_CHIPS).map((g) => (
                 <GroupChip key={g.key} g={g} active={picked?.title === `${d} ${g.key}`} onClick={(rect) => pick(`${d} ${g.key}`, g.list, rect)} onDouble={() => openOne(g.list)} onDragStart={canDrag(g) ? startDrag : undefined} />
               ))}
-              {groups.length > 4 && (
+              {groups.length > MAX_CHIPS && (
                 <button type="button" onClick={(ev) => { ev.stopPropagation(); pick(`${d} 전체`, byDay.get(d), ev.currentTarget.getBoundingClientRect()); }} style={{ border: 'none', background: 'none', fontSize: '0.68rem', color: 'var(--text-muted)', cursor: 'pointer', padding: 0 }}>
-                  +{groups.length - 4}개 더
+                  +{groups.length - MAX_CHIPS}개 더
                 </button>
               )}
             </div>

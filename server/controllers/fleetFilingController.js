@@ -3,6 +3,7 @@ import FleetFiling from '../models/FleetFiling.js';
 import Vehicle from '../models/Vehicle.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
 import { parseFleetWorkbook } from '../utils/fleetFilingImport.js';
+import { parseFleetNoticePdf } from '../utils/fleetNoticeParse.js';
 import { DEFAULT_FLEET_INFO, FILING_STATUSES, filingSheetOf, applyFilingToCarTypes, carTypeKey } from '../../shared/fleetFiling.js';
 
 /**
@@ -13,6 +14,7 @@ import { DEFAULT_FLEET_INFO, FILING_STATUSES, filingSheetOf, applyFilingToCarTyp
  */
 const KEY = 'fleetRegistration';
 const userName = (req) => req.user?.name || req.user?.email || '';
+const ymdText = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
 
 const loadInfo = async () => {
   const doc = await Setting.findOne({ key: KEY }).lean();
@@ -156,6 +158,19 @@ export const updateFleetFiling = async (req, res) => {
 };
 
 /**
+ * 구청 처리가 끝난 공문: 제출 때 신고 대수를 남겨 두고(없으면 지금 것), 공문의 대수를 신고 현황에 더한다.
+ * info.carTypes가 바뀐 값으로 저장된다. filing은 부른 쪽이 저장한다.
+ */
+const markProcessed = async (filing, info, processedAt, req) => {
+  if (!filing.snapshot || !filing.snapshot.length) filing.snapshot = info.carTypes;
+  info.carTypes = applyFilingToCarTypes(info.carTypes, filing.items, 1);
+  filing.applied = true;
+  filing.status = '처리완료';
+  filing.processedAt = processedAt || filing.processedAt || new Date();
+  await saveInfo(info, req);
+};
+
+/**
  * 상태 바꾸기.
  * - 작성중 → 제출: 지금 신고 대수를 공문에 찍어 둔다. 나중에 대수가 바뀌어도 낸 서류는 그대로 다시 뽑힌다.
  * - → 처리완료: 공문의 대수를 신고 현황에 더한다.
@@ -171,13 +186,9 @@ export const setFleetFilingStatus = async (req, res) => {
 
     const info = await loadInfo();
     if (status === '작성중') filing.snapshot = undefined;
-    else if (!filing.snapshot || !filing.snapshot.length) filing.snapshot = info.carTypes;
 
     if (status === '처리완료' && !filing.applied) {
-      info.carTypes = applyFilingToCarTypes(info.carTypes, filing.items, 1);
-      filing.applied = true;
-      filing.processedAt = req.body.processedAt ? new Date(req.body.processedAt) : (filing.processedAt || new Date());
-      await saveInfo(info, req);
+      await markProcessed(filing, info, req.body.processedAt ? new Date(req.body.processedAt) : null, req);
     } else if (status !== '처리완료' && filing.applied) {
       // 이 공문으로 처음 들어온 차종(제출 때 표에 없던 줄)은 0대가 되면 다시 뺀다
       const before = new Set((filing.snapshot || []).map((t) => carTypeKey(t.name)));
@@ -187,6 +198,7 @@ export const setFleetFilingStatus = async (req, res) => {
       filing.processedAt = undefined;
       await saveInfo(info, req);
     }
+    if (status !== '작성중' && (!filing.snapshot || !filing.snapshot.length)) filing.snapshot = info.carTypes;
     filing.status = status;
     filing.updatedBy = userName(req);
     withTotals(filing, info);
@@ -245,7 +257,7 @@ export const importFleetWorkbook = async (req, res) => {
             filedAt: new Date(),
             items: parsed.pending,
             contracts: parsed.contract ? [parsed.contract] : [],
-            memo: `엑셀(${req.file.originalname || ''})에 적힌 변경`,
+            memo: `엑셀(${Buffer.from(req.file.originalname || '', 'latin1').toString('utf8')})에 적힌 변경`,
             createdBy: userName(req),
             updatedBy: userName(req)
           });
@@ -291,5 +303,123 @@ export const importFleetWorkbook = async (req, res) => {
     res.json({ success: true, result });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
+  }
+};
+
+const noticeOf = (parsed, req) => ({
+  ...parsed,
+  // multer는 파일 이름을 latin1로 읽는다(한글이 깨진다)
+  fileName: Buffer.from(req.file.originalname || '', 'latin1').toString('utf8') || '구청 처리 알림.pdf',
+  uploadedAt: new Date(),
+  uploadedBy: userName(req)
+});
+
+const openSummary = (f) => ({ _id: f._id, filedAt: f.filedAt, status: f.status, beforeTotal: f.beforeTotal, afterTotal: f.afterTotal, items: f.items });
+
+/**
+ * 구청 "변경등록신청 처리 알림" PDF 올리기(대표님 2026-10-30 "이게 오면 항상 업로드 해줄께 그러면 최신화를 해줘").
+ *
+ * 알림의 변경 전·후 총대수(141 → 142)로 아직 처리 안 된 공문을 찾아 [구청 처리 완료]로 바꾸고 신고 대수에 더한다.
+ * 알림 PDF는 그 공문에 붙여 둔다.
+ * - 맞는 공문이 둘 이상이거나 없으면 고르게 돌려준다(filingId로 다시 보낸다).
+ * - mode=history: 프로그램 전에 처리된 지난 알림. 대수는 이미 신고 현황에 들어 있어 더하지 않고, 같은 날 처리된 지난 기록에 붙이거나 새 기록으로 남긴다.
+ * - 같은 민원번호를 다시 올리면 대수는 다시 더하지 않는다(구청이 고쳐 다시 보낸 알림이면 파일만 바꾼다).
+ */
+export const uploadFleetNotice = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: '구청 처리 알림 PDF를 골라 주세요.' });
+    const parsed = await parseFleetNoticePdf(req.file.buffer);
+    const notice = noticeOf(parsed, req);
+    const history = req.body.mode === 'history';
+
+    const dup = await FleetFiling.findOne({ 'notice.minwonNo': parsed.minwonNo });
+    if (dup && !req.body.filingId) {
+      if (dup.notice.noticeNo === parsed.noticeNo) {
+        return res.status(409).json({ success: false, message: `이미 올린 알림입니다 (민원 ${parsed.minwonNo}, ${ymdText(dup.filedAt)} 공문).`, filingId: dup._id });
+      }
+      dup.notice = notice;
+      dup.noticeFile = req.file.buffer;
+      await dup.save();
+      return res.json({ success: true, result: { filingId: dup._id, replaced: true, notice: parsed } });
+    }
+
+    const info = await loadInfo();
+    let filing = null;
+    let applied = false;
+
+    if (req.body.filingId) {
+      filing = await FleetFiling.findById(req.body.filingId);
+      if (!filing) return res.status(404).json({ success: false, message: '고른 공문을 찾지 못했습니다.' });
+    } else if (!history) {
+      const open = await FleetFiling.find({ source: '', applied: false, status: { $in: ['제출', '작성중'] } }).sort({ filedAt: -1 });
+      const exact = open.filter((f) => f.beforeTotal === parsed.before && f.afterTotal === parsed.after);
+      const sameNet = open.filter((f) => f.afterTotal - f.beforeTotal === parsed.after - parsed.before);
+      filing = exact.length === 1 ? exact[0] : (!exact.length && sameNet.length === 1 ? sameNet[0] : null);
+      if (!filing) {
+        return res.status(422).json({
+          success: false,
+          needPick: true,
+          message: open.length
+            ? `알림(${parsed.before}대 → ${parsed.after}대)에 딱 맞는 공문을 고르지 못했습니다. 어느 공문의 처리 알림인지 골라 주세요.`
+            : `알림(${parsed.before}대 → ${parsed.after}대)에 맞는, 구청에 낸 공문이 없습니다. 공문을 먼저 만들거나, 기록만 남기세요.`,
+          notice: parsed,
+          candidates: open.map(openSummary)
+        });
+      }
+    } else {
+      // 지난 알림: 같은 무렵(앞뒤 7일)에 처리됐고 변경 후 대수가 같은 지난 기록에 붙인다
+      const day = 7 * 86400000;
+      const near = await FleetFiling.find({
+        notice: { $exists: false },
+        processedAt: { $gte: new Date(parsed.processedAt - day), $lte: new Date(+parsed.processedAt + day) }
+      });
+      filing = near.find((f) => f.afterTotal === parsed.after) || null;
+    }
+
+    if (!filing) {
+      filing = new FleetFiling({
+        filedAt: parsed.appliedAt || parsed.processedAt,
+        processedAt: parsed.processedAt,
+        status: '처리완료',
+        applied: true,
+        beforeTotal: parsed.before,
+        afterTotal: parsed.after,
+        memo: parsed.summary,
+        source: '구청 처리 알림',
+        createdBy: userName(req),
+        updatedBy: userName(req)
+      });
+    } else if (!filing.applied && !filing.source) {
+      await markProcessed(filing, info, parsed.processedAt, req);
+      withTotals(filing, info);
+      applied = true;
+    }
+    if (!filing.processedAt) filing.processedAt = parsed.processedAt;
+    filing.notice = notice;
+    filing.noticeFile = req.file.buffer;
+    filing.updatedBy = userName(req);
+    await filing.save();
+
+    // 구청이 적은 변경 후 대수와 프로그램 신고 대수가 다르면 알린다
+    const now = (await loadInfo()).carTypes.reduce((s, t) => s + t.count, 0);
+    const mismatch = applied && now !== parsed.after ? { program: now, notice: parsed.after } : null;
+    if (!history) {
+      logActivity({ req, dept: '영업부', action: ACTIONS.FLEET_FILING, target: { model: 'FleetFiling', id: filing._id }, summary: `구청 처리 알림 반영: 민원 ${parsed.minwonNo} ${parsed.before}대 → ${parsed.after}대` });
+    }
+    res.json({ success: true, result: { filingId: filing._id, applied, notice: parsed, registered: now, mismatch } });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+};
+
+export const getFleetNoticeFile = async (req, res) => {
+  try {
+    const filing = await FleetFiling.findById(req.params.id).select('+noticeFile notice');
+    if (!filing?.noticeFile) return res.status(404).json({ success: false, message: '붙은 구청 처리 알림이 없습니다.' });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(filing.notice?.fileName || 'notice.pdf')}`);
+    res.send(filing.noticeFile);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 };

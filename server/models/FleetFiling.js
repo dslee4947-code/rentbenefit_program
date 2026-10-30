@@ -46,6 +46,23 @@ const fleetFilingSchema = new mongoose.Schema({
   afterTotal: Number,
   processedAt: Date,                                     // 구청 처리 메일 온 날
   applied: { type: Boolean, default: false },            // 신고 현황에 대수를 더했는지
+  // 구청 "변경등록신청 처리 알림" PDF에서 읽은 값(utils/fleetNoticeParse.js). 파일은 noticeFile에 따로 둔다.
+  notice: {
+    minwonNo: String,      // 서초구 민원번호
+    noticeNo: String,      // 시행 문서번호(교통행정과-…)
+    appliedAt: Date,       // 민원 신청일
+    processedAt: Date,     // 시행일(처리일)
+    before: Number,
+    after: Number,
+    increase: Number,
+    decrease: Number,
+    plates: [String],
+    summary: String,
+    fileName: String,
+    uploadedAt: Date,
+    uploadedBy: String
+  },
+  noticeFile: { type: Buffer, select: false },
   memo: { type: String, default: '' },
   source: { type: String, default: '' },                 // '구청 등록현황 엑셀' 등 옮겨 온 곳
   importKey: { type: String, index: true, sparse: true },
@@ -54,5 +71,6 @@ const fleetFilingSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 fleetFilingSchema.index({ filedAt: -1 });
+fleetFilingSchema.index({ 'notice.minwonNo': 1 }, { sparse: true });
 
 export default mongoose.model('FleetFiling', fleetFilingSchema);

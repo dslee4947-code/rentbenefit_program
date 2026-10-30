@@ -38,6 +38,13 @@ const parseWon = (s) => Number(String(s).replace(/[^\d]/g, '')) || '';
 const emptyFiling = () => ({ filedAt: todayYmd(), kind: '증차·감차', reason: '', registrationLabel: '', items: [{ name: '', width: '', length: '', delta: 1, plates: '' }], contracts: [], memo: '', status: '작성중' });
 const emptyContract = () => ({ maker: '현대', contractNo: '', model: '', color: '', price: '', deliveryFee: '', qty: '1대', deposit: '' });
 
+// 지난 기록의 구분: 차종 줄이 있으면 그 부호, 구청 알림만 있으면 알림의 증차·감차 대수
+const kindOfHistory = (f) => {
+  if (f.items?.length) return f.items[0].delta > 0 ? '증차' : '감차';
+  const n = f.notice || {};
+  return [n.increase ? `증차 ${n.increase}` : '', n.decrease ? `감차 ${n.decrease}` : ''].filter(Boolean).join('·') || '변경';
+};
+
 const changeText = (items) => (items || []).map((it) => `${it.name} ${it.delta > 0 ? '+' : ''}${it.delta}`).join(', ');
 
 function Kpi({ label, value, sub, color }) {
@@ -56,7 +63,7 @@ function StatusChip({ status }) {
 
 /* ── 공문 편집 ─────────────────────────────────────────────── */
 
-function FilingEditor({ info, filing, canEdit, onSave, onStatus, onDelete, showToast }) {
+function FilingEditor({ info, filing, canEdit, onSave, onStatus, onDelete, onOpenNotice, showToast }) {
   const [draft, setDraft] = useState(filing);
   const [busy, setBusy] = useState(false);
   const docsRef = useRef(null);
@@ -130,6 +137,14 @@ function FilingEditor({ info, filing, canEdit, onSave, onStatus, onDelete, showT
 
       {(draft._id && JSON.stringify(draft) !== JSON.stringify(filing)) && editable && (
         <div style={{ fontSize: '0.8rem', color: '#b45309' }}>고친 내용이 아직 저장되지 않았습니다.</div>
+      )}
+      {filing.notice?.minwonNo && (
+        <div style={{ ...card, display: 'flex', flexWrap: 'wrap', gap: '0.6rem', alignItems: 'center', fontSize: '0.84rem', borderColor: '#15803d' }}>
+          <b style={{ color: '#15803d' }}>구청 처리 알림</b>
+          <span>민원 {filing.notice.minwonNo} (신청 {ymd(filing.notice.appliedAt)}) · {filing.notice.noticeNo} 시행 {ymd(filing.notice.processedAt)} · {filing.notice.before}대 → {filing.notice.after}대</span>
+          <span style={{ color: 'var(--text-muted)' }}>{filing.notice.summary}</span>
+          {onOpenNotice && <button type="button" style={{ ...btn(), marginLeft: 'auto' }} onClick={() => onOpenNotice(filing._id)}>알림 PDF 열기</button>}
+        </div>
       )}
       {locked && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>구청 처리가 끝나 대수가 신고 현황에 들어간 공문입니다. 고치려면 [처리 완료 되돌리기]를 먼저 누르세요.</div>}
 
@@ -302,6 +317,8 @@ function FleetFilingView({ showToast, currentUser }) {
   const [selected, setSelected] = useState(null); // 공문 id 또는 'new'
   const [showHistory, setShowHistory] = useState(false);
   const fileRef = useRef(null);
+  const noticeRef = useRef(null);
+  const [noticePick, setNoticePick] = useState(null); // 맞는 공문을 못 고른 구청 알림 { file, notice, candidates, message }
   const canEdit = currentUser?.role && currentUser.role !== 'viewer';
 
   const load = useCallback(() => fetch(API)
@@ -378,6 +395,49 @@ function FleetFilingView({ showToast, currentUser }) {
     }
   };
 
+  // 구청 "변경등록신청 처리 알림" PDF → 맞는 공문을 처리 완료로 바꾸고 신고 대수에 반영
+  const uploadNotice = async (file, extra = {}) => {
+    if (!file) return;
+    const form = new FormData();
+    form.append('file', file);
+    Object.entries(extra).forEach(([k, v]) => form.append(k, v));
+    try {
+      const r = await fetch(`${API}/notice`, { method: 'POST', body: form });
+      const d = await r.json();
+      if (d.needPick) { setNoticePick({ file, notice: d.notice, candidates: d.candidates || [], message: d.message }); return; }
+      if (!r.ok || !d.success) throw new Error(d.message);
+      const { result } = d;
+      setNoticePick(null);
+      const n = result.notice;
+      if (result.replaced) showToast(`같은 민원(${n.minwonNo})의 다시 온 알림이라 파일만 바꿨습니다.`, 'success');
+      else if (result.applied) showToast(`구청 처리 알림을 반영했습니다. 민원 ${n.minwonNo} · ${n.before}대 → ${n.after}대 · 신고 대수 ${result.registered}대`, 'success');
+      else showToast(`구청 처리 알림을 기록했습니다 (민원 ${n.minwonNo}). 신고 대수는 바꾸지 않았습니다.`, 'success');
+      if (result.mismatch) showToast(`구청 알림은 ${result.mismatch.notice}대인데 프로그램 신고 대수는 ${result.mismatch.program}대입니다. 차종별 신고 대수를 확인해 주세요.`, 'error');
+      await load();
+      setTab('filings');
+      setSelected(result.filingId);
+    } catch (err) {
+      showToast(err.message || '구청 처리 알림을 읽지 못했습니다.', 'error');
+    } finally {
+      if (noticeRef.current) noticeRef.current.value = '';
+    }
+  };
+
+  const openNotice = async (id) => {
+    // 창은 누른 순간 열어 둔다(파일을 받은 뒤 열면 팝업 차단에 걸린다)
+    const win = window.open('', '_blank');
+    try {
+      const r = await fetch(`${API}/${id}/notice`);
+      if (!r.ok) throw new Error('구청 처리 알림 파일을 열지 못했습니다.');
+      const url = URL.createObjectURL(await r.blob());
+      win.location.href = url;
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      win?.close();
+      showToast(err.message, 'error');
+    }
+  };
+
   if (!data) return <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>증차·감차 공문을 불러오는 중…</div>;
 
   const { info, filings, vehicleStats = {} } = data;
@@ -410,10 +470,29 @@ function FleetFilingView({ showToast, currentUser }) {
           <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem', paddingBottom: '0.3rem' }}>
             <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={(e) => upload(e.target.files?.[0])} />
             <button type="button" style={btn()} onClick={() => fileRef.current?.click()}>엑셀 올리기</button>
+            <input ref={noticeRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={(e) => uploadNotice(e.target.files?.[0])} />
+            <button type="button" style={btn('ok')} onClick={() => noticeRef.current?.click()}>구청 처리 알림 올리기</button>
             <button type="button" style={btn('primary')} onClick={() => { setTab('filings'); setSelected('new'); }}>+ 새 공문</button>
           </span>
         )}
       </div>
+
+      {noticePick && (
+        <div style={{ ...card, borderColor: '#b45309' }}>
+          <div style={{ fontWeight: 800, marginBottom: '0.3rem' }}>구청 처리 알림: 민원 {noticePick.notice.minwonNo} · 처리 {ymd(noticePick.notice.processedAt)} · {noticePick.notice.before}대 → {noticePick.notice.after}대</div>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>{noticePick.notice.summary}</div>
+          <div style={{ fontSize: '0.84rem', marginBottom: '0.6rem', color: '#b45309' }}>{noticePick.message}</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+            {noticePick.candidates.map((c) => (
+              <button key={c._id} type="button" style={btn()} onClick={() => uploadNotice(noticePick.file, { filingId: c._id })}>
+                {ymd(c.filedAt)} {c.status} · {changeText(c.items)} ({c.beforeTotal} → {c.afterTotal}) 공문에 반영
+              </button>
+            ))}
+            <button type="button" style={btn()} onClick={() => uploadNotice(noticePick.file, { mode: 'history' })}>공문 없이 기록만 남기기 (대수는 그대로)</button>
+            <button type="button" style={btn()} onClick={() => setNoticePick(null)}>닫기</button>
+          </div>
+        </div>
+      )}
 
       {tab === 'filings' && (
         <>
@@ -423,12 +502,17 @@ function FleetFilingView({ showToast, currentUser }) {
               <tbody>
                 {[...own, ...(showHistory ? imported : [])].map((f) => (
                   <tr key={f._id} onClick={() => !f.source && setSelected(f._id)} style={{ cursor: f.source ? 'default' : 'pointer', background: selected === f._id ? 'var(--bg-main)' : undefined, color: f.source ? 'var(--text-muted)' : undefined }}>
-                    <td style={td}>{ymd(f.filedAt)}</td>
+                    <td style={{ ...td, whiteSpace: 'nowrap' }}>{ymd(f.filedAt)}</td>
                     <td style={td}><StatusChip status={f.status} /></td>
-                    <td style={td}>{f.source ? (f.items?.[0]?.delta > 0 ? '증차' : '감차') : f.kind}</td>
-                    <td style={td}>{changeText(f.items)}{f.items?.some((it) => it.plates) && <span style={{ color: 'var(--text-muted)' }}> ({f.items.map((it) => it.plates).filter(Boolean).join(', ')})</span>}</td>
+                    <td style={td}>{f.source ? kindOfHistory(f) : f.kind}</td>
+                    <td style={td}>{f.items?.length ? changeText(f.items) : f.notice?.summary?.replace(/^○\s*주사무소\s*/, '')}{f.items?.some((it) => it.plates) && <span style={{ color: 'var(--text-muted)' }}> ({f.items.map((it) => it.plates).filter(Boolean).join(', ')})</span>}</td>
                     <td style={{ ...td, whiteSpace: 'nowrap' }}>{f.beforeTotal ?? '?'} → <b>{f.afterTotal ?? '?'}</b></td>
-                    <td style={td}>{ymd(f.processedAt)}</td>
+                    <td style={{ ...td, whiteSpace: 'nowrap' }}>
+                      {ymd(f.processedAt)}
+                      {f.notice?.minwonNo && (
+                        <button type="button" title={`민원 ${f.notice.minwonNo} · ${f.notice.fileName || ''}`} style={{ ...btn(), padding: '0.1rem 0.45rem', fontSize: '0.72rem', marginLeft: '0.4rem' }} onClick={(e) => { e.stopPropagation(); openNotice(f._id); }}>알림 PDF</button>
+                      )}
+                    </td>
                     <td style={{ ...td, fontSize: '0.76rem', color: 'var(--text-muted)' }}>{f.source ? `${f.source}` : f.memo}</td>
                   </tr>
                 ))}
@@ -438,7 +522,7 @@ function FleetFilingView({ showToast, currentUser }) {
             {imported.length > 0 && (
               <div style={{ padding: '0.5rem 0.8rem' }}>
                 <button type="button" style={{ ...btn(), fontSize: '0.78rem' }} onClick={() => setShowHistory((v) => !v)}>
-                  {showHistory ? '지난 구청 처리 기록 숨기기' : `지난 구청 처리 기록 ${imported.length}건 보기 (엑셀 등록현황)`}
+                  {showHistory ? '지난 구청 처리 기록 숨기기' : `지난 구청 처리 기록 ${imported.length}건 보기 (엑셀 등록현황·구청 알림)`}
                 </button>
               </div>
             )}
@@ -448,7 +532,7 @@ function FleetFilingView({ showToast, currentUser }) {
             <FilingEditor key="new" info={info} filing={emptyFiling()} canEdit={canEdit} onSave={saveFiling} onStatus={setStatus} onDelete={remove} showToast={showToast} />
           )}
           {current && (
-            <FilingEditor key={`${current._id}-${current.updatedAt}`} info={info} filing={{ ...current, filedAt: ymd(current.filedAt) }} canEdit={canEdit} onSave={saveFiling} onStatus={setStatus} onDelete={remove} showToast={showToast} />
+            <FilingEditor key={`${current._id}-${current.updatedAt}`} info={info} filing={{ ...current, filedAt: ymd(current.filedAt) }} canEdit={canEdit} onSave={saveFiling} onStatus={setStatus} onDelete={remove} onOpenNotice={openNotice} showToast={showToast} />
           )}
         </>
       )}

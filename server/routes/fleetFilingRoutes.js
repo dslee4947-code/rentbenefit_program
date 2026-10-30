@@ -6,7 +6,9 @@ import {
   updateFleetFiling,
   setFleetFilingStatus,
   deleteFleetFiling,
-  importFleetWorkbook
+  importFleetWorkbook,
+  uploadFleetNotice,
+  getFleetNoticeFile
 } from '../controllers/fleetFilingController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
 import { uploadSingleFile } from '../middleware/uploadMiddleware.js';
@@ -19,6 +21,8 @@ router.use(checkWritePermission);
 router.get('/', getFleetFilings);
 router.put('/info', updateFleetInfo);
 router.post('/import', uploadSingleFile(), importFleetWorkbook);
+router.post('/notice', uploadSingleFile(), uploadFleetNotice);
+router.get('/:id/notice', getFleetNoticeFile);
 router.post('/', createFleetFiling);
 router.put('/:id', updateFleetFiling);
 router.post('/:id/status', setFleetFilingStatus);

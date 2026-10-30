@@ -79,7 +79,7 @@ const needsExtensionForContract = (r) => Boolean(r.carAge && r.checks?.contractE
  * 달력 보기(구글 캘린더처럼).
  *
  * - 자동차검사·정기점검: 앞으로 할 일(예정). 칠한 칸으로 보인다.
- * - 고장수리·사고수리: 일이 생긴 뒤 적는 기록. 테두리 칸 + ✓로 그날에 남는다.
+ * - 고장수리·사고수리: 일이 생긴 뒤 적는 기록. 테두리 칸으로 그날에 남는다. 칸에는 앞글자(검·정·고·사)만 쓴다.
  * - 장기렌트는 계약사 이름으로, 단기렌트는 차량번호로 보인다. 같은 날 같은 계약사·같은 일은 한 줄로 묶는다.
  * - 날짜가 지났는데 기록이 없는 예정 일은 달력 위 '밀린 일'에 모은다.
  * - 차령 연장은 자동차검사 때 함께 신청하므로 따로 칸을 두지 않고 자동차검사 칸에 '차령'을 붙인다.
@@ -93,12 +93,13 @@ const needsExtensionForContract = (r) => Boolean(r.carAge && r.checks?.contractE
  * 앞날은 '예정'으로 저장돼 그날에 '예약'으로 보이고, 계산한 날짜는 숨긴다. 받고 나서 '완료'로 바꾸면 다음 회차로 넘어간다.
  */
 const KIND = {
-  자동차검사: { color: '#1d4ed8', bg: '#dbeafe' },
-  '검사+점검': { color: '#6d28d9', bg: '#ede9fe' },
-  정기점검: { color: '#047857', bg: '#d1fae5' },
-  고장수리: { color: '#b45309', bg: '#fff', record: true },
-  사고수리: { color: '#b91c1c', bg: '#fff', record: true },
-  계약만료: { color: '#334155', bg: '#e2e8f0' }
+  // short: 달력 칸에 쓰는 앞글자. 칸이 좁아 이름 대신 한 글자로 보이고, 뜻은 범례와 정보 창에 나온다.
+  자동차검사: { short: '검', color: '#1d4ed8', bg: '#dbeafe' },
+  '검사+점검': { short: '검·정', color: '#6d28d9', bg: '#ede9fe' },
+  정기점검: { short: '정', color: '#047857', bg: '#d1fae5' },
+  고장수리: { short: '고', color: '#b45309', bg: '#fff', record: true },
+  사고수리: { short: '사', color: '#b91c1c', bg: '#fff', record: true },
+  계약만료: { short: '만료', color: '#334155', bg: '#e2e8f0' }
 };
 // 아래 정리표의 칸. '검사+점검'은 두 칸에 모두 들어간다.
 const SUMMARY_COLS = ['자동차검사', '정기점검', '고장수리', '사고수리', '계약만료'];
@@ -183,7 +184,7 @@ function GroupChip({ g, active, onClick, onDouble }) {
       title={`${g.kind} · ${g.who}\n${g.list.map((e) => `${e.r.plateNo} ${e.note || ''}`).join('\n')}`}
       style={{ display: 'block', width: '100%', textAlign: 'left', border: k.record || active ? `1px solid ${k.color}` : '1px solid transparent', ...(k.record ? { borderLeft: `3px solid ${k.color}` } : {}), background: active && k.record ? '#fef3c7' : k.bg, color: k.color, borderRadius: '4px', padding: '0.05rem 0.25rem', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}
     >
-      {k.record ? '✓ ' : ''}{booked ? '📌 ' : ''}{g.kind} {g.who}{g.list.length > 1 ? ` ${g.list.length}대` : ''}{hasAge ? ' · 차령' : ''}
+      {booked ? '📌' : ''}<b style={{ fontWeight: 900 }}>{k.short}</b> {g.who}{g.list.length > 1 ? ` ${g.list.length}대` : ''}{hasAge ? ' · 차령' : ''}
     </button>
   );
 }
@@ -352,7 +353,7 @@ function ServiceCalendar({ rows, onOpen, onAdd, canWrite }) {
         <button type="button" style={navBtn} onClick={() => go(0)}>오늘</button>
         <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
           {Object.entries(KIND).map(([name, k]) => (
-            <span key={name} style={{ fontSize: '0.7rem', fontWeight: 800, color: k.color, background: k.bg, border: k.record ? `1px solid ${k.color}` : 'none', borderRadius: '4px', padding: '0 0.3rem' }}>{k.record ? '✓ ' : ''}{name}</span>
+            <span key={name} style={{ fontSize: '0.7rem', fontWeight: 800, color: k.color, background: k.bg, border: k.record ? `1px solid ${k.color}` : 'none', borderRadius: '4px', padding: '0 0.3rem' }}><b style={{ fontWeight: 900 }}>{k.short}</b> {name}</span>
           ))}
         </span>
       </div>
@@ -425,7 +426,7 @@ function ServiceCalendar({ rows, onOpen, onAdd, canWrite }) {
       <MonthSummary events={inMonth} onOpen={onOpen} />
       <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.4rem', lineHeight: 1.6 }}>
         자동차검사는 검사일 2개월 전부터 1개월 뒤까지 받을 수 있습니다. 정기점검일이 그 안(검사일 2개월 뒤까지)에 있으면 이른 날에 한 번 입고해 같이 처리하도록 <b style={{ color: KIND['검사+점검'].color }}>검사+점검</b>으로 묶었습니다.
-        ✓ 고장수리·사고수리는 일이 생긴 뒤 남긴 기록입니다. 📌는 날짜를 잡아 둔 일정입니다.
+        검=자동차검사 · 정=정기점검 · 고=고장수리 · 사=사고수리. 고·사(테두리 칸)는 일이 생긴 뒤 남긴 기록입니다. 📌는 날짜를 잡아 둔 일정입니다.
         {canWrite ? ' 날짜 칸의 빈 곳을 누르면 그날로 일정·기록을 넣을 수 있습니다.' : ''}
       </div>
       {addDate && (

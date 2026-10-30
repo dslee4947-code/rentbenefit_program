@@ -793,7 +793,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
               {[7, 14, 30, 60].map((d) => <option key={d} value={d}>{d}일</option>)}
             </select>
             <span style={{ color: 'var(--text-muted)' }}>
-              손볼 것이 위에 옵니다. <b>확인 필요</b>는 보내는 도중 멈춘 건이라, 보낸편지함이나 고객에게 받았는지 확인한 뒤 눌러 주세요.
+              최근에 보낸 것부터 보입니다(실패·확인 필요는 맨 위). <b>확인 필요</b>는 보내는 도중 멈춘 건이라, 보낸편지함이나 고객에게 받았는지 확인한 뒤 눌러 주세요.
             </span>
           </div>
           {history.length === 0 ? (

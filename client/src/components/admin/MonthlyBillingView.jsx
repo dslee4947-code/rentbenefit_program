@@ -6,6 +6,7 @@ import ExtensionTag from './ExtensionTag.jsx';
 import MoneyInput from './MoneyInput.jsx';
 import { buildRoundForm, formTotals, roundSaveBody } from './billingForm.js';
 import AutoSendView from './AutoSendView.jsx';
+import BulkSendDialog from './BulkSendDialog.jsx';
 import PaymentDayBadge from './PaymentDayBadge.jsx';
 import { paymentDayStyle, paymentDayStyleOf, paymentDayKey, NUMERIC } from './paymentDay.js';
 import { NOTICE_KINDS, isReadableFile, readNotice } from './noticeOcr.js';
@@ -152,6 +153,7 @@ function MonthlyBillingView({ showToast, currentUser }) {
   // 전월 미결제를 한 번에 처리하기 위한 체크 목록
   const [checked, setChecked] = useState([]);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkSend, setBulkSend] = useState(null); // 출금일 한 줄의 청구서를 한 번에 보내는 창 { title, items }
   const [tab, setTab] = useState('due'); // due: 청구 대상, auto: 자동 발송, issued: 발행 이력
   const [unpaidFor, setUnpaidFor] = useState(null); // [미납 처리] 창을 연 줄
   useBackClose(Boolean(unpaidFor), () => setUnpaidFor(null));
@@ -707,7 +709,8 @@ function MonthlyBillingView({ showToast, currentUser }) {
   const shownItems = groupByDay
     ? dueGroups.filter((g) => !isCollapsed(g.key)).flatMap((g) => g.items)
     : visibleItems;
-  const checkableItems = shownItems.filter((it) => it.prevRound);
+  // 체크는 출금일별 한 번에 보내기와 전월 일괄 처리에 함께 쓴다. 전월 처리는 전월 회차가 있는 건만 바꾼다
+  const checkableItems = shownItems;
 
   // 이력에 보여 줄 회차. 기본은 지나온 것과 이번 회차까지다.
   // 60회차를 전부 펼치면 정작 봐야 할 최근 건이 묻힌다.
@@ -1039,6 +1042,33 @@ function MonthlyBillingView({ showToast, currentUser }) {
                           {g.unpaidCount > 0 && (
                             <span style={{ fontSize: '0.76rem', fontWeight: '800', color: 'var(--error)' }}>미납 {g.unpaidCount}건</span>
                           )}
+                          {/* 이 출금일 전체 선택 · 한 번에 보내기(대표님 2026-10-30). 줄을 누르면 접히므로 여기서 멈춘다 */}
+                          <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', marginLeft: isCollapsed(g.key) ? '0.5rem' : 'auto' }}>
+                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-main)', cursor: 'pointer' }}>
+                              <input
+                                type="checkbox"
+                                checked={g.items.length > 0 && g.items.every((it) => checked.includes(it.scheduleId))}
+                                onChange={(e) => {
+                                  const ids = g.items.map((it) => it.scheduleId);
+                                  setChecked((cur) => (e.target.checked ? [...new Set([...cur, ...ids])] : cur.filter((id) => !ids.includes(id))));
+                                }}
+                              />
+                              전체 선택
+                            </label>
+                            {currentUser?.role !== 'viewer' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const picked = g.items.filter((it) => checked.includes(it.scheduleId));
+                                  const list = picked.length ? picked : g.items;
+                                  setBulkSend({ title: `출금일 ${g.key}${g.day ? ` (${g.day}일)` : ''}`, items: list });
+                                }}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', background: '#2563eb', color: '#fff', border: 'none', padding: '0.3rem 0.75rem', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 800, cursor: 'pointer' }}
+                              >
+                                <Send size={13} /> {(() => { const n = g.items.filter((it) => checked.includes(it.scheduleId)).length; return n ? `고른 ${n}건 보내기` : `이 출금일 ${g.items.length}건 보내기`; })()}
+                              </button>
+                            )}
+                          </span>
                           {isCollapsed(g.key) && (
                             <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>접힘 (눌러서 펼치기)</span>
                           )}
@@ -1077,8 +1107,6 @@ function MonthlyBillingView({ showToast, currentUser }) {
                       <input
                         type="checkbox"
                         checked={checked.includes(it.scheduleId)}
-                        disabled={!prev}
-                        title={prev ? '' : '전월 회차가 없습니다 (1회차)'}
                         onChange={(e) => setChecked((cur) => e.target.checked
                           ? [...cur, it.scheduleId]
                           : cur.filter((id) => id !== it.scheduleId))}
@@ -1835,6 +1863,17 @@ function MonthlyBillingView({ showToast, currentUser }) {
         </div>
         )}
       </div>
+
+      {bulkSend && (
+        <BulkSendDialog
+          title={bulkSend.title}
+          items={bulkSend.items}
+          currentUser={currentUser}
+          showToast={showToast}
+          onClose={() => setBulkSend(null)}
+          onDone={() => { setChecked([]); fetchDue(); }}
+        />
+      )}
 
       {/* PDF로 만들 청구서 양식. 화면에는 보이지 않게 두고 이 요소만 캡처한다. */}
       {selected && form && (

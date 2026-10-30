@@ -1249,9 +1249,10 @@ export const getSendHistory = async (req, res) => {
         });
       }
     }
-    // 손볼 것이 위로 온다
-    const weight = { '확인 필요': 0, '메일 실패': 1, 실패: 1, '메일 안 감': 2, 보류: 3, 보냄: 4 };
-    items.sort((a, b) => ((weight[a.result] ?? 5) - (weight[b.result] ?? 5))
+    // 보내다 멈췄거나 실패한 건만 맨 위, 나머지는 최근에 발행한 것부터(2026-10-30).
+    // 예전에는 '메일 안 감'(밖에서 보낸 지난 청구서를 옮겨 온 건 등)이 위로 와 방금 보낸 청구서가 맨 아래에 묻혔다.
+    const urgent = (r) => (['확인 필요', '메일 실패', '실패'].includes(r) ? 0 : 1);
+    items.sort((a, b) => (urgent(a.result) - urgent(b.result))
       || (new Date(b.issuedAt || 0) - new Date(a.issuedAt || 0)));
     res.json({ success: true, days, items });
   } catch (error) {

@@ -134,7 +134,7 @@ export const importCalendarInbox = async (req, res) => {
       summary: `캘린더 일정 → 정비 기록 ${created.length}건 (${vehicle.plateNo} · ${kinds.join('·')})`,
       meta: { eventId: item.eventId, kinds }
     });
-    res.json({ success: true, created: created.length, message: `${vehicle.plateNo} ${kinds.join('·')} 기록 ${created.length}건을 남겼습니다.` });
+    res.json({ success: true, created: created.length, records: created.map((r) => ({ id: r._id, kind: r.kind })), message: `${vehicle.plateNo} ${kinds.join('·')} 기록 ${created.length}건을 남겼습니다.` });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

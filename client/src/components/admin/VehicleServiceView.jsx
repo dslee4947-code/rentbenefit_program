@@ -3,6 +3,7 @@ import { RefreshCw, X, ExternalLink, Trash2, Pencil, Search } from 'lucide-react
 import VehicleServiceForm from './VehicleServiceForm.jsx';
 import CarDamageMap from './CarDamageMap.jsx';
 import CalendarInboxPanel from './CalendarInboxPanel.jsx';
+import MoneyInput from './MoneyInput.jsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -365,6 +366,226 @@ function DayPicker({ date, rows, onPick, onClose }) {
   );
 }
 
+/**
+ * 차 한 대·하루의 요약 카드(구글 캘린더 일정 창처럼). 그날 그 차의 일마다 칸이 하나씩 나오고
+ * 칸 안에서 바로 글자로 고친다. 정기점검·자동차검사·사고수리를 한 번에 하면 세 칸이 나온다.
+ *
+ *  기록이 있는 일(예약·진행 중·완료)  저장하면 그 기록을 고친다
+ *  자동 계산한 일(🗓️)                고쳐서 저장하면 그 날짜로 예약(📌)이 생긴다
+ *  구글 캘린더 확인 대기(⏳)          저장하면 칸마다 기록이 만들어지고 확인 대기가 끝난다
+ *
+ * 내역서·보험·탁송처럼 칸이 많은 것은 [상세 양식]에서 고친다.
+ */
+const DAY_STATUSES = ['예정', '입고', '수리 중', '완료'];
+
+function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, place, left, width }) {
+  const r = list[0].r;
+  const date = list[0].date;
+  const [records, setRecords] = useState(null); // 이 차 기록 전부(칸을 채울 값)
+  const [forms, setForms] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [showText, setShowText] = useState(true);
+
+  // 칸 목록. 검사+점검은 두 칸으로 편다
+  const sections = list.flatMap((e) => {
+    if (e.kind === '계약만료') return [{ key: `${e.kind}`, kind: e.kind, e, readOnly: true }];
+    const kinds = e.kind === '검사+점검' ? ['정기점검', '자동차검사'] : [e.label && KIND[e.label] ? e.label : e.kind];
+    return kinds.map((kind) => ({ key: `${kind}|${e.recordId || e.inboxId || 'plan'}`, kind, e }));
+  }).sort((a, b) => LETTER_ORDER.indexOf(a.kind) - LETTER_ORDER.indexOf(b.kind));
+  const pendingOf = list.find((e) => e.inboxId);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API_HOST}/api/vehicle-services/vehicle/${r.vehicleId}`, { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!alive) return;
+        const recs = data.records || [];
+        setRecords(recs);
+        const today = todayYmd();
+        setForms(Object.fromEntries(sections.map((sec, i) => {
+          const rec = sec.e.recordId ? recs.find((x) => String(x._id) === String(sec.e.recordId)) : null;
+          const p = sec.e.inboxId ? (r.pending || []).find((w) => String(w.id) === String(sec.e.inboxId))?.parsed || {} : {};
+          return [sec.key, rec ? {
+            date: ymd(rec.date), status: rec.status || '완료', shop: rec.shop || '', staff: rec.staff || '',
+            mileage: rec.mileageOut || rec.mileage || '', amount: rec.amount || '', request: rec.request || '', description: rec.description || '', memo: rec.memo || ''
+          } : {
+            date, status: sec.e.inboxId ? (date > today ? '예정' : '완료') : '예정', shop: p.shop || '', staff: p.staff || '',
+            mileage: p.mileage || '', amount: i === 0 ? p.amount || '' : '', request: p.request || '', description: p.done && p.done !== '1.' ? p.done : '', memo: ''
+          }];
+        })));
+      })
+      .catch(() => { if (alive) showToast?.('기록을 불러오지 못했습니다.', 'error'); });
+    return () => { alive = false; };
+    // 카드는 열 때 한 번만 채운다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const setF = (key, patch) => setForms((f) => ({ ...f, [key]: { ...f[key], ...patch, dirty: true } }));
+  const bodyOfForm = (f, rec) => {
+    const body = {
+      date: f.date, status: f.status, shop: f.shop, staff: f.staff, request: f.request, description: f.description, memo: f.memo,
+      mileage: f.mileage, mileageOut: f.mileage, amount: f.amount
+    };
+    // 상세 양식으로 수리비·부가세를 나눠 적은 기록은 합계에 맞춰 수리비만 바꾼다(부가세는 그대로)
+    if (rec?.costs?.repair !== undefined && rec?.costs?.repair !== null) {
+      const vat = Number(rec.costs.vat) || 0;
+      body.costs = { repair: Math.max(0, (Number(String(f.amount).replace(/,/g, '')) || 0) - vat), vat, insurancePaid: rec.costs.insurancePaid };
+    }
+    return body;
+  };
+  const patch = (id, body) => fetch(`${API_HOST}/api/vehicle-services/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((res) => res.json());
+
+  const saveAll = async () => {
+    setSaving(true);
+    try {
+      let count = 0;
+      // ⏳ 확인 대기: 먼저 기록으로 옮기고(칸마다 한 건), 칸에 적은 값으로 고친다
+      if (pendingOf) {
+        const kinds = sections.filter((x) => x.e.inboxId).map((x) => x.kind);
+        const res = await fetch(`${API_HOST}/api/vehicle-services/calendar-inbox/${pendingOf.inboxId}/import`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ vehicleId: r.vehicleId, kinds, date })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) { showToast?.(data.message || '기록으로 옮기지 못했습니다.', 'error'); return; }
+        for (const made of data.records || []) {
+          const sec = sections.find((x) => x.e.inboxId && x.kind === made.kind);
+          if (sec) await patch(made.id, bodyOfForm(forms[sec.key]));
+          count += 1;
+        }
+      }
+      for (const sec of sections) {
+        const f = forms[sec.key];
+        if (sec.readOnly || sec.e.inboxId || !f?.dirty) continue;
+        if (sec.e.recordId) {
+          const rec = records.find((x) => String(x._id) === String(sec.e.recordId));
+          const data = await patch(sec.e.recordId, bodyOfForm(f, rec));
+          if (!data.success) { showToast?.(data.message || `${sec.kind}을 저장하지 못했습니다.`, 'error'); return; }
+        } else {
+          // 자동 계산한 일을 고치면 그 날짜로 예약이 생긴다
+          const fd = new FormData();
+          fd.append('vehicleId', r.vehicleId);
+          fd.append('kind', sec.kind);
+          fd.append('data', JSON.stringify({ ...bodyOfForm(f), inAt: `${f.date}T10:00` }));
+          const data = await fetch(`${API_HOST}/api/vehicle-services`, { method: 'POST', body: fd }).then((res) => res.json());
+          if (!data.success) { showToast?.(data.message || `${sec.kind}을 저장하지 못했습니다.`, 'error'); return; }
+        }
+        count += 1;
+      }
+      showToast?.(count ? `${r.plateNo} ${count}건을 저장했습니다.` : '바뀐 것이 없습니다.', count ? 'success' : 'info');
+      if (count) onSaved();
+    } catch {
+      showToast?.('서버 통신 오류가 발생했습니다.', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (sec) => {
+    if (!window.confirm(`${sec.kind} 기록을 지울까요? (붙인 파일은 OneDrive에 남습니다)`)) return;
+    const res = await fetch(`${API_HOST}/api/vehicle-services/${sec.e.recordId}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    showToast?.(data.message || '지웠습니다.', data.success ? 'success' : 'error');
+    if (data.success) onSaved();
+  };
+
+  const input = { width: '100%', padding: '0.3rem 0.4rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.8rem', boxSizing: 'border-box', background: '#fff', color: 'var(--text-bright)', fontFamily: 'inherit' };
+  const lab = { fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.1rem' };
+  const pendingRow = pendingOf ? (r.pending || []).find((w) => String(w.id) === String(pendingOf.inboxId)) : null;
+  const dirtyCount = forms ? sections.filter((x) => forms[x.key]?.dirty).length : 0;
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 900 }} />
+      <div style={{ position: 'fixed', left, ...place, width, maxHeight: '85vh', overflowY: 'auto', zIndex: 901, background: '#fff', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '0.8rem 0.9rem', boxShadow: '0 12px 32px rgba(0,0,0,0.22)' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-bright)' }}>
+              {sections.map((x) => KIND[x.kind]?.short).join('·')} {r.plateNo} {r.carModel}
+            </div>
+            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+              {date} · {isLong(r) ? r.partyName : '단기'}{pendingRow ? ` · ⏳ 구글 캘린더 확인 대기` : ''}
+            </div>
+          </div>
+          <button type="button" onClick={() => onOpenFull(r.vehicleId)} title="차 상세" style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.2rem 0.5rem', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>차 상세</button>
+          <button type="button" onClick={onClose} title="닫기" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={16} /></button>
+        </div>
+
+        {pendingRow && (
+          <div style={{ marginTop: '0.5rem', background: 'var(--bg-main)', borderRadius: '8px', padding: '0.45rem 0.6rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', fontSize: '0.74rem', fontWeight: 800, color: 'var(--text-bright)' }}>
+              📅 구글 일정: {pendingRow.title}
+              <button type="button" onClick={() => setShowText((v) => !v)} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700 }}>{showText ? '접기' : '본문 보기'}</button>
+              {pendingRow.link && <a href={pendingRow.link} target="_blank" rel="noreferrer" style={{ fontSize: '0.72rem', marginLeft: '0.4rem' }}>구글에서 열기</a>}
+            </div>
+            {showText && <div style={{ whiteSpace: 'pre-wrap', fontSize: '0.74rem', color: 'var(--text-bright)', lineHeight: 1.5, marginTop: '0.25rem', maxHeight: '180px', overflowY: 'auto' }}>{pendingRow.description || '(본문 없음)'}</div>}
+          </div>
+        )}
+
+        {!forms ? (
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '0.8rem 0' }}>불러오는 중…</div>
+        ) : sections.map((sec) => {
+          const k = KIND[sec.kind] || KIND['기타'];
+          const f = forms[sec.key];
+          if (sec.readOnly) {
+            return (
+              <div key={sec.key} style={{ marginTop: '0.6rem', borderLeft: `4px solid ${k.color}`, background: k.bg, borderRadius: '8px', padding: '0.5rem 0.6rem', fontSize: '0.78rem' }}>
+                <b style={{ color: k.color }}>{sec.kind}</b> · {sec.e.note}
+              </div>
+            );
+          }
+          const st = STATE[sec.e.state];
+          return (
+            <div key={sec.key} style={{ marginTop: '0.6rem', border: '1px solid var(--border-color)', borderLeft: `4px solid ${k.color}`, borderRadius: '8px', padding: '0.5rem 0.6rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.35rem', flexWrap: 'wrap' }}>
+                <b style={{ color: k.color, fontSize: '0.88rem' }}>{st ? `${st.icon} ` : ''}{sec.kind}</b>
+                {st && <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{st.label}{sec.e.state === 'plan' ? ' — 고쳐서 저장하면 예약이 됩니다' : ''}</span>}
+                <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.25rem' }}>
+                  {DAY_STATUSES.map((x) => (
+                    <button key={x} type="button" disabled={!canWrite} onClick={() => setF(sec.key, { status: x })}
+                      style={{ border: `1px solid ${f.status === x ? k.color : 'var(--border-color)'}`, background: f.status === x ? k.color : '#fff', color: f.status === x ? '#fff' : 'var(--text-muted)', borderRadius: '999px', padding: '0.05rem 0.5rem', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}>
+                      {x}
+                    </button>
+                  ))}
+                </span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr 0.8fr', gap: '0.35rem' }}>
+                <div><div style={lab}>날짜</div><input type="date" style={input} disabled={!canWrite} value={f.date} onChange={(ev) => setF(sec.key, { date: ev.target.value })} /></div>
+                <div><div style={lab}>정비소·센터</div><input style={input} disabled={!canWrite} value={f.shop} onChange={(ev) => setF(sec.key, { shop: ev.target.value })} placeholder="KGM성수" /></div>
+                <div><div style={lab}>담당</div><input style={input} disabled={!canWrite} value={f.staff} onChange={(ev) => setF(sec.key, { staff: ev.target.value })} placeholder="직원" /></div>
+                <div><div style={lab}>주행거리(km)</div><MoneyInput style={input} disabled={!canWrite} value={f.mileage} onChange={(ev) => setF(sec.key, { mileage: ev.target.value })} placeholder="39,608" /></div>
+                <div style={{ gridColumn: 'span 2' }}><div style={lab}>금액(합계)</div><MoneyInput style={input} disabled={!canWrite} value={f.amount} onChange={(ev) => setF(sec.key, { amount: ev.target.value })} placeholder="0" /></div>
+              </div>
+              <div style={{ marginTop: '0.35rem' }}><div style={lab}>요청(점검 의뢰)</div>
+                <textarea style={{ ...input, minHeight: '40px', resize: 'vertical' }} disabled={!canWrite} value={f.request} onChange={(ev) => setF(sec.key, { request: ev.target.value })} /></div>
+              <div style={{ marginTop: '0.35rem' }}><div style={lab}>작업 내용</div>
+                <textarea style={{ ...input, minHeight: '52px', resize: 'vertical' }} disabled={!canWrite} value={f.description} onChange={(ev) => setF(sec.key, { description: ev.target.value })} placeholder={sec.kind === '사고수리' ? '예: 조수석 뒷문짝 판금·도색' : '실제로 한 작업'} /></div>
+              <div style={{ marginTop: '0.35rem' }}><div style={lab}>메모</div>
+                <input style={input} disabled={!canWrite} value={f.memo} onChange={(ev) => setF(sec.key, { memo: ev.target.value })} /></div>
+              {canWrite && (
+                <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.35rem', fontSize: '0.72rem' }}>
+                  {sec.e.recordId && <button type="button" onClick={() => onOpenFull(r.vehicleId, sec.e.recordId)} style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 0, fontWeight: 700 }}>상세 양식(내역서·보험·탁송) ›</button>}
+                  {sec.e.recordId && <button type="button" onClick={() => remove(sec)} style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer', padding: 0, marginLeft: 'auto' }}>기록 지우기</button>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {canWrite && forms && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.7rem', position: 'sticky', bottom: '-0.8rem', background: '#fff', padding: '0.5rem 0' }}>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              {pendingOf ? `저장하면 ${sections.filter((x) => x.e.inboxId).length}건이 기록으로 만들어지고 확인 대기가 끝납니다.` : dirtyCount ? `${dirtyCount}칸을 고쳤습니다.` : '칸을 고친 뒤 저장하세요.'}
+            </span>
+            <button type="button" onClick={onClose} style={{ marginLeft: 'auto', border: '1px solid var(--border-color)', background: '#fff', borderRadius: '7px', padding: '0.4rem 0.9rem', fontWeight: 700, cursor: 'pointer' }}>닫기</button>
+            <button type="button" onClick={saveAll} disabled={saving || (!pendingOf && !dirtyCount)} style={{ border: 'none', background: 'var(--primary)', color: '#fff', borderRadius: '7px', padding: '0.4rem 1.1rem', fontWeight: 800, cursor: saving ? 'wait' : 'pointer', opacity: !pendingOf && !dirtyCount ? 0.5 : 1 }}>{saving ? '저장 중…' : '저장'}</button>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 function ServiceCalendar({ rows, onOpen, onAdd, onEdit, onMoved, canWrite, showToast }) {
   const today = todayYmd();
   const [month, setMonth] = useState(monthKey(today));
@@ -506,7 +727,25 @@ function ServiceCalendar({ rows, onOpen, onAdd, onEdit, onMoved, canWrite, showT
         })}
       </div>
 
-      {picked && (() => {
+      {picked && new Set(picked.list.map((e) => e.r.vehicleId)).size === 1 && new Set(picked.list.map((e) => e.date)).size === 1 && (() => {
+        const W = Math.min(560, window.innerWidth - 32);
+        const left = Math.max(16, Math.min(picked.rect?.left ?? 16, window.innerWidth - W - 16));
+        return (
+          <CarDayCard
+            key={picked.title}
+            list={picked.list}
+            width={W}
+            left={left}
+            place={{ top: Math.max(16, Math.min((picked.rect?.top ?? 80) - 40, window.innerHeight * 0.12)) }}
+            canWrite={canWrite}
+            showToast={showToast}
+            onClose={() => setPicked(null)}
+            onSaved={() => { setPicked(null); onMoved?.(); }}
+            onOpenFull={(vehicleId, recordId) => { setPicked(null); if (recordId) onEdit(vehicleId, recordId); else onOpen(vehicleId); }}
+          />
+        );
+      })()}
+      {picked && !(new Set(picked.list.map((e) => e.r.vehicleId)).size === 1 && new Set(picked.list.map((e) => e.date)).size === 1) && (() => {
         const W = Math.min(420, window.innerWidth - 32);
         const left = Math.max(16, Math.min(picked.rect?.left ?? 16, window.innerWidth - W - 16));
         const below = (picked.rect?.bottom ?? 100) + 4;
@@ -516,7 +755,7 @@ function ServiceCalendar({ rows, onOpen, onAdd, onEdit, onMoved, canWrite, showT
         <div onClick={() => setPicked(null)} style={{ position: 'fixed', inset: 0, zIndex: 900 }} />
         <div style={{ position: 'fixed', left, ...place, width: W, maxHeight: '50vh', overflowY: 'auto', zIndex: 901, background: '#fff', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.5rem', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>
           <div style={{ display: 'flex', alignItems: 'center', fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-bright)', marginBottom: '0.3rem' }}>
-            {picked.title.replace(/\|/g, ' · ')} ({new Set(picked.list.map((e) => e.r.vehicleId)).size}대)
+            {picked.title.split('|').map((x) => STATE[x]?.label || x).join(' · ')} ({new Set(picked.list.map((e) => e.r.vehicleId)).size}대)
             {canWrite && movesOf(picked.list).length > 0 && (
               <label style={{ marginLeft: '0.5rem', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                 {picked.list.length > 1 ? '모두' : ''} 날짜 바꾸기

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import ContractExtendDialog from './ContractExtendDialog.jsx';
+import BasisDialog from './BasisDialog.jsx';
 import { AlertTriangle, ChevronRight, TrendingUp, Car, CalendarClock, Users, Info, Wallet, AlertOctagon } from 'lucide-react';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -32,17 +33,119 @@ const card = {
   boxShadow: 'var(--shadow-premium)', padding: '1.2rem 1.3rem'
 };
 
-/** 숫자 카드. 숫자 하나에 비교 기준 한 줄을 꼭 붙인다(비교가 없으면 좋은지 나쁜지 알 수 없다). */
+/** 숫자 카드. 숫자 하나에 비교 기준 한 줄을 꼭 붙인다(비교가 없으면 좋은지 나쁜지 알 수 없다). 누르면 근거 표가 뜬다. */
 function Kpi({ icon, label, value, sub, onClick }) {
   return (
-    <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: '0.45rem', cursor: onClick ? 'pointer' : 'default' }} onClick={onClick}>
+    <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: '0.45rem', cursor: onClick ? 'pointer' : 'default' }} onClick={onClick} title={onClick ? '눌러서 이 숫자가 나온 근거 보기' : undefined}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', fontWeight: 600 }}>
-        {label} {icon}
+        <span>{label} {onClick && <span style={{ color: 'var(--primary)', fontSize: '0.74rem', marginLeft: '0.3rem' }}>근거 보기 ›</span>}</span> {icon}
       </div>
       <div style={{ fontSize: '1.7rem', fontWeight: 800, color: 'var(--text-bright)', lineHeight: 1.15 }}>{value}</div>
       <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>{sub}</div>
     </div>
   );
+}
+
+const fetchBasis = async (item) => {
+  const res = await fetch(`${API_HOST}/api/dashboard/executive/basis?item=${item}`);
+  const d = await res.json();
+  if (!res.ok || !d.success) throw new Error(d.message || '근거를 불러오지 못했습니다.');
+  return d.rows;
+};
+
+const VEHICLE_COLUMNS = [
+  { h: '구분', get: (r) => (r.status === '계약중' ? '출고 대기' : r.status) },
+  { h: '차량 코드', get: (r) => r.code },
+  { h: '차종', get: (r) => r.carModel },
+  { h: '차량번호', get: (r) => r.plateNo },
+  { h: '계약사·계약자', get: (r) => r.party, wrap: true },
+  { h: '출고일', get: (r) => (r.deliveryDate ? `${ymd(r.deliveryDate)}${r.newThisMonth ? ' (이번 달)' : ''}` : '') },
+  { h: '월 렌트료 (차량 DB)', get: (r) => r.monthlyFee, money: true, strong: true }
+];
+const ROUND_COLUMNS = [
+  { h: '출금일', get: (r) => ymd(r.dueDate) },
+  { h: '계약자', get: (r) => r.party, wrap: true },
+  { h: '계약번호', get: (r) => r.contractNo },
+  { h: '차량', get: (r) => `${r.carModel} ${r.plateNo}`.trim() },
+  { h: '회차', get: (r) => r.no, num: true },
+  { h: '청구액', get: (r) => r.total, money: true },
+  { h: '상태', get: (r) => r.status || '-' },
+  { h: '입금액', get: (r) => r.paid, money: true },
+  { h: '입금일', get: (r) => (r.paidAt ? ymd(r.paidAt) : '') }
+];
+
+/** 카드별 근거 표 설정. rows는 서버(/executive/basis)에서, 만기만 요약에 이미 있는 목록을 쓴다. */
+const basisSpec = (item, data, rows, go) => {
+  const { fleet, collections, expiring, funnel } = data;
+  const isRunning = (r) => r.operating;
+  switch (item) {
+    case 'rent': return {
+      title: '월 렌트 매출', rows, columns: VEHICLE_COLUMNS,
+      formula: '렌트차량 DB에서 상태가 장기렌트·단기렌트·사고대차인 차의 "월 렌트료"를 모두 더한 값입니다. 출고 대기(계약중) 차는 아직 매출이 아니라 넣지 않습니다.',
+      amount: (r) => r.monthlyFee, counted: isRunning, groupBy: (r) => (r.status === '계약중' ? '출고 대기' : r.status),
+      excludedNote: '출고 대기(계약중)라 아직 매출에 넣지 않은 차',
+      warn: (r) => r.operating && !r.monthlyFee,
+      note: '빨간 줄은 운용 중인데 차량 DB에 월 렌트료가 비어 있는 차입니다. 렌트차량 화면에서 월 렌트료를 넣으면 매출에 더해집니다.',
+      expected: fleet.operatingMonthlyRent, expectedLabel: krw(fleet.operatingMonthlyRent), goLabel: '렌트차량 화면으로', onGo: () => go('vehicles')
+    };
+    case 'fleet': return {
+      title: '운용 차량', rows, columns: VEHICLE_COLUMNS, unit: '대', rowsLabel: '운용 차량',
+      formula: '렌트차량 DB에서 상태가 장기렌트·단기렌트·사고대차인 차의 대수입니다. 출고 대기(계약중) 차는 따로 셉니다.',
+      counted: isRunning, groupBy: (r) => (r.status === '계약중' ? '출고 대기' : r.status),
+      excludedNote: '출고 대기(계약중) 차',
+      expected: fleet.operatingCount, expectedLabel: `${fleet.operatingCount}대`, goLabel: '렌트차량 화면으로', onGo: () => go('vehicles')
+    };
+    case 'collect': return {
+      title: '이번 달 받을 렌트료', rows, columns: ROUND_COLUMNS, rowsLabel: '이번 달 회차',
+      formula: '청구 회차표에서 출금일이 이번 달인 회차의 청구액(렌트료 + 전월 미결제·이자·과태료 등 그 회차 청구 합계)을 모두 더한 값입니다.',
+      amount: (r) => r.total,
+      groupBy: (r) => (!r.due ? '출금일 전' : r.status === '입금완료' ? '출금일 지남 · 입금 완료' : '출금일 지남 · 입금 기록 없음'),
+      warn: (r) => r.due && r.status !== '입금완료',
+      note: `빨간 줄은 출금일이 지났는데 입금 완료 기록이 없는 회차입니다. 입금 기록은 ${ymd(collections.lastPaidAt)}까지 들어와 있습니다(갑지 최신화나 입금 입력 후 반영).`,
+      expected: collections.thisMonth.billed, expectedLabel: krw(collections.thisMonth.billed), goLabel: '청구·정산 화면으로', onGo: () => go('billing')
+    };
+    case 'unpaid': return {
+      title: '미납', rows, columns: [...ROUND_COLUMNS.slice(0, 6), { h: '못 받은 금액', get: (r) => r.unpaid, money: true, strong: true }, { h: '구분', get: (r) => r.kind }],
+      formula: '청구 회차표에서 출금일이 어제까지인데 입금 완료가 아닌 회차 중, 사람이 "미납"으로 처리한 회차의 (청구액 − 들어온 금액)을 더한 값입니다.',
+      amount: (r) => r.unpaid, counted: (r) => r.kind === '미납', groupBy: (r) => r.kind,
+      excludedNote: '미납으로 처리하지 않은 회차(확인 필요: 기록 기준일 전인데 입금 기록 없음 / 기록 대기: 기록 기준일 뒤라 아직 모름)',
+      expected: collections.unpaid.amount, expectedLabel: collections.unpaid.count ? krw(collections.unpaid.amount) : '없음', goLabel: '청구·정산 화면으로', onGo: () => go('billing')
+    };
+    case 'sales': return {
+      title: '이번 달 영업', rows, unit: '건', rowsLabel: '이번 달 계약',
+      columns: [
+        { h: '구분', get: (r) => r.type }, { h: '날짜', get: (r) => ymd(r.date) }, { h: '고객', get: (r) => r.party, wrap: true },
+        { h: '내용', get: (r) => r.detail, wrap: true }, { h: '상태', get: (r) => r.status }, { h: '월 렌트료', get: (r) => r.amount, money: true }
+      ],
+      formula: '이번 달 1일부터 지금까지 등록된 문의·견적과, 계약일이 이번 달인 계약(임시저장 제외)입니다. 카드의 계약 건수는 계약 줄만 셉니다.',
+      counted: (r) => r.type === '계약', groupBy: (r) => r.type, excludedNote: '문의·견적 줄(계약 건수에는 넣지 않음)',
+      expected: funnel.thisMonth.contracts, expectedLabel: `계약 ${funnel.thisMonth.contracts}건`, goLabel: '견적 화면으로', onGo: () => go('quote-input')
+    };
+    case 'expiring': return {
+      title: '90일 내 만기', rows: expiring.items,
+      columns: [
+        { h: '남은 날', get: (r) => `D-${r.dDay}` }, { h: '종료일', get: (r) => ymd(r.endDate) }, { h: '계약자', get: (r) => r.partyName, wrap: true },
+        { h: '계약번호', get: (r) => r.contractNo }, { h: '차량', get: (r) => `${r.carModel} ${r.plateNo}`.trim() }, { h: '월 렌트료', get: (r) => r.monthlyFee, money: true, strong: true }
+      ],
+      formula: '진행중 계약 중 종료일이 오늘부터 90일 안에 있는 계약입니다. 금액은 그 계약들의 월 렌트료 합계(차량 DB 월 렌트료, 없으면 계약서 월 렌트료)입니다.',
+      amount: (r) => r.monthlyFee || 0, groupBy: (r) => `${new Date(r.endDate).getMonth() + 1}월 만기`, rowsLabel: '만기 계약',
+      expected: expiring.monthlyRent, expectedLabel: `월 ${krw(expiring.monthlyRent)}`, goLabel: '계약 화면으로', onGo: () => go('contract-register')
+    };
+    default: return null;
+  }
+};
+
+/** 근거 창: 서버에서 줄을 받아 표로 띄운다. */
+function ExecBasis({ item, data, onClose, go }) {
+  const { data: rows, isError } = useQuery({
+    queryKey: ['dashboard-executive-basis', item],
+    queryFn: () => fetchBasis(item),
+    enabled: item !== 'expiring',
+    staleTime: 30 * 1000
+  });
+  const spec = basisSpec(item, data, item === 'expiring' ? data.expiring.items : (rows ?? null), go);
+  if (isError) spec.note = '근거를 불러오지 못했습니다. 잠시 뒤 다시 눌러 주세요.';
+  return <BasisDialog spec={spec} onClose={onClose} />;
 }
 
 const pct = (r) => (r === null || r === undefined ? '-' : `${Math.round(r * 100)}%`);
@@ -137,6 +240,7 @@ function ShortTermTargets({ st, onOpen }) {
 function ExecutiveSummary({ gapData, setActiveTab, showToast }) {
   const queryClient = useQueryClient();
   const [extendTarget, setExtendTarget] = useState(null);
+  const [basis, setBasis] = useState(null); // 근거를 보고 있는 카드
   const { data, isLoading, isError } = useQuery({
     queryKey: ['dashboard-executive'],
     queryFn: fetchExecutive,
@@ -225,7 +329,7 @@ function ExecutiveSummary({ gapData, setActiveTab, showToast }) {
             이번 달 신규 출고 {newDeliveries.thisMonth.count}대 (+{krw(newDeliveries.thisMonth.monthlyRent)})
             · 지난달 같은 기간 {newDeliveries.lastMonthSamePeriod.count}대
           </>}
-          onClick={() => setActiveTab('vehicles')}
+          onClick={() => setBasis('rent')}
         />
         <Kpi
           icon={<Car size={18} style={{ color: '#2563eb' }} />}
@@ -235,7 +339,7 @@ function ExecutiveSummary({ gapData, setActiveTab, showToast }) {
             장기 {fleet.longTerm.count} · 단기 {fleet.shortTerm.count}{fleet.accident.count ? ` · 사고대차 ${fleet.accident.count}` : ''}<br />
             출고 대기 {fleet.waiting.count}대 (월 {krw(fleet.waiting.monthlyRent)} 예정)
           </>}
-          onClick={() => setActiveTab('vehicles')}
+          onClick={() => setBasis('fleet')}
         />
         <Kpi
           icon={<Wallet size={18} style={{ color: '#15803d' }} />}
@@ -247,7 +351,7 @@ function ExecutiveSummary({ gapData, setActiveTab, showToast }) {
               : '아직 출금일이 온 회차가 없습니다'}<br />
             입금 기록 기준일 {recordedUntil} · 그 뒤 입금은 갑지 최신화나 입금 입력 후 반영
           </>}
-          onClick={() => setActiveTab('billing')}
+          onClick={() => setBasis('collect')}
         />
         <Kpi
           icon={<AlertOctagon size={18} style={{ color: '#b91c1c' }} />}
@@ -257,7 +361,7 @@ function ExecutiveSummary({ gapData, setActiveTab, showToast }) {
             미납으로 처리한 회차 {collections.unpaid.count}건<br />
             입금 기록 없는 지난 회차 {collections.unconfirmed.count}건 ({krw(collections.unconfirmed.amount)}) — 확인 필요
           </>}
-          onClick={() => setActiveTab('billing')}
+          onClick={() => setBasis('unpaid')}
         />
         <Kpi
           icon={<Users size={18} style={{ color: '#7c3aed' }} />}
@@ -267,7 +371,7 @@ function ExecutiveSummary({ gapData, setActiveTab, showToast }) {
             문의 {f.inquiries} → 견적 {f.quotes} → 계약 {f.contracts}<br />
             지난달 같은 기간 {fs.contracts}건 · 지난달 전체 견적 {fl.quotes} → 계약 {fl.contracts}
           </>}
-          onClick={() => setActiveTab('quote-input')}
+          onClick={() => setBasis('sales')}
         />
         <Kpi
           icon={<CalendarClock size={18} style={{ color: '#b45309' }} />}
@@ -277,7 +381,7 @@ function ExecutiveSummary({ gapData, setActiveTab, showToast }) {
             월 {krw(expiring.monthlyRent)} 규모 — 재계약하면 이어지는 매출<br />
             {Object.entries(expiring.byMonth).map(([m, n]) => `${Number(m.slice(5))}월 ${n}건`).join(' · ')}
           </> : '90일 안에 끝나는 계약이 없습니다'}
-          onClick={() => setActiveTab('contract-register')}
+          onClick={() => setBasis('expiring')}
         />
       </div>
 
@@ -370,6 +474,8 @@ function ExecutiveSummary({ gapData, setActiveTab, showToast }) {
           </div>
         )}
       </div>
+
+      {basis && <ExecBasis item={basis} data={data} onClose={() => setBasis(null)} go={setActiveTab} />}
 
       {extendTarget && (
         <ContractExtendDialog

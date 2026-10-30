@@ -446,3 +446,113 @@ export const getExecutiveSummary = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+/**
+ * 경영 요약 숫자 카드의 근거(대표님 2026-10-30: 숫자를 누르면 어디서 왔는지 표로 본다).
+ * getExecutiveSummary와 같은 조건으로 줄을 그대로 돌려준다. 카드 금액 = 이 줄들의 합이어야 한다.
+ *
+ * @route GET /api/dashboard/executive/basis?item=rent|fleet|collect|unpaid|sales (관리자만)
+ */
+const partyOf = (c) => c?.companyId?.name || c?.customer?.name || '';
+
+export const getExecutiveBasis = async (req, res) => {
+  try {
+    const { item } = req.query;
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    if (item === 'rent' || item === 'fleet') {
+      // 운용(장기·단기·사고대차) + 출고 대기(계약중). 월 렌트 매출은 운용 차량의 차량 DB 월 렌트료 합계다
+      const list = await Vehicle.find({ status: { $in: ['장기렌트', '단기렌트', '사고대차', '계약중'] } })
+        .populate('company', 'name')
+        .select('code carModel plateNo status company contractorName monthlyFee deliveryDate')
+        .sort({ status: 1, carModel: 1, code: 1 })
+        .lean();
+      const rows = list.map((v) => ({
+        _id: v._id,
+        status: v.status,
+        code: v.code || '',
+        carModel: v.carModel || '',
+        plateNo: v.plateNo || '',
+        party: v.company?.name || v.contractorName || '',
+        deliveryDate: v.deliveryDate || null,
+        newThisMonth: !!(v.deliveryDate && v.deliveryDate >= thisMonth && v.deliveryDate < nextMonth),
+        monthlyFee: v.monthlyFee || 0,
+        operating: v.status !== '계약중'
+      }));
+      return res.json({ success: true, item, rows });
+    }
+
+    if (item === 'collect' || item === 'unpaid') {
+      const match = item === 'collect'
+        ? { 'rounds.dueDate': { $gte: thisMonth, $lt: nextMonth } }
+        : { 'rounds.dueDate': { $lt: today }, 'rounds.status': { $ne: '입금완료' } };
+      const [raw, lastPaid] = await Promise.all([
+        BillingSchedule.aggregate([
+          { $unwind: '$rounds' },
+          { $match: match },
+          { $project: { contract: 1, no: '$rounds.no', dueDate: '$rounds.dueDate', status: '$rounds.status', total: { $ifNull: ['$rounds.total', 0] },
+            paidAmount: '$rounds.paidAmount', paidAt: '$rounds.paidAt' } }
+        ]),
+        BillingSchedule.aggregate([
+          { $unwind: '$rounds' },
+          { $match: { 'rounds.status': '입금완료' } },
+          { $group: { _id: null, at: { $max: '$rounds.paidAt' } } }
+        ])
+      ]);
+      const contracts = await Contract.find({ _id: { $in: [...new Set(raw.map((r) => String(r.contract)))] } })
+        .select('contractNo companyId customer vehicle')
+        .populate('companyId', 'name').populate('customer', 'name').populate('vehicle', 'carModel plateNo code')
+        .lean();
+      const byId = new Map(contracts.map((c) => [String(c._id), c]));
+      const recordedUntil = lastPaid[0]?.at ? new Date(lastPaid[0].at) : today;
+      const rows = raw.map((r) => {
+        const c = byId.get(String(r.contract));
+        const done = r.status === '입금완료';
+        // 대시보드 집계와 같은 식: 입금완료면 입금액(없으면 청구액), 아니면 들어온 만큼
+        const paid = done ? (r.paidAmount ?? r.total) : (r.paidAmount || 0);
+        return {
+          contractId: r.contract,
+          contractNo: c?.contractNo || '',
+          party: partyOf(c) || '계약자 미상',
+          carModel: c?.vehicle?.carModel || '',
+          plateNo: c?.vehicle?.plateNo || '',
+          no: r.no,
+          dueDate: r.dueDate,
+          due: r.dueDate < now,
+          status: r.status || '',
+          total: r.total,
+          paid,
+          paidAt: r.paidAt || null,
+          unpaid: Math.max(0, r.total - (r.paidAmount || 0)),
+          // 미납 카드: 사람이 미납으로 찍은 회차 / 기록 기준일 전인데 입금 기록 없는 회차 / 기록 기준일 뒤라 아직 모름
+          kind: r.status === '미납' ? '미납' : (new Date(r.dueDate) <= recordedUntil ? '확인 필요' : '기록 대기')
+        };
+      }).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate) || a.party.localeCompare(b.party));
+      return res.json({ success: true, item, rows, recordedUntil });
+    }
+
+    if (item === 'sales') {
+      const [inquiries, quotes, contracts] = await Promise.all([
+        Inquiry.find({ createdAt: { $gte: thisMonth, $lt: now } }).populate('customer', 'name').select('customer content status createdAt assignee').sort({ createdAt: 1 }).lean(),
+        Quote.find({ createdAt: { $gte: thisMonth, $lt: now } }).select('customerName companyName vehicleModel status createdAt createdBy').sort({ createdAt: 1 }).lean(),
+        Contract.find({ contractDate: { $gte: thisMonth, $lt: now }, status: { $ne: '임시저장' } })
+          .select('contractNo contractDate status companyId customer vehicle pricing.monthlyFee termMonths')
+          .populate('companyId', 'name').populate('customer', 'name').populate('vehicle', 'carModel plateNo')
+          .sort({ contractDate: 1 }).lean()
+      ]);
+      const rows = [
+        ...inquiries.map((x) => ({ type: '문의', date: x.createdAt, party: x.customer?.name || '', detail: String(x.content || '').slice(0, 80), status: x.status, amount: 0 })),
+        ...quotes.map((x) => ({ type: '견적', date: x.createdAt, party: x.companyName || x.customerName || '', detail: x.vehicleModel || '', status: x.status, amount: 0 })),
+        ...contracts.map((x) => ({ type: '계약', date: x.contractDate, party: partyOf(x), detail: `${x.contractNo || ''} · ${x.vehicle?.carModel || ''} ${x.vehicle?.plateNo || ''}${x.termMonths ? ` · ${x.termMonths}개월` : ''}`, status: x.status, amount: x.pricing?.monthlyFee || 0 }))
+      ];
+      return res.json({ success: true, item, rows });
+    }
+
+    res.status(400).json({ success: false, message: '근거를 볼 항목을 다시 골라 주세요.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

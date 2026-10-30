@@ -111,7 +111,8 @@ const plusDays = (ymd, n) => new Date(new Date(`${ymd}T00:00:00Z`).getTime() + n
 const shortDate = (ymd) => `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}`;
 const isLong = (r) => r.status === '장기렌트';
 // 달력에 보이는 이름: 장기렌트는 계약사, 단기렌트는 차량번호
-const whoOf = (r) => (isLong(r) ? (r.partyName || r.plateNo || '-') : (r.plateNo || r.carModel || '-'));
+// 달력 칸의 이름: 장기렌트는 계약사, 단기렌트·사고대차는 '단기'(한 대뿐이면 뒤에 차량번호)
+const whoOf = (r) => (isLong(r) ? (r.partyName || r.plateNo || '-') : '단기');
 
 /** 검사와 점검을 같이 할 날. 같이 못 하면 null */
 const togetherDateOf = (r) => {
@@ -162,17 +163,36 @@ const shiftMonth = (key, n) => {
   return d.toISOString().slice(0, 7);
 };
 
-/** 같은 일·같은 이름(장기=계약사, 단기=차량번호)끼리 묶는다 → [{ key, kind, who, list }] */
+// 한 칸에 앞글자를 늘어놓는 순서 (정·검·고·사)
+const LETTER_ORDER = ['정기점검', '자동차검사', '고장수리', '사고수리', '계약만료', '기타'];
+const kindsOfEvent = (e) => (e.kind === '검사+점검' ? ['정기점검', '자동차검사'] : [e.kind]);
+
+/**
+ * 달력 칸 묶기. 먼저 같은 차·같은 날의 일을 한 줄로 합친다(그랜저 한 대가 정기점검·검사·사고수리를 한 번에 → '정·검·사').
+ * 그다음 같은 일 묶음·같은 이름(장기=계약사, 단기='단기')끼리 묶는다 → [{ key, kinds, kind, who, list, cars }]
+ */
 const groupEvents = (events) => {
-  const m = new Map();
+  const cars = new Map();
   events.forEach((e) => {
-    const who = whoOf(e.r);
-    const key = `${e.kind}|${who}`;
-    if (!m.has(key)) m.set(key, { key, kind: e.kind, who, list: [] });
-    m.get(key).list.push(e);
+    const key = `${e.r.vehicleId}|${e.date}`;
+    if (!cars.has(key)) cars.set(key, { r: e.r, kinds: new Set(), list: [] });
+    const c = cars.get(key);
+    kindsOfEvent(e).forEach((k) => c.kinds.add(k));
+    c.list.push(e);
+  });
+  const m = new Map();
+  cars.forEach((c) => {
+    const kinds = LETTER_ORDER.filter((k) => c.kinds.has(k));
+    const who = whoOf(c.r);
+    const key = `${kinds.join('·')}|${who}`;
+    if (!m.has(key)) m.set(key, { key, kinds, kind: kinds[0], who, list: [], cars: [] });
+    const g = m.get(key);
+    g.list.push(...c.list);
+    g.cars.push(c.r);
   });
   // 예정 일이 먼저, 그다음 대수가 많은 순
-  return [...m.values()].sort((a, b) => Number(Boolean(KIND[a.kind].record)) - Number(Boolean(KIND[b.kind].record)) || b.list.length - a.list.length);
+  const recordOnly = (g) => Number(g.kinds.every((k) => KIND[k]?.record));
+  return [...m.values()].sort((x, y) => recordOnly(x) - recordOnly(y) || y.cars.length - x.cars.length);
 };
 
 /**
@@ -180,8 +200,10 @@ const groupEvents = (events) => {
  * 차가 한 대뿐인 줄을 두 번 누르면 바로 차 상세가 열린다.
  */
 function GroupChip({ g, active, onClick, onDouble }) {
-  const k = KIND[g.kind];
+  // 일이 하나면 그 일 색으로 칠하고, 여럿이면 흰 칸에 글자마다 제 색을 입힌다
+  const k = g.kinds.length === 1 ? KIND[g.kind] : { color: '#334155', bg: '#fff', record: g.kinds.every((x) => KIND[x]?.record) };
   const hasAge = g.list.some((e) => e.age);
+  const name = g.cars.length === 1 && g.who === '단기' ? `단기 ${g.cars[0].plateNo || g.cars[0].carModel || ''}` : g.who;
   const booked = g.list.every((e) => e.booked);
   const pending = g.list.every((e) => e.pending);
   return (
@@ -189,26 +211,28 @@ function GroupChip({ g, active, onClick, onDouble }) {
       type="button"
       onClick={(ev) => { ev.stopPropagation(); onClick(ev.currentTarget.getBoundingClientRect()); }}
       onDoubleClick={(ev) => { ev.stopPropagation(); onDouble?.(); }}
-      title={`${g.kind} · ${g.who}\n${g.list.map((e) => `${e.r.plateNo} ${e.note || ''}`).join('\n')}`}
-      style={{ display: 'block', width: '100%', textAlign: 'left', border: pending ? `1px dashed ${k.color}` : k.record || active ? `1px solid ${k.color}` : '1px solid transparent', ...(k.record && !pending ? { borderLeft: `3px solid ${k.color}` } : {}), background: active && k.record ? '#fef3c7' : k.bg, color: k.color, borderRadius: '4px', padding: '0.05rem 0.25rem', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}
+      title={`${g.kinds.join('·')} · ${name}\n${g.list.map((e) => `${e.r.plateNo} ${e.note || ''}`).join('\n')}`}
+      style={{ display: 'block', width: '100%', textAlign: 'left', border: pending ? `1px dashed ${k.color}` : k.record || active ? `1px solid ${k.color}` : '1px solid transparent', ...(k.record && !pending ? { borderLeft: `3px solid ${k.color}` } : {}), background: active && k.record ? '#fef3c7' : k.bg, color: k.color, ...(g.kinds.length > 1 ? { border: `1px ${pending ? 'dashed' : 'solid'} #cbd5e1` } : {}), borderRadius: '4px', padding: '0.05rem 0.25rem', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}
     >
-      {pending ? '⏳' : booked ? '📌' : ''}<b style={{ fontWeight: 900 }}>{k.short}</b> {g.who}{g.list.length > 1 ? ` ${g.list.length}대` : ''}{hasAge ? ' · 차령' : ''}
+      {pending ? '⏳' : booked ? '📌' : ''}{g.kinds.map((x, i) => (
+        <span key={x}>{i > 0 ? '·' : ''}<b style={{ fontWeight: 900, color: KIND[x]?.color, ...(g.kinds.length > 1 ? { background: KIND[x]?.bg, borderRadius: '3px', padding: '0 1px' } : {}) }}>{KIND[x]?.short}</b></span>
+      ))} {name}{g.cars.length > 1 ? ` ${g.cars.length}대` : ''}{hasAge ? ' · 차령' : ''}
     </button>
   );
 }
 
-/** 이달 정리표: 계약사(단기는 '단기렌트')마다 이달 일을 칸별로 */
+/** 이달 정리표: 계약사(단기는 '단기')마다 이달 일을 칸별로 */
 function MonthSummary({ events, onOpen }) {
   if (!events.length) return null;
   const parties = new Map();
   events.forEach((e) => {
-    const party = isLong(e.r) ? (e.r.partyName || '계약사 없음') : '단기렌트';
+    const party = isLong(e.r) ? (e.r.partyName || '계약사 없음') : '단기';
     if (!parties.has(party)) parties.set(party, { party, cars: new Set(), cols: Object.fromEntries(SUMMARY_COLS.map((c) => [c, []])) });
     const p = parties.get(party);
     p.cars.add(e.r.vehicleId);
     colsOf(e.kind).forEach((c) => p.cols[c]?.push(e));
   });
-  const list = [...parties.values()].sort((a, b) => (a.party === '단기렌트') - (b.party === '단기렌트') || b.cars.size - a.cars.size);
+  const list = [...parties.values()].sort((a, b) => (a.party === '단기') - (b.party === '단기') || b.cars.size - a.cars.size);
   const totals = Object.fromEntries(SUMMARY_COLS.map((c) => [c, new Set(events.filter((e) => colsOf(e.kind).includes(c)).map((e) => e.r.vehicleId)).size]));
   const cell = { padding: '0.35rem 0.5rem', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top', fontSize: '0.76rem' };
   return (
@@ -302,7 +326,7 @@ function DayPicker({ date, rows, onPick, onClose }) {
               style={{ display: 'flex', width: '100%', alignItems: 'center', gap: '0.5rem', border: 'none', borderBottom: '1px solid var(--border-color)', background: '#fff', padding: '0.45rem 0.2rem', cursor: 'pointer', textAlign: 'left', fontSize: '0.8rem' }}
             >
               <b style={{ minWidth: '6.5rem', color: 'var(--text-bright)' }}>{r.plateNo || '-'}</b>
-              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isLong(r) ? r.partyName : '단기렌트'} · {r.carModel}</span>
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isLong(r) ? r.partyName : '단기'} · {r.carModel}</span>
               <span style={{ fontSize: '0.72rem', color: inWindow(r) ? KIND['자동차검사'].color : 'var(--text-muted)', fontWeight: inWindow(r) ? 800 : 400, whiteSpace: 'nowrap' }}>
                 {kind === '자동차검사' && r.inspection ? `검사일 ${shortDate(r.inspection.date)}${inWindow(r) ? ' · 기간 안' : ''}` : ''}
                 {kind === '정기점검' && r.maintenance ? `점검일 ${shortDate(r.maintenance.date)}` : ''}
@@ -360,7 +384,7 @@ function ServiceCalendar({ rows, onOpen, onAdd, canWrite }) {
         <button type="button" style={navBtn} onClick={() => go(1)}>›</button>
         <button type="button" style={navBtn} onClick={() => go(0)}>오늘</button>
         <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
-          {Object.entries(KIND).map(([name, k]) => (
+          {Object.entries(KIND).filter(([name]) => name !== '검사+점검').map(([name, k]) => (
             <span key={name} style={{ fontSize: '0.7rem', fontWeight: 800, color: k.color, background: k.bg, border: k.record ? `1px solid ${k.color}` : 'none', borderRadius: '4px', padding: '0 0.3rem' }}><b style={{ fontWeight: 900 }}>{k.short}</b> {name}</span>
           ))}
         </span>
@@ -433,7 +457,7 @@ function ServiceCalendar({ rows, onOpen, onAdd, canWrite }) {
 
       <MonthSummary events={inMonth} onOpen={onOpen} />
       <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.4rem', lineHeight: 1.6 }}>
-        자동차검사는 검사일 2개월 전부터 1개월 뒤까지 받을 수 있습니다. 정기점검일이 그 안(검사일 2개월 뒤까지)에 있으면 이른 날에 한 번 입고해 같이 처리하도록 <b style={{ color: KIND['검사+점검'].color }}>검사+점검</b>으로 묶었습니다.
+        자동차검사는 검사일 2개월 전부터 1개월 뒤까지 받을 수 있습니다. 정기점검일이 그 안(검사일 2개월 뒤까지)에 있으면 이른 날에 한 번 입고해 같이 처리하도록 한 칸(<b>정·검</b>)으로 묶었습니다. 한 차가 같은 날 여러 일을 하면 정·검·사처럼 한 칸에 앞글자를 늘어놓습니다.
         검=자동차검사 · 정=정기점검 · 고=고장수리 · 사=사고수리. 고·사(테두리 칸)는 일이 생긴 뒤 남긴 기록입니다. 📌는 날짜를 잡아 둔 일정, ⏳(점선)는 구글 캘린더에서 읽었지만 아직 확인 대기인 일정입니다.
         {canWrite ? ' 날짜 칸의 빈 곳을 누르면 그날로 일정·기록을 넣을 수 있습니다.' : ''}
       </div>

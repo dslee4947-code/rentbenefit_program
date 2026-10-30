@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { RefreshCw, Send, CheckCircle2, AlertCircle, FileText, X, ChevronLeft, ChevronRight, Eye, Clock, Wallet, ListChecks } from 'lucide-react';
 import InvoiceSheet, { makeInvoicePdf } from './InvoiceSheet.jsx';
@@ -32,8 +32,8 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 60));
 /** 발송일을 사람이 읽는 말로 */
 const sendDayLabel = (dday) => {
   if (dday < 0) return `${-dday}일 지남`;
-  if (dday === 0) return '오늘 9시';
-  if (dday === 1) return '내일 9시';
+  if (dday === 0) return '오늘';
+  if (dday === 1) return '내일';
   return `${dday}일 뒤`;
 };
 
@@ -53,11 +53,11 @@ const RESULT_STYLE = {
  * 담당자의 하루 흐름을 그대로 네 칸으로 나눴다.
  *   ① 확인·승인  보낼 청구서를 본다. 렌트료만 있는 '평소와 같은' 청구서는 한 번에 승인하고,
  *                과태료·미납 이월 등이 붙어 '달라진' 청구서만 한 장씩 미리보기로 확인한다.
- *   ② 보낼 예정  승인한 청구서. 발송일 아침 9시에 서버가 보낸다. 그 전까지는 취소할 수 있다.
+ *   ② 보내기 대기  승인한 청구서. 서버가 알아서 보내지 않는다(2026-10-30). 담당자가 발송일별 [보내기]를 눌러야 나간다.
  *   ③ 발송 결과  나간 것·실패한 것·멈춘 것. 실패한 건은 여기서 다시 보낸다.
  *   ④ 입금 확인  출금일이 지났는데 입금 처리가 안 된 건. 입금완료·미납을 찍는다.
  *
- * 화면을 열지 않아도 되게 메일로도 알린다: 오후 4시에 '내일 승인 대기', 아침 9시 발송 뒤 '발송 결과'.
+ * 화면을 열지 않아도 되게 메일로도 알린다: 오후 4시에 '내일 승인 대기', 아침 9시에 '오늘 보낼 청구서'.
  *
  * 승인한 뒤 금액·서류·받는 주소가 바뀌면 서버가 보내지 않고 '보류'로 남긴다. 담당자가 확인한 것과
  * 다른 청구서가 고객에게 나가는 일, 같은 청구서가 두 번 나가는 일은 서버가 막는다.
@@ -126,6 +126,14 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
   const routine = toReview.filter((it) => it.routine && !it.autoStatus);
   const changed = toReview.filter((it) => !(it.routine && !it.autoStatus));
   const scheduled = items.filter((it) => it.autoStatus === '승인');
+  // 발송일별로 묶는다. 담당자가 날짜마다 [보내기]를 누른다
+  const scheduledByDay = scheduled.reduce((groups, it) => {
+    const day = ymd(it.sendDate);
+    const g = groups.find((x) => x.day === day);
+    if (g) g.items.push(it); else groups.push({ day, dday: it.sendDday, items: [it] });
+    return groups;
+  }, []).sort((a, b) => (a.day < b.day ? -1 : 1));
+  const dueToday = scheduled.filter((it) => it.sendDday <= 0);
   const ceoWaiting = changed.filter((it) => it.autoStatus === '대표승인대기');
   const attention = history.filter((h) => h.result && h.result !== '보냄');
   const sentCount = history.filter((h) => h.result === '보냄').length;
@@ -208,7 +216,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
       const total = list.reduce((s, it) => s + (Number(it.expectedTotal ?? it.round.total) || 0), 0);
       const lines = [
         `${list.length}건을 승인합니다. (청구액 합계 ${won(total)})`,
-        '각 청구서의 발송일 아침 9시에 고객에게 메일로 나갑니다. 그 전까지는 취소할 수 있습니다.',
+        '자동으로 나가지 않습니다. 발송일에 ② 보내기 대기에서 [보내기]를 눌러야 고객에게 메일로 나갑니다.',
         noMail ? `받는 주소가 없는 ${noMail}건은 건너뜁니다.` : null,
         '',
         '승인할까요?'
@@ -252,7 +260,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
     const waited = waitCeoRef.current;
     const okText = waited
       ? `${ok - waited}건 승인, ${waited}건은 확인 완료 — 대표님 승인 후 나갑니다.`
-      : `${ok}건 승인했습니다. 발송일 아침 9시에 나갑니다.`;
+      : `${ok}건 승인했습니다. 발송일에 ② 보내기 대기에서 [보내기]를 눌러 주세요.`;
     if (failures.length) showToast?.(`${okText} ${failures.length}건 못 함: ${failures.slice(0, 3).join(' / ')}`, 'warning');
     else showToast?.(okText, 'success');
     await loadAll();
@@ -487,7 +495,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
 
   const cards = [
     { key: 'review', icon: <ListChecks size={18} />, label: '① 확인·승인', value: routine.length + changed.length, sub: `평소와 같음 ${routine.length} · 달라짐 ${changed.length}${ceoWaiting.length ? ` (대표 승인 대기 ${ceoWaiting.length})` : ''}`, color: '#d97706', alert: changed.length > 0 || missed.length > 0 },
-    { key: 'scheduled', icon: <Clock size={18} />, label: '② 보낼 예정', value: scheduled.length, sub: '발송일 아침 9시 자동 발송', color: '#16a34a' },
+    { key: 'scheduled', icon: <Clock size={18} />, label: '② 보내기 대기', value: scheduled.length, sub: dueToday.length ? `오늘 보낼 것 ${dueToday.length}건 · [보내기]를 눌러야 나감` : '발송일에 [보내기]를 눌러야 나감', alert: dueToday.length > 0, color: '#16a34a' },
     { key: 'results', icon: <Send size={18} />, label: '③ 발송 결과', value: attention.length, sub: `손볼 것 ${attention.length} · 보냄 ${sentCount}`, color: attention.length ? '#dc2626' : '#0284c7', alert: attention.length > 0 },
     { key: 'payments', icon: <Wallet size={18} />, label: '④ 입금 확인', value: payments.length, sub: '출금일 지났는데 입금 처리 전', color: '#7c3aed', alert: payments.length > 0 }
   ];
@@ -518,7 +526,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-        <span>하루 흐름: 오후 4시 '승인 대기' 메일 → ① 확인·승인 → 다음 날 9시 자동 발송 → '발송 결과' 메일 → ③ 확인 → 출금일 뒤 ④ 입금 확인</span>
+        <span>하루 흐름: 오후 4시 '승인 대기' 메일 → ① 확인·승인 → 발송일에 ② [보내기] → ③ 확인 → 출금일 뒤 ④ 입금 확인</span>
         <button type="button" style={{ ...btn(), marginLeft: 'auto' }} onClick={loadAll} disabled={Boolean(busy)}><RefreshCw size={12} /> 새로고침</button>
       </div>
 
@@ -697,7 +705,8 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
       {tab === 'scheduled' && (
         <div style={box}>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-            승인한 청구서입니다. 발송일 아침 9시에 서버가 보냅니다. 그 전까지 [취소]하거나 [지금 보내기]로 먼저 보낼 수 있습니다.
+            승인한 청구서입니다. <b>자동으로 나가지 않습니다.</b> 발송일마다 [이 날짜 N건 보내기]를 누르면 그날 건이 고객에게 나갑니다.
+            한 건만 먼저 보내려면 [이 건만 보내기], 보내지 않으려면 [취소]를 누릅니다.
             보내기 직전에 내용이 승인 때와 같은지 다시 보고, 다르면 보내지 않고 '보류'로 남깁니다.
           </div>
           {scheduled.length === 0 ? (
@@ -707,42 +716,67 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', minWidth: '820px' }}>
                 <thead><tr>{['발송', '계약자', '회차 · 출금일', '청구액', '받는 주소', '승인', ''].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
                 <tbody>
-                  {scheduled.map((it) => (
-                    <tr key={keyOf(it)} style={{ boxShadow: paymentDayStripe(it.round.dueDate) }}>
-                      <td style={{ ...cell, whiteSpace: 'nowrap', fontWeight: 700 }}>{sendDayLabel(it.sendDday)}<div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{ymd(it.sendDate)}</div></td>
-                      <td style={cell}><strong>{nameOf(it)}</strong></td>
-                      <td style={{ ...cell, whiteSpace: 'nowrap' }}><PaymentDayBadge date={it.round.dueDate} /> {it.round.no}/{it.totalRounds} · {ymd(it.round.dueDate)}</td>
-                      <td style={{ ...cell, fontWeight: 700, whiteSpace: 'nowrap' }}>{won(it.round.total)}</td>
-                      <td style={cell}>{it.round.autoSend?.to}</td>
-                      <td style={{ ...cell, fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{it.round.autoSend?.approvedBy}<br />{mdhm(it.round.autoSend?.approvedAt)}</td>
-                      <td style={{ ...cell, whiteSpace: 'nowrap' }}>
-                        <span style={{ display: 'inline-flex', gap: '0.3rem' }}>
-                          <button type="button" style={btn()} onClick={() => openFile(roundUrl(it.scheduleId, it.round.no, 'auto-send/file'))}><FileText size={12} /> PDF</button>
-                          {canWrite && (
-                            <>
-                              <button
-                                type="button"
-                                style={btn('blue')}
-                                disabled={Boolean(busy)}
-                                onClick={() => act(keyOf(it), `${API_HOST}/api/billing-schedules/auto-send/run`, json('POST', { scheduleId: it.scheduleId, roundNo: it.round.no }),
-                                  `${nameOf(it)} ${it.round.no}회차 청구서를\n${it.round.autoSend?.to} 로 지금 보낼까요?`)}
-                              >
-                                <Send size={12} /> 지금 보내기
-                              </button>
-                              <button
-                                type="button"
-                                style={btn('danger')}
-                                disabled={Boolean(busy)}
-                                onClick={() => act(keyOf(it), roundUrl(it.scheduleId, it.round.no, 'auto-send'), { method: 'DELETE' }, '이 청구서의 승인을 취소할까요? 발송되지 않습니다.')}
-                              >
-                                <X size={12} /> 취소
-                              </button>
-                            </>
-                          )}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {scheduledByDay.map((g) => {
+                    const sum = g.items.reduce((t, it) => t + (Number(it.round.total) || 0), 0);
+                    return (
+                      <React.Fragment key={g.day}>
+                        <tr>
+                          <td colSpan={7} style={{ ...cell, background: g.dday <= 0 ? '#fef3c7' : 'var(--bg-main)', fontWeight: 800 }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                              <span>{g.day} ({sendDayLabel(g.dday)}) 발송 · {g.items.length}건 · {won(sum)}</span>
+                              {canWrite && (
+                                <button
+                                  type="button"
+                                  style={{ ...btn('blue'), marginLeft: 'auto' }}
+                                  disabled={Boolean(busy)}
+                                  onClick={() => act(`day-${g.day}`, `${API_HOST}/api/billing-schedules/auto-send/run`, json('POST', { sendDate: g.day }),
+                                    `${g.day} 발송 청구서 ${g.items.length}건(${won(sum)})을 지금 고객에게 보낼까요?\n\n${g.items.slice(0, 8).map((it) => `· ${nameOf(it)} ${it.round.no}회차 → ${it.round.autoSend?.to}`).join('\n')}${g.items.length > 8 ? `\n· 외 ${g.items.length - 8}건` : ''}`)}
+                                >
+                                  <Send size={12} /> {busy === `day-${g.day}` ? '보내는 중…' : `이 날짜 ${g.items.length}건 보내기`}
+                                </button>
+                              )}
+                            </span>
+                          </td>
+                        </tr>
+                        {g.items.map((it) => (
+                      <tr key={keyOf(it)} style={{ boxShadow: paymentDayStripe(it.round.dueDate) }}>
+                        <td style={{ ...cell, whiteSpace: 'nowrap', fontWeight: 700 }}>{sendDayLabel(it.sendDday)}<div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{ymd(it.sendDate)}</div></td>
+                        <td style={cell}><strong>{nameOf(it)}</strong></td>
+                        <td style={{ ...cell, whiteSpace: 'nowrap' }}><PaymentDayBadge date={it.round.dueDate} /> {it.round.no}/{it.totalRounds} · {ymd(it.round.dueDate)}</td>
+                        <td style={{ ...cell, fontWeight: 700, whiteSpace: 'nowrap' }}>{won(it.round.total)}</td>
+                        <td style={cell}>{it.round.autoSend?.to}</td>
+                        <td style={{ ...cell, fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{it.round.autoSend?.approvedBy}<br />{mdhm(it.round.autoSend?.approvedAt)}</td>
+                        <td style={{ ...cell, whiteSpace: 'nowrap' }}>
+                          <span style={{ display: 'inline-flex', gap: '0.3rem' }}>
+                            <button type="button" style={btn()} onClick={() => openFile(roundUrl(it.scheduleId, it.round.no, 'auto-send/file'))}><FileText size={12} /> PDF</button>
+                            {canWrite && (
+                              <>
+                                <button
+                                  type="button"
+                                  style={btn('blue')}
+                                  disabled={Boolean(busy)}
+                                  onClick={() => act(keyOf(it), `${API_HOST}/api/billing-schedules/auto-send/run`, json('POST', { scheduleId: it.scheduleId, roundNo: it.round.no }),
+                                    `${nameOf(it)} ${it.round.no}회차 청구서를\n${it.round.autoSend?.to} 로 지금 보낼까요?`)}
+                                >
+                                  <Send size={12} /> 이 건만 보내기
+                                </button>
+                                <button
+                                  type="button"
+                                  style={btn('danger')}
+                                  disabled={Boolean(busy)}
+                                  onClick={() => act(keyOf(it), roundUrl(it.scheduleId, it.round.no, 'auto-send'), { method: 'DELETE' }, '이 청구서의 승인을 취소할까요? 발송되지 않습니다.')}
+                                >
+                                  <X size={12} /> 취소
+                                </button>
+                              </>
+                            )}
+                          </span>
+                        </td>
+                      </tr>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

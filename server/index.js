@@ -41,7 +41,7 @@ import { syncOutlookContacts } from './utils/outlookSyncService.js';
 import { syncInvoiceSendSchedules } from './utils/invoiceScheduleJob.js';
 import { syncFineNoticeSchedules } from './utils/fineNoticeScheduleJob.js';
 import { syncVehicleServiceSchedules } from './utils/vehicleServiceScheduleJob.js';
-import { runAutoSend, sendAutoSendReport, sendApprovalReminder, refreshAllUnbilledInterest } from './controllers/billingScheduleController.js';
+import { sendTodaySendReminder, sendApprovalReminder, refreshAllUnbilledInterest } from './controllers/billingScheduleController.js';
 import { runDeliveryDocsSend, sendDeliveryDocsReminder } from './controllers/deliveryDocsController.js';
 import { syncCalendarInbox } from './utils/calendarInboxSync.js';
 import { syncInspectionValidity } from './utils/cybertsInspection.js';
@@ -120,21 +120,18 @@ connectDB().then(async () => {
   }, CRON_OPTIONS);
   console.log('[Cron Scheduler] 연체 이자 내역 갱신 예약 완료 (매일 03:40).');
 
-  // 청구서 자동 발송. 전날 담당자가 승인한 청구서를 발송일 아침에 보낸다.
-  // 새벽에 보내지 않는 이유: 법인 담당자가 출근해 바로 보는 시간에 받는 편이 결재가 빠르고,
-  // 문제가 생기면 우리 직원이 출근해 있는 시간이라 바로 손볼 수 있다.
+  // 청구서는 자동으로 보내지 않는다(2026-10-30 대표님). 승인한 청구서는 발송일에 담당자가
+  // 청구서 발송 센터에서 날짜별 [보내기]를 눌러야 나간다. 아침 9시에는 오늘 보낼 건이 있다고 담당자에게 알리기만 한다.
   cron.schedule('0 9 * * *', () => {
-    runAutoSend()
-      .then((summary) => sendAutoSendReport(summary))
-      .catch((err) => console.error('[청구서 자동 발송] 실패:', err.message));
+    sendTodaySendReminder().catch((err) => console.error('[청구서 발송 알림] 실패:', err.message));
   }, CRON_OPTIONS);
 
-  // 오후 4시: 내일 아침 나갈 청구서 중 승인 안 한 건을 담당자 메일로 알린다(없으면 보내지 않는다).
+  // 오후 4시: 내일 보낼 청구서 중 승인 안 한 건을 담당자 메일로 알린다(없으면 보내지 않는다).
   // 퇴근 전에 처리할 시간이 남도록 4시에 둔다.
   cron.schedule('0 16 * * 1-5', () => {
     sendApprovalReminder().catch((err) => console.error('[청구서 승인 알림] 실패:', err.message));
   }, CRON_OPTIONS);
-  console.log('[Cron Scheduler] 청구서 자동 발송 예약 완료 (매일 09:00).');
+  console.log('[Cron Scheduler] 청구서 발송 알림 예약 완료 (매일 09:00 오늘 보낼 건 · 16:00 승인 대기). 자동 발송은 하지 않음.');
 
   // 인도 서류(계약사실 증명원·상환스케쥴) 발송. 인도일 다음 날 아침 9시, 담당자가 승인한 건만 보낸다.
   cron.schedule('5 9 * * *', () => {
@@ -154,14 +151,6 @@ connectDB().then(async () => {
       .catch((err) => console.error('[캘린더 읽기] 실패:', err.message));
     cron.schedule('*/10 7-22 * * *', readCalendar, CRON_OPTIONS);
     console.log('[Cron Scheduler] 구글 캘린더 정비 일정 읽기 예약 완료 (07:00~22:59 10분마다).');
-  }
-  // 9시에 서버가 꺼져 있었으면 그날 승인 건이 하루 밀린다. 근무 시간에 켜지면 한 번 따라잡는다.
-  // 새벽 배포 때 돌면 고객이 새벽에 받게 되므로 근무 시간(9~18시)에만 돈다.
-  const hour = Number(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul', hour: 'numeric', hourCycle: 'h23' }));
-  if (hour >= 9 && hour < 18) {
-    runAutoSend()
-      .then((summary) => sendAutoSendReport(summary))
-      .catch((err) => console.error('[청구서 자동 발송] 실패:', err.message));
   }
 
   // 자금팀 엑셀(OneDrive) → 차량 손익 원장·회사 장부. 직원은 엑셀만 고치고 프로그램이 받아 온다.

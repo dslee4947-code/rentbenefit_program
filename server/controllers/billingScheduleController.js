@@ -1026,14 +1026,15 @@ export const cancelAutoSend = async (req, res) => {
  * @param {string} [options.scheduleId] 이 회차표만 처리한다 (화면에서 한 건만 보낼 때)
  * @param {number} [options.roundNo]
  * @param {boolean} [options.ignoreSendDate] 발송일 전이어도 보낸다 (한 건을 지금 보낼 때)
+ * @param {string} [options.sendDate] 이 발송일(YYYY-MM-DD) 건만 보낸다. 날짜별 [보내기]. 발송일 전이어도 보낸다
  * @returns {Promise<{sent: number, held: number, failed: number, results: object[]}>}
  */
-export const runAutoSend = async ({ user, scheduleId, roundNo, ignoreSendDate = false } = {}) => {
+export const runAutoSend = async ({ user, scheduleId, roundNo, ignoreSendDate = false, sendDate } = {}) => {
   // 아침 정기 작업과 화면의 [지금 보내기]가 겹치면 같은 청구서가 두 번 나간다. 한 번에 하나만 돈다.
   if (autoSendRunning) return { sent: 0, held: 0, failed: 0, results: [], busy: true };
   autoSendRunning = true;
   try {
-    return await sendApprovedInvoices({ user, scheduleId, roundNo, ignoreSendDate });
+    return await sendApprovedInvoices({ user, scheduleId, roundNo, ignoreSendDate, sendDate });
   } finally {
     autoSendRunning = false;
   }
@@ -1041,7 +1042,7 @@ export const runAutoSend = async ({ user, scheduleId, roundNo, ignoreSendDate = 
 
 let autoSendRunning = false;
 
-const sendApprovedInvoices = async ({ user, scheduleId, roundNo, ignoreSendDate }) => {
+const sendApprovedInvoices = async ({ user, scheduleId, roundNo, ignoreSendDate, sendDate }) => {
   const today = dayKey(new Date());
   const filter = { 'rounds.autoSend.status': '승인' };
   if (scheduleId) filter._id = scheduleId;
@@ -1057,7 +1058,9 @@ const sendApprovedInvoices = async ({ user, scheduleId, roundNo, ignoreSendDate 
     for (const round of schedule.rounds) {
       if (round.autoSend?.status !== '승인') continue;
       if (roundNo && round.no !== Number(roundNo)) continue;
-      if (!ignoreSendDate && dayKey(calcSendDate(round.dueDate)) > today) continue;
+      const roundSendDay = dayKey(calcSendDate(round.dueDate));
+      if (sendDate && roundSendDay !== Number(sendDate.replace(/-/g, ''))) continue;
+      if (!ignoreSendDate && !sendDate && roundSendDay > today) continue;
 
       const record = { partyName, roundNo: round.no, to: round.autoSend.to };
       // 상태를 남긴다. 저장이 실패해도 다음 회차는 계속 처리한다.
@@ -1139,14 +1142,18 @@ const sendApprovedInvoices = async ({ user, scheduleId, roundNo, ignoreSendDate 
 };
 
 /**
- * 화면에서 자동 발송을 지금 돌린다. 한 건만 고르면 발송일 전이어도 그 건을 바로 보낸다.
+ * 승인한 청구서를 보낸다. 서버가 알아서 보내지 않으므로(2026-10-30) 담당자가 화면에서 누를 때만 나간다.
+ * 한 건만 고르면 그 건을, 발송일(sendDate)을 주면 그날 보낼 승인 건을 모두 보낸다. 발송일 전이어도 보낸다.
  *
- * @route POST /api/billing-schedules/auto-send/run  { scheduleId?, roundNo? }
+ * @route POST /api/billing-schedules/auto-send/run  { scheduleId?, roundNo?, sendDate? }
  */
 export const runAutoSendNow = async (req, res) => {
   try {
     const one = req.body?.scheduleId && req.body?.roundNo;
+    const sendDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.sendDate || '')) ? req.body.sendDate : undefined;
+    if (!one && !sendDate) return res.status(400).json({ success: false, message: '보낼 청구서나 발송일을 골라 주세요.' });
     const summary = await runAutoSend({
+      sendDate,
       user: req.user,
       scheduleId: req.body?.scheduleId,
       roundNo: req.body?.roundNo,
@@ -1444,9 +1451,9 @@ export const sendApprovalReminder = async () => {
     it.routine ? '평소와 같음' : it.changes.map((c) => c.label).join(', ')
   ]));
   const html = `<div style="font-family:'Malgun Gothic',sans-serif;font-size:14px">
-    <p><b>다음 영업일(${formatYmd(next)}) 아침 9시까지 나갈 청구서 중 아직 승인하지 않은 건이 ${pending.length}건 있습니다.</b><br>
+    <p><b>다음 영업일(${formatYmd(next)})까지 보낼 청구서 중 아직 승인하지 않은 건이 ${pending.length}건 있습니다.</b><br>
     평소와 같은 ${routine}건은 한 번에 승인할 수 있고, 나머지 ${pending.length - routine}건은 달라진 내용을 확인해 주세요.<br>
-    승인하지 않은 건은 보내지 않습니다.</p>
+    승인한 뒤 발송일에 [보내기]를 눌러야 고객에게 나갑니다.</p>
     ${digestTable(['발송일', '계약자', '회차', '청구액', '달라진 점'], rows)}
     ${ceoWaiting.length ? `<p style="color:#7c3aed"><b>직원 확인이 끝나 대표님 승인을 기다리는 청구서 ${ceoWaiting.length}건</b>: ${ceoWaiting.map((it) => escapeHtml(`${it.company?.name || it.customer?.name || ''} ${it.round.no}회차`)).join(', ')}</p>` : ''}
     ${stuck.length ? `<p style="color:#b45309">보내던 중 멈춰 확인이 필요한 건이 ${stuck.length}건 있습니다.</p>` : ''}
@@ -1454,6 +1461,31 @@ export const sendApprovalReminder = async () => {
     <p>장기렌트 청구서 &gt; 청구서 발송 센터에서 처리합니다.</p></div>`;
   await sendInternalMail({ subject: `[청구서] 내일 발송 승인 대기 ${pending.length + ceoWaiting.length}건${ceoWaiting.length ? ` (대표 승인 ${ceoWaiting.length})` : ''}`, html });
   return { sent: true, pending: pending.length };
+};
+
+/**
+ * 아침 9시: 오늘(또는 지난 날짜에) 보낼 승인 청구서가 남아 있으면 담당자에게 [보내기]를 눌러 달라고 알린다.
+ * 서버는 보내지 않는다. 남은 건이 없으면 메일도 보내지 않는다.
+ */
+export const sendTodaySendReminder = async () => {
+  const items = await buildAutoSendQueue(7);
+  const today = dayKey(new Date());
+  const ready = items.filter((it) => it.autoStatus === '승인' && dayKey(it.sendDate) <= today);
+  if (!ready.length) return { sent: false };
+  const total = ready.reduce((sum, it) => sum + (Number(it.round.total) || 0), 0);
+  const rows = ready.map((it) => digestRow([
+    formatYmd(it.sendDate),
+    it.company?.name || it.customer?.name || '',
+    `${it.round.no}회차`,
+    `${Number(it.round.total || 0).toLocaleString()}원`,
+    it.round.autoSend?.to || ''
+  ]));
+  const html = `<div style="font-family:'Malgun Gothic',sans-serif;font-size:14px">
+    <p><b>오늘 보낼 청구서 ${ready.length}건(${total.toLocaleString()}원)이 승인되어 기다리고 있습니다.</b><br>
+    자동으로 보내지 않습니다. 장기렌트 청구서 &gt; 청구서 발송 센터 &gt; ② 보내기 대기에서 날짜별 [보내기]를 눌러 주세요.</p>
+    ${digestTable(['발송일', '계약자', '회차', '청구액', '받는 주소'], rows)}</div>`;
+  await sendInternalMail({ subject: `[청구서] 오늘 보낼 청구서 ${ready.length}건 - [보내기]를 눌러 주세요`, html });
+  return { sent: true, count: ready.length };
 };
 
 /**

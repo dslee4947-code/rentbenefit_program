@@ -8,6 +8,7 @@ import { computeProfitPlan, estimateFromVehicle, findLedgerQuote, vehicleFromHea
 import { getMaintenanceRates } from '../utils/maintenanceRates.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
 import { buildShortTermReport, shortTermRowFor, getInternalRate } from '../utils/shortTermReport.js';
+import { carModelRegexesFor } from '../utils/carModelAliases.js';
 
 /**
  * 갑지 번호를 채번한다. 차량 코드와 같은 체계(Ray-001, Grander-012)라
@@ -336,7 +337,9 @@ export const getLedgers = async (req, res) => {
         { 'header.vin': rx },
         { 'header.carModel': rx },
         { 'header.contractorName': rx },
-        { 'header.customerName': rx }
+        { 'header.customerName': rx },
+        // '아반떼'로 찾아도 차종·갑지번호가 영어(Avante)인 갑지가 나오게
+        ...carModelRegexesFor(q).flatMap((alias) => [{ ledgerNo: alias }, { 'header.carModel': alias }])
       ];
     }
 

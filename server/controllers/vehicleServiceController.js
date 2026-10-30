@@ -104,7 +104,8 @@ const rowOf = (v, records) => {
     contractNo: v.contract?.contractNo || '',
     // 달력에 '일어난 날'로 올리는 고장·사고 수리(최근 13개월). 진행 중인 수리도 함께.
     repairs: records
-      .filter((r) => REPAIR_KINDS.includes(r.kind) && kstYmd(r.date) >= addMonths(kstYmd(new Date()), -13))
+      // 고장·사고 수리는 진행 상태와 상관없이, 검사·점검 등은 끝난 기록만(아직 안 끝난 것은 bookings). 달력에 ✅·🔧로 남는다
+      .filter((r) => (REPAIR_KINDS.includes(r.kind) || !r.status || r.status === '완료') && kstYmd(r.date) >= addMonths(kstYmd(new Date()), -13))
       .map((r) => ({ id: r._id, kind: r.kind, date: kstYmd(r.date), status: r.status || '완료', amount: r.amount || 0, description: r.description || '', shop: r.shop || '' })),
     // 달력에서 미리 잡아 둔 검사·점검 등(아직 끝나지 않은 기록). 계산한 날짜 대신 이 날에 보인다.
     bookings: records

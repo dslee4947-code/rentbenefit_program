@@ -123,6 +123,25 @@ const togetherDateOf = (r) => {
   return m.date < i.date ? m.date : i.date;
 };
 
+/**
+ * 일정의 진행 상태. 달력 칸 앞에 아이콘으로 붙는다.
+ *  plan     자동 계산한 다음 검사·점검 날짜(아직 고객과 날짜를 잡지 않음)
+ *  booked   고객과 이야기해 날짜를 잡은 예약(기록 상태 '예정')
+ *  pending  구글 업무캘린더에서 읽었지만 아직 확인 대기
+ *  working  입고·수리 중
+ *  done     끝난 기록
+ */
+const STATE = {
+  plan: { icon: '🗓️', label: '진행 예정(자동 계산)' },
+  booked: { icon: '📌', label: '예약(고객과 날짜 잡음)' },
+  pending: { icon: '⏳', label: '구글 캘린더 확인 대기' },
+  working: { icon: '🔧', label: '진행 중(입고·수리 중)' },
+  done: { icon: '✅', label: '완료' }
+};
+// 한 칸에 상태가 섞이면 손이 더 가야 하는 쪽을 보여 준다
+const STATE_ORDER = ['working', 'booked', 'pending', 'plan', 'done'];
+const stateOfStatus = (status) => (['입고', '수리 중'].includes(status) ? 'working' : status === '예정' ? 'booked' : 'done');
+
 // 서버가 주말·공휴일 날짜를 그 전 평일로 당겼으면 원래 날을 알려 준다
 const movedText = (p) => (p?.movedFrom ? ` · 원래 ${p.movedFrom}(쉬는 날이라 앞 평일로)` : '');
 
@@ -134,25 +153,25 @@ const eventsOf = (r, today) => {
   // 구글 캘린더 '확인 대기' 일정도 잡아 둔 일정처럼 그날에 보인다. 위 [확인 대기]에서 기록으로 옮기면 바뀐다.
   const pending = (r.pending || []).flatMap((w) => (w.kinds.length ? w.kinds : ['기타']).map((kind) => ({ ...w, kind })));
   pending.filter((w) => KIND[w.kind]).forEach((w) => out.push({
-    kind: w.kind, date: w.date, pending: true, overdue: false, move: { type: 'pending', id: w.id }, note: `구글 캘린더 확인 대기 — 위 [확인 대기]에서 기록으로 옮겨 주세요 · ${w.title}`
+    kind: w.kind, date: w.date, pending: true, state: 'pending', inboxId: w.id, kinds: w.kinds, overdue: false, move: { type: 'pending', id: w.id }, note: `구글 캘린더 확인 대기 — [기록으로 옮기기]를 누르면 기록이 됩니다 · ${w.title}`
   }));
   const bookedKinds = new Set([...booked.map((b) => b.kind), ...pending.map((w) => w.kind)]);
   booked.forEach((b) => out.push({
-    kind: KIND[b.kind] ? b.kind : '정기점검', label: b.kind, date: b.date, booked: true, overdue: b.date < today, move: { type: 'record', id: b.id },
+    kind: KIND[b.kind] ? b.kind : '정기점검', label: b.kind, date: b.date, booked: true, state: stateOfStatus(b.status), recordId: b.id, overdue: b.date < today, move: { type: 'record', id: b.id },
     age: b.kind === '자동차검사' ? age : null, note: [b.status, b.shop].filter(Boolean).join(' · ')
   }));
   // 잡아 둔 일정이 있으면 그 종류의 계산 날짜는 보여 주지 않는다
   r = { ...r, inspection: bookedKinds.has('자동차검사') ? null : r.inspection, maintenance: bookedKinds.has('정기점검') ? null : r.maintenance, _row: r };
   const together = togetherDateOf(r);
   if (together) {
-    out.push({ kind: '검사+점검', date: together, overdue: together < today || inspOverdue, age, moves: ['자동차검사', '정기점검'].map((kind) => ({ type: 'plan', vehicleId: r.vehicleId, kind })), note: `자동차검사 ${r.inspection.date} · 정기점검 ${r.maintenance.date}${movedText(r.inspection)}${movedText(r.maintenance)}` });
+    out.push({ kind: '검사+점검', date: together, state: 'plan', overdue: together < today || inspOverdue, age, moves: ['자동차검사', '정기점검'].map((kind) => ({ type: 'plan', vehicleId: r.vehicleId, kind })), note: `자동차검사 ${r.inspection.date} · 정기점검 ${r.maintenance.date}${movedText(r.inspection)}${movedText(r.maintenance)}` });
   } else {
-    if (r.inspection) out.push({ kind: '자동차검사', date: r.inspection.date, overdue: inspOverdue, age, move: { type: 'plan', vehicleId: r.vehicleId, kind: '자동차검사' }, note: `받을 수 있는 기간 ${r.inspection.windowStart} ~ ${r.inspection.windowEnd}${movedText(r.inspection)}` });
-    if (r.maintenance) out.push({ kind: '정기점검', date: r.maintenance.date, overdue: r.maintenance.status === '지남', move: { type: 'plan', vehicleId: r.vehicleId, kind: '정기점검' }, note: `${r.maintenance.basis || ''}${movedText(r.maintenance)}` });
+    if (r.inspection) out.push({ kind: '자동차검사', date: r.inspection.date, state: 'plan', overdue: inspOverdue, age, move: { type: 'plan', vehicleId: r.vehicleId, kind: '자동차검사' }, note: `받을 수 있는 기간 ${r.inspection.windowStart} ~ ${r.inspection.windowEnd}${movedText(r.inspection)}` });
+    if (r.maintenance) out.push({ kind: '정기점검', date: r.maintenance.date, state: 'plan', overdue: r.maintenance.status === '지남', move: { type: 'plan', vehicleId: r.vehicleId, kind: '정기점검' }, note: `${r.maintenance.basis || ''}${movedText(r.maintenance)}` });
   }
   // 장기렌트 계약 종료일. 지났는데 아직 장기렌트로 남아 있으면 반납·인수·연장 처리가 안 된 것이라 밀린 일로 올린다.
   if (r.contractEnd) out.push({ kind: '계약만료', date: r.contractEnd, overdue: r.contractEnd < today, note: `${r.contractNo ? `계약 ${r.contractNo} · ` : ''}${r.contractEnd < today ? '만료 지남 — 반납·인수·연장 처리 필요' : '반납·인수·연장 확인'}` });
-  (r.repairs || []).forEach((x) => out.push({ kind: x.kind, date: x.date, record: true, move: { type: 'record', id: x.id }, note: [x.status !== '완료' ? x.status : '', x.description, x.shop, x.amount ? won(x.amount) : ''].filter(Boolean).join(' · ') }));
+  (r.repairs || []).forEach((x) => out.push({ kind: KIND[x.kind] ? x.kind : '기타', label: x.kind, date: x.date, record: true, state: stateOfStatus(x.status), recordId: x.id, move: { type: 'record', id: x.id }, note: [x.status !== '완료' ? x.status : '', x.description, x.shop, x.amount ? won(x.amount) : ''].filter(Boolean).join(' · ') }));
   return out.map((e) => ({ ...e, r: r._row }));
 };
 
@@ -179,23 +198,25 @@ const groupEvents = (events) => {
   const cars = new Map();
   events.forEach((e) => {
     const key = `${e.r.vehicleId}|${e.date}`;
-    if (!cars.has(key)) cars.set(key, { r: e.r, kinds: new Set(), list: [] });
+    if (!cars.has(key)) cars.set(key, { r: e.r, kinds: new Set(), states: new Set(), list: [] });
     const c = cars.get(key);
     kindsOfEvent(e).forEach((k) => c.kinds.add(k));
+    if (e.state) c.states.add(e.state);
     c.list.push(e);
   });
   const m = new Map();
   cars.forEach((c) => {
     const kinds = LETTER_ORDER.filter((k) => c.kinds.has(k));
     const who = whoOf(c.r);
-    const key = `${kinds.join('·')}|${who}`;
-    if (!m.has(key)) m.set(key, { key, kinds, kind: kinds[0], who, list: [], cars: [] });
+    const state = STATE_ORDER.find((x) => c.states.has(x)) || '';
+    const key = `${kinds.join('·')}|${who}|${state}`;
+    if (!m.has(key)) m.set(key, { key, kinds, kind: kinds[0], who, state, list: [], cars: [] });
     const g = m.get(key);
     g.list.push(...c.list);
     g.cars.push(c.r);
   });
   // 예정 일이 먼저, 그다음 대수가 많은 순
-  const recordOnly = (g) => Number(g.kinds.every((k) => KIND[k]?.record));
+  const recordOnly = (g) => Number(g.state === 'done' || g.kinds.every((k) => KIND[k]?.record));
   return [...m.values()].sort((x, y) => recordOnly(x) - recordOnly(y) || y.cars.length - x.cars.length);
 };
 
@@ -208,8 +229,7 @@ function GroupChip({ g, active, onClick, onDouble, onDragStart }) {
   const k = g.kinds.length === 1 ? KIND[g.kind] : { color: '#334155', bg: '#fff', record: g.kinds.every((x) => KIND[x]?.record) };
   const hasAge = g.list.some((e) => e.age);
   const name = g.cars.length === 1 && g.who === '단기' ? `단기 ${g.cars[0].plateNo || g.cars[0].carModel || ''}` : g.who;
-  const booked = g.list.every((e) => e.booked);
-  const pending = g.list.every((e) => e.pending);
+  const pending = g.state === 'pending';
   return (
     <button
       type="button"
@@ -217,10 +237,10 @@ function GroupChip({ g, active, onClick, onDouble, onDragStart }) {
       onDoubleClick={(ev) => { ev.stopPropagation(); onDouble?.(); }}
       draggable={Boolean(onDragStart)}
       onDragStart={onDragStart ? (ev) => { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', g.key); onDragStart(g); } : undefined}
-      title={`${g.kinds.join('·')} · ${name}\n${g.list.map((e) => `${e.r.plateNo} ${e.note || ''}`).join('\n')}`}
+      title={`${STATE[g.state] ? `${STATE[g.state].label} · ` : ''}${g.kinds.join('·')} · ${name}\n${g.list.map((e) => `${e.r.plateNo} ${e.note || ''}`).join('\n')}`}
       style={{ display: 'block', width: '100%', textAlign: 'left', border: pending ? `1px dashed ${k.color}` : k.record || active ? `1px solid ${k.color}` : '1px solid transparent', ...(k.record && !pending ? { borderLeft: `3px solid ${k.color}` } : {}), background: active && k.record ? '#fef3c7' : k.bg, color: k.color, ...(g.kinds.length > 1 ? { border: `1px ${pending ? 'dashed' : 'solid'} #cbd5e1` } : {}), borderRadius: '4px', padding: '0.05rem 0.25rem', fontSize: '0.68rem', fontWeight: 700, cursor: onDragStart ? 'grab' : 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}
     >
-      {pending ? '⏳' : booked ? '📌' : ''}{g.kinds.map((x, i) => (
+      {STATE[g.state]?.icon || ''}{g.kinds.map((x, i) => (
         <span key={x}>{i > 0 ? '·' : ''}<b style={{ fontWeight: 900, color: KIND[x]?.color, ...(g.kinds.length > 1 ? { background: KIND[x]?.bg, borderRadius: '3px', padding: '0 1px' } : {}) }}>{KIND[x]?.short}</b></span>
       ))} {name}{g.cars.length > 1 ? ` ${g.cars.length}대` : ''}{hasAge ? ' · 차령' : ''}
     </button>
@@ -345,7 +365,7 @@ function DayPicker({ date, rows, onPick, onClose }) {
   );
 }
 
-function ServiceCalendar({ rows, onOpen, onAdd, onMoved, canWrite, showToast }) {
+function ServiceCalendar({ rows, onOpen, onAdd, onEdit, onMoved, canWrite, showToast }) {
   const today = todayYmd();
   const [month, setMonth] = useState(monthKey(today));
   const [picked, setPicked] = useState(null); // { title, list }
@@ -374,6 +394,23 @@ function ServiceCalendar({ rows, onOpen, onAdd, onMoved, canWrite, showToast }) 
     try {
       const res = await fetch(`${API_HOST}/api/vehicle-services/move`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to, items })
+      });
+      const data = await res.json().catch(() => ({}));
+      showToast?.(data.message || (res.ok ? '옮겼습니다.' : '옮기지 못했습니다.'), res.ok && data.success ? 'success' : 'error');
+      if (res.ok && data.success) { setPicked(null); onMoved?.(); }
+    } catch {
+      showToast?.('서버 통신 오류가 발생했습니다.', 'error');
+    } finally {
+      setMoving(false);
+    }
+  };
+  /** 구글 캘린더 확인 대기 일정을 바로 기록으로 옮긴다(위 [확인 대기]의 옮기기와 같다) */
+  const importPending = async (e) => {
+    setMoving(true);
+    try {
+      const res = await fetch(`${API_HOST}/api/vehicle-services/calendar-inbox/${e.inboxId}/import`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vehicleId: e.r.vehicleId, kinds: e.kinds?.length ? e.kinds : [e.kind], date: e.date })
       });
       const data = await res.json().catch(() => ({}));
       showToast?.(data.message || (res.ok ? '옮겼습니다.' : '옮기지 못했습니다.'), res.ok && data.success ? 'success' : 'error');
@@ -425,7 +462,10 @@ function ServiceCalendar({ rows, onOpen, onAdd, onMoved, canWrite, showToast }) 
         <strong style={{ fontSize: '1rem', color: 'var(--text-bright)', minWidth: '7rem', textAlign: 'center' }}>{month.slice(0, 4)}년 {Number(month.slice(5, 7))}월</strong>
         <button type="button" style={navBtn} onClick={() => go(1)}>›</button>
         <button type="button" style={navBtn} onClick={() => go(0)}>오늘</button>
-        <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+          {Object.values(STATE).map((x) => <span key={x.icon}>{x.icon} {x.label}</span>)}
+        </span>
+        <span style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', width: '100%', justifyContent: 'flex-end' }}>
           {Object.entries(KIND).filter(([name]) => name !== '검사+점검').map(([name, k]) => (
             <span key={name} style={{ fontSize: '0.7rem', fontWeight: 800, color: k.color, background: k.bg, border: k.record ? `1px solid ${k.color}` : 'none', borderRadius: '4px', padding: '0 0.3rem' }}><b style={{ fontWeight: 900 }}>{k.short}</b> {name}</span>
           ))}
@@ -495,10 +535,27 @@ function ServiceCalendar({ rows, onOpen, onAdd, onMoved, canWrite, showToast }) 
                 title="누르면 차 상세가 열립니다"
                 style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.25rem 0.45rem', fontSize: '0.76rem', cursor: 'pointer', textAlign: 'left' }}
               >
-                <b style={{ color: KIND[e.kind].color }}>{e.booked ? '📌 ' : ''}{e.label || e.kind}</b> <b>{e.r.plateNo || '-'}</b>{' '}
+                <b style={{ color: KIND[e.kind].color }}>{STATE[e.state] ? `${STATE[e.state].icon} ` : ''}{e.label || e.kind}</b> <b>{e.r.plateNo || '-'}</b>{' '}
+                {STATE[e.state] && <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)' }}>[{STATE[e.state].label}]</span>}{' '}
                 <span style={{ color: 'var(--text-muted)' }}>{isLong(e.r) ? `${e.r.partyName} · ` : ''}{e.r.carModel} · {e.date}</span>
                 {e.note && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{e.note}</div>}
                 {e.age && <b style={{ color: '#c2410c' }}> · 차령 연장 함께 신청</b>}
+                {canWrite && (e.recordId || e.state === 'plan' || e.inboxId) && (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      if (e.inboxId) { importPending(e); return; }
+                      setPicked(null);
+                      // 계산한 일정은 그날로 새 예약을 적는다. 검사+점검은 자동차검사로 연다
+                      onEdit(e.r.vehicleId, e.recordId, e.recordId ? null : { kind: e.kind === '검사+점검' ? '자동차검사' : e.kind, date: e.date });
+                    }}
+                    style={{ display: 'inline-block', marginLeft: '0.4rem', border: '1px solid var(--primary)', color: 'var(--primary)', background: '#fff', borderRadius: '5px', padding: '0 0.4rem', fontSize: '0.7rem', fontWeight: 800 }}
+                  >
+                    {e.inboxId ? '기록으로 옮기기' : e.recordId ? '✏️ 수정' : '📌 예약 잡기'}
+                  </span>
+                )}
                 {canWrite && picked.list.length > 1 && movesOf([e]).length > 0 && (
                   <span onClick={(ev) => ev.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', marginLeft: '0.4rem', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                     이 차만
@@ -517,7 +574,7 @@ function ServiceCalendar({ rows, onOpen, onAdd, onMoved, canWrite, showToast }) 
       <MonthSummary events={inMonth} onOpen={onOpen} />
       <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.4rem', lineHeight: 1.6 }}>
         자동차검사는 검사일 2개월 전부터 1개월 뒤까지 받을 수 있습니다. 정기점검일이 그 안(검사일 2개월 뒤까지)에 있으면 이른 날에 한 번 입고해 같이 처리하도록 한 칸(<b>정·검</b>)으로 묶었습니다. 한 차가 같은 날 여러 일을 하면 정·검·사처럼 한 칸에 앞글자를 늘어놓습니다. 일정 칸은 끌어다 다른 날에 놓거나, 눌러서 [날짜 바꾸기]로 옮깁니다(계산한 검사·점검을 옮기면 그날로 예정이 잡힙니다).
-        검=자동차검사 · 정=정기점검 · 고=고장수리 · 사=사고수리. 고·사(테두리 칸)는 일이 생긴 뒤 남긴 기록입니다. 📌는 날짜를 잡아 둔 일정, ⏳(점선)는 구글 캘린더에서 읽었지만 아직 확인 대기인 일정입니다.
+        검=자동차검사 · 정=정기점검 · 고=고장수리 · 사=사고수리. 고·사(테두리 칸)는 일이 생긴 뒤 남긴 기록입니다. 칸 앞 아이콘: 🗓️ 진행 예정(자동 계산) · 📌 고객과 잡은 예약 · ⏳ 구글 캘린더 확인 대기 · 🔧 진행 중 · ✅ 완료.
         {canWrite ? ' 날짜 칸의 빈 곳을 누르면 그날로 일정·기록을 넣을 수 있습니다.' : ''}
       </div>
       {addDate && (
@@ -646,6 +703,18 @@ function VehicleServiceView({ showToast, currentUser }) {
   };
 
   const startEdit = (r) => setFormOpen({ record: r });
+  // 달력에서 [수정]을 누르면 그 차 기록을 불러와 그 기록의 양식을 연다
+  const editFromCalendar = async (vehicleId, recordId) => {
+    try {
+      const res = await fetch(`${API_HOST}/api/vehicle-services/vehicle/${vehicleId}`, { cache: 'no-store' });
+      const data = await res.json();
+      const found = (data.records || []).find((x) => String(x._id) === String(recordId));
+      if (found) setFormOpen({ record: found });
+      else showToast?.('기록을 찾지 못했습니다. 차 상세에서 고쳐 주세요.', 'error');
+    } catch {
+      showToast?.('서버 통신 오류가 발생했습니다.', 'error');
+    }
+  };
 
   const afterSave = () => {
     setFormOpen(null);
@@ -719,6 +788,11 @@ function VehicleServiceView({ showToast, currentUser }) {
           canWrite={canWrite}
           onAdd={(id, kind, date) => { openVehicle(id); setFormOpen({ record: null, preset: { kind, date } }); }}
           onMoved={() => { load(); if (selectedId) loadDetail(selectedId); }}
+          onEdit={(vehicleId, recordId, preset) => {
+            openVehicle(vehicleId);
+            if (recordId) editFromCalendar(vehicleId, recordId);
+            else setFormOpen({ record: null, preset });
+          }}
           showToast={showToast}
         />
       )}

@@ -8,7 +8,7 @@ import VehicleLedger from '../models/VehicleLedger.js';
 import { buildScheduleForContract } from './billingScheduleController.js';
 import { appendContractPeriod, syncLedgerEntries } from './ledgerController.js';
 import { buildSchedules, generateContractNo } from './contractController.js';
-import { ensureCustomerFolders, ensureContractFolder, buildContractFolderName } from '../utils/documentStorageService.js';
+import { ensureCustomerFolders, ensureContractFolder, buildContractFolderName, saveDocument } from '../utils/documentStorageService.js';
 import { nextPaymentDate } from '../utils/billingDate.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
 import { saveSignedFile } from './contractSignedController.js';
@@ -233,6 +233,30 @@ export const getExtensionDocumentPdf = async (req, res) => {
 
     const pdf = await buildContractPdf({ template, base, values, documentDate: new Date(), notes: [{ page: 1, text: note }, { page: 2, text: note }] });
     const name = `자동차임대차계약서_${contractNo}_연장.pdf`;
+
+    // 서명 전 본을 새 계약 폴더(01.계약서/24110003-1_…)에 남긴다. 연장할 때 extendContract가 같은 이름으로 폴더를 만든다.
+    // 안을 바꿔 다시 만들면 덮지 않고 새 이름으로 쌓인다. 저장에 실패해도 내려받기는 그대로 준다.
+    if (req.user?.role !== 'viewer') {
+      try {
+        const partyName = prev.companyId?.name || prev.customer?.name || '';
+        if (!partyName) throw new Error('계약자 이름이 없습니다');
+        const folderCars = await Vehicle.find({ contract: prev._id }).select('carModel').lean();
+        const subFolder = await buildContractFolderName(contractNo, folderCars);
+        await ensureContractFolder(partyName, subFolder);
+        const stored = await saveDocument({
+          partyName, kind: 'contract', subFolder, fileName: `${contractNo}_연장계약서_서명전.pdf`, fileBuffer: Buffer.from(pdf), keepPrevious: true
+        });
+        res.set('X-Saved-Path', encodeURIComponent(stored.localPath || `${subFolder}/${stored.fileName}`));
+        logActivity({
+          req, dept: '계약·출고부', action: ACTIONS.CONTRACT_EXTEND, target: { model: 'Contract', id: prev._id },
+          summary: `${partyName} ${prev.contractNo} 연장 계약서(서명 전) 작성 → ${contractNo} · ${termMonths}개월 · 월 ${Number(body.monthlyFee).toLocaleString()}원`
+        });
+      } catch (err) {
+        console.log(`[연장 계약서] ${contractNo}: 계약 폴더에 저장하지 못했습니다 - ${err.message}`);
+        res.set('X-Saved-Error', encodeURIComponent(err.message));
+      }
+    }
+
     res.set('Content-Type', 'application/pdf');
     res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
     res.set('Cache-Control', 'no-store');

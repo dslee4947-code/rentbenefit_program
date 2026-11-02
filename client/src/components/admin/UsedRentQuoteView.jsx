@@ -354,7 +354,12 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser }) {
       a.download = name ? decodeURIComponent(name) : `연장계약서_${car.contractNo || ''}.pdf`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-      showToast?.('연장 계약서를 내려받았습니다. 모두싸인으로 서명받은 뒤 [연장 반영]에서 서명 완료본을 올려 주세요.', 'success');
+      const saved = res.headers.get('X-Saved-Path');
+      const saveError = res.headers.get('X-Saved-Error');
+      showToast?.(saved
+        ? `연장 계약서를 내려받고 계약 폴더에 넣었습니다 (${decodeURIComponent(saved).split(/[\\/]/).slice(-2).join('/')}). 모두싸인으로 서명받은 뒤 [연장 반영]에서 서명 완료본을 올려 주세요.`
+        : `연장 계약서를 내려받았습니다.${saveError ? ` 계약 폴더에는 넣지 못했습니다(${decodeURIComponent(saveError)}).` : ''} 모두싸인으로 서명받은 뒤 [연장 반영]에서 서명 완료본을 올려 주세요.`,
+      saved || !saveError ? 'success' : 'warning');
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
     } finally {

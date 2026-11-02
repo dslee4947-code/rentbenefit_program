@@ -28,8 +28,29 @@ const todayYmd = () => kstYmd(new Date());
 const emptyCar = () => ({
   vehicleId: '', contractId: '', customerId: '', companyId: '', partyType: '법인',
   partyName: '', carModel: '', plateNo: '', options: '', registrationDate: '', cc: '', fuelType: '',
-  usedPrice: '', newCarPrice: '', startDate: '', currentMonthlyFee: 0, currentTakeover: 0
+  usedPrice: '', newCarPrice: '', startDate: '', currentMonthlyFee: 0, currentTakeover: 0,
+  contractNo: '', contractEnd: '', currentDeposit: 0
 });
+
+/**
+ * 견적 종류별로 다른 것.
+ *  중고렌트: 반납받은 차(재고·단기·거래완료)를 새 고객에게. 고객은 새로 적고, 보증금도 새로 받는다. 차량가격 = 평가액.
+ *  계약연장: 지금 장기렌트 중인 고객에게 같은 차를 더. 고객·보증금(승계)·시작일(지금 계약 만기일)을 계약에서 가져온다.
+ *           차량가격 = 지금 인수가.
+ * 계산식은 둘 다 엑셀 '견적서 보고용' 그대로다(대표님 2026-11-02 "중고렌트와 계약 연장 두 개로").
+ */
+const USED_KINDS = {
+  중고렌트: {
+    title: '중고렌트 견적서', docType: '중고렌트견적서', saved: '중고렌트 견적',
+    priceLabel: '중고차 가격 (평가액)', startLabel: '계약 시작일', sheetPriceHead: '차량가격',
+    placeholder: '차량번호 · 차종 · 차대번호 (재고·반납 차)'
+  },
+  계약연장: {
+    title: '계약 연장 견적서', docType: '연장견적서', saved: '계약 연장 견적',
+    priceLabel: '현재 인수가 (연장 차량가격)', startLabel: '연장 시작일 (지금 계약 만기일)', sheetPriceHead: '현재 인수가',
+    placeholder: '차량번호 · 계약사 · 계약번호 (지금 장기렌트 중인 차)'
+  }
+};
 const defaultSettings = () => ({
   baseInterestRate: USED_QUOTE_DEFAULTS.baseInterestRate * 100,
   insuranceFee: USED_QUOTE_DEFAULTS.insuranceFee,
@@ -68,7 +89,9 @@ const optForCalc = (o) => ({ ...o, discountRate: (Number(o.discountRate) || 0) /
  * 렌터카 차령 한도(2000cc 미만 6년, 이상 9년)로 최대 몇 개월까지 계약할 수 있는지 보여 준다.
  * 한도를 넘는 안은 견적서에 넣을 수 없다.
  */
-function UsedRentQuoteView({ showToast, currentUser }) {
+function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser }) {
+  const K = USED_KINDS[kind] || USED_KINDS.중고렌트;
+  const isExt = kind === '계약연장';
   const [car, setCar] = useState(emptyCar);
   const [settings, setSettings] = useState(defaultSettings);
   const [options, setOptions] = useState(() => [newOption(12)]);
@@ -106,8 +129,10 @@ function UsedRentQuoteView({ showToast, currentUser }) {
     try {
       const res = await fetch(`${API_HOST}/api/vehicles?search=${encodeURIComponent(search.trim())}&limit=30`);
       const data = await res.json();
-      setResults(data.vehicles || []);
-      if (!(data.vehicles || []).length) showToast?.('찾는 차가 없습니다.', 'warning');
+      // 연장은 지금 계약이 걸린 장기렌트 차만 고른다(끝난 계약의 옛 기록은 빼고)
+      const found = (data.vehicles || []).filter((v) => !isExt || (v.contract && typeof v.contract === 'object' && v.status !== '거래완료'));
+      setResults(found);
+      if (!found.length) showToast?.(isExt ? '지금 계약 중인 차를 찾지 못했습니다. 반납받은 차는 [중고렌트 견적]에서 내 주세요.' : '찾는 차가 없습니다.', 'warning');
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
     } finally {
@@ -123,13 +148,14 @@ function UsedRentQuoteView({ showToast, currentUser }) {
     const partyType = company ? '법인' : '개인';
     const partyName = company?.name || customer?.name || v.contractorName || '';
     const newCarPrice = (Number(v.carPrice) || 0) + (Number(v.optionPrice) || 0) || Number(v.supplyPrice) || '';
+    // 중고렌트는 새 고객에게 내는 견적이라 예전 계약자를 채우지 않는다
     setCar({
       vehicleId: v._id,
-      contractId: contract?._id || '',
-      customerId: customer?._id || '',
-      companyId: company?._id || '',
-      partyType,
-      partyName,
+      contractId: isExt ? contract?._id || '' : '',
+      customerId: isExt ? customer?._id || '' : '',
+      companyId: isExt ? company?._id || '' : '',
+      partyType: isExt ? partyType : '법인',
+      partyName: isExt ? partyName : '',
       carModel: v.carModel || '',
       plateNo: v.plateNo || '',
       options: v.options || '',
@@ -139,12 +165,15 @@ function UsedRentQuoteView({ showToast, currentUser }) {
       usedPrice: v.takeoverPrice || '',
       newCarPrice,
       // 계약 만기일(저장값은 기간 다음 날 = 연장 시작일)
-      startDate: kstYmd(contract?.endDate) || todayYmd(),
-      currentMonthlyFee: v.monthlyFee || 0,
-      currentTakeover: v.takeoverPrice || 0
+      startDate: isExt ? kstYmd(contract?.endDate) || todayYmd() : todayYmd(),
+      currentMonthlyFee: isExt ? v.monthlyFee || 0 : 0,
+      currentTakeover: v.takeoverPrice || 0,
+      contractNo: isExt ? contract?.contractNo || '' : '',
+      contractEnd: isExt ? kstYmd(contract?.endDate) : '',
+      currentDeposit: isExt ? v.deposit || 0 : 0
     });
-    // 보증금은 계약자가 같으면 승계한다(연장). 안마다 미리 채워 둔다.
-    setOptions((prev) => prev.map((o) => ({ ...o, deposit: v.deposit || 0 })));
+    // 연장은 계약자가 같아 보증금을 그대로 승계한다(대표님 결정 2026-10-05). 중고렌트는 새로 정한다.
+    setOptions((prev) => prev.map((o) => ({ ...o, deposit: isExt ? v.deposit || 0 : '' })));
     setResults([]);
     setQuoteId('');
     showToast?.(`${v.plateNo || ''} ${v.carModel || ''}을(를) 불러왔습니다.`, 'success');
@@ -166,7 +195,7 @@ function UsedRentQuoteView({ showToast, currentUser }) {
   };
 
   const payload = () => ({
-    quoteKind: '중고렌트',
+    quoteKind: kind,
     usedRent: { car, settings, options, remark },
     sourceVehicle: car.vehicleId || undefined,
     sourceContract: car.contractId || undefined,
@@ -197,7 +226,7 @@ function UsedRentQuoteView({ showToast, currentUser }) {
       const data = await res.json();
       if (!res.ok || !data._id) { showToast?.(data.message || '저장하지 못했습니다.', 'error'); return ''; }
       setQuoteId(data._id);
-      if (!silent) showToast?.('중고렌트 견적을 저장했습니다.', 'success');
+      if (!silent) showToast?.(`${K.saved}을 저장했습니다.`, 'success');
       return data._id;
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
@@ -210,7 +239,7 @@ function UsedRentQuoteView({ showToast, currentUser }) {
   const openList = async () => {
     setListOpen(true);
     try {
-      const res = await fetch(`${API_HOST}/api/quotes?kind=${encodeURIComponent('중고렌트')}`);
+      const res = await fetch(`${API_HOST}/api/quotes?kind=${encodeURIComponent(kind)}`);
       const data = await res.json();
       setList(Array.isArray(data) ? data : []);
     } catch {
@@ -230,7 +259,7 @@ function UsedRentQuoteView({ showToast, currentUser }) {
     showToast?.('견적을 불러왔습니다.', 'success');
   };
 
-  const fileTitle = `중고렌트견적서_${car.partyName || '고객'}_${todayYmd()}`;
+  const fileTitle = `${K.docType}_${car.partyName || '고객'}_${todayYmd()}`;
   const blockedReason = () => {
     if (!sheetRows.length) return '견적서에 넣을 안이 없습니다. 기간·금액을 넣고 차령 한도 안인지 확인해 주세요.';
     return '';
@@ -248,7 +277,7 @@ function UsedRentQuoteView({ showToast, currentUser }) {
       const blob = await makeFittedPdf(sheetRef.current, { orientation: 'portrait', marginMm: 0, onePage: true });
       const fd = new FormData();
       fd.append('file', blob, 'quote.pdf');
-      fd.append('docType', '중고렌트견적서');
+      fd.append('docType', K.docType);
       const res = await fetch(`${API_HOST}/api/quotes/${id}/document`, { method: 'POST', body: fd });
       const data = await res.json();
       if (!data.success) showToast?.(data.message || '견적서 파일을 남기지 못했습니다.', 'warning');
@@ -314,9 +343,9 @@ function UsedRentQuoteView({ showToast, currentUser }) {
         <div style={cardTitle}><Car size={17} style={{ color: 'var(--primary)' }} /> 차 고르기 (렌트차량 DB)</div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') runSearch(); }}
-            placeholder="차량번호 · 차종 · 계약사 · 계약번호" style={{ ...input, flex: '1 1 260px', width: 'auto' }} />
+            placeholder={K.placeholder} style={{ ...input, flex: '1 1 260px', width: 'auto' }} />
           <button type="button" onClick={runSearch} disabled={searching} style={btn(true)}><Search size={15} /> {searching ? '찾는 중…' : '찾기'}</button>
-          <button type="button" onClick={openList} style={btn(false)}><FolderOpen size={15} /> 저장한 중고렌트 견적</button>
+          <button type="button" onClick={openList} style={btn(false)}><FolderOpen size={15} /> 저장한 {K.saved}</button>
         </div>
         {results.length > 0 && (
           <div style={{ marginTop: '0.6rem', border: '1px solid var(--border-color)', borderRadius: '8px', maxHeight: '260px', overflowY: 'auto' }}>
@@ -354,14 +383,19 @@ function UsedRentQuoteView({ showToast, currentUser }) {
           {field('최초등록일', <input type="date" max="9999-12-31" value={car.registrationDate} onChange={(e) => setCarField({ registrationDate: e.target.value })} style={input} />)}
           {field('배기량(cc)', <input type="number" value={car.cc} onChange={(e) => setCarField({ cc: e.target.value })} style={input} />)}
           {field('연료', <input value={car.fuelType} onChange={(e) => setCarField({ fuelType: e.target.value })} style={input} />)}
-          {field('중고차 가격 (연장이면 지금 인수가)', <MoneyInput value={car.usedPrice} onChange={(e) => setCarField({ usedPrice: e.target.value })} style={input} />)}
+          {field(K.priceLabel, <MoneyInput value={car.usedPrice} onChange={(e) => setCarField({ usedPrice: e.target.value })} style={input} />)}
           {field('신차가격 (자차 보험비 기준)', <MoneyInput value={car.newCarPrice} onChange={(e) => setCarField({ newCarPrice: e.target.value })} style={input} />)}
-          {field('계약(연장) 시작일', <input type="date" max="9999-12-31" value={car.startDate} onChange={(e) => setCarField({ startDate: e.target.value })} style={input} />)}
+          {field(K.startLabel, <input type="date" max="9999-12-31" value={car.startDate} onChange={(e) => setCarField({ startDate: e.target.value })} style={input} />)}
           {field('담당자', <input value={createdBy} onChange={(e) => setCreatedBy(e.target.value)} style={input} />)}
         </div>
-        {car.currentMonthlyFee > 0 && (
+        {isExt && car.contractNo && (
+          <div style={{ marginTop: '0.6rem', fontSize: '0.82rem', padding: '0.5rem 0.7rem', background: 'var(--bg-main)', borderRadius: '6px' }}>
+            <b>지금 계약</b> {car.contractNo} · 만기 {car.contractEnd || '-'} · 월 {won(car.currentMonthlyFee)}원 · 인수가 {won(car.currentTakeover)}원 · 보증금 {won(car.currentDeposit)}원 <b>승계</b>
+          </div>
+        )}
+        {!isExt && car.vehicleId && (
           <div style={{ marginTop: '0.6rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            지금 계약: 월 {won(car.currentMonthlyFee)}원 · 인수가 {won(car.currentTakeover)}원
+            새 고객에게 내는 견적입니다. 고객명과 보증금을 넣어 주세요. 차량가격은 직전 인수가({won(car.currentTakeover)}원)를 채워 두었으니 중고차 사업부 평가액으로 고쳐 주세요.
           </div>
         )}
         {/* 차령 한도 */}
@@ -494,7 +528,7 @@ function UsedRentQuoteView({ showToast, currentUser }) {
       <div className="print-fit-scroll m-fit-outer" ref={sheetOuterRef} style={{ overflowX: 'auto', ...fit.outer }}>
         <div ref={sheetRef} className={`used-rent-print-area print-fit m-doc${fit.outer ? ' m-fitted' : ''}`}
           style={{ width: `${SHEET_WIDTH_PX}px`, height: `${SHEET_HEIGHT_PX}px`, margin: '0 auto', background: '#fff', padding: `${SHEET_MARGIN_PX}px`, color: '#000', fontFamily: "'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif", fontSize: '0.76rem', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden', boxShadow: '0 0 0 1px var(--border-color)', ...fit.inner }}>
-          <UsedRentSheet car={car} rows={sheetRows} ageLimit={ageLimit} remark={remark} createdBy={createdBy} />
+          <UsedRentSheet kind={kind} car={car} rows={sheetRows} ageLimit={ageLimit} remark={remark} createdBy={createdBy} />
         </div>
       </div>
 
@@ -502,11 +536,11 @@ function UsedRentQuoteView({ showToast, currentUser }) {
         <div onClick={() => setListOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 1rem' }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', width: 'min(720px, 100%)', maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.9rem 1.1rem', borderBottom: '1px solid var(--border-color)', fontWeight: 800 }}>
-              저장한 중고렌트 견적
+              저장한 {K.saved}
               <button type="button" onClick={() => setListOpen(false)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}><X size={18} /></button>
             </div>
             {!list.length ? (
-              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>저장한 중고렌트 견적이 없습니다.</div>
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>저장한 {K.saved}이 없습니다.</div>
             ) : list.map((q) => (
               <button key={q._id} type="button" onClick={() => loadQuote(q)}
                 style={{ display: 'flex', width: '100%', gap: '0.7rem', padding: '0.6rem 1.1rem', border: 'none', borderBottom: '1px solid var(--border-color)', background: '#fff', cursor: 'pointer', textAlign: 'left', fontSize: '0.85rem' }}>
@@ -527,7 +561,9 @@ function UsedRentQuoteView({ showToast, currentUser }) {
  * 고객에게 건네는 중고렌트 견적서 한 장. 엑셀 '고객용' 시트와 같은 항목을 장기렌터카 견적서 모양으로 그린다.
  * 신차 견적서의 예상납기·색상 자리에 차량번호·최초등록일과 계약 가능 기간(차령 한도)을 넣었다.
  */
-function UsedRentSheet({ car, rows, ageLimit, remark, createdBy }) {
+function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
+  const K = USED_KINDS[kind] || USED_KINDS.중고렌트;
+  const isExt = kind === '계약연장';
   const cellHead = { background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' };
   const cell = { padding: '4px 6px', border: '1px solid #000' };
   const today = todayYmd();
@@ -540,7 +576,7 @@ function UsedRentSheet({ car, rows, ageLimit, remark, createdBy }) {
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', borderBottom: '2.5px double #000', paddingBottom: '0.6rem' }}>
         <div style={{ width: '150px' }}><span style={{ fontSize: '1.1rem', fontWeight: '800', color: '#111e38' }}>(주)렌트베네핏</span></div>
-        <h2 style={{ fontSize: '1.8rem', fontWeight: '800', color: '#111e38', margin: 0, letterSpacing: '2px', flex: 1, textAlign: 'center' }}>중고렌트 견적서</h2>
+        <h2 style={{ fontSize: '1.8rem', fontWeight: '800', color: '#111e38', margin: 0, letterSpacing: '2px', flex: 1, textAlign: 'center' }}>{K.title}</h2>
         <div style={{ display: 'flex', justifyContent: 'flex-end', width: '150px' }}><img src="/logo.png" alt="RENT BENefit" style={{ maxWidth: '120px', height: 'auto' }} /></div>
       </div>
 
@@ -556,7 +592,16 @@ function UsedRentSheet({ car, rows, ageLimit, remark, createdBy }) {
                 {ageLimit && ageLimit.maxMonths !== null ? `최대 ${monthsLabel(ageLimit.maxMonths)} (${ageLimit.lastDay}까지 반납)` : '-'}
               </td>
             </tr>
-            <tr><td style={cellHead}>옵션</td><td style={{ ...cell, fontSize: '0.70rem', color: '#d9534f', fontWeight: '600' }}>{car.options || '-'}</td></tr>
+            {isExt ? (
+              <tr>
+                <td style={cellHead}>현재 계약</td>
+                <td style={{ ...cell, fontSize: '0.70rem' }}>
+                  {car.contractNo || '-'} · 만기 {car.contractEnd || '-'} · 월 {won(car.currentMonthlyFee)}원
+                </td>
+              </tr>
+            ) : (
+              <tr><td style={cellHead}>옵션</td><td style={{ ...cell, fontSize: '0.70rem', color: '#d9534f', fontWeight: '600' }}>{car.options || '-'}</td></tr>
+            )}
           </tbody>
         </table>
         <table style={{ width: '50%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.74rem' }}>
@@ -586,7 +631,7 @@ function UsedRentSheet({ car, rows, ageLimit, remark, createdBy }) {
       <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.74rem', marginBottom: '0.1rem' }}>
         <thead>
           <tr style={{ background: '#dcdcdc', borderBottom: '1.5px solid #000' }}>
-            {[['구분', '6%'], ['차종', '32%'], ['수량', '6%'], ['계약기간', '8%'], ['차량가격', '12%'], ['보증금', '9%'], ['선수금', '9%'], ['인수가', '9%'], ['월대여료', '11%']].map(([t, w]) => (
+            {[['구분', '6%'], ['차종', '32%'], ['수량', '6%'], ['계약기간', '8%'], [K.sheetPriceHead, '12%'], ['보증금', '9%'], ['선수금', '9%'], ['인수가', '9%'], ['월대여료', '11%']].map(([t, w]) => (
               <th key={t} style={{ width: w, padding: '4px 2px', border: '1px solid #000', fontWeight: '700', textAlign: 'center' }}>{t}</th>
             ))}
           </tr>
@@ -638,13 +683,14 @@ function UsedRentSheet({ car, rows, ageLimit, remark, createdBy }) {
         </tbody>
       </table>
       <div style={{ textAlign: 'right', fontSize: '0.62rem', color: '#555', marginBottom: '0.2rem', fontWeight: '600' }}>
-        대당 / 차량가격: 중고차 가격 / 월대여료 : VAT포함
+        대당 / {isExt ? '현재 인수가 기준' : '차량가격: 중고차 가격'} / 월대여료 : VAT포함
       </div>
 
       <div style={{ background: '#fdfbfa', border: '1px dashed #ad885c', padding: '4px 8px', fontSize: '0.66rem', color: '#555', marginBottom: '0.3rem', lineHeight: '1.35' }}>
         <div>• 상기 견적 금액은 운용대수(계약대수/차량보유대수), 차량가 변동 또는 정부 시책에 따라 변동될 수 있습니다.</div>
         <div>• 선납금을 선택하신 경우, 상기 월대여료는 선납금을 계약기간으로 균등하게 나눈 금액을 <b>이미 차감한 실제 매월 납부 금액</b>입니다.</div>
         <div>• 렌터카는 법정 차령(차량 연식) 안에서만 운행할 수 있어, 계약 기간은 위 '계약 가능 기간'을 넘을 수 없습니다.</div>
+        {isExt && <div>• 연장 계약은 {car.startDate || '현재 계약 만기일'}부터 시작하며, 현재 계약의 보증금은 연장 계약으로 그대로 승계됩니다.</div>}
       </div>
 
       <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.3rem' }}>

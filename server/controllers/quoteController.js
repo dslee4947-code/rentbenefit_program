@@ -10,7 +10,8 @@ export const getQuotes = async (req, res) => {
   try {
     const { search, status, customerId, kind } = req.query;
     // 중고렌트 견적은 따로 본다. 신차 견적 목록에 섞이면 신차 화면이 열다가 깨진다.
-    let query = kind === '중고렌트' ? { quoteKind: '중고렌트' } : { quoteKind: { $ne: '중고렌트' } };
+    const USED_KINDS = ['중고렌트', '계약연장'];
+    let query = USED_KINDS.includes(kind) ? { quoteKind: kind } : { quoteKind: { $nin: USED_KINDS } };
 
     if (status) {
       query.status = status;
@@ -97,7 +98,7 @@ export const createQuote = async (req, res) => {
     } = req.body;
 
     // 중고렌트: 차·조건을 usedRent에 통째로 담는다. 고객 연결은 있으면 건다.
-    if (quoteKind === '중고렌트') {
+    if (quoteKind === '중고렌트' || quoteKind === '계약연장') {
       const quote = await Quote.create({
         quoteKind,
         usedRent,
@@ -118,7 +119,7 @@ export const createQuote = async (req, res) => {
       logActivity({
         req, dept: '영업부', action: ACTIONS.QUOTE_CREATE,
         target: { model: 'Quote', id: quote._id },
-        summary: `${(partyType === '법인' ? companyName : customerName) || '고객'} ${vehicleModel || ''} 중고렌트 견적 작성`.trim()
+        summary: `${(partyType === '법인' ? companyName : customerName) || '고객'} ${vehicleModel || ''} ${quoteKind === '계약연장' ? '계약 연장' : '중고렌트'} 견적 작성`.trim()
       });
       return res.status(201).json(quote);
     }
@@ -334,7 +335,7 @@ export const saveQuoteDocument = async (req, res) => {
       return res.status(400).json({ success: false, message: '견적서에 고객명이 없어 저장할 자리를 정하지 못했습니다.' });
     }
 
-    const docType = ['비교견적서', '중고렌트견적서'].includes(req.body.docType) ? req.body.docType : '견적서';
+    const docType = ['비교견적서', '중고렌트견적서', '연장견적서'].includes(req.body.docType) ? req.body.docType : '견적서';
     const settings = await getDocumentSettings();
     const fileName = `${fillPattern(settings.fileNames.quote, {
       문서종류: docType,

@@ -1777,11 +1777,11 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
         <h3 style={{ fontSize: '1.4rem', fontWeight: '700', color: 'var(--text-bright)', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
           <Coins style={{ color: 'var(--primary)' }} /> 견적서
           <span style={{ display: 'inline-flex', marginLeft: '0.6rem', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.2rem' }}>
-            {['신차', '중고렌트'].map((k) => (
+            {['신차', '중고렌트', '계약연장'].map((k) => (
               <button key={k} type="button" onClick={() => setQuoteKind(k)}
                 style={{ padding: '0.35rem 0.8rem', borderRadius: '6px', border: 'none', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer',
                   background: quoteKind === k ? 'var(--primary)' : 'transparent', color: quoteKind === k ? '#fff' : 'var(--text-muted)' }}>
-                {k === '신차' ? '🚗 신차 견적' : '🔁 중고렌트 견적'}
+                {k === '신차' ? '🚗 신차 견적' : k === '중고렌트' ? '🔁 중고렌트 견적' : '📅 계약 연장 견적'}
               </button>
             ))}
           </span>
@@ -1795,7 +1795,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
         </button>}
       </div>
 
-      {quoteKind === '중고렌트' ? <UsedRentQuoteView showToast={showToast} currentUser={currentUser} /> : (<>
+      {/* key: 종류를 바꾸면 입력하던 값을 비우고 새로 시작한다 */}
+      {quoteKind !== '신차' ? <UsedRentQuoteView key={quoteKind} kind={quoteKind} showToast={showToast} currentUser={currentUser} /> : (<>
 
       {/* 견적서 작성 / 견적서 목록 전환 탭 */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)' }}>

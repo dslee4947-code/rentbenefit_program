@@ -5,9 +5,10 @@ import { buildContractPdf } from '../utils/contractPdf.js';
 import ContractDocument from '../models/ContractDocument.js';
 import Contract from '../models/Contract.js';
 import { parseContractTemplate, extractTemplateMedia } from '../utils/contractTemplateParser.js';
-import { ensureContractDocument, refreshContractDocument } from '../utils/contractDocumentValues.js';
+import { ensureContractDocument, refreshContractDocument, loadContractForDocument } from '../utils/contractDocumentValues.js';
 import { looksLikeResidentRegistrationNumber } from '../utils/validators.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
+import { buildExtensionValues } from './contractLifecycleController.js';
 
 const KIND = '장기렌트';
 // 목록에서는 무거운 해석 결과(칸·글상자·원문)를 빼고 보낸다
@@ -190,7 +191,7 @@ const DOC_POPULATE = {
 export const listDocuments = async (req, res) => {
   try {
     if (req.query.contract) {
-      const doc = await ContractDocument.findOne({ contract: req.query.contract }).populate(DOC_POPULATE).lean();
+      const doc = await ContractDocument.findOne({ contract: req.query.contract, extensionPending: { $ne: true } }).populate(DOC_POPULATE).lean();
       return res.json({ success: true, document: doc || null });
     }
     const docs = await ContractDocument.find({}).sort({ updatedAt: -1 }).limit(300).populate(DOC_POPULATE).lean();
@@ -216,7 +217,7 @@ export const createDocument = async (req, res) => {
   try {
     const contract = await Contract.findById(req.body.contractId).select('_id contractNo').lean();
     if (!contract) return res.status(404).json({ success: false, message: '계약을 찾을 수 없습니다.' });
-    const existed = await ContractDocument.exists({ contract: contract._id });
+    const existed = await ContractDocument.exists({ contract: contract._id, extensionPending: { $ne: true } });
     const doc = await ensureContractDocument(contract._id, { user: req.user });
     if (!doc) return res.status(400).json({ success: false, message: '사용 중인 계약서 양식이 없습니다. 계약서 양식 화면에서 엑셀 양식을 먼저 올려 주세요.' });
     if (!existed) {
@@ -272,7 +273,14 @@ export const refreshDocument = async (req, res) => {
     const doc = await ContractDocument.findById(req.params.id);
     if (!doc) return res.status(404).json({ success: false, message: '계약서를 찾을 수 없습니다.' });
     if (doc.status === '확정') return res.status(409).json({ success: false, message: '확정된 계약서는 다시 불러오지 않습니다.' });
-    const { changed } = await refreshContractDocument(doc, { userName: userName(req) });
+    // 반영 전 연장 계약서는 이전 계약 + 견적 조건으로 다시 채운다(이전 계약 값만 읽으면 계약번호·기간·렌트료가 되돌아간다)
+    let fresh;
+    if (doc.extensionPending) {
+      const prev = await loadContractForDocument(doc.contract);
+      if (!prev) return res.status(404).json({ success: false, message: '이전 계약을 찾을 수 없습니다.' });
+      fresh = await buildExtensionValues(prev, doc.extensionTerms || {});
+    }
+    const { changed } = await refreshContractDocument(doc, { userName: userName(req), fresh });
     res.json({ success: true, document: await ContractDocument.findById(doc._id).populate(DOC_POPULATE).lean(), message: changed ? `${changed}칸을 계약 정보로 다시 채웠습니다.` : '바뀐 칸이 없습니다.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -305,8 +313,12 @@ export const getDocumentPdf = async (req, res) => {
     if (!template || !base) {
       return res.status(409).json({ success: false, message: '이 양식의 PDF 바탕이 아직 없습니다. 엑셀이 있는 PC에서 server/scripts/build-contract-pdf-base.js를 실행해 주세요.' });
     }
-    const pdf = await buildContractPdf({ template, base, values: { ...(doc.values || {}), contractNo: doc.values?.contractNo || doc.contract?.contractNo }, documentDate: doc.documentDate || doc.createdAt });
-    const name = `자동차임대차계약서_${doc.contract?.contractNo || doc._id}.pdf`;
+    // 연장 계약서는 1·2장 위에 '연장 계약 · 이전 계약번호 · 연장 기간 · 보증금 승계'를 찍는다
+    const note = doc.extensionTerms?.note;
+    const notes = note ? [{ page: 1, text: note }, { page: 2, text: note }] : [];
+    const contractNo = doc.values?.contractNo || doc.contract?.contractNo;
+    const pdf = await buildContractPdf({ template, base, values: { ...(doc.values || {}), contractNo }, documentDate: doc.documentDate || doc.createdAt, notes });
+    const name = `자동차임대차계약서_${contractNo || doc._id}${note ? '_연장' : ''}.pdf`;
     res.set('Content-Type', 'application/pdf');
     res.set('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(name)}`);
     res.set('Cache-Control', 'no-store');

@@ -84,6 +84,8 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   // Shared state to transfer data from Quote -> Contract Register
   const [prefilledQuoteData, setPrefilledQuoteData] = useState(null);
   const [prefilledContractData, setPrefilledContractData] = useState(null);
+  // 다른 화면(계약 연장 견적)에서 만든 전자계약서를 바로 연다
+  const [openContractDocId, setOpenContractDocId] = useState(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   // 뒤로 가기(핸드폰 화면 쓸기)로 닫는다 — utils/useBackClose.js
   useBackClose(isMobileMenuOpen, () => setIsMobileMenuOpen(false));
@@ -166,6 +168,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   };
 
   const handleNavClick = (tabId) => {
+    setOpenContractDocId(null);
     navigateToTab(tabId);
     setIsMobileMenuOpen(false);
   };
@@ -606,6 +609,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
           {activeTab === 'quote-input' && (
             <QuoteInputView
               setActiveTab={navigateToTab}
+              openContractDocument={(id) => { setOpenContractDocId(id); navigateToTab('contract-docs'); }}
               setPrefilledQuoteData={setPrefilledQuoteData}
               setPrefilledContractData={setPrefilledContractData}
               showToast={showToast}
@@ -627,6 +631,8 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
 
           {activeTab === 'contract-docs' && (
             <ContractDocsView
+              key={openContractDocId || 'list'}
+              initialDocId={openContractDocId}
               showToast={showToast}
               currentUser={currentUser}
             />

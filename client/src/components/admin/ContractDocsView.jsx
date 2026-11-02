@@ -6,6 +6,13 @@ const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? ''
 
 const ymd = (d) => (d ? new Date(new Date(d).getTime() + 9 * 3600e3).toISOString().slice(0, 10) : '');
 const partyOf = (doc) => doc?.contract?.companyId?.name || doc?.contract?.customer?.name || '-';
+// 반영 전 연장 계약서는 contract가 이전 계약이라, 계약번호는 계약서 칸(새 번호)을 먼저 본다
+const contractNoOf = (doc) => (doc?.extensionPending ? doc.values?.contractNo : '') || doc?.contract?.contractNo || '';
+const ExtensionTag = ({ doc }) => (doc?.extensionOf ? (
+  <span title={doc.extensionTerms?.note || ''} style={{ fontSize: '0.7rem', fontWeight: 800, padding: '0.1rem 0.45rem', borderRadius: 999, background: '#e0e7ff', color: '#3730a3', marginLeft: '0.3rem' }}>
+    {doc.extensionPending ? '연장 · 반영 전' : '연장'}
+  </span>
+) : null);
 
 // 양식은 수백 KB라 한 번 받은 것은 다시 받지 않는다(버전마다 내용이 바뀌지 않는다)
 const templateCache = new Map();
@@ -123,7 +130,7 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
     if (!pdf.url) return;
     const a = document.createElement('a');
     a.href = pdf.url;
-    a.download = `자동차임대차계약서_${partyOf(doc)}_${doc?.contract?.contractNo || ''}.pdf`;
+    a.download = `자동차임대차계약서_${partyOf(doc)}_${contractNoOf(doc)}${doc?.extensionOf ? '_연장' : ''}.pdf`;
     a.click();
   };
   const setValue = (key, next) => {
@@ -150,7 +157,7 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
         <button type="button" onClick={onBack} style={btn()}><ArrowLeft size={13} /> 목록</button>
         <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-bright)' }}>
-          {partyOf(doc)} · {doc.contract?.contractNo}
+          {partyOf(doc)} · {contractNoOf(doc)}<ExtensionTag doc={doc} />
         </div>
         <span style={{ fontSize: '0.72rem', fontWeight: 800, padding: '0.15rem 0.5rem', borderRadius: 999, background: doc.status === '확정' ? '#dcfce7' : '#fef9c3', color: doc.status === '확정' ? '#15803d' : '#a16207' }}>{doc.status}</span>
         <span style={small}>양식 {doc.templateName} (버전 {doc.templateVersion}) · 빈칸 {emptyCount}개</span>
@@ -535,7 +542,7 @@ function DocumentsPanel({ showToast, canWrite, onOpen }) {
   };
 
   const q = query.replace(/\s+/g, '').toLowerCase();
-  const docByContract = new Map(docs.map((d) => [String(d.contract?._id), d]));
+  const docByContract = new Map(docs.filter((d) => !d.extensionPending).map((d) => [String(d.contract?._id), d]));
   const matches = q ? contracts.filter((c) => [c.contractNo, c.customer?.name, c.companyId?.name, c.vehicle?.carModel, c.vehicle?.plateNo]
     .some((x) => String(x || '').replace(/\s+/g, '').toLowerCase().includes(q))).slice(0, 20) : [];
 
@@ -577,7 +584,7 @@ function DocumentsPanel({ showToast, canWrite, onOpen }) {
               <tr><td colSpan={6} style={{ padding: '1.5rem', textAlign: 'center', ...small }}>{loading ? '불러오는 중...' : '만든 계약서가 없습니다.'}</td></tr>
             ) : docs.map((d) => (
               <tr key={d._id} onClick={() => onOpen(d._id)} style={{ borderTop: '1px solid var(--border-color)', cursor: 'pointer' }}>
-                <td style={{ padding: '0.5rem 0.6rem', fontWeight: 700 }}>{d.contract?.contractNo}</td>
+                <td style={{ padding: '0.5rem 0.6rem', fontWeight: 700 }}>{contractNoOf(d)}<ExtensionTag doc={d} /></td>
                 <td style={{ padding: '0.5rem 0.6rem' }}>{partyOf(d)}</td>
                 <td style={{ padding: '0.5rem 0.6rem' }}>
                   <span style={{ fontSize: '0.72rem', fontWeight: 800, padding: '0.1rem 0.45rem', borderRadius: 999, background: d.status === '확정' ? '#dcfce7' : '#fef9c3', color: d.status === '확정' ? '#15803d' : '#a16207' }}>{d.status}</span>

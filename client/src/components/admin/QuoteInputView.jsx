@@ -156,7 +156,7 @@ const calculateLeaseCarTax = (vehicle) => {
   return Math.floor((baseTax + educationTax) / 10) * 10; // 10원 미만 절사
 };
 
-function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContractData, showToast, currentUser }) {
+function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContractData, showToast, currentUser, openContractDocument }) {
   const [customers, setCustomers] = useState([]);
   const [useExistingCustomer, setUseExistingCustomer] = useState(true);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
@@ -1796,7 +1796,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
       </div>
 
       {/* key: 종류를 바꾸면 입력하던 값을 비우고 새로 시작한다 */}
-      {quoteKind !== '신차' ? <UsedRentQuoteView key={quoteKind} kind={quoteKind} showToast={showToast} currentUser={currentUser} /> : (<>
+      {quoteKind !== '신차' ? <UsedRentQuoteView key={quoteKind} kind={quoteKind} showToast={showToast} currentUser={currentUser} onOpenContractDocument={openContractDocument} /> : (<>
 
       {/* 견적서 작성 / 견적서 목록 전환 탭 */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)' }}>

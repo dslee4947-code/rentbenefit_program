@@ -15,7 +15,7 @@ import { saveSignedFile } from './contractSignedController.js';
 import ContractDocument from '../models/ContractDocument.js';
 import ContractTemplate from '../models/ContractTemplate.js';
 import ContractTemplatePdf from '../models/ContractTemplatePdf.js';
-import { buildContractValues, loadContractForDocument } from '../utils/contractDocumentValues.js';
+import { buildContractValues, loadContractForDocument, refreshContractDocument } from '../utils/contractDocumentValues.js';
 import { buildContractPdf } from '../utils/contractPdf.js';
 
 /**
@@ -169,6 +169,73 @@ export const getExtensionPreview = async (req, res) => {
 const wonText = (n) => (Number(n) ? Math.round(Number(n)).toLocaleString('ko-KR') : '');
 const kstYmd = (d) => new Date(new Date(d).getTime() + 9 * 3600e3).toISOString().slice(0, 10);
 
+const badRequest = (message, status = 400) => Object.assign(new Error(message), { status });
+
+/**
+ * 연장 계약서 칸 값. 이전 계약(이전 계약서에 직원이 고친 값 우선) 위에 견적에서 온 새 조건을 얹는다.
+ * PDF 바로 받기와 전자계약서(고쳐 쓰는 계약서)가 같은 값을 쓴다.
+ * @param {object} prev loadContractForDocument로 불러온 이전 계약
+ * @param {object} body { startDate, termMonths, monthlyFee, takeoverPrice, carPrice, advancePayment, deposit, annualMileage, maintenance }
+ * @returns {Promise<{values, sources, contractNo, termMonths, note}>} 잘못된 조건이면 status가 붙은 Error를 던진다
+ */
+export const buildExtensionValues = async (prev, body) => {
+  const termMonths = Number(body.termMonths);
+  if (!termMonths || termMonths < 1) throw badRequest('연장 기간(개월)을 넣어 주세요.');
+  if (!(Number(body.monthlyFee) > 0)) throw badRequest('월 렌트료가 0원입니다. 견적을 먼저 계산해 주세요.');
+  const startDate = body.startDate ? new Date(`${String(body.startDate).slice(0, 10)}T00:00:00+09:00`) : defaultStartOf(prev);
+  if (!startDate || Number.isNaN(startDate.getTime())) throw badRequest('연장 시작일을 넣어 주세요.');
+
+  // 이전 계약서에 직원이 고쳐 둔 값이 있으면 그것이 맞다. 빈칸만 계약 정보로 채운다.
+  const prevDoc = await ContractDocument.findOne({ contract: prev._id, extensionPending: { $ne: true } }).select('values sources').lean();
+  const fresh = buildContractValues(prev);
+  const values = { ...fresh.values };
+  const sources = { ...fresh.sources };
+  for (const [key, v] of Object.entries(prevDoc?.values || {})) {
+    if (!String(v ?? '').trim()) continue;
+    values[key] = v;
+    sources[key] = prevDoc.sources?.[key] === 'manual' ? 'contract' : (prevDoc.sources?.[key] || 'contract');
+  }
+
+  const { contractNo } = await extensionNumberOf(prev);
+  // 보증금은 승계. 예전 계약은 보증금이 계약이 아니라 차량에만 적힌 경우가 있어(125호2333) 차량 값을 더해 본다
+  const cars = (prev.vehicles || []).filter((v) => v && typeof v === 'object');
+  const deposit = Number(prev.pricing?.deposit) || cars.reduce((s, v) => s + (Number(v.deposit) || 0), 0) || Number(body.deposit) || 0;
+  Object.assign(values, {
+    contractNo,
+    termMonths: String(termMonths),
+    carPrice: wonText(body.carPrice),
+    deposit: wonText(deposit),
+    advancePayment: wonText(body.advancePayment),
+    takeoverPrice: wonText(body.takeoverPrice),
+    monthlyFee: wonText(body.monthlyFee)
+  });
+  if (body.annualMileage) values.annualMileage = Number(body.annualMileage).toLocaleString('ko-KR');
+  if (body.maintenance !== undefined) values.maintenance = body.maintenance ? '가입' : '미가입';
+  for (const key of ['contractNo', 'termMonths', 'carPrice', 'deposit', 'advancePayment', 'takeoverPrice', 'monthlyFee']) sources[key] = 'quote';
+  if (body.annualMileage) sources.annualMileage = 'quote';
+  if (body.maintenance !== undefined) sources.maintenance = 'quote';
+  // 차량 결제일은 '5', '5일', '말일'처럼 적혀 있다
+  const payText = String(cars[0]?.monthlyPaymentDay || '');
+  const payDay = /말/.test(payText) ? 31 : parseInt(payText, 10) || 0;
+  if (!values.payDay && payDay) {
+    values.payDay = payDay >= 28 ? '말일' : String(payDay);
+    sources.payDay = 'vehicle';
+  }
+
+  const endDay = new Date(startDate);
+  endDay.setMonth(endDay.getMonth() + termMonths);
+  const lastDay = addDays(endDay, -1);
+  const note = `연장 계약 · 이전 계약 ${prev.contractNo} · 연장 기간 ${kstYmd(startDate)} ~ ${kstYmd(lastDay)} (${termMonths}개월) · 보증금 ${wonText(deposit) || 0}원 승계`;
+  return { values, sources, contractNo, termMonths, note };
+};
+
+const loadExtendable = async (id) => {
+  const prev = await loadContractForDocument(id);
+  if (!prev) throw badRequest('계약을 찾을 수 없습니다.', 404);
+  if (!EXTENDABLE.includes(prev.status)) throw badRequest(`${prev.status} 상태의 계약은 연장할 수 없습니다.`);
+  return prev;
+};
+
 /**
  * 연장 계약서 PDF(서명받기 전 본). 계약 연장 견적에서 고른 안으로 만든다.
  *
@@ -184,52 +251,13 @@ const kstYmd = (d) => new Date(new Date(d).getTime() + 9 * 3600e3).toISOString()
 export const getExtensionDocumentPdf = async (req, res) => {
   try {
     const body = req.body || {};
-    const prev = await loadContractForDocument(req.params.id);
-    if (!prev) return res.status(404).json({ success: false, message: '계약을 찾을 수 없습니다.' });
-    if (!EXTENDABLE.includes(prev.status)) {
-      return res.status(400).json({ success: false, message: `${prev.status} 상태의 계약은 연장할 수 없습니다.` });
-    }
-    const termMonths = Number(body.termMonths);
-    if (!termMonths || termMonths < 1) return res.status(400).json({ success: false, message: '연장 기간(개월)을 넣어 주세요.' });
-    if (!(Number(body.monthlyFee) > 0)) return res.status(400).json({ success: false, message: '월 렌트료가 0원입니다. 견적을 먼저 계산해 주세요.' });
-    const startDate = body.startDate ? new Date(`${String(body.startDate).slice(0, 10)}T00:00:00+09:00`) : defaultStartOf(prev);
-    if (!startDate || Number.isNaN(startDate.getTime())) return res.status(400).json({ success: false, message: '연장 시작일을 넣어 주세요.' });
-
+    const prev = await loadExtendable(req.params.id);
     const template = await ContractTemplate.findOne({ kind: '장기렌트', active: true }).lean();
     const base = template ? await ContractTemplatePdf.findOne({ template: template._id }).lean() : null;
     if (!template || !base) {
       return res.status(409).json({ success: false, message: '사용 중인 계약서 양식(또는 그 PDF 바탕)이 없습니다. 계약서 양식 화면을 확인해 주세요.' });
     }
-
-    // 이전 계약서에 직원이 고쳐 둔 값이 있으면 그것이 맞다. 빈칸만 계약 정보로 채운다.
-    const prevDoc = await ContractDocument.findOne({ contract: prev._id }).select('values').lean();
-    const fresh = buildContractValues(prev).values;
-    const values = { ...fresh, ...Object.fromEntries(Object.entries(prevDoc?.values || {}).filter(([, v]) => String(v ?? '').trim())) };
-
-    const { contractNo } = await extensionNumberOf(prev);
-    // 보증금은 승계. 예전 계약은 보증금이 계약이 아니라 차량에만 적힌 경우가 있어(125호2333) 차량 값을 더해 본다
-    const cars = (prev.vehicles || []).filter((v) => v && typeof v === 'object');
-    const deposit = Number(prev.pricing?.deposit) || cars.reduce((s, v) => s + (Number(v.deposit) || 0), 0) || Number(body.deposit) || 0;
-    Object.assign(values, {
-      contractNo,
-      termMonths: String(termMonths),
-      carPrice: wonText(body.carPrice),
-      deposit: wonText(deposit),
-      advancePayment: wonText(body.advancePayment),
-      takeoverPrice: wonText(body.takeoverPrice),
-      monthlyFee: wonText(body.monthlyFee)
-    });
-    if (body.annualMileage) values.annualMileage = Number(body.annualMileage).toLocaleString('ko-KR');
-    if (body.maintenance !== undefined) values.maintenance = body.maintenance ? '가입' : '미가입';
-    // 차량 결제일은 '5', '5일', '말일'처럼 적혀 있다
-    const payText = String(cars[0]?.monthlyPaymentDay || '');
-    const payDay = /말/.test(payText) ? 31 : parseInt(payText, 10) || 0;
-    if (!values.payDay && payDay) values.payDay = payDay >= 28 ? '말일' : String(payDay);
-
-    const endDay = new Date(startDate);
-    endDay.setMonth(endDay.getMonth() + termMonths);
-    const lastDay = addDays(endDay, -1);
-    const note = `연장 계약 · 이전 계약 ${prev.contractNo} · 연장 기간 ${kstYmd(startDate)} ~ ${kstYmd(lastDay)} (${termMonths}개월) · 보증금 ${wonText(deposit) || 0}원 승계`;
+    const { values, contractNo, termMonths, note } = await buildExtensionValues(prev, body);
 
     const pdf = await buildContractPdf({ template, base, values, documentDate: new Date(), notes: [{ page: 1, text: note }, { page: 2, text: note }] });
     const name = `자동차임대차계약서_${contractNo}_연장.pdf`;
@@ -262,7 +290,73 @@ export const getExtensionDocumentPdf = async (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.send(Buffer.from(pdf));
   } catch (error) {
-    res.status(500).json({ success: false, message: `연장 계약서를 만들지 못했습니다: ${error.message}` });
+    res.status(error.status || 500).json({ success: false, message: error.status ? error.message : `연장 계약서를 만들지 못했습니다: ${error.message}` });
+  }
+};
+
+/**
+ * 계약 연장 견적에서 고른 안으로 장기렌트 전자계약서를 만든다(대표님 2026-11-02 "연장 견적 내용으로 장기렌트 계약서 작성").
+ * 전자계약서 화면에서 신차 계약서처럼 칸을 고치고 PDF를 받는다. 이전 계약 하나에 반영 전 연장 계약서는 하나만 둔다:
+ * 다른 안으로 다시 누르면 같은 계약서의 견적 칸만 새 조건으로 바꾸고, 직원이 직접 고친 칸은 그대로 둔다.
+ * 계약은 아직 바꾸지 않는다. [연장 반영]으로 새 계약이 생기면 그 계약의 계약서가 된다(extendContract).
+ * @route POST /api/contracts/:id/extension-contract-document
+ */
+export const createExtensionContractDocument = async (req, res) => {
+  try {
+    const body = req.body || {};
+    const prev = await loadExtendable(req.params.id);
+    const fresh = await buildExtensionValues(prev, body);
+    const terms = {
+      startDate: body.startDate ? String(body.startDate).slice(0, 10) : undefined,
+      termMonths: fresh.termMonths,
+      monthlyFee: Number(body.monthlyFee) || 0,
+      takeoverPrice: Number(body.takeoverPrice) || 0,
+      carPrice: Number(body.carPrice) || 0,
+      advancePayment: Number(body.advancePayment) || 0,
+      deposit: Number(body.deposit) || 0,
+      annualMileage: Number(body.annualMileage) || 0,
+      maintenance: body.maintenance === undefined ? undefined : Boolean(body.maintenance),
+      note: fresh.note
+    };
+    const by = req.user?.name || req.user?.email || '';
+
+    let doc = await ContractDocument.findOne({ extensionOf: prev._id, extensionPending: true }).sort({ updatedAt: -1 });
+    if (doc && doc.status === '확정') {
+      return res.status(409).json({ success: false, message: '이 계약의 연장 계약서가 이미 확정돼 있습니다. 전자계약서 화면에서 [확정 풀기] 뒤 다시 눌러 주세요.', documentId: doc._id });
+    }
+    let message;
+    if (doc) {
+      doc.extensionTerms = terms;
+      doc.markModified('extensionTerms');
+      const { changed } = await refreshContractDocument(doc, { userName: by, fresh });
+      await doc.save();
+      message = `이미 만든 연장 계약서(${fresh.contractNo})를 이 안으로 고쳤습니다(${changed}칸). 직접 고친 칸은 그대로입니다.`;
+    } else {
+      const template = await ContractTemplate.findOne({ kind: '장기렌트', active: true }).select('name version').lean();
+      if (!template) return res.status(409).json({ success: false, message: '사용 중인 계약서 양식이 없습니다. 전자계약서 > 양식 관리에서 엑셀 양식을 먼저 올려 주세요.' });
+      doc = await ContractDocument.create({
+        contract: prev._id,
+        extensionOf: prev._id,
+        extensionPending: true,
+        extensionTerms: terms,
+        template: template._id,
+        templateName: template.name,
+        templateVersion: template.version,
+        values: fresh.values,
+        sources: fresh.sources,
+        documentDate: new Date(),
+        createdBy: by
+      });
+      message = `연장 계약서(${fresh.contractNo})를 만들었습니다. 칸을 확인하고 PDF를 받아 서명받으세요.`;
+    }
+    const partyName = prev.companyId?.name || prev.customer?.name || '';
+    logActivity({
+      req, dept: '계약·출고부', action: ACTIONS.CONTRACT_EXTEND, target: { model: 'ContractDocument', id: doc._id },
+      summary: `${partyName} ${prev.contractNo} 연장 전자계약서 작성 → ${fresh.contractNo} · ${fresh.termMonths}개월 · 월 ${Number(body.monthlyFee).toLocaleString()}원`
+    });
+    res.status(201).json({ success: true, documentId: doc._id, contractNo: fresh.contractNo, message });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message });
   }
 };
 
@@ -465,6 +559,22 @@ export const extendContract = async (req, res) => {
       }
     } catch (err) {
       console.log(`[계약 폴더] ${saved.contractNo}: 만들지 못했습니다 - ${err.message}`);
+    }
+
+    // 연장 견적에서 만든 전자계약서가 있으면 새 계약의 계약서로 옮긴다. 실패해도 연장은 그대로 둔다
+    try {
+      const extDoc = await ContractDocument.findOne({ extensionOf: prev._id, extensionPending: true }).sort({ updatedAt: -1 });
+      if (extDoc) {
+        extDoc.contract = saved._id;
+        extDoc.extensionPending = false;
+        if (extDoc.values?.contractNo !== saved.contractNo) {
+          extDoc.values = { ...(extDoc.values || {}), contractNo: saved.contractNo };
+          extDoc.markModified('values');
+        }
+        await extDoc.save();
+      }
+    } catch (err) {
+      console.log(`[연장 계약서] ${saved.contractNo}: 전자계약서를 새 계약에 옮기지 못했습니다 - ${err.message}`);
     }
 
     logActivity({

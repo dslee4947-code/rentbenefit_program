@@ -13,7 +13,7 @@ import {
   getContractTemplate
 } from '../controllers/contractController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
-import { getExtensionPreview, getExtensionDocumentPdf, extendContract, returnContract, takeoverContract, rerentVehicle } from '../controllers/contractLifecycleController.js';
+import { getExtensionPreview, getExtensionDocumentPdf, createExtensionContractDocument, extendContract, returnContract, takeoverContract, rerentVehicle } from '../controllers/contractLifecycleController.js';
 import { uploadSignedDocument, getSignedDocuments, downloadSignedDocument } from '../controllers/contractSignedController.js';
 
 const router = express.Router();
@@ -39,6 +39,8 @@ router.route('/')
 router.get('/:id/extension-preview', getExtensionPreview);
 // 연장 계약서 PDF(서명받기 전 본) — 계약 연장 견적에서 고른 안으로. 계약은 바꾸지 않는다
 router.post('/:id/extension-document', getExtensionDocumentPdf);
+// 연장 견적에서 고른 안으로 장기렌트 전자계약서 만들기(전자계약서 화면에서 고쳐 쓴다)
+router.post('/:id/extension-contract-document', checkWritePermission, createExtensionContractDocument);
 // 연장: 서명 완료본(file)을 함께 받는다. 없으면 관리자만 사유를 적고 먼저 반영할 수 있다
 router.post('/:id/extend', checkWritePermission, upload.single('file'), extendContract);
 // 서명 완료본(모두싸인 등에서 서명을 마친 계약서 PDF) — 신차·중고·연장 공통

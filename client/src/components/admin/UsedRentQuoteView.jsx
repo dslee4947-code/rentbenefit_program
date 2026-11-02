@@ -90,7 +90,7 @@ const optForCalc = (o) => ({ ...o, discountRate: (Number(o.discountRate) || 0) /
  * 렌터카 차령 한도(2000cc 미만 6년, 이상 9년)로 최대 몇 개월까지 계약할 수 있는지 보여 준다.
  * 한도를 넘는 안은 견적서에 넣을 수 없다.
  */
-function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser }) {
+function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOpenContractDocument }) {
   const K = USED_KINDS[kind] || USED_KINDS.중고렌트;
   const isExt = kind === '계약연장';
   const [car, setCar] = useState(emptyCar);
@@ -108,6 +108,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser }) {
   const [list, setList] = useState([]);
   const [docBusy, setDocBusy] = useState(-1);
   const [extendWith, setExtendWith] = useState(null);
+  const canWrite = currentUser?.role !== 'viewer';
 
   const sheetOuterRef = useRef(null);
   const sheetRef = useRef(null);
@@ -332,6 +333,31 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser }) {
    * 이 안으로 연장 계약서 PDF(서명받기 전 본)를 만든다. 신차와 같은 전체 계약서에 '연장 계약·이전 계약번호·보증금 승계'를 찍는다.
    * 모두싸인으로 서명받은 뒤 [연장 반영]에서 서명 완료본을 올리면 연장된다.
    */
+  /**
+   * 이 안으로 장기렌트 전자계약서를 만들고 전자계약서 화면에서 연다. 신차 계약서처럼 칸을 고치고 PDF를 받는다.
+   * 이미 만든 연장 계약서가 있으면 그 계약서의 견적 칸만 이 안으로 바꾼다(직접 고친 칸은 그대로).
+   */
+  const writeExtensionContract = async (r, i) => {
+    const why = extensionBlocked(r);
+    if (why) { showToast?.(why, 'error'); return; }
+    setDocBusy(`w${i}`);
+    try {
+      const res = await fetch(`${API_HOST}/api/contracts/${car.contractId}/extension-contract-document`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(extensionTerms(r))
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!data.success) { showToast?.(data.message || '연장 계약서를 만들지 못했습니다.', 'error'); return; }
+      showToast?.(data.message, 'success');
+      onOpenContractDocument?.(data.documentId);
+    } catch {
+      showToast?.('서버 통신 오류가 발생했습니다.', 'error');
+    } finally {
+      setDocBusy(-1);
+    }
+  };
+
   const downloadExtensionContract = async (r, i) => {
     const why = extensionBlocked(r);
     if (why) { showToast?.(why, 'error'); return; }
@@ -557,8 +583,13 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser }) {
                 const small = { ...btn(false), padding: '0.3rem 0.5rem', fontSize: '0.76rem', width: '100%', justifyContent: 'center', opacity: why ? 0.5 : 1 };
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    {canWrite && (
+                      <button type="button" title={why || '이 안으로 장기렌트 계약서를 만들어 전자계약서 화면에서 고쳐 쓰기'} onClick={() => writeExtensionContract(r, i)} disabled={docBusy === `w${i}`} style={{ ...small, ...(why ? {} : { background: '#2563eb', color: '#fff', borderColor: '#2563eb' }) }}>
+                        <FileSignature size={13} /> {docBusy === `w${i}` ? '만드는 중…' : '계약서 작성'}
+                      </button>
+                    )}
                     <button type="button" title={why || '이 안으로 연장 계약서 PDF 만들기'} onClick={() => downloadExtensionContract(r, i)} disabled={docBusy === i} style={small}>
-                      <FileSignature size={13} /> {docBusy === i ? '만드는 중…' : '계약서 PDF'}
+                      <FileDown size={13} /> {docBusy === i ? '만드는 중…' : '계약서 PDF'}
                     </button>
                     <button type="button" title={why || '서명 완료본을 올려 연장 반영'} onClick={() => { if (why) { showToast?.(why, 'error'); return; } setExtendWith(extensionTerms(r)); }} style={small}>
                       <CalendarPlus size={13} /> 연장 반영
@@ -599,7 +630,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser }) {
         </div>
         {isExt && (
           <div style={{ marginTop: '0.6rem', fontSize: '0.76rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-            연장 계약 순서: 고객이 안을 고르면 위 표의 <b>[계약서 PDF]</b>로 연장 계약서를 받아 모두싸인으로 서명 → 서명 완료본을 <b>[연장 반영]</b>에 올리면 새 계약번호로 연장되고 청구·원장에 반영됩니다.
+            연장 계약 순서: 고객이 안을 고르면 위 표의 <b>[계약서 작성]</b>으로 장기렌트 계약서를 만들어 전자계약서 화면에서 칸을 확인·수정하고 PDF를 받습니다(고칠 것 없으면 <b>[계약서 PDF]</b>로 바로 받기) → 모두싸인으로 서명 → 서명 완료본을 <b>[연장 반영]</b>에 올리면 새 계약번호로 연장되고 청구·원장에 반영됩니다. 그 계약서는 새 계약의 전자계약서가 됩니다.
             연장 계약서는 약관 제2조③에 따라 신차와 같은 전체 계약서입니다(개인정보·신용조회 동의서는 갱신에도 유효해 다시 받지 않아도 됩니다).
           </div>
         )}

@@ -21,6 +21,13 @@ const ContractDocumentSchema = new Schema({
   sources: { type: Schema.Types.Mixed, default: {} }, // 입력 칸 열쇠 → 어디서 가져왔는지 (contract/quote/customer/company/vehicle/manual)
   documentDate: Date, // 계약서 작성일 (위임장 작성일자 등 TODAY() 자리)
 
+  // 연장 계약서: 계약 연장 견적에서 고른 안으로 만든 전체 계약서.
+  // 연장 반영 전에는 contract가 이전 계약을 가리키고 extensionPending이 true다(이전 계약의 계약서로 잡히면 안 된다).
+  // [연장 반영]으로 새 계약이 생기면 contract를 새 계약으로 옮기고 extensionPending을 false로 바꾼다.
+  extensionOf: { type: Schema.Types.ObjectId, ref: 'Contract', index: true },
+  extensionPending: { type: Boolean, default: false },
+  extensionTerms: { type: Schema.Types.Mixed }, // 견적에서 온 조건 { startDate, termMonths, monthlyFee, ... , note }
+
   status: { type: String, enum: ['작성중', '확정'], default: '작성중' },
   confirmedAt: Date,
   confirmedBy: String,

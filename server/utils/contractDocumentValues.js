@@ -150,11 +150,14 @@ export const loadContractForDocument = (contractId) => Contract.findById(contrac
  * 계약 정보를 다시 읽어 계약서 칸을 채운다. 직원이 고친 칸(sources가 manual)과 확정된 계약서는 건드리지 않는다.
  * @returns {Promise<{doc: object|null, changed: number}>}
  */
-export const refreshContractDocument = async (doc, { userName = '' } = {}) => {
+export const refreshContractDocument = async (doc, { userName = '', fresh: given } = {}) => {
   if (!doc || doc.status === '확정') return { doc, changed: 0 };
-  const contract = await loadContractForDocument(doc.contract);
-  if (!contract) return { doc, changed: 0 };
-  const fresh = buildContractValues(contract);
+  let fresh = given;
+  if (!fresh) {
+    const contract = await loadContractForDocument(doc.contract);
+    if (!contract) return { doc, changed: 0 };
+    fresh = buildContractValues(contract);
+  }
   const values = { ...(doc.values || {}) };
   const sources = { ...(doc.sources || {}) };
   let changed = 0;
@@ -178,7 +181,7 @@ export const refreshContractDocument = async (doc, { userName = '' } = {}) => {
 /** 계약이 바뀐 뒤(임시저장 확정 등) 그 계약의 계약서가 있으면 빈칸을 다시 채운다. 실패해도 계약 저장은 막지 않는다. */
 export const refreshContractDocumentFor = async (contractId) => {
   try {
-    const doc = await ContractDocument.findOne({ contract: contractId });
+    const doc = await ContractDocument.findOne({ contract: contractId, extensionPending: { $ne: true } });
     if (doc) await refreshContractDocument(doc);
   } catch (err) {
     console.error('[전자계약서] 다시 채우기 실패:', err.message);
@@ -190,7 +193,7 @@ export const refreshContractDocumentFor = async (contractId) => {
  * 사용 중인 양식이 없으면 null.
  */
 export const ensureContractDocument = async (contractId, { user } = {}) => {
-  const existing = await ContractDocument.findOne({ contract: contractId });
+  const existing = await ContractDocument.findOne({ contract: contractId, extensionPending: { $ne: true } });
   if (existing) return existing;
   const template = await ContractTemplate.findOne({ kind: '장기렌트', active: true }).select('name version');
   if (!template) return null;

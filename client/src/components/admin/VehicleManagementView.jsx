@@ -20,7 +20,7 @@ import { useTableSort } from './useTableSort.js';
 import { downloadFile } from '../../utils/authFetch.js';
 import { useSaveShortcut } from './useSaveShortcut.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
-import { useDraggableDialog, DIALOG_TOP } from './useDraggableDialog.js';
+import { useDraggableDialog } from './useDraggableDialog.js';
 import { createPortal } from 'react-dom';
 import useBackClose from '../../utils/useBackClose.js';
 
@@ -110,9 +110,9 @@ const STATUS_COLORS = {
   '거래완료': { bg: '#f6ffed', text: '#52c41a', row: '#f8fdf4' }
 };
 
-/** 상태에 따른 줄 색. 고쳐지는 줄은 그 표시가 우선한다(어느 줄을 고치는지가 더 급한 정보다). */
-const rowBackgroundFor = (vehicle, isEditing) => {
-  if (isEditing) return '#f5f3ff';
+/** 상태에 따른 줄 색. 수정 화면에 열린 차는 그 표시가 우선한다(어느 차를 보고 있는지가 더 급한 정보다). */
+const rowBackgroundFor = (vehicle, isOpen) => {
+  if (isOpen) return '#f5f3ff';
   return STATUS_COLORS[vehicle.status]?.row || '#fff';
 };
 
@@ -143,129 +143,6 @@ const byDefaultOrder = (a, b) => {
   if (ta === null) return 1; // 출고일이 없는 차는 아래로
   if (tb === null) return -1;
   return tb - ta; // 최근 출고가 위로
-};
-
-/**
- * 표에서 바로 고칠 수 있는 칸.
- *
- * key는 표의 열이고, path는 수정 폼(formData)에서 그 값이 앉아 있는 자리다.
- * 여기 없는 열(NO·계약번호·사은품)은 표에서 읽기만 한다 - 계약이 정본이거나
- * 목록이라 한 칸에 넣기 어려운 값들이다.
- */
-const CELL_EDITORS = {
-  status: { path: 'status', type: 'select', options: () => STATUS_ORDER.map((v) => ({ value: v, label: v })) },
-  partyType: { path: 'partyType', type: 'select', options: () => PARTY_TYPES.map((v) => ({ value: v, label: v })) },
-  contractCompany: { path: 'company.name', type: 'text' },
-  ceoName: { path: 'company.ceoName', type: 'text' },
-  bizNo: { path: 'company.bizNo', type: 'text' },
-  corporateRegistrationNo: { path: 'company.corporateRegistrationNo', type: 'text' },
-  companyAddress: { path: 'company.address', type: 'text' },
-  billingEmail: { path: 'company.billingEmail', type: 'text' },
-  bankHolder: { path: 'banking.holder', type: 'text' },
-  bankName: { path: 'banking.bankName', type: 'text' },
-  bankAccountNo: { path: 'banking.accountNo', type: 'text' },
-  loanExecuted: { path: 'loan.executed', type: 'checkbox' },
-  loanLender: { path: 'loan.lender', type: 'text' },
-  loanExecutedDate: { path: 'loan.executedDate', type: 'date' },
-  loanAmount: { path: 'loan.amount', type: 'money' },
-  loanTermMonths: { path: 'loan.termMonths', type: 'number' },
-  loanMonthlyPayment: { path: 'loan.monthlyPayment', type: 'money' },
-  code: { path: 'code', type: 'text' },
-  carModel: { path: 'carModel', type: 'text' },
-  fuelType: { path: 'fuelType', type: 'text' },
-  cc: { path: 'cc', type: 'number' },
-  exteriorColor: { path: 'exteriorColor', type: 'text' },
-  interiorColor: { path: 'interiorColor', type: 'text' },
-  options: { path: 'options', type: 'text' },
-  year: { path: 'year', type: 'text' },
-  vin: { path: 'vin', type: 'text' },
-  plateNo: { path: 'plateNo', type: 'text' },
-  registrationDate: { path: 'registrationDate', type: 'date' },
-  carPrice: { path: 'carPrice', type: 'money' },
-  optionPrice: { path: 'optionPrice', type: 'money' },
-  discount: { path: 'discount', type: 'money' },
-  // 공급가액은 차량가 + 옵션가 + 탁송료 - 할인금액으로 저장할 때 계산된다
-  supplyPrice: { path: 'supplyPrice', type: 'readonly' },
-  deliveryFee: { path: 'deliveryFee', type: 'money' },
-  acquisitionTax: { path: 'acquisitionTax', type: 'money' },
-  publicBond: { path: 'publicBond', type: 'money' },
-  registrationAgencyFee: { path: 'registrationAgencyFee', type: 'money' },
-  deposit: { path: 'deposit', type: 'money' },
-  advancePayment: { path: 'advancePayment', type: 'money' },
-  takeoverPrice: { path: 'takeoverPrice', type: 'money' },
-  monthlyFee: { path: 'monthlyFee', type: 'money' },
-  paymentTerm: { path: 'paymentTerm', type: 'number' },
-  individualConsumptionTax: { path: 'individualConsumptionTax', type: 'money' },
-  insuranceCompany: { path: 'insurance.company', type: 'text' },
-  insuranceType: {
-    path: 'insurance.type',
-    type: 'select',
-    options: () => ([{ value: 'standard', label: '일반형' }, { value: 'premium', label: '고급형' }])
-  },
-  driverAge: { path: 'insurance.driverAge', type: 'text' },
-  liabilityLimit: { path: 'insurance.liabilityLimit', type: 'text' },
-  propertyLimit: { path: 'insurance.propertyLimit', type: 'text' },
-  personalInjury: { path: 'insurance.personalInjury', type: 'text' },
-  uninsuredInjury: { path: 'insurance.uninsuredInjury', type: 'text' },
-  deductible: { path: 'insurance.deductible', type: 'money' },
-  emergencyService: { path: 'insurance.emergencyService', type: 'text' },
-  tireType: { path: 'maintenance.tireType', type: 'text' },
-  maintenanceMileage: { path: 'maintenance.mileage', type: 'number' },
-  // 순회정비·소모품교환은 일반정비를 따라가므로 보여만 준다
-  regularCheck: { path: 'maintenance.regularCheck', type: 'readonly' },
-  consumables: { path: 'maintenance.consumables', type: 'readonly' },
-  generalMaintenance: {
-    path: 'maintenance.generalMaintenance',
-    type: 'select',
-    options: () => ([{ value: '가입', label: '가입' }, { value: '미가입', label: '미가입' }]),
-    // 일반정비에 가입하면 순회정비·소모품교환도 함께 가입이다
-    apply: (form, value) => ({
-      ...form,
-      maintenance: {
-        ...form.maintenance,
-        generalMaintenance: value,
-        regularCheck: value,
-        consumables: value,
-        enabled: value === '가입'
-      }
-    })
-  },
-  deliveryDate: { path: 'deliveryDate', type: 'date' },
-  rentBillingDate: { path: 'rentBillingDate', type: 'date' },
-  monthlyPaymentDay: { path: 'monthlyPaymentDay', type: 'select', options: () => PAYMENT_DAY_OPTIONS },
-  interestRate: { path: 'interestRate', type: 'number' },
-  lateInterestRate: { path: 'lateInterestRate', type: 'number' },
-  earlyTerminationRate: { path: 'earlyTerminationRate', type: 'number' },
-  // 회사수수료(이익률)와 이익금은 저장할 때 서버가 계산한다. 사람이 고치는 값이 아니다.
-  companyCommission: { path: 'companyCommission', type: 'readonly' },
-  profitAmount: { path: 'profitAmount', type: 'readonly' },
-  dealerCommission: { path: 'dealerCommission', type: 'money' },
-  sellingAdminExpense: { path: 'sellingAdminExpense', type: 'money' },
-  taxExemptionAmount: { path: 'taxExemptionAmount', type: 'money' },
-  driver: { path: 'driver', type: 'text' },
-  vehicleManager: { path: 'vehicleManager', type: 'text' },
-  blackboxPrice: { path: 'accessories.blackboxPrice', type: 'money' },
-  blackboxInfo: { path: 'accessories.blackboxInfo', type: 'text' },
-  tintingPrice: { path: 'accessories.tintingPrice', type: 'money' },
-  tintingInfo: { path: 'accessories.tintingInfo', type: 'text' },
-  tireInfo: { path: 'accessories.tireInfo', type: 'text' }
-};
-
-/** 'company.name'처럼 점으로 이어진 자리에서 값을 꺼낸다 */
-const readPath = (obj, path) =>
-  path.split('.').reduce((node, key) => (node === null || node === undefined ? node : node[key]), obj);
-
-/** 값을 바꾼 새 객체를 만든다. 중간 객체도 새로 만들어야 화면이 다시 그려진다 */
-const writePath = (obj, path, value) => {
-  const keys = path.split('.');
-  const next = { ...obj };
-  let node = next;
-  for (let i = 0; i < keys.length - 1; i += 1) {
-    node[keys[i]] = { ...node[keys[i]] };
-    node = node[keys[i]];
-  }
-  node[keys[keys.length - 1]] = value;
-  return next;
 };
 
 const EMPTY_CONTRACT_PARTY = {
@@ -362,8 +239,6 @@ function VehicleManagementView({ showToast, currentUser }) {
   const [showModal, setShowModal] = useState(false);
   // 뒤로 가기(핸드폰 화면 쓸기)로 닫는다 — utils/useBackClose.js
   useBackClose(showModal, () => setShowModal(false));
-  // 표에서 고치고 있는 줄. 수정 단추를 누르면 그 줄이 입력칸으로 바뀐다.
-  const [editingRowId, setEditingRowId] = useState(null);
 
   // 팝업을 제목 줄로 잡아 끌어 옮길 수 있게 한다
 
@@ -456,7 +331,7 @@ function VehicleManagementView({ showToast, currentUser }) {
     setShowModal(true);
   };
 
-  // 고칠 차량을 폼에 싣는다. 표에서 고치든 팝업에서 고치든 같은 폼을 쓴다.
+  // 고칠 차량을 수정 화면의 폼에 싣는다.
   const loadVehicleIntoForm = (vehicle) => {
     setEditingVehicle(vehicle);
     // 계약서로 등록된 차량은 계약이 정본이라 아래 값들을 편집하지 않는다(화면에서도 읽기 전용).
@@ -562,7 +437,6 @@ function VehicleManagementView({ showToast, currentUser }) {
         ? vehicle.gifts.map(g => ({ name: g.name || '', price: g.price ?? '' }))
         : [{ name: '', price: '' }]
     });
-    // 팝업은 여기서 열지 않는다. 수정은 표에서 하고, 팝업은 '차량 추가'와 '자세히'에서만 연다.
   };
 
   const handleRentBillingDateChange = (value) => {
@@ -580,32 +454,19 @@ function VehicleManagementView({ showToast, currentUser }) {
     });
   };
 
-  /** 표에서 그 줄을 바로 고친다 */
-  const startInlineEdit = (vehicle) => {
-    if (currentUser?.role === 'viewer') {
-      showToast?.('수정 권한이 없습니다. 관리자에게 문의하세요.', 'error');
-      return;
-    }
+  /** 차를 눌러 수정 화면을 연다. 보기 권한만 있으면 열어서 보기만 하고 저장은 막힌다. */
+  const openEditPage = (vehicle) => {
     loadVehicleIntoForm(vehicle);
-    setEditingRowId(vehicle._id);
+    setShowModal(true);
   };
 
-  const cancelInlineEdit = () => {
-    setEditingRowId(null);
-    setEditingVehicle(null);
-  };
-
-  /** 표에 없는 항목(사은품·비고 등)까지 고칠 때. 지금 싣고 있는 폼 그대로 팝업을 연다. */
-  const openDetailPopup = () => setShowModal(true);
-
-  // 표에서 고치는 중에 Esc를 누르면 되돌린다
+  // 수정 화면은 Esc로 닫는다
   useEffect(() => {
-    if (!editingRowId) return undefined;
-    const onKeyDown = (e) => { if (e.key === 'Escape') cancelInlineEdit(); };
+    if (!showModal) return undefined;
+    const onKeyDown = (e) => { if (e.key === 'Escape') setShowModal(false); };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingRowId]);
+  }, [showModal]);
 
   /** 일반정비에 가입하면 순회정비·소모품교환도 함께 가입이다 */
   const setGeneralMaintenance = (value) => {
@@ -777,7 +638,6 @@ function VehicleManagementView({ showToast, currentUser }) {
           showToast?.(data.message || '저장되었습니다.', 'success');
         }
         setShowModal(false);
-        setEditingRowId(null);
         fetchVehicles();
       } else {
         showToast?.(data.message || '저장에 실패했습니다.', 'error');
@@ -791,8 +651,7 @@ function VehicleManagementView({ showToast, currentUser }) {
   };
 
   // 팝업이 열려 있는 동안 Ctrl+S로 저장한다
-  // 팝업이든 표에서든 고치는 중이면 Ctrl+S로 저장한다
-  useSaveShortcut((showModal || Boolean(editingRowId)) && !saving, () => handleSave());
+  useSaveShortcut(showModal && !saving, () => handleSave());
 
   const handleDelete = async (vehicle) => {
     if (currentUser?.role === 'viewer') {
@@ -838,63 +697,6 @@ function VehicleManagementView({ showToast, currentUser }) {
     zIndex: 2,
     background: 'var(--bg-main)',
     boxShadow: 'inset 0 -1px 0 var(--border-color)'
-  };
-
-  // 표 안에서 쓰는 작은 입력칸
-  const cellInputStyle = {
-    width: '100%', minWidth: '92px', padding: '0.3rem 0.4rem',
-    border: '1px solid var(--primary)', borderRadius: '4px',
-    fontSize: '0.82rem', background: '#fff', color: 'var(--text-bright)'
-  };
-
-  /**
-   * 표의 한 칸을 고치는 입력칸을 그린다.
-   * 고칠 수 없는 칸(CELL_EDITORS에 없는 열)은 null을 돌려주고, 부르는 쪽에서 원래 값을 보여 준다.
-   */
-  const renderCellEditor = (col) => {
-    const editor = CELL_EDITORS[col.key];
-    if (!editor) return null;
-
-    const value = readPath(formData, editor.path);
-    // apply가 있는 칸은 옆 칸까지 함께 정한다(일반정비 -> 순회정비·소모품교환)
-    const onChange = (next) => setFormData((prev) => (
-      editor.apply ? editor.apply(prev, next) : writePath(prev, editor.path, next)
-    ));
-
-    if (editor.type === 'readonly') {
-      return (
-        <span title="일반정비를 따라갑니다" style={{ color: 'var(--text-muted)' }}>
-          {value || '-'}
-        </span>
-      );
-    }
-
-    if (editor.type === 'money') {
-      return <MoneyInput value={value ?? ''} onChange={(e) => onChange(e.target.value)} style={cellInputStyle} />;
-    }
-    if (editor.type === 'number') {
-      return <input type="number" value={value ?? ''} onChange={(e) => onChange(e.target.value)} style={{ ...cellInputStyle, textAlign: 'right' }} />;
-    }
-    if (editor.type === 'date') {
-      return <input type="date" value={String(value || '').slice(0, 10)} onChange={(e) => onChange(e.target.value)} style={cellInputStyle} />;
-    }
-    if (editor.type === 'checkbox') {
-      return <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} />;
-    }
-    if (editor.type === 'select') {
-      const options = editor.options();
-      // 목록에 없는 값이 저장돼 있으면(예전 자료) 그 값도 보여 줘야 모르는 새 바뀌지 않는다
-      const unlisted = value !== '' && value !== null && value !== undefined
-        && !options.some((o) => String(o.value) === String(value));
-      return (
-        <select value={value ?? ''} onChange={(e) => onChange(e.target.value)} style={cellInputStyle}>
-          <option value="">-</option>
-          {unlisted && <option value={value}>{String(value)}</option>}
-          {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-      );
-    }
-    return <input type="text" value={value ?? ''} onChange={(e) => onChange(e.target.value)} style={cellInputStyle} />;
   };
 
   // 공급가액은 입력받지 않고 계산해서 보여 준다. 저장 값도 서버가 같은 식으로 다시 계산한다.
@@ -1057,78 +859,71 @@ function VehicleManagementView({ showToast, currentUser }) {
   const sort = useTableSort(orderedVehicles, VEHICLE_COLUMNS);
   const sortedVehicles = sort.rows;
 
+  // 수정 화면에 열려 있는 차. 표에서 그 줄을 칠해 어느 차를 보고 있는지 알 수 있게 한다
+  const openId = showModal ? editingVehicle?._id : null;
+  const isViewer = currentUser?.role === 'viewer';
+
   /**
-   * 표의 한 줄.
-   *
-   * 고치고 있는 줄만 입력 중인 값(formData)을 보여 주고, 나머지 줄은 차량 값만 보여 준다.
+   * 표의 한 줄. 줄을 누르면 그 차의 수정 화면이 열린다(대표님 2026-11-02 - 표에서 바로 고치기는 불편하다).
+   * 글자를 끌어 고르는 중이면 열지 않는다(차량번호·차대번호를 복사할 때).
    */
   const renderVehicleRow = (v, idx) => {
-    const isEditing = editingRowId === v._id;
     // 왼쪽·오른쪽에 붙여 둔 칸은 배경이 비치면 안 되므로 줄과 같은 색을 직접 칠한다
-    const rowBackground = rowBackgroundFor(v, isEditing);
+    const rowBackground = rowBackgroundFor(v, openId === v._id);
     return (
-    <tr key={v._id} style={{ borderBottom: '1px solid var(--border-color)', background: rowBackground }}>
+    <tr
+      key={v._id}
+      onClick={() => { if (!window.getSelection()?.toString()) openEditPage(v); }}
+      title="누르면 수정 화면이 열립니다"
+      style={{ borderBottom: '1px solid var(--border-color)', background: rowBackground, cursor: 'pointer' }}
+    >
       {VEHICLE_COLUMNS.map((col) => {
         const frozen = frozenCellStyle(col.key, rowBackground, 1);
         return (
           <td
             key={col.key}
             style={{
-              padding: isEditing ? '0.35rem 0.4rem' : '0.8rem',
+              padding: '0.8rem',
               whiteSpace: 'nowrap',
               ...(frozen || {})
             }}
           >
-            {(isEditing && renderCellEditor(col)) || col.render(v, idx)}
+            {col.render(v, idx)}
           </td>
         );
       })}
-      <td style={{ padding: '0.8rem', position: 'sticky', right: 0, background: rowBackground }}>
-        {isEditing ? (
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <button onClick={() => handleSave()} disabled={saving} title="저장 (Ctrl+S)" style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: saving ? 'not-allowed' : 'pointer' }}>
-              <Save size={16} />
+      {/* 관리 단추는 눌러도 수정 화면이 같이 열리지 않게 줄의 클릭을 막는다 */}
+      <td onClick={(e) => e.stopPropagation()} style={{ padding: '0.8rem', position: 'sticky', right: 0, background: rowBackground, cursor: 'default' }}>
+        <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+          <button onClick={() => openEditPage(v)} title="수정" style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer' }}>
+            <Edit3 size={16} />
+          </button>
+          <button onClick={() => handleDelete(v)} title="삭제" style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}>
+            <Trash2 size={16} />
+          </button>
+          {/* 반납받은 차는 새 고객에게 재렌트한다. 차는 새로 만들지 않고 같은 원장에 이어 붙인다 */}
+          {(v.status === '재고' || v.status === '단기렌트') && (
+            <button onClick={() => setRerentTarget(v)} title="새 고객에게 중고 장기렌트(재렌트)" style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', border: '1px solid var(--primary)', background: '#fff', color: 'var(--primary)', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '700', padding: '0.15rem 0.4rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <Repeat size={12} /> 재렌트
             </button>
-            <button onClick={cancelInlineEdit} title="취소 (Esc)" style={{ border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
-              <X size={16} />
-            </button>
-            {/* 사은품·비고처럼 표에 없는 항목은 팝업에서 고친다. 지금 고치던 값이 그대로 열린다. */}
-            <button onClick={openDetailPopup} title="자세히 (표에 없는 항목까지)" style={{ border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-muted)', borderRadius: '4px', fontSize: '0.72rem', fontWeight: '700', padding: '0.15rem 0.35rem', cursor: 'pointer' }}>
-              자세히
-            </button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
-            <button onClick={() => startInlineEdit(v)} title="수정 (표에서 바로 고치기)" style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer' }}>
-              <Edit3 size={16} />
-            </button>
-            <button onClick={() => handleDelete(v)} title="삭제" style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}>
-              <Trash2 size={16} />
-            </button>
-            {/* 반납받은 차는 새 고객에게 재렌트한다. 차는 새로 만들지 않고 같은 원장에 이어 붙인다 */}
-            {(v.status === '재고' || v.status === '단기렌트') && (
-              <button onClick={() => setRerentTarget(v)} title="새 고객에게 중고 장기렌트(재렌트)" style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', border: '1px solid var(--primary)', background: '#fff', color: 'var(--primary)', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '700', padding: '0.15rem 0.4rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                <Repeat size={12} /> 재렌트
-              </button>
-            )}
-          </div>
-        )}
+          )}
+        </div>
       </td>
     </tr>
     );
   };
 
   /**
-   * 고치고 있지 않은 줄은 미리 그려 두고 다시 쓴다.
+   * 줄은 미리 그려 두고 다시 쓴다.
    *
-   * 팝업이나 표에서 한 글자 칠 때마다 formData가 바뀌어 이 화면 전체가 다시 그려지는데,
+   * 수정 화면에서 한 글자 칠 때마다 formData가 바뀌어 이 화면 전체가 다시 그려지는데,
    * 그때마다 160여 대 × 70여 칸(1만 칸이 넘는다)을 새로 만들면 타이핑이 밀린다.
-   * 이 줄들은 formData를 쓰지 않으므로 목록·편집 줄·저장 상태가 바뀔 때만 다시 그린다.
+   * 줄은 formData를 쓰지 않으므로 목록·열린 차가 바뀔 때만 다시 그린다.
    */
   const staticRows = useMemo(
-    () => sortedVehicles.map((v, idx) => (v._id === editingRowId ? null : renderVehicleRow(v, idx))),
+    () => sortedVehicles.map((v, idx) => renderVehicleRow(v, idx)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sortedVehicles, editingRowId, VEHICLE_COLUMNS, currentUser]
+    [sortedVehicles, openId, VEHICLE_COLUMNS, currentUser]
   );
 
   const statCards = [
@@ -1257,30 +1052,35 @@ function VehicleManagementView({ showToast, currentUser }) {
               ) : vehicles.length === 0 ? (
                 <tr><td colSpan={VEHICLE_COLUMNS.length + 1} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>등록된 차량이 없습니다.</td></tr>
               ) : (
-                sortedVehicles.map((v, idx) => staticRows[idx] || renderVehicleRow(v, idx))
+                staticRows
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* 추가/수정 모달 */}
+      {/* 추가/수정 화면 - 줄을 누르면 화면 가득 열린다. 항목이 많아 넓게 펼쳐 한눈에 보이게 한다 */}
       {showModal && (
         createPortal(
         /* 팝업은 document.body에 직접 그린다.
            페이지 쪽 조상에 transform/animation이 걸려 있으면 position:fixed의 기준이 그 요소로 바뀌어
            팝업이 스크롤되는 콘텐츠 영역 안에 갇히고, 화면 기준 위치가 어긋난다. */
+        /* 바깥을 눌러도 닫지 않는다. 고치던 값이 실수로 날아가지 않게 닫기·취소·Esc로만 닫는다 */
         <div
-          onClick={() => setShowModal(false)}
-          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000, padding: `${DIALOG_TOP} 2rem 2rem` }}
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000, padding: '2vh 1.5rem' }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{ ...dragStyle, background: '#fff', borderRadius: '12px', width: '100%', maxWidth: '760px', maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}
+            style={{ ...dragStyle, background: '#fff', borderRadius: '12px', width: '100%', maxWidth: '1240px', height: '96vh', display: 'flex', flexDirection: 'column', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}
           >
             <div {...dragHandleProps} style={{ ...dragHandleProps.style, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.2rem 1.5rem', borderBottom: '1px solid var(--border-color)' }}>
               <h3 style={{ margin: 0, fontWeight: '800', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Car size={18} style={{ color: 'var(--primary)' }} /> {editingVehicle ? '차량 정보 수정' : '차량 추가'}
+                {editingVehicle && (
+                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                    {[editingVehicle.code, editingVehicle.carModel, editingVehicle.plateNo, editingVehicle.status].filter(Boolean).join(' · ')}
+                  </span>
+                )}
               </h3>
               <button type="button" onClick={() => setShowModal(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
                 <X size={20} />
@@ -1830,7 +1630,9 @@ function VehicleManagementView({ showToast, currentUser }) {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.8rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)' }}>
+              {/* 단추 줄은 아래에 붙여 둔다. 긴 화면 어디서든 바로 저장할 수 있게 */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.8rem', padding: '0.8rem 0 0.2rem', borderTop: '1px solid var(--border-color)', position: 'sticky', bottom: 0, background: '#fff' }}>
+                {isViewer && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>보기 권한이라 저장할 수 없습니다.</span>}
                 {/* 이미 출고 준비가 끝난(=계약중이 아닌) 계약 차량만 되돌릴 수 있다 */}
                 {editingVehicle && editingVehicle.contract && formData.status !== '계약중' && (
                   <button
@@ -1845,7 +1647,7 @@ function VehicleManagementView({ showToast, currentUser }) {
                 <button type="button" onClick={() => setShowModal(false)} style={{ background: '#fff', border: '1px solid var(--border-color)', padding: '0.6rem 1.4rem', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '0.85rem' }}>
                   취소
                 </button>
-                <button type="submit" disabled={saving || editingVehicle?.contract?.status === '보관됨'} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'var(--primary)', color: '#fff', border: 'none', padding: '0.6rem 1.4rem', borderRadius: '8px', fontWeight: '700', cursor: saving ? 'not-allowed' : 'pointer', fontSize: '0.85rem', opacity: saving ? 0.7 : 1 }}>
+                <button type="submit" disabled={saving || isViewer || editingVehicle?.contract?.status === '보관됨'} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'var(--primary)', color: '#fff', border: 'none', padding: '0.6rem 1.4rem', borderRadius: '8px', fontWeight: '700', cursor: saving ? 'not-allowed' : 'pointer', fontSize: '0.85rem', opacity: saving ? 0.7 : 1 }}>
                   <Save size={16} /> {saving ? '저장 중...' : '저장'}
                 </button>
               </div>

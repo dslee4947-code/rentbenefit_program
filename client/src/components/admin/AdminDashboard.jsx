@@ -569,7 +569,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'company-book' && '차 한 대에 속하지 않는 회사의 돈(월급·임대료·대출이자·대표 차입금·부가세)을 계정별로 모아, 비용과 비용이 아닌 돈을 나눠 봅니다.'}
               {activeTab === 'vehicle-depreciation' && '차를 산 돈을 쓰는 동안 매달 나눠 비용으로 봅니다. 인수형은 인수가까지, 반납형·단기는 5년에 20%가 남는다고 보고 나눕니다.'}
               {activeTab === 'company-funding' && '회사 대출 목록을 적으면 잔액 가중 평균 금리가 내부 금리가 됩니다. 손익 원장이 회사 돈으로 산 차에 이 금리로 이자를 매깁니다.'}
-              {activeTab === 'handbook' && '문의 접수부터 견적·계약·출고·청구·정산까지, 업무 순서와 화면 사용법을 정리한 인수인계 문서입니다.'}
+              {activeTab === 'handbook' && '처음 쓰는 사람도 읽으면서 따라 할 수 있게, 업무 순서와 모든 메뉴의 사용법을 정리한 인수인계 문서입니다.'}
               {activeTab === 'mypage' && '내 계정의 비밀번호와 개인정보를 수정합니다.'}
             </p>
           </div>
@@ -736,6 +736,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
           {activeTab === 'handbook' && (
             <HandbookView
               setActiveTab={navigateToTab}
+              currentUser={currentUser}
             />
           )}
 

@@ -2,11 +2,12 @@ import { useState, useMemo, useRef } from 'react';
 import {
   Search, ArrowRight, CheckCircle2, AlertTriangle, Sparkles,
   ListChecks, HelpCircle, BookMarked, FolderTree, Printer, Circle,
-  Rocket, LayoutList, Lock, Clock, UserCheck
+  Rocket, LayoutList, Lock, Clock, UserCheck, History
 } from 'lucide-react';
 import { printFitted } from '../../utils/printFit.js';
 import {
   HANDBOOK_UPDATED_AT,
+  RECENT_CHANGES,
   BASICS,
   FLOW_STAGES,
   SCREEN_GROUPS,
@@ -42,6 +43,7 @@ const loadChecked = () => {
 
 const SECTIONS = [
   { id: 'basics', name: '처음 시작', icon: Rocket },
+  { id: 'changes', name: '최근 바뀐 점', icon: History },
   { id: 'flow', name: '업무 흐름', icon: ArrowRight },
   { id: 'screens', name: '화면별 사용법', icon: LayoutList },
   { id: 'checklist', name: '체크리스트', icon: ListChecks },
@@ -445,6 +447,20 @@ function HandbookView({ setActiveTab, currentUser }) {
                 </div>
                 {BASICS.map((b) => (
                   <BulletCard key={b.title} title={b.title} icon={BookMarked} color="var(--primary)" items={b.items} />
+                ))}
+              </div>
+            )}
+
+            {section === 'changes' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+                <div style={{ ...card, background: 'var(--bg-main)', fontSize: '0.88rem', lineHeight: 1.7 }}>
+                  프로그램은 거의 매일 고쳐집니다. 매일 밤 12시에 그날 바뀐 내용을 읽어 이 매뉴얼을 자동으로 고치고,
+                  직원이 알아야 할 것만 여기에 날짜별로 모아 둡니다. 출근하면 먼저 오늘 날짜를 확인하세요.
+                </div>
+                {RECENT_CHANGES.length === 0 ? (
+                  <div style={{ ...card, fontSize: '0.86rem', color: 'var(--text-muted)' }}>최근 30일 동안 바뀐 점이 없습니다.</div>
+                ) : RECENT_CHANGES.map((c) => (
+                  <BulletCard key={c.date} title={c.date} icon={History} color="var(--primary)" items={c.items} />
                 ))}
               </div>
             )}

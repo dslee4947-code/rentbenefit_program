@@ -185,7 +185,7 @@ export const runExcelAutoSync = async ({ trigger = 'interval', dryRun = false, u
     const parts = [];
     if (result.ledger) {
       const l = result.ledger;
-      parts.push(`원장 ${l.updated.length}장 고침 · 새 갑지 ${l.created.length}장${l.mismatched.length ? ` · 검산 불일치 ${l.mismatched.length}장` : ''}${l.plateConflict.length ? ` · 차량번호 불일치 ${l.plateConflict.length}장` : ''}`);
+      parts.push(`원장 ${l.updated.length}장 고침 · 새 갑지 ${l.created.length}장${l.mismatched.length ? ` · 검산 불일치 ${l.mismatched.length}장` : ''}${l.plateConflict.length ? ` · 차량번호 불일치 ${l.plateConflict.length}장` : ''}${l.skippedRows?.length ? ` · 넣지 않은 줄 ${l.skippedRows.length}개` : ''}`);
     }
     if (result.companyBook && !result.companyBook.empty) {
       parts.push(`회사 장부 새 줄 ${result.companyBook.added}건 · 지운 줄 ${result.companyBook.removed}건`);
@@ -199,7 +199,7 @@ export const runExcelAutoSync = async ({ trigger = 'interval', dryRun = false, u
         at: result.at, trigger, ok: result.ok, message: result.message,
         ledger: result.ledger && {
           updated: result.ledger.updated.length, created: result.ledger.created, unchanged: result.ledger.unchanged.length,
-          mismatched: result.ledger.mismatched, plateConflict: result.ledger.plateConflict, unlinked: result.ledger.unlinked
+          mismatched: result.ledger.mismatched, plateConflict: result.ledger.plateConflict, skippedRows: result.ledger.skippedRows, unlinked: result.ledger.unlinked
         },
         companyBook: result.companyBook && { added: result.companyBook.added, removed: result.companyBook.removed, kept: result.companyBook.kept },
         errors: result.errors, waiting: result.waiting, unknownFiles: result.unknownFiles || []

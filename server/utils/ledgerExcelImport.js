@@ -148,11 +148,21 @@ const parseSheet = (rows, sheetName, fileName) => {
   };
 
   const entries = [];
+  const skipped = [];
   for (let r = 14; r < rows.length; r += 1) {
     BLOCKS.forEach((block) => {
       const label = text(cell(rows, r, block.startCol));
       const amount = toNumber(cell(rows, r, block.startCol + 1));
       if (!amount) return;
+
+      // 등록 전 차는 '이자'(출고 후 현재까지 이자) 칸이 등록일 0을 1900년으로 세어 엄청난 값이 된다
+      // (Ray-056 1억 3천만 원, 대표님 2026-11-03). 출고 전에는 이자가 생길 수 없어 넣지 않고 알린다
+      if (!header.registeredAt && block.side === '지출' && label === '이자') {
+        skipped.push(`${sheetName}: 등록일이 없어 '이자' ${Math.round(amount).toLocaleString()}원 줄은 넣지 않음(엑셀에 등록일을 넣으면 들어감)`);
+        expected.paidOut -= amount;
+        expected.balance += amount;
+        return;
+      }
 
       // 대출 줄은 입금·출금에 따라 분류가 갈린다(대출금 / 차량가)
       const category = pickLedgerCategory(label, block.side);
@@ -177,7 +187,7 @@ const parseSheet = (rows, sheetName, fileName) => {
     });
   }
 
-  return { header, expected, entries };
+  return { header, expected, entries, skipped };
 };
 
 const deriveTerms = (entries) => {
@@ -346,13 +356,14 @@ export const importLedgersFromExcel = async (files, { dryRun = false, beforeWrit
   const stats = {
     sheets: sheets.length,
     byKind: Object.fromEntries(LEDGER_FILE_KINDS.map((k) => [k, sheets.filter((s) => s.kind === k).length])),
-    updated: [], unchanged: [], created: [], plateConflict: [], mismatched: [], split: [], unlinked: [], kindChanged: [],
+    updated: [], unchanged: [], created: [], plateConflict: [], mismatched: [], skippedRows: [], split: [], unlinked: [], kindChanged: [],
     renamed: renamed.map((r) => `${r.from} -> ${r.to}`)
   };
   const seen = new Set();
 
   for (const s of sheets) {
     seen.add(s.ledgerNo);
+    if (s.skipped?.length) stats.skippedRows.push(...s.skipped);
 
     // 검산: 옮긴 줄로 다시 계산한 집계가 시트 집계와 같아야 한다
     const got = summarizeLedger({ entries: s.entries });

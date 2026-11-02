@@ -25,12 +25,41 @@ const createDocumentFromQuote = async (contractId, req) => {
   }
 };
 
-// 차종명으로 차량 코드를 자동 채번한다 (예: "그랜저 하이브리드" -> "그랜저-003").
-// createContract(신규 등록)와 updateContract의 임시저장 확정(finalize) 양쪽에서 공유한다.
+// 엑셀 갑지 시트 이름과 같은 차종 이름(Ray-056, Grander-012). 한글 차종명은 이 이름으로 바꾼다
+const CODE_NAMES = [
+  ['그랜저', 'Grander'], ['그랜져', 'Grander'], ['레이', 'Ray'], ['벤츠', 'Benz'], ['카니발', 'Carnival'],
+  ['쏘나타', 'Sonata'], ['소나타', 'Sonata'], ['아반떼', 'Avante'], ['쏘렌토', 'Sorento'], ['소렌토', 'Sorento'],
+  ['스포티지', 'Sportage'], ['캐스퍼', 'Casper'], ['코나', 'Cona'], ['아이오닉', 'Ionic'], ['팰리세이드', 'Palisade'],
+  ['펠리세이드', 'Palisade'], ['투싼', 'Tucson'], ['셀토스', 'Seltos'], ['니로', 'Niro'], ['모하비', 'Mojave'],
+  ['콜레오스', 'Koleos'], ['테슬라', 'Tesla'], ['모닝', 'Morning'], ['스타리아', 'Staria']
+];
+const MODEL_PREFIX_WORDS = ['더', '뉴', '올', '디', '신형', '올뉴', '디올뉴'];
+
+/**
+ * 차량 코드 앞부분(차종 이름). "더 뉴 레이 가솔린" -> "Ray", "G90 3.5 AWD" -> "G90".
+ * 예전에는 첫 단어를 그대로 써서 "더 뉴 레이"가 "더-001"이 되어 엑셀 갑지(Ray-056)와 이어지지 않았다(대표님 2026-11-03).
+ */
+export const vehicleCodeName = (modelName) => {
+  const model = String(modelName || '');
+  const hit = CODE_NAMES.find(([kr]) => model.includes(kr));
+  if (hit) return hit[1];
+  const latin = model.split(/\s+/).find((w) => /[A-Za-z]/.test(w));
+  if (latin) return latin.replace(/[^a-zA-Z0-9]/g, '') || 'VEH';
+  const word = model.split(/\s+/).find((w) => w && !MODEL_PREFIX_WORDS.includes(w)) || '';
+  return word.replace(/[^a-zA-Z가-힣0-9]/g, '') || 'VEH';
+};
+
+/**
+ * 차종명으로 차량 코드를 자동 채번한다 (예: "더 뉴 레이" -> "Ray-056").
+ * createContract(신규 등록)와 updateContract의 임시저장 확정(finalize) 양쪽에서 공유한다.
+ * 번호는 같은 이름 차량 코드 중 가장 큰 번호 다음이다(대수를 세면 중간에 빈 번호가 있을 때 겹친다).
+ */
 const generateVehicleCode = async (modelName) => {
-  const cleanModelName = (modelName || '').split(' ')[0].replace(/[^a-zA-Z가-힣0-9]/g, '') || 'VEH';
-  const vehicleCount = await Vehicle.countDocuments({ code: new RegExp('^' + cleanModelName + '-', 'i') });
-  return `${cleanModelName}-${String(vehicleCount + 1).padStart(3, '0')}`;
+  const name = vehicleCodeName(modelName);
+  const pattern = new RegExp(`^${name}-(\\d+)`, 'i');
+  const codes = await Vehicle.find({ code: pattern }).select('code').lean();
+  const max = codes.reduce((m, v) => Math.max(m, Number(pattern.exec(v.code)?.[1]) || 0), 0);
+  return `${name}-${String(max + 1).padStart(3, '0')}`;
 };
 
 /**
@@ -1135,9 +1164,7 @@ export const importContracts = async (req, res) => {
       const finalContractNo = `${prefix}${String(contractCount + 1).padStart(2, '0')}`;
 
       // 4. Generate vehicle code and model
-      const cleanModelName = String(carModel).split(' ')[0].replace(/[^a-zA-Z가-힣0-9]/g, '') || 'VEH';
-      const vehicleCount = await Vehicle.countDocuments({ code: new RegExp('^' + cleanModelName + '-', 'i') });
-      const generatedVehicleCode = `${cleanModelName}-${String(vehicleCount + 1).padStart(3, '0')}`;
+      const generatedVehicleCode = await generateVehicleCode(carModel);
 
       const vehicleData = {
         code: generatedVehicleCode,

@@ -106,9 +106,10 @@ const hexColor = (hex) => {
  * @param {object} args.base ContractTemplatePdf (blank, map)
  * @param {object} args.values 계약서 입력 칸 값 (ContractDocument.values)
  * @param {Date} [args.documentDate]
+ * @param {Array<{page: number, text: string}>} [args.notes] 양식 칸 밖에 찍는 안내 줄(연장 계약 표시 등). 장 위쪽 오른쪽에 빨간 글자로.
  * @returns {Promise<Uint8Array>}
  */
-export const buildContractPdf = async ({ template, base, values, documentDate }) => {
+export const buildContractPdf = async ({ template, base, values, documentDate, notes = [] }) => {
   const pdf = await PDFDocument.load(Buffer.from(base.blank.buffer || base.blank));
   pdf.registerFontkit(fontkit);
   const fonts = loadFonts();
@@ -159,6 +160,16 @@ export const buildContractPdf = async ({ template, base, values, documentDate })
   if (payDay) mark(checks.payDay?.[payDay === '말' || payDay === '31' ? '말일' : payDay], 2);
   if (values?.driverScope) mark(checks.driverScope?.[values.driverScope], 2);
   if (values?.blackbox) mark(checks.blackbox?.[values.blackbox], 3);
+
+  for (const n of notes) {
+    const page = pages[n.page - 1];
+    if (!page || !n.text) continue;
+    const { width, height } = page.getSize();
+    let size = 8.5;
+    while (bold.widthOfTextAtSize(n.text, size) > width - 60 && size > 5) size -= 0.25;
+    const w = bold.widthOfTextAtSize(n.text, size);
+    page.drawText(n.text, { x: width - 30 - w, y: height - 22, size, font: bold, color: rgb(0.85, 0, 0) });
+  }
 
   pdf.setTitle(`자동차 임대차 계약서 ${values?.contractNo || ''}`.trim());
   pdf.setProducer('렌트베네핏 사내 프로그램');

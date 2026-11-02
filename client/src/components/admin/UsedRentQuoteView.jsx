@@ -1,8 +1,9 @@
 import React, { useRef, useState } from 'react';
-import { Search, Save, Printer, Plus, Trash2, FolderOpen, X, AlertTriangle, FileDown, Car } from 'lucide-react';
+import { Search, Save, Printer, Plus, Trash2, FolderOpen, X, AlertTriangle, FileDown, Car, FileSignature, CalendarPlus } from 'lucide-react';
 import { printFitted, makeFittedPdf } from '../../utils/printFit.js';
 import usePhoneFit, { phoneFitStyles } from '../../utils/usePhoneFit.js';
 import MoneyInput from './MoneyInput.jsx';
+import ContractExtendDialog from './ContractExtendDialog.jsx';
 import { calculateUsedQuoteOption, vehicleAgeLimit, monthsLabel, USED_QUOTE_DEFAULTS } from '../../../../shared/usedQuoteCalc.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -105,6 +106,8 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser }) {
   const [searching, setSearching] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [list, setList] = useState([]);
+  const [docBusy, setDocBusy] = useState(-1);
+  const [extendWith, setExtendWith] = useState(null);
 
   const sheetOuterRef = useRef(null);
   const sheetRef = useRef(null);
@@ -306,6 +309,59 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser }) {
     }
   };
 
+  // 연장 계약서·연장 반영에 넘기는 한 안의 조건
+  const extensionTerms = (r) => ({
+    startDate: car.startDate,
+    termMonths: r.calc.months,
+    monthlyFee: r.calc.monthlyFee,
+    takeoverPrice: r.calc.takeoverPrice,
+    advancePayment: r.calc.advancePayment,
+    carPrice: r.calc.vehiclePrice,
+    deposit: r.calc.deposit,
+    annualMileage: Number(r.opt.mileage) || 0,
+    maintenance: r.opt.maintenance === true
+  });
+  const extensionBlocked = (r) => {
+    if (!car.contractId) return '지금 계약 중인 차를 [찾기]로 골라야 연장 계약서를 만들 수 있습니다.';
+    if (r.overAge) return '차령 한도를 넘는 안입니다.';
+    if (!(r.calc.months > 0) || !(r.calc.monthlyFee > 0)) return '기간과 월 렌트료를 먼저 계산해 주세요.';
+    return '';
+  };
+
+  /**
+   * 이 안으로 연장 계약서 PDF(서명받기 전 본)를 만든다. 신차와 같은 전체 계약서에 '연장 계약·이전 계약번호·보증금 승계'를 찍는다.
+   * 모두싸인으로 서명받은 뒤 [연장 반영]에서 서명 완료본을 올리면 연장된다.
+   */
+  const downloadExtensionContract = async (r, i) => {
+    const why = extensionBlocked(r);
+    if (why) { showToast?.(why, 'error'); return; }
+    setDocBusy(i);
+    try {
+      const res = await fetch(`${API_HOST}/api/contracts/${car.contractId}/extension-document`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(extensionTerms(r))
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        showToast?.(data.message || '연장 계약서를 만들지 못했습니다.', 'error');
+        return;
+      }
+      const blob = await res.blob();
+      const name = /filename\*=UTF-8''([^;]+)/.exec(res.headers.get('Content-Disposition') || '')?.[1];
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name ? decodeURIComponent(name) : `연장계약서_${car.contractNo || ''}.pdf`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      showToast?.('연장 계약서를 내려받았습니다. 모두싸인으로 서명받은 뒤 [연장 반영]에서 서명 완료본을 올려 주세요.', 'success');
+    } catch {
+      showToast?.('서버 통신 오류가 발생했습니다.', 'error');
+    } finally {
+      setDocBusy(-1);
+    }
+  };
+
   // ───── 화면 조각
   const card = { background: '#fff', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1rem 1.1rem' };
   const label = { fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '0.2rem', display: 'block' };
@@ -491,6 +547,20 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser }) {
                   {r.overAge ? '한도 초과로 제외' : '넣기'}
                 </label>
               ))}
+              {isExt && inputRow('연장 계약서', (o, i, r) => {
+                const why = extensionBlocked(r);
+                const small = { ...btn(false), padding: '0.3rem 0.5rem', fontSize: '0.76rem', width: '100%', justifyContent: 'center', opacity: why ? 0.5 : 1 };
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <button type="button" title={why || '이 안으로 연장 계약서 PDF 만들기'} onClick={() => downloadExtensionContract(r, i)} disabled={docBusy === i} style={small}>
+                      <FileSignature size={13} /> {docBusy === i ? '만드는 중…' : '계약서 PDF'}
+                    </button>
+                    <button type="button" title={why || '서명 완료본을 올려 연장 반영'} onClick={() => { if (why) { showToast?.(why, 'error'); return; } setExtendWith(extensionTerms(r)); }} style={small}>
+                      <CalendarPlus size={13} /> 연장 반영
+                    </button>
+                  </div>
+                );
+              })}
 
               {calcRow('차량가격', (c) => won(c.vehiclePrice))}
               {calcRow('조달원금', (c) => won(c.fundingPrincipal))}
@@ -522,6 +592,12 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser }) {
           <button type="button" onClick={downloadPdf} style={btn(false)}><FileDown size={15} /> PDF 내려받기</button>
           <button type="button" onClick={printSheet} style={btn(true)}><Printer size={15} /> 인쇄 (PDF 보관)</button>
         </div>
+        {isExt && (
+          <div style={{ marginTop: '0.6rem', fontSize: '0.76rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+            연장 계약 순서: 고객이 안을 고르면 위 표의 <b>[계약서 PDF]</b>로 연장 계약서를 받아 모두싸인으로 서명 → 서명 완료본을 <b>[연장 반영]</b>에 올리면 새 계약번호로 연장되고 청구·원장에 반영됩니다.
+            연장 계약서는 약관 제2조③에 따라 신차와 같은 전체 계약서입니다(개인정보·신용조회 동의서는 갱신에도 유효해 다시 받지 않아도 됩니다).
+          </div>
+        )}
       </div>
 
       {/* 6. 고객용 견적서 (A4 한 장) */}
@@ -531,6 +607,12 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser }) {
           <UsedRentSheet kind={kind} car={car} rows={sheetRows} ageLimit={ageLimit} remark={remark} createdBy={createdBy} />
         </div>
       </div>
+
+      {extendWith && (
+        <ContractExtendDialog contractId={car.contractId} initial={extendWith} showToast={showToast}
+          onClose={() => setExtendWith(null)}
+          onDone={(c) => showToast?.(`${c?.contractNo || ''} 연장 계약이 만들어졌습니다.`, 'success')} />
+      )}
 
       {listOpen && (
         <div onClick={() => setListOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 1rem' }}>
@@ -560,6 +642,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser }) {
 /**
  * 고객에게 건네는 중고렌트 견적서 한 장. 엑셀 '고객용' 시트와 같은 항목을 장기렌터카 견적서 모양으로 그린다.
  * 신차 견적서의 예상납기·색상 자리에 차량번호·최초등록일과 계약 가능 기간(차령 한도)을 넣었다.
+ * 계약 연장 견적서는 계약 가능 기간 대신 연장 시작일을 넣는다.
  */
 function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
   const K = USED_KINDS[kind] || USED_KINDS.중고렌트;
@@ -586,12 +669,17 @@ function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
             <tr><td style={{ ...cellHead, width: '25%' }}>고객명</td><td style={{ ...cell, fontWeight: '700', fontSize: '0.78rem' }}>{car.partyName || '-'} 귀하</td></tr>
             <tr><td style={cellHead}>차종</td><td style={{ ...cell, fontWeight: '600', fontSize: '0.72rem' }}>{car.carModel || '차종 미입력'}</td></tr>
             <tr><td style={cellHead}>차량번호</td><td style={{ ...cell, fontWeight: '700' }}>{car.plateNo || '-'}{car.registrationDate ? <span style={{ fontWeight: 500, fontSize: '0.7rem' }}> (최초등록 {car.registrationDate})</span> : null}</td></tr>
-            <tr>
-              <td style={cellHead}>계약 가능 기간</td>
-              <td style={{ ...cell, color: '#d9534f', fontWeight: '700', fontSize: '0.72rem' }}>
-                {ageLimit && ageLimit.maxMonths !== null ? `최대 ${monthsLabel(ageLimit.maxMonths)} (${ageLimit.lastDay}까지 반납)` : '-'}
-              </td>
-            </tr>
+            {/* 연장 견적서에는 계약 가능 기간(차령 한도)을 넣지 않는다(대표님 2026-11-02). 한도는 화면에서만 본다 */}
+            {isExt ? (
+              <tr><td style={cellHead}>연장 시작일</td><td style={{ ...cell, fontWeight: '700' }}>{car.startDate || '-'}</td></tr>
+            ) : (
+              <tr>
+                <td style={cellHead}>계약 가능 기간</td>
+                <td style={{ ...cell, color: '#d9534f', fontWeight: '700', fontSize: '0.72rem' }}>
+                  {ageLimit && ageLimit.maxMonths !== null ? `최대 ${monthsLabel(ageLimit.maxMonths)} (${ageLimit.lastDay}까지 반납)` : '-'}
+                </td>
+              </tr>
+            )}
             {isExt ? (
               <tr>
                 <td style={cellHead}>현재 계약</td>
@@ -689,7 +777,7 @@ function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
       <div style={{ background: '#fdfbfa', border: '1px dashed #ad885c', padding: '4px 8px', fontSize: '0.66rem', color: '#555', marginBottom: '0.3rem', lineHeight: '1.35' }}>
         <div>• 상기 견적 금액은 운용대수(계약대수/차량보유대수), 차량가 변동 또는 정부 시책에 따라 변동될 수 있습니다.</div>
         <div>• 선납금을 선택하신 경우, 상기 월대여료는 선납금을 계약기간으로 균등하게 나눈 금액을 <b>이미 차감한 실제 매월 납부 금액</b>입니다.</div>
-        <div>• 렌터카는 법정 차령(차량 연식) 안에서만 운행할 수 있어, 계약 기간은 위 '계약 가능 기간'을 넘을 수 없습니다.</div>
+        {!isExt && <div>• 렌터카는 법정 차령(차량 연식) 안에서만 운행할 수 있어, 계약 기간은 위 '계약 가능 기간'을 넘을 수 없습니다.</div>}
         {isExt && <div>• 연장 계약은 {car.startDate || '현재 계약 만기일'}부터 시작하며, 현재 계약의 보증금은 연장 계약으로 그대로 승계됩니다.</div>}
       </div>
 

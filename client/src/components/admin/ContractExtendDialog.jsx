@@ -25,13 +25,15 @@ const won = (n) => `${Number(n || 0).toLocaleString()}원`;
  * @param {() => void} props.onClose
  * @param {(contract: object) => void} [props.onDone] 연장이 끝난 뒤
  * @param {Function} props.showToast
+ * @param {{startDate?: string, termMonths?: number, monthlyFee?: number, takeoverPrice?: number, advancePayment?: number}} [props.initial]
+ *   계약 연장 견적에서 고른 안. 주면 그 조건으로 채운다.
  */
-function ContractExtendDialog({ contractId, onClose, onDone, showToast }) {
+function ContractExtendDialog({ contractId, onClose, onDone, showToast, initial }) {
   const [preview, setPreview] = useState(null);
   const [startDate, setStartDate] = useState('');
-  const [termMonths, setTermMonths] = useState(12);
+  const [termMonths, setTermMonths] = useState(initial?.termMonths || 12);
   const [rows, setRows] = useState([]);
-  const [advancePayment, setAdvancePayment] = useState('');
+  const [advancePayment, setAdvancePayment] = useState(initial?.advancePayment || '');
   const [saving, setSaving] = useState(false);
   const [signedFile, setSignedFile] = useState(null);
   const [overrideOn, setOverrideOn] = useState(false);
@@ -50,9 +52,15 @@ function ContractExtendDialog({ contractId, onClose, onDone, showToast }) {
           return;
         }
         setPreview(data);
-        setStartDate(ymd(data.startDate));
-        // 지금 조건을 그대로 채워 둔다. 대부분은 렌트료만 고친다.
-        setRows(data.vehicles.map((v) => ({ vehicleId: v._id, label: `${v.carModel || ''} ${v.plateNo || ''}`.trim(), monthlyFee: v.monthlyFee || '', takeoverPrice: v.takeoverPrice || '', before: v.monthlyFee || 0 })));
+        setStartDate(initial?.startDate || ymd(data.startDate));
+        // 지금 조건을 그대로 채워 둔다. 대부분은 렌트료만 고친다. 견적에서 왔으면 견적 조건으로.
+        setRows(data.vehicles.map((v) => ({
+          vehicleId: v._id,
+          label: `${v.carModel || ''} ${v.plateNo || ''}`.trim(),
+          monthlyFee: initial?.monthlyFee || v.monthlyFee || '',
+          takeoverPrice: initial ? initial.takeoverPrice || '' : v.takeoverPrice || '',
+          before: v.monthlyFee || 0
+        })));
       } catch {
         showToast?.('서버 통신 오류가 발생했습니다.', 'error');
         onClose();

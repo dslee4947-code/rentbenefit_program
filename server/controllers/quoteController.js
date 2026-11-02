@@ -8,8 +8,9 @@ import { saveDocument, getDocumentSettings, fillPattern } from '../utils/documen
 // @access  Public
 export const getQuotes = async (req, res) => {
   try {
-    const { search, status, customerId } = req.query;
-    let query = {};
+    const { search, status, customerId, kind } = req.query;
+    // 중고렌트 견적은 따로 본다. 신차 견적 목록에 섞이면 신차 화면이 열다가 깨진다.
+    let query = kind === '중고렌트' ? { quoteKind: '중고렌트' } : { quoteKind: { $ne: '중고렌트' } };
 
     if (status) {
       query.status = status;
@@ -31,7 +32,9 @@ export const getQuotes = async (req, res) => {
           (quote.customer.bizNo || '').includes(search)
         );
         const matchesModel = quote.vehicleModel.toLowerCase().includes(search.toLowerCase());
-        return matchesCustomer || matchesModel;
+        const matchesName = [quote.customerName, quote.companyName, quote.usedRent?.car?.plateNo]
+          .some((x) => String(x || '').toLowerCase().includes(search.toLowerCase()));
+        return matchesCustomer || matchesModel || matchesName;
       });
       return res.json(filteredQuotes);
     }
@@ -86,8 +89,39 @@ export const createQuote = async (req, res) => {
       pricing,
       insurance,
       maintenance,
-      createdBy
+      createdBy,
+      quoteKind,
+      usedRent,
+      sourceVehicle,
+      sourceContract
     } = req.body;
+
+    // 중고렌트: 차·조건을 usedRent에 통째로 담는다. 고객 연결은 있으면 건다.
+    if (quoteKind === '중고렌트') {
+      const quote = await Quote.create({
+        quoteKind,
+        usedRent,
+        sourceVehicle: sourceVehicle || undefined,
+        sourceContract: sourceContract || undefined,
+        customer: customerId || undefined,
+        partyType: partyType || '개인',
+        companyId: partyType === '법인' ? (companyId || undefined) : undefined,
+        customerName,
+        companyName: partyType === '법인' ? companyName : undefined,
+        vehicleModel,
+        vehicleSpec,
+        totalPrice,
+        monthlyEstimates,
+        rentalRemark,
+        createdBy
+      });
+      logActivity({
+        req, dept: '영업부', action: ACTIONS.QUOTE_CREATE,
+        target: { model: 'Quote', id: quote._id },
+        summary: `${(partyType === '법인' ? companyName : customerName) || '고객'} ${vehicleModel || ''} 중고렌트 견적 작성`.trim()
+      });
+      return res.status(201).json(quote);
+    }
 
     let linkedCustomerId = customerId;
 
@@ -187,8 +221,18 @@ export const updateQuote = async (req, res) => {
       pricing,
       insurance,
       maintenance,
-      status
+      status,
+      usedRent,
+      sourceVehicle,
+      sourceContract
     } = req.body;
+
+    if (usedRent !== undefined) {
+      quote.usedRent = usedRent;
+      quote.markModified('usedRent');
+    }
+    if (sourceVehicle !== undefined) quote.sourceVehicle = sourceVehicle || undefined;
+    if (sourceContract !== undefined) quote.sourceContract = sourceContract || undefined;
 
     if (customerId !== undefined) quote.customer = customerId;
     if (partyType !== undefined) quote.partyType = partyType;
@@ -290,7 +334,7 @@ export const saveQuoteDocument = async (req, res) => {
       return res.status(400).json({ success: false, message: '견적서에 고객명이 없어 저장할 자리를 정하지 못했습니다.' });
     }
 
-    const docType = req.body.docType === '비교견적서' ? '비교견적서' : '견적서';
+    const docType = ['비교견적서', '중고렌트견적서'].includes(req.body.docType) ? req.body.docType : '견적서';
     const settings = await getDocumentSettings();
     const fileName = `${fillPattern(settings.fileNames.quote, {
       문서종류: docType,

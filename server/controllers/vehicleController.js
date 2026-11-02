@@ -221,7 +221,8 @@ export const getVehicles = async (req, res) => {
       Vehicle.find(filter)
         .populate({
           path: 'contract',
-          select: 'contractNo customer companyId partyType status managerMain managerMainPhone managerOps managerOpsPhone',
+          // endDate: 중고렌트(연장) 견적이 지금 계약이 끝나는 날을 연장 시작일로 쓴다
+          select: 'contractNo customer companyId partyType status endDate managerMain managerMainPhone managerOps managerOpsPhone',
           populate: [
             { path: 'customer', select: 'name surname givenName' },
             // 목록 자체는 법인명만 쓰지만, 수정 모달이 목록 데이터를 그대로 열어

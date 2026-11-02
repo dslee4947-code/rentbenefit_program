@@ -7,7 +7,15 @@ const QuoteSchema = new Schema({
     lateInterestRate: { type: Number, default: 25 }, // 연체 이율 (연 %)
     earlyTerminationRate: { type: Number, default: 35 } // 중도해지 수수료율 (%)
   },
-  customer: { type: Schema.Types.ObjectId, ref: 'Customer', required: true },
+  // 견적 종류. 중고렌트는 이미 굴러가는 차(연장·재렌트)를 다시 빌려주는 견적이다(대표님 2026-11-02).
+  // 계산식·입력값이 신차와 달라 usedRent에 통째로 담고, 신차 견적 화면에서는 열지 않는다.
+  quoteKind: { type: String, enum: ['신차', '중고렌트'], default: '신차' },
+  // 중고렌트 견적 화면 상태(차·공통 조건·안들·비고). 화면이 바뀔 때마다 스키마를 고치지 않도록 Mixed로 둔다.
+  usedRent: { type: Schema.Types.Mixed },
+  sourceVehicle: { type: Schema.Types.ObjectId, ref: 'Vehicle' }, // 중고렌트 대상 차
+  sourceContract: { type: Schema.Types.ObjectId, ref: 'Contract' }, // 연장이면 지금 계약
+  // 중고렌트는 재고 차처럼 아직 고객 DB에 없는 사람에게도 내므로 고객 연결을 꼭 요구하지 않는다
+  customer: { type: Schema.Types.ObjectId, ref: 'Customer', required: function () { return this.quoteKind !== '중고렌트'; } },
 
   // 거래 주체 구분 (고객이 법인 여러 곳에 소속될 수 있어 어느 법인 건인지 명시해야 함)
   partyType: { type: String, enum: ['개인', '법인'], default: '개인' },

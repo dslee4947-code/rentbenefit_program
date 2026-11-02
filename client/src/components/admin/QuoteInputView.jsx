@@ -12,6 +12,7 @@ import {
   getTireCount, getMaintenanceBreakdown, maintenanceTimes
 } from '../../../../shared/quoteCalc.js';
 import useBackClose from '../../utils/useBackClose.js';
+import UsedRentQuoteView from './UsedRentQuoteView.jsx';
 import {
   VEHICLE_GRADES, GRADE_LABEL, detectVehicleGrade, buildMaintenanceItemsFromRates, mergeMaintenanceRates
 } from '../../../../shared/maintenanceRates.js';
@@ -310,6 +311,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
   const [activeInputValue, setActiveInputValue] = useState(''); // temporary input string
   const [createdBy, setCreatedBy] = useState('이두식');
   const [printFormType, setPrintFormType] = useState('rental'); // 'comparison' or 'rental'
+  // 신차 견적 / 중고렌트 견적(연장·재렌트). 중고렌트는 계산식이 달라 화면을 통째로 바꾼다(UsedRentQuoteView)
+  const [quoteKind, setQuoteKind] = useState('신차');
   const [isMaintenanceDetailModalOpen, setIsMaintenanceDetailModalOpen] = useState(false);
   const [subView, setSubView] = useState('quote'); // 'quote' or 'maintenance'
   const [tempMaintenanceItems, setTempMaintenanceItems] = useState([]);
@@ -1773,15 +1776,26 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.8rem' }}>
         <h3 style={{ fontSize: '1.4rem', fontWeight: '700', color: 'var(--text-bright)', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
           <Coins style={{ color: 'var(--primary)' }} /> 견적서
+          <span style={{ display: 'inline-flex', marginLeft: '0.6rem', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.2rem' }}>
+            {['신차', '중고렌트'].map((k) => (
+              <button key={k} type="button" onClick={() => setQuoteKind(k)}
+                style={{ padding: '0.35rem 0.8rem', borderRadius: '6px', border: 'none', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer',
+                  background: quoteKind === k ? 'var(--primary)' : 'transparent', color: quoteKind === k ? '#fff' : 'var(--text-muted)' }}>
+                {k === '신차' ? '🚗 신차 견적' : '🔁 중고렌트 견적'}
+              </button>
+            ))}
+          </span>
         </h3>
-        <button
+        {quoteKind === '신차' && <button
           type="button"
           onClick={() => { setShowLoadModal(true); setLoadModalSearch(''); }}
           style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: '#fff', color: 'var(--primary)', border: '1px solid var(--primary)', padding: '0.5rem 0.9rem', borderRadius: '6px', fontSize: '0.85rem', fontWeight: '700', cursor: 'pointer' }}
         >
           <FolderOpen size={16} /> 불러오기
-        </button>
+        </button>}
       </div>
+
+      {quoteKind === '중고렌트' ? <UsedRentQuoteView showToast={showToast} currentUser={currentUser} /> : (<>
 
       {/* 견적서 작성 / 견적서 목록 전환 탭 */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)' }}>
@@ -4717,6 +4731,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
       </div>
       </>
       )}
+      </>)}
     </div>
   );
 }

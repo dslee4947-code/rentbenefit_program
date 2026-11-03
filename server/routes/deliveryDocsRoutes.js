@@ -11,7 +11,9 @@ import {
   searchDeliveryDocs,
   sendDeliveryDocsNow,
   saveFactDoc,
-  getFactDocFile
+  getFactDocFile,
+  saveEndDoc,
+  getEndDocFile
 } from '../controllers/deliveryDocsController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
 
@@ -33,5 +35,8 @@ router.get('/:contractId/file', getDeliveryDocsFile);
 // 계약사실 증명원 · 상환스케쥴표 따로 만들어 저장 (장기렌트 청구서 > 계약사실 증명원, 고지서 운전자 변경)
 router.post('/:contractId/fact-docs', checkWritePermission, upload.single('file'), saveFactDoc);
 router.get('/:contractId/fact-docs/:docId/file', getFactDocFile);
+// 계약종료 확인서 (중도해지 · 만기 인수 · 만기 반납) 저장
+router.post('/:contractId/end-docs', checkWritePermission, upload.single('file'), saveEndDoc);
+router.get('/:contractId/end-docs/:docId/file', getEndDocFile);
 
 export default router;

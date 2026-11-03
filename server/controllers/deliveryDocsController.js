@@ -65,7 +65,7 @@ export const buildDeliveryDocs = async (contractId) => {
   const vehicles = await Vehicle.find(contract.vehicles?.length ? { _id: { $in: contract.vehicles } } : { contract: contract._id })
     .sort({ code: 1 })
     .lean();
-  const schedule = await BillingSchedule.findOne({ contract: contract._id }).select('rounds.no rounds.dueDate rounds.monthlyRent').lean();
+  const schedule = await BillingSchedule.findOne({ contract: contract._id }).select('rounds.no rounds.dueDate rounds.monthlyRent rounds.status').lean();
   const rounds = [...(schedule?.rounds || [])].sort((a, b) => a.no - b.no);
 
   const company = contract.companyId || null;
@@ -182,7 +182,18 @@ export const buildDeliveryDocs = async (contractId) => {
   const factDocs = (contract.factDocs || [])
     .map((f) => ({ ...f, _id: String(f._id), vehicleId: f.vehicleId ? String(f.vehicleId) : '' }))
     .sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
-  return { ...data, snapshot, missing, warnings, overrides, factDocs, deliveryDocs: contract.deliveryDocs || null, docFolderName: contract.docFolderName || contract.contractNo };
+  const endDocs = (contract.endDocs || [])
+    .map((f) => ({ ...f, _id: String(f._id), vehicleId: f.vehicleId ? String(f.vehicleId) : '' }))
+    .sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
+  // 계약종료 확인서에 쓰는 값. 정산이 끝났는지 보려고 결제일이 지났는데 입금되지 않은 회차를 같이 준다
+  const today = todayKst();
+  const ending = {
+    contractDate: kstYmd(contract.contractDate),
+    endReason: contract.endReason || '',
+    actualEndDate: kstYmd(contract.actualEndDate),
+    unpaidRounds: rounds.filter((r) => ['청구됨', '미납'].includes(r.status) && kstYmd(r.dueDate) <= today).map((r) => r.no)
+  };
+  return { ...data, snapshot, missing, warnings, overrides, factDocs, endDocs, ending, deliveryDocs: contract.deliveryDocs || null, docFolderName: contract.docFolderName || contract.contractNo };
 };
 
 const statusOf = (d) => d.deliveryDocs?.status || (d.missing.length ? '준비 안 됨' : '승인 대기');
@@ -512,6 +523,63 @@ export const getFactDocFile = async (req, res) => {
     if (!buffer) return res.status(410).json({ success: false, message: '파일이 OneDrive에서 옮겨졌거나 지워져 열 수 없습니다.' });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(doc.fileName || 'fact.pdf')}`);
+    res.send(buffer);
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const END_KIND_NAME = { early: '계약종료확인서_중도해지', takeover: '계약종료확인서_만기인수', return: '계약종료확인서_만기반납' };
+
+/**
+ * 계약종료 확인서를 계약서 폴더에 저장한다 (자금팀 > 계약종료 확인서).
+ * 중도해지 · 만기 후 인수 · 만기 후 반납으로 정산이 끝난 고객에게 보내는 서류다. 메일은 보내지 않는다.
+ * @route POST /api/delivery-docs/:contractId/end-docs (multipart: file, kind, vehicleId?, endDate)
+ */
+export const saveEndDoc = async (req, res) => {
+  try {
+    const d = await buildDeliveryDocs(req.params.contractId);
+    if (!d) return res.status(404).json({ success: false, message: '계약을 찾을 수 없습니다.' });
+    if (!req.file) return res.status(400).json({ success: false, message: 'PDF가 없습니다.' });
+    const kind = req.body.kind;
+    if (!END_KIND_NAME[kind]) return res.status(400).json({ success: false, message: '종료 구분(중도해지·만기 인수·만기 반납)을 골라 주세요.' });
+    const vehicleId = String(req.body.vehicleId || '');
+    const docs = vehicleId ? d.docs.filter((x) => x.vehicleId === vehicleId) : d.docs;
+    if (!docs.length) return res.status(400).json({ success: false, message: '이 계약에 묶인 차량을 찾지 못했습니다.' });
+    if (docs.some((x) => !x.plateNo)) return res.status(400).json({ success: false, message: '차량번호가 없는 차가 있어 저장하지 않았습니다.' });
+
+    const plates = docs.map((x) => x.plateNo).join(',');
+    const fileName = `${END_KIND_NAME[kind]}_${d.party.name}_${plates}_${todayKst()}.pdf`;
+    const saved = await saveDocument({ partyName: d.party.name, kind: 'contract', subFolder: d.docFolderName, fileName, fileBuffer: req.file.buffer });
+    const who = req.user?.name || req.user?.email || '';
+    const endDate = /^\d{4}-\d{2}-\d{2}$/.test(req.body.endDate || '') ? req.body.endDate : '';
+    const entries = docs.map((x) => ({
+      kind,
+      vehicleId: x.vehicleId,
+      plateNo: x.plateNo,
+      endDate,
+      fileName: saved.fileName,
+      savedPath: saved.localPath,
+      savedAt: new Date(),
+      savedBy: who
+    }));
+    await Contract.updateOne({ _id: d.contractId }, { $push: { endDocs: { $each: entries } } });
+    res.json({ success: true, message: `${saved.fileName}을(를) 계약서 폴더에 저장했습니다.`, data: await buildDeliveryDocs(d.contractId) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** 저장해 둔 계약종료 확인서 열기. @route GET /api/delivery-docs/:contractId/end-docs/:docId/file */
+export const getEndDocFile = async (req, res) => {
+  try {
+    const contract = await Contract.findById(req.params.contractId).select('endDocs').lean();
+    const doc = (contract?.endDocs || []).find((f) => String(f._id) === req.params.docId);
+    if (!doc?.savedPath) return res.status(404).json({ success: false, message: '저장한 서류가 없습니다.' });
+    const buffer = await readSavedFile(doc.savedPath);
+    if (!buffer) return res.status(410).json({ success: false, message: '파일이 OneDrive에서 옮겨졌거나 지워져 열 수 없습니다.' });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(doc.fileName || 'end.pdf')}`);
     res.send(buffer);
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

@@ -2,6 +2,9 @@ import Contract from '../models/Contract.js';
 import Vehicle from '../models/Vehicle.js';
 import BillingSchedule from '../models/BillingSchedule.js';
 import VehicleLedger from '../models/VehicleLedger.js';
+// populate('companyId'/'customer')에 필요하다(이 파일만 불러 쓰는 곳에서도 모델이 등록되게)
+import '../models/Company.js';
+import '../models/Customer.js';
 import { calcDailyRent } from './billingDate.js';
 
 /**

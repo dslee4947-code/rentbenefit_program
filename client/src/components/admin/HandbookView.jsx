@@ -7,6 +7,7 @@ import {
 import { printFitted } from '../../utils/printFit.js';
 import {
   HANDBOOK_UPDATED_AT,
+  UPDATE_MARK_DAYS,
   RECENT_CHANGES,
   BASICS,
   FLOW_STAGES,
@@ -54,6 +55,17 @@ const SECTIONS = [
 
 const ALL_SCREENS = SCREEN_GROUPS.flatMap((g) => g.screens.map((sc) => ({ ...sc, group: g.label })));
 
+// 탭 이름 옆 빨간 점: 그 탭 안에 최근 3일 사이 고친 곳이 있다.
+const freshBySection = () => ({
+  basics: hasFresh(BASICS),
+  flow: hasFresh(FLOW_STAGES),
+  screens: hasFresh(SCREEN_GROUPS),
+  checklist: hasFresh([ONBOARDING_CHECKLIST, DAILY_CHECKLIST, MONTHLY_CHECKLIST]),
+  trouble: hasFresh(TROUBLESHOOTING),
+  glossary: hasFresh(GLOSSARY),
+  folder: hasFresh(FOLDER_GUIDE)
+});
+
 const ACCESS_LABEL = {
   finance: '자금팀 메뉴를 켠 사람에게만 보이는 화면',
   admin: '관리자에게만 보이는 화면'
@@ -97,26 +109,71 @@ const resultButton = {
   borderRadius: '8px', background: 'var(--bg-main)', cursor: 'pointer', fontSize: '0.86rem'
 };
 
+// 본문 한 줄은 문자열이거나, 고친 날짜가 붙은 { text, updated }다(handbook.js 머리말 참고).
+const textOf = (item) => (item && typeof item === 'object' ? item.text : item);
+
 /** 검색어가 어디에라도 걸리는지. 대소문자·공백은 무시한다. */
 const hit = (keyword, ...texts) => {
   if (!keyword) return true;
   const k = keyword.replace(/\s/g, '').toLowerCase();
-  return texts.flat().filter(Boolean).some(
+  return texts.flat().map(textOf).filter(Boolean).some(
     (t) => String(t).replace(/\s/g, '').toLowerCase().includes(k)
   );
 };
 
-function BulletCard({ title, icon: Icon, color, items, tone, ordered }) {
+const todayStart = () => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+};
+
+/** 고친 날을 1일째로 세어 UPDATE_MARK_DAYS일 동안만 참. 날짜가 이상하면 표시하지 않는다. */
+const isFresh = (date) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date || '');
+  if (!m) return false;
+  const days = Math.round((todayStart() - new Date(+m[1], +m[2] - 1, +m[3]).getTime()) / 86400000);
+  return days >= 0 && days < UPDATE_MARK_DAYS;
+};
+
+/** 객체 안 어디라도 최근에 고친 곳이 있는지. 메뉴·단계 목록에 점을 찍어 어디를 봐야 하는지 알려준다. */
+const hasFresh = (node) => {
+  if (Array.isArray(node)) return node.some(hasFresh);
+  if (node && typeof node === 'object') {
+    if (isFresh(node.updated)) return true;
+    return Object.values(node).some((v) => typeof v === 'object' && hasFresh(v));
+  }
+  return false;
+};
+
+function UpdatedMark({ date }) {
+  if (!isFresh(date)) return null;
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: '0.25rem', marginLeft: '0.4rem',
+      padding: '0 0.4rem', borderRadius: '999px', background: '#fee2e2', color: '#b91c1c',
+      fontSize: '0.7rem', fontWeight: 700, lineHeight: 1.6, verticalAlign: 'middle', whiteSpace: 'nowrap'
+    }}>
+      수정됨 <span style={{ fontWeight: 500, fontSize: '0.65rem', opacity: 0.85 }}>{date.slice(5).replace('-', '.')}</span>
+    </span>
+  );
+}
+
+const FreshDot = ({ on }) => (on
+  ? <span title="최근 수정" style={{ width: 7, height: 7, borderRadius: '50%', background: '#dc2626', flexShrink: 0 }} />
+  : null);
+
+function BulletCard({ title, icon: Icon, color, items, tone, ordered, updated }) {
   if (!items || items.length === 0) return null;
   const List = ordered ? 'ol' : 'ul';
   return (
     <div style={{ ...card, ...tone }}>
       <div style={{ ...sectionTitle, color }}>
-        <Icon size={15} /> {title}
+        <Icon size={15} /> {title}<UpdatedMark date={updated} />
       </div>
       <List style={{ margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: ordered ? '0.45rem' : '0.35rem' }}>
         {items.map((s, i) => (
-          <li key={i} style={{ fontSize: '0.87rem', lineHeight: 1.6 }}>{s}</li>
+          <li key={i} style={{ fontSize: '0.87rem', lineHeight: 1.6 }}>
+            {textOf(s)}<UpdatedMark date={s?.updated} />
+          </li>
         ))}
       </List>
     </div>
@@ -135,7 +192,7 @@ function StageDetail({ stage, onOpenTab }) {
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>
               {stage.no}단계
             </div>
-            <h3 style={{ margin: '0.15rem 0 0.4rem', fontSize: '1.15rem' }}>{stage.title}</h3>
+            <h3 style={{ margin: '0.15rem 0 0.4rem', fontSize: '1.15rem' }}>{stage.title}<UpdatedMark date={stage.updated} /></h3>
             <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.88rem', lineHeight: 1.6 }}>
               {stage.goal}
             </p>
@@ -155,7 +212,7 @@ function StageDetail({ stage, onOpenTab }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
           {stage.inputs.map((f, i) => (
             <div key={i} style={{ fontSize: '0.86rem', lineHeight: 1.55 }}>
-              <strong>{f.name}</strong>
+              <strong>{f.name}</strong><UpdatedMark date={f.updated} />
               <div style={{ color: 'var(--text-muted)' }}>{f.why}</div>
             </div>
           ))}
@@ -181,7 +238,7 @@ function ScreenDetail({ screen, currentUser, onOpenTab }) {
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>
               메뉴 · {screen.group}
             </div>
-            <h3 style={{ margin: '0.15rem 0 0.4rem', fontSize: '1.15rem' }}>{screen.name}</h3>
+            <h3 style={{ margin: '0.15rem 0 0.4rem', fontSize: '1.15rem' }}>{screen.name}<UpdatedMark date={screen.updated} /></h3>
             <p style={{ margin: 0, fontSize: '0.88rem', lineHeight: 1.6 }}>{screen.what}</p>
             <p style={{ margin: '0.35rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: 1.6, display: 'flex', gap: '0.35rem' }}>
               <Clock size={14} style={{ flexShrink: 0, marginTop: '0.2rem' }} /> 언제: {screen.when}
@@ -243,7 +300,7 @@ function CheckList({ title, items, group, checked, onToggle }) {
                 ? <CheckCircle2 size={16} color="#16a34a" style={{ flexShrink: 0, marginTop: '0.1rem' }} />
                 : <Circle size={16} color="var(--text-muted)" style={{ flexShrink: 0, marginTop: '0.1rem' }} />}
               <span style={{ fontSize: '0.86rem', lineHeight: 1.5, textDecoration: on ? 'line-through' : 'none' }}>
-                {text}
+                {textOf(text)}<UpdatedMark date={text?.updated} />
               </span>
             </button>
           );
@@ -262,6 +319,7 @@ function HandbookView({ setActiveTab, currentUser }) {
   const [keyword, setKeyword] = useState('');
   const [checked, setChecked] = useState(loadChecked);
   const bodyRef = useRef(null);
+  const freshSections = freshBySection();
 
   const toggleCheck = (key) => {
     setChecked((prev) => {
@@ -431,6 +489,7 @@ function HandbookView({ setActiveTab, currentUser }) {
                 }}
               >
                 <Icon size={15} /> {name}
+                <FreshDot on={freshSections[id]} />
               </button>
             ))}
           </div>
@@ -446,7 +505,7 @@ function HandbookView({ setActiveTab, currentUser }) {
                   모르는 말은 위 검색창에 넣으면 업무 단계·화면·문답·용어를 한꺼번에 찾아 줍니다.
                 </div>
                 {BASICS.map((b) => (
-                  <BulletCard key={b.title} title={b.title} icon={BookMarked} color="var(--primary)" items={b.items} />
+                  <BulletCard key={b.title} title={b.title} icon={BookMarked} color="var(--primary)" items={b.items} updated={b.updated} />
                 ))}
               </div>
             )}
@@ -483,7 +542,9 @@ function HandbookView({ setActiveTab, currentUser }) {
                             color: stageId === s.id ? '#fff' : 'inherit'
                           }}
                         >
-                          <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>{s.no}</span>
+                          <span style={{ fontSize: '0.7rem', opacity: 0.8, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                            {s.no}<FreshDot on={hasFresh(s)} />
+                          </span>
                           <span style={{ fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{s.short}</span>
                         </button>
                         {i < FLOW_STAGES.length - 1 && <ArrowRight size={14} color="var(--text-muted)" />}
@@ -529,6 +590,7 @@ function HandbookView({ setActiveTab, currentUser }) {
                             >
                               {sc.name}
                               {!canOpen(sc, currentUser) && <Lock size={11} style={{ opacity: 0.6 }} />}
+                              <FreshDot on={hasFresh(sc)} />
                             </button>
                           ))}
                         </div>
@@ -572,7 +634,7 @@ function HandbookView({ setActiveTab, currentUser }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
                 {TROUBLESHOOTING.map((t, i) => (
                   <div key={i} style={card}>
-                    <div style={{ fontSize: '0.92rem', fontWeight: 700, marginBottom: '0.35rem' }}>Q. {t.q}</div>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, marginBottom: '0.35rem' }}>Q. {t.q}<UpdatedMark date={t.updated} /></div>
                     <div style={{ fontSize: '0.87rem', color: 'var(--text-muted)', lineHeight: 1.65 }}>{t.a}</div>
                   </div>
                 ))}
@@ -583,7 +645,7 @@ function HandbookView({ setActiveTab, currentUser }) {
               <div style={{ display: 'grid', gap: '0.7rem', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
                 {GLOSSARY.map((g) => (
                   <div key={g.term} style={card}>
-                    <div style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.25rem' }}>{g.term}</div>
+                    <div style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.25rem' }}>{g.term}<UpdatedMark date={g.updated} /></div>
                     <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>{g.desc}</div>
                   </div>
                 ))}
@@ -595,7 +657,7 @@ function HandbookView({ setActiveTab, currentUser }) {
                 {FOLDER_GUIDE.map((f) => (
                   <div key={f.path} style={card}>
                     <div style={{ fontSize: '0.88rem', fontWeight: 700, fontFamily: 'monospace', marginBottom: '0.3rem' }}>
-                      {f.path}
+                      {f.path}<UpdatedMark date={f.updated} />
                     </div>
                     <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>{f.desc}</div>
                   </div>

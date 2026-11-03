@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { RefreshCw, Send, FileText, X, Check, Download, Ban, Undo2, Search, Eye } from 'lucide-react';
 import ContractFactSheet from './ContractFactSheet.jsx';
 import { makeFittedPdf } from '../../utils/printFit.js';
+import { partyWithResidentFront } from '../../utils/residentNo.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -68,7 +69,8 @@ export default function DeliveryDocsView({ showToast, currentUser }) {
     driverRange: d.overrides?.driverRange || '',
     accidentRepair: d.overrides?.accidentRepair || '',
     commission: d.overrides?.commission || '',
-    receiptDate: d.overrides?.receiptDate || ''
+    receiptDate: d.overrides?.receiptDate || '',
+    residentFront: d.overrides?.residentFront || ''
   });
 
   const openOne = async (contractId) => {
@@ -213,6 +215,7 @@ export default function DeliveryDocsView({ showToast, currentUser }) {
   // 화면 미리보기는 입력 중인 값까지 반영해 보여 준다(저장 전이라도 어떻게 나갈지 보이게)
   const previewData = open ? {
     ...open,
+    party: partyWithResidentFront(open.party, form.residentFront),
     commission: form.commission,
     receiptDate: form.receiptDate,
     docs: open.docs.map((d) => ({
@@ -336,6 +339,7 @@ export default function DeliveryDocsView({ showToast, currentUser }) {
                 )}
                 {[
                   ['to', '받는 사람 이메일', '법인 청구 이메일이 기본'],
+                  ...(open.party.bizNoLabel === '주민등록번호' ? [['residentFront', '주민등록번호 앞 6자리', '예: 760101 (뒷자리는 *로 가려 찍힘)']] : []),
                   ['driverRange', '운전자 범위', '예: 임직원 / 누구나'],
                   ['accidentRepair', '사고수리', '예: 가입 / 미가입'],
                   ['commission', '수수료 (원)', '없으면 비워 두세요'],

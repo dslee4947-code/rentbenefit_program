@@ -2,6 +2,7 @@ import Contract from '../models/Contract.js';
 import Quote from '../models/Quote.js';
 import ContractTemplate from '../models/ContractTemplate.js';
 import ContractDocument from '../models/ContractDocument.js';
+import { stripHonorific } from './personName.js';
 
 /**
  * 전자계약서 입력 칸(양식의 '법인정보' 시트)을 계약·견적·고객·법인·차량 정보로 채운다.
@@ -59,11 +60,12 @@ export const buildContractValues = (contract) => {
   set('vehicleCode', vehicle?.code, 'vehicle');
   set('contractNo', contract.contractNo, 'contract');
 
+  // 사람 이름은 직책·호칭을 떼고 이름만 넣는다('이승섭 변호사님' → '이승섭', 대표님 2026-11-03)
   set('partyName', company?.name, 'company');
-  set('partyName', customer.name, 'customer');
-  set('ceoName', company?.ceoName, 'company');
-  set('ceoName', customer.ceoName, 'customer');
-  if (!isCompany) set('ceoName', customer.name, 'customer');
+  set('partyName', stripHonorific(customer.name), 'customer');
+  set('ceoName', stripHonorific(company?.ceoName), 'company');
+  set('ceoName', stripHonorific(customer.ceoName), 'customer');
+  if (!isCompany) set('ceoName', stripHonorific(customer.name), 'customer');
   set('bizNo', company?.bizNo, 'company');
   set('bizNo', customer.bizNo, 'customer');
   set('corpRegNo', contract.corporateRegistrationNo, 'contract');
@@ -87,7 +89,7 @@ export const buildContractValues = (contract) => {
   set('email', customer.email, 'customer');
   set('email', contract.finesEmail, 'contract');
   // 계약담당자는 고객 쪽 담당자다(계약서_3 '법인담당자의 정보')
-  set('managerName', customer.contactName, 'customer');
+  set('managerName', stripHonorific(customer.contactName), 'customer');
   set('managerPhone', customer.contactPhone || customer.mobilePhone, 'customer');
 
   const model = [info.model, info.spec].filter(Boolean).join(' ') || vehicle?.carModel

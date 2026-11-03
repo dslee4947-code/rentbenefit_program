@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { PDFDocument, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
+import { stripHonorific, maskResidentNo } from './personName.js';
 
 /**
  * 계약서 PDF 만들기: 엑셀이 만든 빈 계약서 PDF 위에 계약 값을 찍는다.
@@ -122,6 +123,12 @@ export const buildContractPdf = async ({ template, base, values, documentDate, n
   // 화면에서 하나만 입력받은 값(personalInjury)을 늘 그 칸에 넣는다. 예전에 두 칸을 따로 고친 계약서도 첫 칸이 기준
   const merged = { ...(values || {}) };
   if (String(merged.personalInjury ?? '').trim()) merged.personalInjury_2 = merged.personalInjury;
+  // 사람 이름 칸(대표자·계약담당자·예금주)은 직책을 떼고 이름만 찍는다. 개인 계약자는 계약자명도 사람 이름이다.
+  // 사업자번호가 아니라 개인이 적은 주민등록번호면 앞 6자리만 찍고 뒷자리는 가린다(대표님 2026-11-03)
+  ['ceoName', 'managerName', 'bankHolder'].forEach((k) => { if (merged[k]) merged[k] = stripHonorific(merged[k]); });
+  const personalParty = !String(merged.corpRegNo ?? '').trim() && !/^\d{3}-?\d{2}-?\d{5}$/.test(String(merged.bizNo ?? '').trim());
+  if (personalParty && merged.partyName) merged.partyName = stripHonorific(merged.partyName);
+  if (personalParty && merged.bizNo) merged.bizNo = maskResidentNo(merged.bizNo) || merged.bizNo;
   const { resolve, sheetCells } = makeResolver(template, merged, documentDate);
   const styles = template.styles || [];
 

@@ -94,7 +94,7 @@ function FactPage({ data, doc, last }) {
 
       <Section title="1. 고객 정보">
         <Grid rows={[
-          [['개인/법인명', blank(p.name)], ['사업자번호', blank(p.bizNo)], ['법인번호', blank(p.corpNo)]],
+          [['개인/법인명', blank(p.name)], [p.bizNoLabel || '사업자번호', blank(p.bizNo)], ['법인번호', blank(p.corpNo)]],
           [['주소', blank(p.address), 3], ['대표자명', blank(p.ceoName)]],
           [['차량번호', blank(doc.plateNo)], ['차대번호', blank(doc.vin)], ['연락처', blank(p.phone)]]
         ]} />
@@ -131,7 +131,7 @@ function FactPage({ data, doc, last }) {
       <Section title="4. 보증금/수수료 납입 영수증">
         <div style={{ position: 'relative' }}>
           <Grid rows={[
-            [['고객명', blank(p.name)], ['사업자번호', blank(p.bizNo)]],
+            [['고객명', blank(p.name)], [p.bizNoLabel || '사업자번호', blank(p.bizNo)]],
             [['보증금', `${won(doc.deposit)} 원`], ['수수료', data.commission ? `${data.commission} 원` : '-']]
           ]} />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11.5px', margin: '12px 0 12px' }}>

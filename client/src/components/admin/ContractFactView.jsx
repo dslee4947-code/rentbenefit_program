@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Search, FileText, Download, Save, ExternalLink, X } from 'lucide-react';
 import ContractFactSheet from './ContractFactSheet.jsx';
 import { makeFittedPdf } from '../../utils/printFit.js';
+import { partyWithResidentFront } from '../../utils/residentNo.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -48,7 +49,8 @@ export default function ContractFactView({ showToast, currentUser, contractId: p
       driverRange: d.overrides?.driverRange || '',
       accidentRepair: d.overrides?.accidentRepair || '',
       commission: d.overrides?.commission || '',
-      receiptDate: d.overrides?.receiptDate || ''
+      receiptDate: d.overrides?.receiptDate || '',
+      residentFront: d.overrides?.residentFront || ''
     });
     // 고지서에서 왔으면 그 차로, 차가 한 대면 그 차로 고른다
     const hit = plate ? d.docs.find((x) => normPlate(x.plateNo) === normPlate(plate)) : null;
@@ -73,6 +75,7 @@ export default function ContractFactView({ showToast, currentUser, contractId: p
   const docs = open ? open.docs.filter((x) => !vehicleId || x.vehicleId === vehicleId) : [];
   const previewData = open ? {
     ...open,
+    party: partyWithResidentFront(open.party, form.residentFront),
     commission: form.commission,
     receiptDate: form.receiptDate,
     docs: docs.map((d) => ({ ...d, accidentRepair: form.accidentRepair, insurance: { ...d.insurance, driverRange: form.driverRange } }))
@@ -236,6 +239,8 @@ export default function ContractFactView({ showToast, currentUser, contractId: p
             )}
 
             {parts !== 'schedule' && [
+              // 개인 계약자(사업자번호 없음)는 주민등록번호 앞자리만 받는다
+              ...(open.party.bizNoLabel === '주민등록번호' ? [['residentFront', '주민등록번호 앞 6자리', '예: 760101 (뒷자리는 *로 가려 찍힘)']] : []),
               ['driverRange', '운전자 범위', '예: 임직원 / 누구나'],
               ['accidentRepair', '사고수리', '예: 가입 / 미가입'],
               ['commission', '수수료 (원)', '없으면 비워 두세요'],

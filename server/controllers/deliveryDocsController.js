@@ -10,6 +10,7 @@ import { sendDeliveryDocsMail, sendInternalMail } from '../utils/mailService.js'
 import { mergeCarModel } from '../utils/carModel.js';
 import { vehicleEndOf, lastDayOf } from '../utils/contractTerm.js';
 import { describeTireProvision } from '../../shared/quoteCalc.js';
+import { stripHonorific, maskResidentNo } from '../utils/personName.js';
 
 /**
  * 인도 서류 발송 — 계약사실 증명원 + 상환스케쥴.
@@ -45,7 +46,9 @@ const pct = (v) => {
 };
 
 // 화면에서 담당자가 채우는 칸. 프로그램에 저장된 값이 없는 항목들이다.
-export const OVERRIDE_FIELDS = ['driverRange', 'accidentRepair', 'commission', 'receiptDate'];
+// residentFront: 개인 계약자의 주민등록번호 앞 6자리. 뒷자리는 받지 않고 서류에는 '******'로 찍는다
+export const OVERRIDE_FIELDS = ['driverRange', 'accidentRepair', 'commission', 'receiptDate', 'residentFront'];
+const BIZ_NO = /^\d{3}-?\d{2}-?\d{5}$/;
 
 /**
  * 한 계약의 두 서류에 들어갈 값을 모두 만든다. 화면 그리기와 발송 전 확인이 같은 값을 쓴다.
@@ -69,13 +72,18 @@ export const buildDeliveryDocs = async (contractId) => {
   const customer = contract.customer || null;
   const overrides = contract.deliveryDocs?.overrides || {};
 
+  // 개인 계약자: 고객 이름 칸의 '이승섭 변호사님' 같은 직책은 떼고 이름만 쓴다.
+  // 번호는 사업자번호가 있으면(개인사업자) 그것을, 없으면 주민등록번호 앞 6자리만 쓰고 뒷자리는 가린다(대표님 2026-11-03)
+  const personal = !company && contract.partyType !== '법인';
+  const personalBizNo = BIZ_NO.test(String(customer?.bizNo || '').trim()) ? customer.bizNo.trim() : '';
   const party = {
-    name: company?.name || customer?.name || contract.leaseCompany || '',
-    // 개인 계약자의 주민등록번호는 어디에도 싣지 않는다(저장도 하지 않는다). 사업자번호만 쓴다.
-    bizNo: company?.bizNo || '',
+    name: company?.name || stripHonorific(customer?.name || contract.leaseCompany || ''),
+    personal,
+    bizNoLabel: personal && !personalBizNo ? '주민등록번호' : '사업자번호',
+    bizNo: company?.bizNo || (personal ? personalBizNo || maskResidentNo(overrides.residentFront) : ''),
     corpNo: company?.corporateRegistrationNo || contract.corporateRegistrationNo || '',
     address: company?.address || customer?.address || '',
-    ceoName: company?.ceoName || '',
+    ceoName: stripHonorific(company?.ceoName || ''),
     phone: contract.managerMainPhone || contract.managerOpsPhone || customer?.mobilePhone || ''
   };
 
@@ -246,6 +254,8 @@ export const saveDeliveryDocsInput = async (req, res) => {
     OVERRIDE_FIELDS.forEach((k) => {
       if (req.body[k] !== undefined) overrides[k] = String(req.body[k] || '').trim();
     });
+    // 주민등록번호는 앞 6자리만 둔다. 뒷자리까지 넣어도 잘라 버린다
+    if (overrides.residentFront !== undefined) overrides.residentFront = (/^\s*(\d{6})/.exec(overrides.residentFront) || [])[1] || '';
     const to = req.body.to !== undefined ? String(req.body.to || '').trim() : current.to;
     contract.deliveryDocs = { ...current, overrides, to };
     contract.markModified('deliveryDocs');
@@ -348,7 +358,7 @@ export const searchDeliveryDocs = async (req, res) => {
         contractId: String(c._id),
         contractNo: c.contractNo,
         contractStatus: c.status,
-        partyName: c.companyId?.name || c.customer?.name || '',
+        partyName: c.companyId?.name || stripHonorific(c.customer?.name || ''),
         to: c.deliveryDocs?.to || c.companyId?.billingEmail || c.customer?.email || '',
         status: c.deliveryDocs?.status || '',
         sentAt: c.deliveryDocs?.sentAt || null,

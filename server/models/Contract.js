@@ -191,7 +191,25 @@ const ContractSchema = new Schema({
     overrides: Schema.Types.Mixed,
     // 보낸 기록. 인도 다음 날 자동 발송과, 고객이 다시 요청해서 바로 보낸 것을 모두 남긴다.
     history: [{ sentAt: Date, to: String, by: String, kind: String, fileName: String, _id: false }]
-  }
+  },
+
+  /**
+   * 계약사실 증명원 · 상환스케쥴표 저장 기록 (장기렌트 청구서 > 계약사실 증명원).
+   *
+   * 장기렌트 계약서는 차가 나오기 전에 써서 차량번호가 없다. 차량번호·차대번호가 든 계약사실 증명원이
+   * 있어야 고지서 운전자(임차인) 변경 때 관공서에 낼 수 있다. 만든 파일은 계약서 폴더에 두고 여기 경로를 남긴다.
+   * kind: 'fact'(계약사실 증명원) · 'schedule'(상환스케쥴표) · 'both'(둘을 한 파일로)
+   */
+  factDocs: [{
+    kind: { type: String, enum: ['fact', 'schedule', 'both'] },
+    vehicleId: { type: Schema.Types.ObjectId, ref: 'Vehicle' },
+    plateNo: String,
+    vin: String,
+    fileName: String,
+    savedPath: String,
+    savedAt: Date,
+    savedBy: String
+  }]
 }, { timestamps: true });
 
 // Dashboard/list filters query by `status`; populate joins query by `customer`/`vehicle`

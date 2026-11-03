@@ -168,7 +168,11 @@ export const buildDeliveryDocs = async (contractId) => {
     docs
   };
   const snapshot = crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex');
-  return { ...data, snapshot, missing, warnings, overrides, deliveryDocs: contract.deliveryDocs || null, docFolderName: contract.docFolderName || contract.contractNo };
+  // 저장해 둔 계약사실 증명원·상환스케쥴표(지문에는 넣지 않는다. 저장할 때마다 바뀌는 기록이다)
+  const factDocs = (contract.factDocs || [])
+    .map((f) => ({ ...f, _id: String(f._id), vehicleId: f.vehicleId ? String(f.vehicleId) : '' }))
+    .sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
+  return { ...data, snapshot, missing, warnings, overrides, factDocs, deliveryDocs: contract.deliveryDocs || null, docFolderName: contract.docFolderName || contract.contractNo };
 };
 
 const statusOf = (d) => d.deliveryDocs?.status || (d.missing.length ? '준비 안 됨' : '승인 대기');
@@ -434,6 +438,68 @@ export const getDeliveryDocsFile = async (req, res) => {
     if (!buffer) return res.status(410).json({ success: false, message: '파일이 OneDrive에서 옮겨졌거나 지워져 열 수 없습니다.' });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(contract.deliveryDocs.pdfFileName || 'docs.pdf')}`);
+    res.send(buffer);
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const FACT_KIND_NAME = { fact: '계약사실증명원', schedule: '상환스케쥴표', both: '계약사실증명원_상환스케쥴표' };
+
+/**
+ * 계약사실 증명원 · 상환스케쥴표를 계약서 폴더에 저장한다 (장기렌트 청구서 > 계약사실 증명원).
+ * 화면이 고른 차 한 대(또는 전체)와 고른 서류로 PDF를 만들어 보낸다. 메일은 보내지 않는다.
+ * 계약사실 증명원은 차량번호·차대번호를 증명하려고 만드는 서류라 둘 다 있어야 저장한다.
+ * @route POST /api/delivery-docs/:contractId/fact-docs (multipart: file, kind, vehicleId?)
+ */
+export const saveFactDoc = async (req, res) => {
+  try {
+    const d = await buildDeliveryDocs(req.params.contractId);
+    if (!d) return res.status(404).json({ success: false, message: '계약을 찾을 수 없습니다.' });
+    if (!req.file) return res.status(400).json({ success: false, message: 'PDF가 없습니다.' });
+    const kind = FACT_KIND_NAME[req.body.kind] ? req.body.kind : 'both';
+    const vehicleId = String(req.body.vehicleId || '');
+    const docs = vehicleId ? d.docs.filter((x) => x.vehicleId === vehicleId) : d.docs;
+    if (!docs.length) return res.status(400).json({ success: false, message: '이 계약에 묶인 차량을 찾지 못했습니다.' });
+    const lacking = docs.filter((x) => !x.plateNo || (kind !== 'schedule' && !x.vin));
+    if (lacking.length) {
+      return res.status(400).json({ success: false, message: `차량번호·차대번호가 없는 차가 있어 저장하지 않았습니다: ${lacking.map((x) => x.code || x.carModel).join(', ')} (렌트차량 DB에서 채워 주세요)` });
+    }
+    if (kind !== 'fact' && docs.some((x) => !x.schedule.length)) {
+      return res.status(400).json({ success: false, message: '청구 회차표가 없어 상환스케쥴표를 만들 수 없습니다.' });
+    }
+
+    const plates = docs.map((x) => x.plateNo).join(',');
+    const fileName = `${FACT_KIND_NAME[kind]}_${d.party.name}_${plates}_${todayKst()}.pdf`;
+    const saved = await saveDocument({ partyName: d.party.name, kind: 'contract', subFolder: d.docFolderName, fileName, fileBuffer: req.file.buffer });
+    const who = req.user?.name || req.user?.email || '';
+    const entries = docs.map((x) => ({
+      kind,
+      vehicleId: x.vehicleId,
+      plateNo: x.plateNo,
+      vin: x.vin,
+      fileName: saved.fileName,
+      savedPath: saved.localPath,
+      savedAt: new Date(),
+      savedBy: who
+    }));
+    await Contract.updateOne({ _id: d.contractId }, { $push: { factDocs: { $each: entries } } });
+    res.json({ success: true, message: `${saved.fileName}을(를) 계약서 폴더에 저장했습니다.`, data: await buildDeliveryDocs(d.contractId) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** 저장해 둔 계약사실 증명원 열기. @route GET /api/delivery-docs/:contractId/fact-docs/:docId/file */
+export const getFactDocFile = async (req, res) => {
+  try {
+    const contract = await Contract.findById(req.params.contractId).select('factDocs').lean();
+    const doc = (contract?.factDocs || []).find((f) => String(f._id) === req.params.docId);
+    if (!doc?.savedPath) return res.status(404).json({ success: false, message: '저장한 서류가 없습니다.' });
+    const buffer = await readSavedFile(doc.savedPath);
+    if (!buffer) return res.status(410).json({ success: false, message: '파일이 OneDrive에서 옮겨졌거나 지워져 열 수 없습니다.' });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(doc.fileName || 'fact.pdf')}`);
     res.send(buffer);
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

@@ -20,6 +20,7 @@ import VehicleDepreciationView from './VehicleDepreciationView.jsx';
 import MonthlyBillingView from './MonthlyBillingView.jsx';
 import InvoiceArchiveView from './InvoiceArchiveView.jsx';
 import FineNoticeView from './FineNoticeView.jsx';
+import ContractFactView from './ContractFactView.jsx';
 import LedgerView from './LedgerView.jsx';
 import ShortTermRatesView from './ShortTermRatesView.jsx';
 import FleetFilingView from './FleetFilingView.jsx';
@@ -28,6 +29,7 @@ import HandbookView from './HandbookView.jsx';
 
 import useBackClose from '../../utils/useBackClose.js';
 import {
+  ScrollText,
   LayoutDashboard,
   Coins,
   FileSignature,
@@ -57,7 +59,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   const getTabFromHash = () => {
     const hash = window.location.hash.replace('#/', '');
     // 메뉴를 새로 추가하면 여기에도 넣어야 한다. 빠지면 주소는 바뀌는데 화면은 대시보드로 되돌아간다.
-    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'contract-docs', 'delivery-prep', 'delivery-docs', 'vehicles', 'vehicle-service', 'calendar', 'users', 'billing', 'invoice-archive', 'fine-notices', 'ledgers', 'handbook', 'storage-settings', 'maintenance-rates', 'company-funding', 'company-book', 'vehicle-depreciation', 'short-term-rates', 'fleet-filings', 'mypage'];
+    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'contract-docs', 'delivery-prep', 'delivery-docs', 'vehicles', 'vehicle-service', 'calendar', 'users', 'billing', 'contract-facts', 'invoice-archive', 'fine-notices', 'ledgers', 'handbook', 'storage-settings', 'maintenance-rates', 'company-funding', 'company-book', 'vehicle-depreciation', 'short-term-rates', 'fleet-filings', 'mypage'];
     return validTabs.includes(hash) ? hash : 'dashboard';
   };
 
@@ -145,6 +147,8 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
     // 청구·정산과 회사 돈은 자금팀만 본다(대표님 2026-10-30). 사용자 권한 관리에서 '자금팀 메뉴'를 켠 사람에게만 보인다.
     isFinanceTeam && { label: '자금팀', items: [
       { id: 'billing', name: '장기렌트 청구서', icon: <FileText size={ICON_SIZE} /> },
+      // 장기렌트 계약서엔 차량번호가 없어(출고 전 계약) 차량번호·차대번호가 든 증명원을 따로 만든다(대표님 2026-11-03)
+      { id: 'contract-facts', name: '계약사실 증명원', icon: <ScrollText size={ICON_SIZE} /> },
       { id: 'invoice-archive', name: '청구서 보관함', icon: <Archive size={ICON_SIZE} /> },
       // 고지서는 렌트료 청구서에 얹어 받는 돈이라 청구서 옆에 둔다(대표님 2026-10-28)
       { id: 'fine-notices', name: '고지서 관리', icon: <FileWarning size={ICON_SIZE} /> },
@@ -529,6 +533,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'vehicles' && '렌트차량 DB 관리'}
               {activeTab === 'vehicle-service' && '렌트 차량 AS'}
               {activeTab === 'billing' && '장기렌트 청구서'}
+              {activeTab === 'contract-facts' && '계약사실 증명원'}
               {activeTab === 'invoice-archive' && '청구서 보관함'}
               {activeTab === 'fine-notices' && '고지서 관리'}
               {activeTab === 'ledgers' && '차량 손익 원장 (갑지)'}
@@ -557,6 +562,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'vehicles' && '전체 렌트 차량의 계약정보, 잔여일정, 담당 정비 내역을 상세 조회합니다.'}
               {activeTab === 'vehicle-service' && '차마다 다음 자동차검사·정기점검 날짜를 챙기고, 정비·수리 이력과 누적 수리비를 남깁니다. 수리 내역서를 올리면 작업 내역·금액이 정리됩니다.'}
               {activeTab === 'billing' && '계약 건별 대여료 및 기타 추가 납입 항목을 취합하여 프리미엄 청구서를 발행 및 관리합니다.'}
+              {activeTab === 'contract-facts' && '차량번호·차대번호가 든 계약사실 증명원과 상환스케쥴표를 만들어 계약서 폴더에 저장합니다. 고지서 운전자 변경 때 씁니다.'}
               {activeTab === 'invoice-archive' && '계약별로 1회차부터 모든 청구서를 보고, 과태료·자부담금을 더해 PDF로 만듭니다.'}
               {activeTab === 'fine-notices' && '범칙금·과태료·미납통행료 고지서를 모아 보고, 기한 안에 고객이 냈는지 확인해 청구 여부를 정합니다.'}
               {activeTab === 'ledgers' && '차량 1대에 들어간 돈과 들어온 돈을 갑지 한 장으로 모아 정산 결과를 확인합니다.'}
@@ -671,6 +677,10 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               showToast={showToast}
               currentUser={currentUser}
             />
+          )}
+
+          {activeTab === 'contract-facts' && isFinanceTeam && (
+            <ContractFactView showToast={showToast} currentUser={currentUser} />
           )}
 
           {activeTab === 'fine-notices' && isFinanceTeam && (

@@ -156,6 +156,7 @@ const BillingRoundSchema = new Schema({
     // 누가 운전했는지. 고객납부·명의변경은 이걸 모르면 다음 단계로 못 간다.
     driverName: String,
     driverPhone: String,
+    driverAddress: String,    // 운전자(임차인) 변경 때 관공서 양식에 적는 주소
 
     // 명의 변경을 어디에 언제 넘겼는지. 반려되면 되돌려야 해서 기록이 필요하다.
     transferAgency: String,   // 경찰서 / 구청 이름

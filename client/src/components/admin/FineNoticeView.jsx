@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { AlertCircle, RefreshCw, Search, X, Upload, CheckCircle2, Clock, FileWarning, Mail, Trash2, Pencil } from 'lucide-react';
+import { AlertCircle, RefreshCw, Search, X, Upload, CheckCircle2, Clock, FileWarning, Mail, Trash2, Pencil, ScrollText } from 'lucide-react';
 import MoneyInput from './MoneyInput.jsx';
 import useBackClose from '../../utils/useBackClose.js';
 import UpcomingDocUpload from './UpcomingDocUpload.jsx';
 import BulkNoticeUpload from './BulkNoticeUpload.jsx';
 import RentalNoticeList from './RentalNoticeList.jsx';
+import DriverChangeList from './DriverChangeList.jsx';
+import ContractFactView from './ContractFactView.jsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -153,6 +155,8 @@ function FineNoticeView({ showToast, currentUser }) {
   const [scope, setScope] = useState('longterm'); // longterm: 장기렌트 고지서, rental: 대차 고지서
   const [rentalReload, setRentalReload] = useState(0);
   const [busy, setBusy] = useState(null); // 처리 중인 줄
+  // 운전자 변경 때 낼 계약사실 증명원. 고지서의 계약·차량으로 바로 연다.
+  const [factFor, setFactFor] = useState(null);
 
   const fetchNotices = useCallback(async () => {
     try {
@@ -505,7 +509,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
       )}
 
       <div style={{ display: 'flex', gap: '0.3rem', borderBottom: '1px solid var(--border-color)' }}>
-        {[['longterm', '장기렌트 고지서'], ['rental', '대차 고지서 (단기렌트·사고대차)']].map(([key, label]) => (
+        {[['longterm', '장기렌트 고지서'], ['rental', '대차 고지서 (단기렌트·사고대차)'], ['driver', '운전자 변경']].map(([key, label]) => (
           <button
             key={key}
             type="button"
@@ -525,6 +529,8 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
 
       {scope === 'rental' ? (
         <RentalNoticeList showToast={showToast} currentUser={currentUser} reloadKey={rentalReload} />
+      ) : scope === 'driver' ? (
+        <DriverChangeList items={items} loading={loading} currentUser={currentUser} showToast={showToast} onChanged={fetchNotices} onOpenFact={setFactFor} />
       ) : (<>
 
       {/* 고객이 내기로 한 건 중 기한이 코앞이거나 지난 것. 자동으로 넘기지 않고 사람에게 묻는다. */}
@@ -810,7 +816,20 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                         </div>
                       )}
                     </td>
-                    <td style={{ ...tdStyle, fontWeight: '700', color: 'var(--primary)' }}>{x.plateNo || '-'}</td>
+                    <td style={{ ...tdStyle, fontWeight: '700', color: 'var(--primary)' }}>
+                      {x.plateNo || '-'}
+                      {/* 운전자 변경 때 관공서에 낼 계약사실 증명원(차량번호·차대번호) */}
+                      {x.contractId && (
+                        <button
+                          type="button"
+                          onClick={() => setFactFor(x)}
+                          title="이 차의 계약사실 증명원을 열거나 만들어 저장합니다"
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.15rem', marginTop: '0.15rem', border: 'none', background: 'none', padding: 0, color: '#047857', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                        >
+                          <ScrollText size={11} /> 계약사실 증명원
+                        </button>
+                      )}
+                    </td>
                     <td style={tdStyle}>
                       {x.kind}
                       {x.noticeNo && (
@@ -1056,6 +1075,23 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
         서류와 기록은 지워지지 않습니다.
       </div>
       </>)}
+
+      {factFor && (
+        <div onClick={() => setFactFor(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1100, display: 'flex', justifyContent: 'center', padding: '1rem', overflow: 'auto' }}>
+          <div onClick={(ev) => ev.stopPropagation()} style={{ width: 'min(1100px, 100%)', margin: 'auto 0' }}>
+            <div style={{ background: '#fff', borderRadius: '10px 10px 0 0', padding: '0.6rem 1rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              <b style={{ color: 'var(--text-bright)' }}>계약사실 증명원</b> · 고지서 {factFor.plateNo} {factFor.kind} (위반일 {ymd(factFor.occurredAt)})
+            </div>
+            <ContractFactView
+              showToast={showToast}
+              currentUser={currentUser}
+              contractId={factFor.contractId}
+              plateNo={factFor.plateNo}
+              onClose={() => setFactFor(null)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

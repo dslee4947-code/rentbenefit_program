@@ -2372,7 +2372,7 @@ export const updateRoundAttachment = async (req, res) => {
  * 규칙이 두 벌이면 한쪽만 고쳐 놓고 왜 결과가 다른지 한참 찾게 된다.
  *
  * @param {object} att 고지서 첨부 (mongoose 서브도큐먼트)
- * @param {object} body 바꿀 내용 (noticeStatus, handling, driverName, driverPhone, transferAgency)
+ * @param {object} body 바꿀 내용 (noticeStatus, handling, driverName, driverPhone, driverAddress, transferAgency)
  * @returns {string} 바뀐 단계
  */
 const applyNoticeStatus = (att, body = {}) => {
@@ -2389,6 +2389,7 @@ const applyNoticeStatus = (att, body = {}) => {
 
   if (body.driverName !== undefined) att.driverName = String(body.driverName).trim();
   if (body.driverPhone !== undefined) att.driverPhone = String(body.driverPhone).trim();
+  if (body.driverAddress !== undefined) att.driverAddress = String(body.driverAddress).trim();
   if (body.transferAgency !== undefined) {
     att.transferAgency = String(body.transferAgency).trim();
     if (att.transferAgency && !att.transferSentAt) att.transferSentAt = new Date();
@@ -2454,6 +2455,36 @@ export const updateAttachmentNoticeStatus = async (req, res) => {
       message: `${NOTICE_STATUS_MESSAGE[status] || status}로 표시했습니다.`
         + (billed ? ` ${round.no}회차 청구액에 들어갑니다.` : ` ${round.no}회차 청구액에서 뺐습니다.`)
     });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 운전자(임차인) 정보만 적는다. 고지서 관리 > 운전자 변경 탭.
+ *
+ * 운전자 변경은 관공서 양식에 운전자를 적어 보내는 일이라 금액·단계와 상관없다.
+ * 그래서 이미 청구서를 발행한 회차여도 적을 수 있게 단계 바꾸기와 따로 둔다.
+ * 아직 운전자를 모르는 단계(접수·안내)에서 이름을 적으면 '운전자확인'으로 넘긴다.
+ *
+ * @route PATCH /api/billing-schedules/:id/rounds/:no/attachments/:index/driver
+ */
+export const updateAttachmentDriver = async (req, res) => {
+  try {
+    const schedule = await BillingSchedule.findById(req.params.id);
+    if (!schedule) return res.status(404).json({ success: false, message: '회차표를 찾을 수 없습니다.' });
+    const round = schedule.rounds.find((r) => r.no === Number(req.params.no));
+    const att = round?.attachments[Number(req.params.index)];
+    if (!att) return res.status(404).json({ success: false, message: '해당 고지서가 없습니다.' });
+
+    ['driverName', 'driverPhone', 'driverAddress'].forEach((k) => {
+      if (req.body[k] !== undefined) att[k] = String(req.body[k] || '').trim();
+    });
+    const moved = att.driverName && ['접수', '안내'].includes(att.noticeStatus || '접수') && !round.issuedAt;
+    if (moved) att.noticeStatus = '운전자확인';
+    await schedule.save();
+    if (moved) await syncNoticeSchedule(att, schedule._id, round.no, att.noticeStatus);
+    res.json({ success: true, attachment: att, message: `운전자 정보를 저장했습니다.${moved ? ' 단계를 운전자 확인으로 옮겼습니다.' : ''}` });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

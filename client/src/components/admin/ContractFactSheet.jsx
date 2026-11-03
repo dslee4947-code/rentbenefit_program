@@ -85,11 +85,11 @@ function Page({ children, last }) {
   );
 }
 
-function FactPage({ data, doc }) {
+function FactPage({ data, doc, last }) {
   const p = data.party;
   const ins = doc.insurance || {};
   return (
-    <Page>
+    <Page last={last}>
       <Header title="계약사실 증명원(개인/법인)" />
 
       <Section title="1. 고객 정보">
@@ -269,17 +269,18 @@ function SchedulePages({ data, doc, isLastDoc }) {
 }
 
 /**
- * @param {{ data: object, innerRef?: any }} props data = 서버의 buildDeliveryDocs 결과
+ * @param {{ data: object, innerRef?: any, parts?: 'both'|'fact'|'schedule' }} props
+ *   data = 서버의 buildDeliveryDocs 결과. parts로 계약사실 증명원만, 상환스케쥴표만 그릴 수 있다(기본은 둘 다).
  */
-export default function ContractFactSheet({ data, innerRef }) {
+export default function ContractFactSheet({ data, innerRef, parts = 'both' }) {
   if (!data) return null;
   const docs = data.docs || [];
   return (
     <div ref={innerRef} className="print-fit" style={{ width: `${PAGE_W}px`, background: '#fff' }}>
       {docs.map((doc, i) => (
         <div key={doc.vehicleId}>
-          <FactPage data={data} doc={doc} />
-          <SchedulePages data={data} doc={doc} isLastDoc={i === docs.length - 1} />
+          {parts !== 'schedule' && <FactPage data={data} doc={doc} last={parts === 'fact' && i === docs.length - 1} />}
+          {parts !== 'fact' && <SchedulePages data={data} doc={doc} isLastDoc={i === docs.length - 1} />}
         </div>
       ))}
     </div>

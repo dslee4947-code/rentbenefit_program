@@ -18,6 +18,7 @@ import {
   toggleRoundUnpaid,
   updateRoundAttachment,
   updateAttachmentNoticeStatus,
+  updateAttachmentDriver,
   getOverdueNotices,
   getFineNotices,
   sendNoticeMail,
@@ -81,5 +82,6 @@ router.patch('/:id/rounds/:no/attachments/:index', checkWritePermission, updateR
 router.post('/:id/rounds/:no/attachments/:index/notify', checkWritePermission, sendNoticeMail);
 // 고객이 직접 낸 고지서 표시 (청구액에서 빼되 기록은 남긴다)
 router.patch('/:id/rounds/:no/attachments/:index/notice-status', checkWritePermission, updateAttachmentNoticeStatus);
+router.patch('/:id/rounds/:no/attachments/:index/driver', checkWritePermission, updateAttachmentDriver);
 
 export default router;

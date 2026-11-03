@@ -220,6 +220,7 @@ export const collectNotices = async () => {
           paidByUsAt: att.paidByUsAt || null,
           driverName: att.driverName || '',
           driverPhone: att.driverPhone || '',
+          driverAddress: att.driverAddress || '',
           transferAgency: att.transferAgency || '',
           transferSentAt: att.transferSentAt || null,
           transferDoneAt: att.transferDoneAt || null,

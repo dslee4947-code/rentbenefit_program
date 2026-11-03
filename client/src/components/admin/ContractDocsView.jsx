@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { FileSignature, Upload, RefreshCw, Save, CheckCircle2, Unlock, Search, Download, ArrowLeft, BookOpen, Trash2 } from 'lucide-react';
-import { buildReadableTerms, readableTermsText, FIELD_GROUPS, SOURCE_LABEL } from './contractSheetUtils.js';
+import { buildReadableTerms, readableTermsText, FIELD_GROUPS, HIDDEN_FIELDS, SOURCE_LABEL } from './contractSheetUtils.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -155,11 +155,11 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
   if (!doc || !template) return <div style={{ padding: '2rem', ...small }}>불러오는 중...</div>;
   const locked = doc.status === '확정' || !canWrite;
   const fieldByKey = Object.fromEntries((template.fields || []).map((f) => [f.key, f]));
-  const grouped = new Set(FIELD_GROUPS.flatMap((g) => g.keys));
+  const grouped = new Set([...FIELD_GROUPS.flatMap((g) => g.keys), ...HIDDEN_FIELDS]);
   const groups = [...FIELD_GROUPS, { title: '기타', keys: (template.fields || []).map((f) => f.key).filter((k) => !grouped.has(k)) }]
     .map((g) => ({ ...g, keys: g.keys.filter((k) => fieldByKey[k]) }))
     .filter((g) => g.keys.length);
-  const emptyCount = (template.fields || []).filter((f) => !String(values[f.key] || '').trim()).length;
+  const emptyCount = (template.fields || []).filter((f) => !HIDDEN_FIELDS.includes(f.key) && !String(values[f.key] || '').trim()).length;
   const dirtyCount = Object.keys(dirty).length;
   const sourceTag = (key) => {
     const source = dirty[key] !== undefined ? 'manual' : doc.sources?.[key];

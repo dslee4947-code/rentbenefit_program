@@ -118,7 +118,11 @@ export const buildContractPdf = async ({ template, base, values, documentDate, n
   const regular = await pdf.embedFont(fonts.regular, { subset: SUBSET, features: NO_FEATURES });
   const bold = await pdf.embedFont(fonts.bold, { subset: SUBSET, features: NO_FEATURES });
   const pages = pdf.getPages();
-  const { resolve, sheetCells } = makeResolver(template, values || {}, documentDate);
+  // 자손은 엑셀 '법인정보'에 두 번(B34·B38) 있고 같은 값이다. 계약서에는 B38(personalInjury_2)이 찍히므로
+  // 화면에서 하나만 입력받은 값(personalInjury)을 늘 그 칸에 넣는다. 예전에 두 칸을 따로 고친 계약서도 첫 칸이 기준
+  const merged = { ...(values || {}) };
+  if (String(merged.personalInjury ?? '').trim()) merged.personalInjury_2 = merged.personalInjury;
+  const { resolve, sheetCells } = makeResolver(template, merged, documentDate);
   const styles = template.styles || [];
 
   for (const f of base.map.fields || []) {

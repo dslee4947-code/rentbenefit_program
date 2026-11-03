@@ -239,7 +239,9 @@ export const updateDocument = async (req, res) => {
     const doc = await ContractDocument.findById(req.params.id);
     if (!doc) return res.status(404).json({ success: false, message: '계약서를 찾을 수 없습니다.' });
     if (doc.status === '확정') return res.status(409).json({ success: false, message: '확정된 계약서입니다. [확정 풀기]를 누른 뒤 고쳐 주세요.' });
-    const incoming = req.body.values || {};
+    const incoming = { ...(req.body.values || {}) };
+    // 자손은 양식에 두 칸(같은 값). 화면은 하나만 고치므로 둘째 칸도 같이 맞춘다
+    if (incoming.personalInjury !== undefined) incoming.personalInjury_2 = incoming.personalInjury;
     if (hasResidentNo(incoming)) {
       return res.status(400).json({ success: false, message: '주민등록번호는 저장할 수 없습니다. 개인 고객은 그 칸을 비워 두고 서명 때 직접 적게 해 주세요.' });
     }

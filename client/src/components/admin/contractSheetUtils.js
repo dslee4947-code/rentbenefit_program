@@ -7,8 +7,12 @@ export const FIELD_GROUPS = [
   { title: '출금 계좌(CMS)', keys: ['bankName', 'bankAccount', 'bankHolder'] },
   { title: '차량', keys: ['carModel', 'origin', 'quantity', 'exteriorColor', 'interiorColor', 'options'] },
   { title: '계약 조건', keys: ['termMonths', 'carPrice', 'monthlyFee', 'deposit', 'advancePayment', 'takeoverPrice', 'annualMileage', 'penaltyRate', 'overdueRate'] },
-  { title: '보험·정비', keys: ['propertyLimit', 'personalInjury', 'personalInjury_2', 'uninsuredInjury', 'deductible', 'emergencyService', 'maintenance', 'tire'] }
+  { title: '보험·정비', keys: ['propertyLimit', 'personalInjury', 'uninsuredInjury', 'deductible', 'emergencyService', 'maintenance', 'tire'] }
 ];
+
+// 화면에 따로 보이지 않는 칸. 엑셀 '법인정보'에 자손이 두 번(B34·B38) 있는데 같은 값이다(둘 다 차량관리 57열).
+// 계약서에 찍히는 것은 B38(2장 보험표)뿐이라, 자손 하나만 입력받고 서버가 둘째 칸에 같은 값을 넣는다.
+export const HIDDEN_FIELDS = ['personalInjury_2'];
 
 // ───────── 약관 읽기 쉬운 본 ─────────
 // 엑셀은 칸 폭에 맞추려고 문장 중간에서 줄을 바꿔 두었다(줄 끝이 띄어쓰기로 끝난다).

@@ -578,26 +578,6 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
                   {r.overAge ? '한도 초과로 제외' : '넣기'}
                 </label>
               ))}
-              {isExt && inputRow('연장 계약서', (o, i, r) => {
-                const why = extensionBlocked(r);
-                const small = { ...btn(false), padding: '0.3rem 0.5rem', fontSize: '0.76rem', width: '100%', justifyContent: 'center', opacity: why ? 0.5 : 1 };
-                return (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                    {canWrite && (
-                      <button type="button" title={why || '이 안으로 장기렌트 계약서를 만들어 전자계약서 화면에서 고쳐 쓰기'} onClick={() => writeExtensionContract(r, i)} disabled={docBusy === `w${i}`} style={{ ...small, ...(why ? {} : { background: '#2563eb', color: '#fff', borderColor: '#2563eb' }) }}>
-                        <FileSignature size={13} /> {docBusy === `w${i}` ? '만드는 중…' : '계약서 작성'}
-                      </button>
-                    )}
-                    <button type="button" title={why || '이 안으로 연장 계약서 PDF 만들기'} onClick={() => downloadExtensionContract(r, i)} disabled={docBusy === i} style={small}>
-                      <FileDown size={13} /> {docBusy === i ? '만드는 중…' : '계약서 PDF'}
-                    </button>
-                    <button type="button" title={why || '서명 완료본을 올려 연장 반영'} onClick={() => { if (why) { showToast?.(why, 'error'); return; } setExtendWith(extensionTerms(r)); }} style={small}>
-                      <CalendarPlus size={13} /> 연장 반영
-                    </button>
-                  </div>
-                );
-              })}
-
               {calcRow('차량가격', (c) => won(c.vehiclePrice))}
               {calcRow('조달원금', (c) => won(c.fundingPrincipal))}
               {calcRow('이자부담율', (c) => pct(c.interestRate, 2))}
@@ -628,15 +608,52 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
           <button type="button" onClick={downloadPdf} style={btn(false)}><FileDown size={15} /> PDF 내려받기</button>
           <button type="button" onClick={printSheet} style={btn(true)}><Printer size={15} /> 인쇄 (PDF 보관)</button>
         </div>
-        {isExt && (
-          <div style={{ marginTop: '0.6rem', fontSize: '0.76rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-            연장 계약 순서: 고객이 안을 고르면 위 표의 <b>[계약서 작성]</b>으로 장기렌트 계약서를 만들어 전자계약서 화면에서 칸을 확인·수정하고 PDF를 받습니다(고칠 것 없으면 <b>[계약서 PDF]</b>로 바로 받기) → 모두싸인으로 서명 → 서명 완료본을 <b>[연장 반영]</b>에 올리면 새 계약번호로 연장되고 청구·원장에 반영됩니다. 그 계약서는 새 계약의 전자계약서가 됩니다.
-            연장 계약서는 약관 제2조③에 따라 신차와 같은 전체 계약서입니다(개인정보·신용조회 동의서는 갱신에도 유효해 다시 받지 않아도 됩니다).
-          </div>
-        )}
       </div>
 
-      {/* 6. 고객용 견적서 (A4 한 장) */}
+      {/* 6. 연장 계약서 — 조건을 다 정한 뒤 누르도록 맨 아래에 안마다 한 줄로 둔다(대표님 2026-11-03 "중간에 있어 찾기 어렵다") */}
+      {isExt && (
+        <div style={{ ...card, border: '2px solid #2563eb' }} className="no-print">
+          <div style={cardTitle}><FileSignature size={17} style={{ color: '#2563eb' }} /> 연장 계약서 만들기</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {rows.map((r, i) => {
+              const why = extensionBlocked(r);
+              const b = (solid) => ({ ...btn(false), opacity: why ? 0.5 : 1, ...(solid && !why ? { background: '#2563eb', color: '#fff', border: 'none' } : {}) });
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap', padding: '0.6rem 0.8rem', borderRadius: '8px', background: 'var(--bg-main)' }}>
+                  <div style={{ flex: '1 1 260px', fontSize: '0.86rem' }}>
+                    <b style={{ fontSize: '0.95rem' }}>{i + 1}안</b>
+                    <span style={{ marginLeft: '0.6rem' }}>{r.calc.months || '-'}개월 · 월 <b>{won(r.calc.monthlyFee)}원</b> · 인수가 {won(r.calc.takeoverPrice)}원{r.opt.maintenance ? ' · 정비 포함' : ''}</span>
+                    {why && <div style={{ fontSize: '0.74rem', color: '#b45309', marginTop: '0.15rem' }}>{why}</div>}
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                    {canWrite && (
+                      <button type="button" title={why || '이 안으로 장기렌트 계약서를 만들어 전자계약서 화면에서 고쳐 쓰기'} onClick={() => writeExtensionContract(r, i)} disabled={docBusy === `w${i}`} style={b(true)}>
+                        <FileSignature size={14} /> {docBusy === `w${i}` ? '만드는 중…' : '계약서 작성'}
+                      </button>
+                    )}
+                    <button type="button" title={why || '이 안으로 연장 계약서 PDF 바로 받기'} onClick={() => downloadExtensionContract(r, i)} disabled={docBusy === i} style={b(false)}>
+                      <FileDown size={14} /> {docBusy === i ? '만드는 중…' : '계약서 PDF'}
+                    </button>
+                    <button type="button" title={why || '서명 완료본을 올려 연장 반영'} onClick={() => { if (why) { showToast?.(why, 'error'); return; } setExtendWith(extensionTerms(r)); }} style={b(false)}>
+                      <CalendarPlus size={14} /> 연장 반영
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <ol style={{ margin: '0.7rem 0 0', paddingLeft: '1.2rem', fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
+            <li>고객이 고른 안의 <b>[계약서 작성]</b> → 전자계약서 화면에서 칸을 확인·수정하고 PDF를 받습니다. 고칠 것이 없으면 <b>[계약서 PDF]</b>로 바로 받아도 됩니다.</li>
+            <li>모두싸인으로 서명을 받습니다.</li>
+            <li>서명 완료본을 <b>[연장 반영]</b>에 올리면 새 계약번호로 연장되고 청구·원장에 반영됩니다. 작성한 계약서는 새 계약의 전자계약서가 됩니다.</li>
+          </ol>
+          <div style={{ marginTop: '0.3rem', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+            연장 계약서는 약관 제2조③에 따라 신차와 같은 전체 계약서입니다(개인정보·신용조회 동의서는 갱신에도 유효해 다시 받지 않아도 됩니다).
+          </div>
+        </div>
+      )}
+
+      {/* 7. 고객용 견적서 (A4 한 장) */}
       <div className="print-fit-scroll m-fit-outer" ref={sheetOuterRef} style={{ overflowX: 'auto', ...fit.outer }}>
         <div ref={sheetRef} className={`used-rent-print-area print-fit m-doc${fit.outer ? ' m-fitted' : ''}`}
           style={{ width: `${SHEET_WIDTH_PX}px`, height: `${SHEET_HEIGHT_PX}px`, margin: '0 auto', background: '#fff', padding: `${SHEET_MARGIN_PX}px`, color: '#000', fontFamily: "'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif", fontSize: '0.76rem', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden', boxShadow: '0 0 0 1px var(--border-color)', ...fit.inner }}>

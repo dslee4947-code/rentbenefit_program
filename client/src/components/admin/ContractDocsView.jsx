@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { FileSignature, Upload, RefreshCw, Save, CheckCircle2, Unlock, Search, Download, ArrowLeft, BookOpen } from 'lucide-react';
+import { FileSignature, Upload, RefreshCw, Save, CheckCircle2, Unlock, Search, Download, ArrowLeft, BookOpen, Trash2 } from 'lucide-react';
 import { buildReadableTerms, readableTermsText, FIELD_GROUPS, SOURCE_LABEL } from './contractSheetUtils.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -41,8 +41,8 @@ const input = { width: '100%', padding: '0.35rem 0.45rem', borderRadius: '6px', 
 // 계약서 체크 칸(엑셀 입력 칸 밖). 서버 utils/contractPdf.js가 이 값으로 V를 찍는다.
 const CHECK_FIELDS = [
   { key: 'payDay', label: '대여료 결제일', options: ['5', '10', '15', '25', '말일'], suffix: (v) => (v === '말일' ? '' : '일') },
-  { key: 'driverScope', label: '운전자 범위', options: ['법인', '개인'] },
-  { key: 'blackbox', label: '블랙박스 장착', options: ['장착', '장착하지 않음'] }
+  { key: 'driverScope', label: '운전자 범위', options: ['법인', '개인'] }
+  // 블랙박스는 늘 '장착'으로 찍는다(안 달고 나가는 차가 없다, 대표님 2026-11-03). 서버 utils/contractPdf.js
 ];
 
 /**
@@ -126,6 +126,20 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
     if (!reopen && !window.confirm('계약서를 확정할까요? 확정하면 [확정 풀기]를 누르기 전까지 고칠 수 없습니다.')) return;
     call(`${API_HOST}/api/contract-documents/${docId}/confirm`, 'POST', { reopen });
   };
+  const remove = async () => {
+    if (!window.confirm(`${contractNoOf(doc)} 전자계약서를 지울까요? 계약과 서명 완료본은 그대로 남고, 계약서는 나중에 다시 만들 수 있습니다.`)) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_HOST}/api/contract-documents/${docId}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      showToast?.(data.message || (data.success ? '지웠습니다.' : '지우지 못했습니다.'), data.success ? 'success' : 'error');
+      if (data.success) onBack();
+    } catch {
+      showToast?.('서버 통신 오류가 발생했습니다.', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
   const download = () => {
     if (!pdf.url) return;
     const a = document.createElement('a');
@@ -167,6 +181,7 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
           {canWrite && doc.status !== '확정' && <button type="button" disabled={busy} onClick={() => confirm(false)} style={btn('#15803d', true)}><CheckCircle2 size={13} /> 확정</button>}
           {canWrite && doc.status === '확정' && <button type="button" disabled={busy} onClick={() => confirm(true)} style={btn('#a16207')}><Unlock size={13} /> 확정 풀기</button>}
           <button type="button" disabled={!pdf.url} onClick={download} style={btn('#0f172a', true)}><Download size={13} /> PDF 받기</button>
+          {canWrite && doc.status !== '확정' && <button type="button" disabled={busy} onClick={remove} style={btn('#dc2626')} title="이 전자계약서를 지웁니다. 계약은 그대로입니다."><Trash2 size={13} /> 삭제</button>}
         </div>
       </div>
 
@@ -541,6 +556,18 @@ function DocumentsPanel({ showToast, canWrite, onOpen }) {
     onOpen(data.document._id);
   };
 
+  const remove = async (d) => {
+    if (!window.confirm(`${contractNoOf(d)} 전자계약서를 지울까요? 계약과 서명 완료본은 그대로 남고, 계약서는 나중에 다시 만들 수 있습니다.`)) return;
+    try {
+      const res = await fetch(`${API_HOST}/api/contract-documents/${d._id}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      showToast?.(data.message || (data.success ? '지웠습니다.' : '지우지 못했습니다.'), data.success ? 'success' : 'error');
+      if (data.success) setDocs((prev) => prev.filter((x) => x._id !== d._id));
+    } catch {
+      showToast?.('서버 통신 오류가 발생했습니다.', 'error');
+    }
+  };
+
   const q = query.replace(/\s+/g, '').toLowerCase();
   const docByContract = new Map(docs.filter((d) => !d.extensionPending).map((d) => [String(d.contract?._id), d]));
   const matches = q ? contracts.filter((c) => [c.contractNo, c.customer?.name, c.companyId?.name, c.vehicle?.carModel, c.vehicle?.plateNo]
@@ -591,7 +618,13 @@ function DocumentsPanel({ showToast, canWrite, onOpen }) {
                 </td>
                 <td style={{ padding: '0.5rem 0.6rem', ...small }}>{d.templateName} v{d.templateVersion}</td>
                 <td style={{ padding: '0.5rem 0.6rem', ...small }}>{ymd(d.updatedAt)} {d.updatedBy || d.createdBy}</td>
-                <td style={{ padding: '0.5rem 0.6rem' }}><FileSignature size={14} /></td>
+                <td style={{ padding: '0.5rem 0.6rem', whiteSpace: 'nowrap' }}>
+                  <FileSignature size={14} />
+                  {canWrite && d.status !== '확정' && (
+                    <button type="button" title="이 전자계약서 지우기" onClick={(e) => { e.stopPropagation(); remove(d); }}
+                      style={{ marginLeft: '0.5rem', border: 'none', background: 'none', cursor: 'pointer', color: '#dc2626', verticalAlign: '-2px' }}><Trash2 size={14} /></button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

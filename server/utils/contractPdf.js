@@ -159,7 +159,8 @@ export const buildContractPdf = async ({ template, base, values, documentDate, n
   const payDay = String(values?.payDay || '').replace(/일$/, '');
   if (payDay) mark(checks.payDay?.[payDay === '말' || payDay === '31' ? '말일' : payDay], 2);
   if (values?.driverScope) mark(checks.driverScope?.[values.driverScope], 2);
-  if (values?.blackbox) mark(checks.blackbox?.[values.blackbox], 3);
+  // 블랙박스는 안 달고 나가는 차가 없어 늘 '장착'에 V(대표님 2026-11-03). 화면에서도 고르는 칸을 뺐다
+  mark(checks.blackbox?.['장착'], 3);
 
   for (const n of notes) {
     const page = pages[n.page - 1];

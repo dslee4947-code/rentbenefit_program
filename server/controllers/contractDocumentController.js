@@ -328,6 +328,28 @@ export const getDocumentPdf = async (req, res) => {
   }
 };
 
+/**
+ * 전자계약서를 지운다. 확정된 계약서는 [확정 풀기] 뒤에만 지운다. 계약·서명 완료본은 그대로 둔다.
+ * 지운 뒤 같은 계약에서 [계약서 만들기]를 누르면 계약 정보로 새로 만든다.
+ * @route DELETE /api/contract-documents/:id
+ */
+export const deleteDocument = async (req, res) => {
+  try {
+    const doc = await ContractDocument.findById(req.params.id).populate('contract', 'contractNo');
+    if (!doc) return res.status(404).json({ success: false, message: '계약서를 찾을 수 없습니다.' });
+    if (doc.status === '확정') return res.status(409).json({ success: false, message: '확정된 계약서입니다. [확정 풀기]를 누른 뒤 지워 주세요.' });
+    const contractNo = (doc.extensionPending ? doc.values?.contractNo : '') || doc.contract?.contractNo || '';
+    await ContractDocument.deleteOne({ _id: doc._id });
+    await logActivity({
+      req, dept: '계약·출고부', action: ACTIONS.CONTRACT_TEMPLATE, target: { model: 'ContractDocument', id: doc._id },
+      summary: `전자계약서 삭제 (${contractNo}${doc.extensionOf ? ' · 연장' : ''})`
+    });
+    res.json({ success: true, message: `${contractNo} 전자계약서를 지웠습니다.` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 /** @route POST /api/contract-documents/:id/confirm  { reopen: true면 확정 풀기 } */
 export const confirmDocument = async (req, res) => {
   try {

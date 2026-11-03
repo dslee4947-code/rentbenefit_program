@@ -14,6 +14,7 @@ import {
   updateDocument,
   refreshDocument,
   confirmDocument,
+  deleteDocument,
   getDocumentPdf
 } from '../controllers/contractDocumentController.js';
 import { checkWritePermission, checkAdminPermission } from '../middleware/roleMiddleware.js';
@@ -39,3 +40,4 @@ documentRouter.post('/', checkWritePermission, createDocument);
 documentRouter.patch('/:id', checkWritePermission, updateDocument);
 documentRouter.post('/:id/refresh', checkWritePermission, refreshDocument);
 documentRouter.post('/:id/confirm', checkWritePermission, confirmDocument);
+documentRouter.delete('/:id', checkWritePermission, deleteDocument);

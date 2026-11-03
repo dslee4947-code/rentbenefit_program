@@ -217,9 +217,9 @@ const ContractSchema = new Schema({
     savedAt: Date,
     savedBy: String
   }],
-  // 저장해 둔 계약종료 확인서(자금팀 > 계약종료 확인서). 중도해지 · 만기 후 인수 · 만기 후 반납
+  // 저장해 둔 계약종료 확인서(자금팀 > 계약종료 확인서). 중도해지 · 만기 후 인수 · 만기 후 반납, guide = 중도해지 위약금 안내문
   endDocs: [{
-    kind: { type: String, enum: ['early', 'takeover', 'return'] },
+    kind: { type: String, enum: ['early', 'takeover', 'return', 'guide'] },
     vehicleId: { type: Schema.Types.ObjectId, ref: 'Vehicle' },
     plateNo: String,
     endDate: String,

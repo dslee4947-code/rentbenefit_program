@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react';
 import { Search, FileText, Download, Save, ExternalLink, X } from 'lucide-react';
 import ContractEndSheet from './ContractEndSheet.jsx';
-import { END_KINDS } from '../../utils/contractEnd.js';
+import EarlyTerminationGuideSheet from './EarlyTerminationGuideSheet.jsx';
+import { END_KINDS, earlyPenalty, ratePctOf } from '../../utils/contractEnd.js';
 import { makeFittedPdf } from '../../utils/printFit.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -11,7 +12,10 @@ const makeSheetPdf = (element) => makeFittedPdf(element, { orientation: 'portrai
 // 숨겨 둔 양식이 이미지까지 자리 잡을 때까지 잠깐 기다린다
 const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
 
-const todayYmd = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+const todayYmd = (plusDays = 0) => new Date(Date.now() + 9 * 3600e3 + plusDays * 864e5).toISOString().slice(0, 10);
+// 중도해지는 해지예정일 7일 전에 신청해야 해서(약관 제22조 2항) 안내문의 해지예정일은 7일 뒤로 시작한다
+const GUIDE_FORM = () => ({ terminateDate: todayYmd(7), issueDate: todayYmd(), showPenalty: true, ratePct: '' });
+const wonText = (n) => `${(Number(n) || 0).toLocaleString('ko-KR')}원`;
 // 계약에 적힌 종료 사유로 처음 고를 구분을 정한다
 const KIND_OF_REASON = { 중도해지: 'early', 인수: 'takeover', 반납: 'return' };
 
@@ -21,13 +25,17 @@ const KIND_OF_REASON = { 중도해지: 'early', 인수: 'takeover', 반납: 'ret
  * 계약이 끝나고 정산까지 마친 고객에게 보내는 서류다. 계약을 찾아 차와 종료 구분
  * (중도해지 · 만기 후 인수 · 만기 후 반납)을 고르고, PDF로 받거나 계약서 폴더에 저장한다.
  * 메일은 보내지 않는다. 고객에게는 받은 PDF로 직접 보낸다.
+ *
+ * mode='guide'면 같은 화면으로 중도해지 위약금 안내문을 만든다(자금팀 > 중도해지 위약금 안내).
+ * 중도해지를 묻는 고객에게 해지예정일 기준 예상 위약금과 절차를 안내하는 서류다.
  */
-export default function ContractEndView({ showToast, currentUser }) {
+export default function ContractEndView({ showToast, currentUser, mode = 'end' }) {
+  const guide = mode === 'guide';
   const [query, setQuery] = useState('');
   const [found, setFound] = useState(null);
   const [open, setOpen] = useState(null); // buildDeliveryDocs 결과
   const [vehicleId, setVehicleId] = useState(''); // '' = 계약의 차 전체
-  const [form, setForm] = useState({ kind: 'return', endDate: '', pickupAddress: '', phone: '', issueDate: todayYmd() });
+  const [form, setForm] = useState(guide ? GUIDE_FORM() : { kind: 'return', endDate: '', pickupAddress: '', phone: '', issueDate: todayYmd() });
   const [busy, setBusy] = useState(false);
   const sheetRef = useRef(null);
   const canEdit = currentUser?.role !== 'viewer';
@@ -42,7 +50,7 @@ export default function ContractEndView({ showToast, currentUser }) {
     const d = data.data;
     const kind = KIND_OF_REASON[d.ending?.endReason] || 'return';
     setOpen(d);
-    setForm({ kind, endDate: defaultDate(d, kind), pickupAddress: d.party.address || '', phone: d.party.phone || '', issueDate: todayYmd() });
+    setForm(guide ? GUIDE_FORM() : { kind, endDate: defaultDate(d, kind), pickupAddress: d.party.address || '', phone: d.party.phone || '', issueDate: todayYmd() });
     const norm = (v) => String(v || '').replace(/\s+/g, '');
     const hit = plate ? d.docs.find((x) => norm(x.plateNo) === norm(plate)) : null;
     setVehicleId(hit?.vehicleId || (d.docs.length === 1 ? d.docs[0].vehicleId : ''));
@@ -65,8 +73,14 @@ export default function ContractEndView({ showToast, currentUser }) {
   const lacking = [];
   docs.forEach((d) => { if (!d.plateNo) lacking.push(`${d.code || d.carModel} 차량번호`); });
   if (open && !docs.length) lacking.push('계약에 묶인 차량');
-  if (open && !/^\d{4}-\d{2}-\d{2}$/.test(form.endDate)) lacking.push(END_KINDS[form.kind].dateLabel);
-  const unpaid = open?.ending?.unpaidRounds || [];
+  if (open && !guide && !/^\d{4}-\d{2}-\d{2}$/.test(form.endDate)) lacking.push(END_KINDS[form.kind].dateLabel);
+  if (open && guide && form.showPenalty) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(form.terminateDate)) lacking.push('해지예정일');
+    if (docs.some((d) => !ratePctOf(d, form.ratePct))) lacking.push('위약금율(계약에 없음 — 화면에 적어 주세요)');
+  }
+  const unpaid = guide ? [] : open?.ending?.unpaidRounds || [];
+  // 안내문 화면 왼쪽에 보여 줄 예상 위약금 합계
+  const penaltyTotal = guide ? docs.reduce((s, d) => s + (earlyPenalty({ monthlyFee: d.monthlyFee, endDate: d.endDate, terminateDate: form.terminateDate, ratePct: ratePctOf(d, form.ratePct) })?.penalty || 0), 0) : 0;
 
   const buildPdf = async () => {
     await settle();
@@ -74,7 +88,7 @@ export default function ContractEndView({ showToast, currentUser }) {
     return makeSheetPdf(sheetRef.current);
   };
 
-  const fileTitle = () => `계약종료확인서_${END_KINDS[form.kind].label.replace(/\s+/g, '')}_${open.party.name}_${docs.map((d) => d.plateNo || d.code).join(',')}.pdf`;
+  const fileTitle = () => guide ? `중도해지안내문_${open.party.name}_${docs.map((d) => d.plateNo || d.code).join(',')}.pdf` : `계약종료확인서_${END_KINDS[form.kind].label.replace(/\s+/g, '')}_${open.party.name}_${docs.map((d) => d.plateNo || d.code).join(',')}.pdf`;
 
   const download = async () => {
     setBusy(true);
@@ -99,8 +113,8 @@ export default function ContractEndView({ showToast, currentUser }) {
       const blob = await buildPdf();
       const fd = new FormData();
       fd.append('file', blob, 'contract-end.pdf');
-      fd.append('kind', form.kind);
-      fd.append('endDate', form.endDate);
+      fd.append('kind', guide ? 'guide' : form.kind);
+      fd.append('endDate', guide ? form.terminateDate : form.endDate);
       if (vehicleId) fd.append('vehicleId', vehicleId);
       const res = await fetch(`${API_HOST}/api/delivery-docs/${open.contractId}/end-docs`, { method: 'POST', headers, body: fd }).then((r) => r.json());
       showToast?.(res.message || (res.success ? '저장했습니다.' : '저장하지 못했습니다.'), res.success ? 'success' : 'error');
@@ -121,7 +135,8 @@ export default function ContractEndView({ showToast, currentUser }) {
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
-  const savedDocs = (open?.endDocs || []).filter((f) => !vehicleId || f.vehicleId === vehicleId);
+  const savedDocs = (open?.endDocs || []).filter((f) => (!vehicleId || f.vehicleId === vehicleId) && (f.kind === 'guide') === guide);
+  const Sheet = guide ? EarlyTerminationGuideSheet : ContractEndSheet;
 
   const btn = (bg, color = '#fff') => ({ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', background: bg, color, border: bg === '#fff' ? '1px solid var(--border-color)' : 'none', borderRadius: '6px', padding: '0.45rem 0.8rem', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' });
   const input = { width: '100%', padding: '0.45rem 0.55rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.82rem', boxSizing: 'border-box' };
@@ -131,8 +146,13 @@ export default function ContractEndView({ showToast, currentUser }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div style={card}>
         <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: '0.6rem' }}>
-          계약이 끝나고 <b>정산까지 마친 고객</b>에게 보내는 계약종료 확인서입니다. 계약을 찾아
-          <b> 중도해지 · 만기 후 인수 · 만기 후 반납</b> 중 하나를 고르면 문구가 맞춰 바뀝니다. 메일은 보내지 않습니다.
+          {guide ? (
+            <>중도해지를 묻는 고객에게 보내는 <b>중도해지 위약금 안내문</b>입니다. 계약을 찾아 <b>해지예정일</b>을 넣으면
+              그날 해지할 때의 <b>예상 위약금</b>과 절차·정산 기준이 들어갑니다. 메일은 보내지 않습니다.</>
+          ) : (
+            <>계약이 끝나고 <b>정산까지 마친 고객</b>에게 보내는 계약종료 확인서입니다. 계약을 찾아
+              <b> 중도해지 · 만기 후 인수 · 만기 후 반납</b> 중 하나를 고르면 문구가 맞춰 바뀝니다. 메일은 보내지 않습니다.</>
+          )}
         </div>
         <form onSubmit={search} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="계약자(법인·고객) 이름 · 계약번호 · 차량번호" style={{ ...input, width: '320px', maxWidth: '100%' }} />
@@ -178,7 +198,30 @@ export default function ContractEndView({ showToast, currentUser }) {
               </select>
             </label>
 
-            <div>
+            {guide && (
+              <>
+                {[
+                  ['terminateDate', '해지(반납) 예정일', 'date', ''],
+                  ['ratePct', '위약금율 (%)', 'text', `비우면 계약 값(${[...new Set(docs.map((d) => d.earlyRate || '없음'))].join(', ')})`],
+                  ['issueDate', '발행일', 'date', '']
+                ].map(([k, label, type, ph]) => (
+                  <label key={k}>
+                    <div style={{ fontWeight: 700, marginBottom: '0.2rem' }}>{label}</div>
+                    <input type={type} value={form[k] || ''} placeholder={ph} onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))} style={input} />
+                  </label>
+                ))}
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={form.showPenalty} onChange={(e) => setForm((f) => ({ ...f, showPenalty: e.target.checked }))} /> 예상 위약금 넣기
+                </label>
+                {form.showPenalty && (
+                  <div style={{ background: 'var(--bg-main)', borderRadius: '8px', padding: '0.5rem 0.6rem' }}>
+                    예상 위약금 <b style={{ color: '#dc2626' }}>{wonText(penaltyTotal)}</b> <span style={{ color: 'var(--text-muted)' }}>(VAT 별도)</span>
+                  </div>
+                )}
+              </>
+            )}
+
+            {!guide && <div>
               <div style={{ fontWeight: 700, marginBottom: '0.3rem' }}>종료 구분</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                 {Object.entries(END_KINDS).map(([k, t]) => (
@@ -187,9 +230,9 @@ export default function ContractEndView({ showToast, currentUser }) {
                   </label>
                 ))}
               </div>
-            </div>
+            </div>}
 
-            {[
+            {!guide && [
               ['endDate', END_KINDS[form.kind].dateLabel, 'date'],
               ...(END_KINDS[form.kind].pickup ? [['pickupAddress', '차량회수지(주소)', 'text']] : []),
               ['phone', '연락처', 'text'],
@@ -228,13 +271,13 @@ export default function ContractEndView({ showToast, currentUser }) {
             </div>
 
             <div style={{ fontSize: '0.75rem', background: 'var(--bg-main)', borderRadius: '8px', padding: '0.5rem 0.6rem' }}>
-              <b>저장해 둔 확인서</b>
+              <b>저장해 둔 {guide ? '안내문' : '확인서'}</b>
               {savedDocs.length === 0 && <div style={{ color: 'var(--text-muted)' }}>아직 저장한 것이 없습니다.</div>}
               {/* 차가 여러 대인 파일은 차마다 기록이 남는다. 같은 파일은 한 줄로 보인다 */}
               {savedDocs.filter((f, i, arr) => arr.findIndex((g) => g.savedPath === f.savedPath) === i).map((f) => (
                 <div key={f._id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.25rem' }}>
                   <span style={{ flex: 1, color: 'var(--text-muted)' }}>
-                    {new Date(f.savedAt).toLocaleDateString('ko-KR')} · {END_KINDS[f.kind]?.label || f.kind} · {f.plateNo}
+                    {new Date(f.savedAt).toLocaleDateString('ko-KR')} · {END_KINDS[f.kind]?.label || `해지예정 ${f.endDate}`} · {f.plateNo}
                   </span>
                   <button type="button" onClick={() => openSaved(f)} title={f.fileName} style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}>
                     <ExternalLink size={12} /> 열기
@@ -247,7 +290,9 @@ export default function ContractEndView({ showToast, currentUser }) {
           {/* 미리보기: 실제 크기를 줄여 보여 준다 */}
           <div style={{ flex: 1, minWidth: '300px', background: '#e5e7eb', borderRadius: '8px', padding: '0.8rem', overflow: 'auto', maxHeight: '80vh' }}>
             <div style={{ zoom: 0.62 }}>
-              <ContractEndSheet data={previewData} form={form} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <Sheet data={previewData} form={form} />
+              </div>
             </div>
           </div>
         </div>
@@ -256,7 +301,7 @@ export default function ContractEndView({ showToast, currentUser }) {
       {/* PDF를 뜨는 원본. 화면 밖에 실제 크기로 그려 둔다(줄인 미리보기로 뜨면 글자가 흐려진다) */}
       {previewData && (
         <div style={{ position: 'fixed', left: '-10000px', top: 0 }} aria-hidden="true">
-          <ContractEndSheet data={previewData} form={form} innerRef={sheetRef} />
+          <Sheet data={previewData} form={form} innerRef={sheetRef} />
         </div>
       )}
     </div>

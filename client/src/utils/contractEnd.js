@@ -37,3 +37,26 @@ export const END_KINDS = {
     ]
   }
 };
+
+const DAY = 864e5;
+const ymdTime = (ymd) => (/^\d{4}-\d{2}-\d{2}$/.test(ymd || '') ? Date.parse(`${ymd}T00:00:00Z`) : NaN);
+
+/**
+ * 중도해지 예상 위약금. 엑셀 '중도해지 정산서 계산식'과 같은 식이다.
+ *   1일 대여료 = 월 대여료(VAT 포함) × 12 ÷ 365, 10원 아래 버림
+ *   1일 대여료(VAT 제외) = 1일 대여료 ÷ 1.1 (곱할 때는 끝수를 두고, 보여 줄 때만 반올림)
+ *   위약금 = 1일 대여료(VAT 제외) × 미경과일수(만료일 − 해지일) × 위약금율, 원 아래 버림
+ * @param {{ monthlyFee: number, endDate: string, terminateDate: string, ratePct: number }} p  ratePct = 35 (35%)
+ * @returns {{ days: number, daily: number, dailySupply: number, penalty: number } | null}
+ */
+export const earlyPenalty = ({ monthlyFee, endDate, terminateDate, ratePct }) => {
+  const end = ymdTime(endDate);
+  const term = ymdTime(terminateDate);
+  if (!monthlyFee || !ratePct || Number.isNaN(end) || Number.isNaN(term)) return null;
+  const days = Math.max(0, Math.round((end - term) / DAY));
+  const daily = Math.floor((monthlyFee * 12) / 365 / 10) * 10;
+  return { days, daily, dailySupply: Math.round(daily / 1.1), penalty: Math.floor((daily / 1.1) * days * (ratePct / 100)) };
+};
+
+/** 위약금율(%). 화면에서 적은 값이 우선이고, 없으면 계약 값('35%'처럼 온다) */
+export const ratePctOf = (doc, override) => Number.parseFloat(override) || Number.parseFloat(doc?.earlyRate) || 0;

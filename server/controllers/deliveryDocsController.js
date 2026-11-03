@@ -529,11 +529,12 @@ export const getFactDocFile = async (req, res) => {
   }
 };
 
-const END_KIND_NAME = { early: '계약종료확인서_중도해지', takeover: '계약종료확인서_만기인수', return: '계약종료확인서_만기반납' };
+const END_KIND_NAME = { early: '계약종료확인서_중도해지', takeover: '계약종료확인서_만기인수', return: '계약종료확인서_만기반납', guide: '중도해지안내문' };
 
 /**
  * 계약종료 확인서를 계약서 폴더에 저장한다 (자금팀 > 계약종료 확인서).
  * 중도해지 · 만기 후 인수 · 만기 후 반납으로 정산이 끝난 고객에게 보내는 서류다. 메일은 보내지 않는다.
+ * kind 'guide'는 중도해지 위약금 안내문(자금팀 > 중도해지 위약금 안내)이고, endDate는 해지예정일이다.
  * @route POST /api/delivery-docs/:contractId/end-docs (multipart: file, kind, vehicleId?, endDate)
  */
 export const saveEndDoc = async (req, res) => {
@@ -542,7 +543,7 @@ export const saveEndDoc = async (req, res) => {
     if (!d) return res.status(404).json({ success: false, message: '계약을 찾을 수 없습니다.' });
     if (!req.file) return res.status(400).json({ success: false, message: 'PDF가 없습니다.' });
     const kind = req.body.kind;
-    if (!END_KIND_NAME[kind]) return res.status(400).json({ success: false, message: '종료 구분(중도해지·만기 인수·만기 반납)을 골라 주세요.' });
+    if (!END_KIND_NAME[kind]) return res.status(400).json({ success: false, message: '종료 구분(중도해지·만기 인수·만기 반납·중도해지 안내문)을 골라 주세요.' });
     const vehicleId = String(req.body.vehicleId || '');
     const docs = vehicleId ? d.docs.filter((x) => x.vehicleId === vehicleId) : d.docs;
     if (!docs.length) return res.status(400).json({ success: false, message: '이 계약에 묶인 차량을 찾지 못했습니다.' });

@@ -20,6 +20,7 @@ import { applySupplyPrice, normalizeSellingAdminExpense } from '../utils/vehicle
 import { calculateVehicleProfit } from '../utils/vehicleProfit.js';
 import { getMaintenanceRates } from '../utils/maintenanceRates.js';
 import { excelCellDate } from '../utils/excelDate.js';
+import VehicleLedger from '../models/VehicleLedger.js';
 
 const carModelEngMap = {
   '카니발': 'Carnival',
@@ -493,7 +494,26 @@ export const updateVehicle = async (req, res) => {
     normalizeSellingAdminExpense(req.body);
     applySupplyPrice(req.body);
 
+    // 차량번호가 바뀌면(번호판 분실·재발급 등) 옛 번호를 이력에 남기고, 이 차에 붙은 원장 갑지 머리의 번호도 바꾼다.
+    // 원장은 차량번호가 아니라 이 기록(_id)에 붙어 있어 그대로 이어진다
+    const plateChanged = req.body.plateNo !== undefined && String(req.body.plateNo || '').trim() !== String(vehicle.plateNo || '').trim();
+    if (plateChanged && vehicle.plateNo) {
+      req.body.plateHistory = [...(vehicle.plateHistory || []), { plateNo: vehicle.plateNo, changedAt: new Date(), by: req.user?.name || req.user?.email || '' }];
+    }
+
     await Vehicle.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    if (plateChanged) {
+      try {
+        const set = { 'header.plateNo': req.body.plateNo || '' };
+        await VehicleLedger.updateMany({ vehicle: vehicle._id }, { $set: set });
+        logActivity({
+          req, dept: '차량관리부', action: ACTIONS.VEHICLE_STATUS_CHANGE, target: { model: 'Vehicle', id: vehicle._id },
+          summary: `${vehicle.carModel || ''} 차량번호 변경 ${vehicle.plateNo || '-'} → ${req.body.plateNo || '-'} (차대번호 ${vehicle.vin || '-'}) · 원장 번호도 바꿈`.replace(/\s+/g, ' ')
+        });
+      } catch (err) {
+        console.error(`[차량번호 변경] ${vehicle._id}: 원장 번호를 바꾸지 못했습니다 - ${err.message}`);
+      }
+    }
     // 이익금·이익률(회사수수료)은 저장된 값으로 다시 계산한다
     await refreshVehicleProfit(req.params.id);
     const updatedVehicle = await Vehicle.findById(req.params.id)

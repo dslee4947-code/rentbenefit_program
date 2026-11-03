@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { FileSignature, Upload, RefreshCw, Save, CheckCircle2, Unlock, Search, Download, ArrowLeft, BookOpen, Trash2 } from 'lucide-react';
 import { buildReadableTerms, readableTermsText, FIELD_GROUPS, HIDDEN_FIELDS, SOURCE_LABEL } from './contractSheetUtils.js';
+import ContractExtendDialog from './ContractExtendDialog.jsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -58,6 +59,7 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
   const [dirty, setDirty] = useState({});
   const [busy, setBusy] = useState(false);
   const [pdf, setPdf] = useState({ url: '', error: '', loading: false });
+  const [extendOpen, setExtendOpen] = useState(false);
 
   const loadPdf = useCallback(async () => {
     setPdf((p) => ({ ...p, loading: true, error: '' }));
@@ -202,6 +204,29 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
           {canWrite && doc.status !== '확정' && <button type="button" disabled={busy} onClick={remove} style={btn('#dc2626')} title="이 전자계약서를 지웁니다. 계약은 그대로입니다."><Trash2 size={13} /> 삭제</button>}
         </div>
       </div>
+
+      {doc.extensionPending && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap', padding: '0.7rem 0.9rem', borderRadius: 8, background: '#eef2ff', border: '1px solid #c7d2fe', fontSize: '0.84rem', lineHeight: 1.6 }}>
+          <div style={{ flex: '1 1 320px' }}>
+            <b>연장 반영 전입니다.</b> {doc.extensionTerms?.note}
+            <div style={{ ...small }}>
+              [확정]은 계약서 내용을 굳히는 것이고, 렌트차량 DB·청구·원장은 <b>서명 완료본을 올려 [연장 반영]</b>할 때 바뀝니다.
+              반영하면 이전 계약은 '종료(연장)'로 닫히고 같은 차에 새 계약이 이어지며, 원장에는 연장 구간(보증금 승계)이 붙습니다.
+            </div>
+          </div>
+          {canWrite && (
+            <button type="button" onClick={() => setExtendOpen(true)} style={btn('#4338ca', true)}>연장 반영 (서명 완료본 올리기)</button>
+          )}
+        </div>
+      )}
+      {extendOpen && (
+        <ContractExtendDialog contractId={doc.extensionOf} initial={doc.extensionTerms} showToast={showToast}
+          onClose={() => setExtendOpen(false)}
+          onDone={() => {
+            setExtendOpen(false);
+            fetch(`${API_HOST}/api/contract-documents/${docId}`).then((r) => r.json()).then((data) => { if (data.success) apply(data.document); }).catch(() => {});
+          }} />
+      )}
 
       <div style={{ display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
         <div style={{ width: 330, flexShrink: 0, position: 'sticky', top: 8, maxHeight: 'calc(100vh - 120px)', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 8, background: '#fff', padding: '0.7rem' }}>

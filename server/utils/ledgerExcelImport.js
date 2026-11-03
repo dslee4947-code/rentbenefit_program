@@ -315,7 +315,13 @@ export const importLedgersFromExcel = async (files, { dryRun = false, beforeWrit
   const sheets = readSheets(files);
 
   // 차량 DB 색인 (차량번호가 정확히 하나일 때만 잇는다)
-  const vehicles = await Vehicle.find({ plateNo: { $nin: [null, ''] } }).select('plateNo contract company code status').lean();
+  const vehicles = await Vehicle.find({ plateNo: { $nin: [null, ''] } }).select('plateNo plateHistory vin contract company code status').lean();
+  const vehicleById = new Map(vehicles.map((v) => [String(v._id), v]));
+  // 갑지에 붙은 차의 지금 번호와 예전 번호(번호판 재발급). 엑셀이 옛 번호든 새 번호든 같은 차다
+  const platesOfLinked = (ledger) => {
+    const v = ledger?.vehicle ? vehicleById.get(String(ledger.vehicle)) : null;
+    return v ? [v.plateNo, ...(v.plateHistory || []).map((h) => h.plateNo)].map(plateKey).filter(Boolean) : [];
+  };
   const byPlate = new Map();
   vehicles.forEach((v) => {
     const key = plateKey(v.plateNo);
@@ -380,9 +386,14 @@ export const importLedgersFromExcel = async (files, { dryRun = false, beforeWrit
 
     if (existing) {
       // 같은 이름인데 차량번호가 다르면 다른 차다. 덮어쓰지 않는다.
+      // 다만 차량 DB에서 번호를 바꾼 차(번호판 재발급)는 엑셀이 옛 번호·새 번호 어느 쪽이어도 같은 차로 보고, 번호는 차량 DB의 지금 번호를 쓴다
       if (existing.header?.plateNo && s.header.plateNo && plateKey(existing.header.plateNo) !== plateKey(s.header.plateNo)) {
-        stats.plateConflict.push(`${s.ledgerNo}: 원장 ${existing.header.plateNo} / 엑셀 ${s.header.plateNo} (${s.kind})`);
-        continue;
+        const known = platesOfLinked(existing);
+        if (!known.includes(plateKey(s.header.plateNo))) {
+          stats.plateConflict.push(`${s.ledgerNo}: 원장 ${existing.header.plateNo} / 엑셀 ${s.header.plateNo} (${s.kind})`);
+          continue;
+        }
+        s.header.plateNo = vehicleById.get(String(existing.vehicle))?.plateNo || existing.header.plateNo;
       }
 
       // 프로그램 '판매 대금' 칸에서 넣은 판매는 엑셀에 아직 없을 수 있다. 덮어써도 판매 대금 줄은 남긴다.

@@ -23,6 +23,9 @@ const VehicleSchema = new Schema({
   year: String,
   vin: String,
   plateNo: String,
+  // 차량번호가 바뀐 이력(사고로 번호판 분실·재발급 등). 차는 차대번호(vin)와 이 기록(_id)으로 이어지고,
+  // 원장(VehicleLedger.vehicle)·계약도 _id로 붙어 있어 번호가 바뀌어도 끊기지 않는다.
+  plateHistory: [{ plateNo: String, changedAt: Date, by: String, _id: false }],
   registrationDate: Date,
   // 사이버검사소에서 조회한 정기검사 유효기간(YYYY-MM-DD). 있으면 다음 검사일을 등록일로 계산하지 않고 만료일로 잡는다.
   // utils/cybertsInspection.js가 매일 새벽 맞춘다.

@@ -26,7 +26,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
  * 인도 서류 발송 — 계약사실 증명원 + 상환스케쥴.
  *
  * 차량을 인도하면(인도일·차량번호가 들어가면) 이 목록에 계약이 올라온다. 담당자가 열어 확인하고 [승인]하면
- * PDF가 계약서 폴더에 저장되고, 인도일 다음 날 아침 9시에 고객 청구 메일로 나간다.
+ * PDF가 계약서 폴더에 저장된다. 자동으로 보내지 않고 [지금 보내기]를 눌러야 고객 청구 메일로 나간다(2026-11-03).
  * 승인한 뒤 계약·차량 값이 바뀌면 보내지 않고 '변경됨'으로 남는다. 다시 열어 승인하면 된다.
  */
 export default function DeliveryDocsView({ showToast, currentUser }) {
@@ -123,7 +123,7 @@ export default function DeliveryDocsView({ showToast, currentUser }) {
   };
 
   const sendNow = async (contractId) => {
-    if (!window.confirm('발송일을 기다리지 않고 지금 고객에게 보낼까요?')) return;
+    if (!window.confirm('지금 고객에게 보낼까요?')) return;
     const res = await fetch(`${API_HOST}/api/delivery-docs/run`, {
       method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ contractId })
     }).then((r) => r.json());
@@ -230,7 +230,7 @@ export default function DeliveryDocsView({ showToast, currentUser }) {
       <div style={{ background: '#fff', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '1rem 1.2rem', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: '260px', fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
           차량을 인도해 <b>인도일·차량번호</b>가 들어간 계약이 여기 올라옵니다. 열어서 확인하고 <b>승인</b>하면
-          <b> 인도일 다음 날 아침 9시</b>에 계약사실 증명원과 상환스케쥴이 고객 청구 메일로 나갑니다.
+          PDF가 저장되고, <b>[지금 보내기]를 눌러야</b> 계약사실 증명원과 상환스케쥴이 고객 청구 메일로 나갑니다(자동 발송 없음).
           승인한 PDF는 계약자 폴더 01.계약서에 저장됩니다.
         </div>
         <select value={back} onChange={(e) => setBack(Number(e.target.value))} style={{ padding: '0.45rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.8rem' }}>
@@ -369,7 +369,7 @@ export default function DeliveryDocsView({ showToast, currentUser }) {
                       <Eye size={14} /> {busy ? '만드는 중…' : '파일 확인 후 바로 보내기'}
                     </button>
                     <button type="button" onClick={approve} disabled={busy || open.missing.length > 0} style={{ ...btn(open.missing.length ? '#94a3b8' : '#047857'), justifyContent: 'center' }}>
-                      <Check size={14} /> {busy ? '만드는 중…' : '승인 (PDF 저장 · 발송일에 보냄)'}
+                      <Check size={14} /> {busy ? '만드는 중…' : '승인 (PDF 저장)'}
                     </button>
                     <button type="button" onClick={saveForm} disabled={busy} style={{ ...btn('#fff', 'var(--text-main)'), justifyContent: 'center' }}>입력만 저장</button>
                     <button type="button" onClick={downloadPdf} disabled={busy} style={{ ...btn('#fff', 'var(--text-main)'), justifyContent: 'center' }}><Download size={14} /> PDF 내려받기</button>

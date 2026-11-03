@@ -296,6 +296,11 @@ const sendTemplateMail = async ({ to, cc, subject, values = {}, templateKey = 'i
  * @param {string} params.html 본문 HTML
  */
 export const sendInternalMail = async ({ subject, html }) => {
+  // 담당자 알림 메일은 보내지 않는다(2026-10-30, 2026-11-03 대표님 — 프로그램 자동 메일 모두 끔).
+  // 예전 코드가 다시 부르더라도 나가지 않게 여기서 막는다.
+  console.log(`[알림 메일] 보내지 않음: ${subject}`);
+  return { to: [], skipped: true };
+  // eslint-disable-next-line no-unreachable
   const sender = invoiceSender();
   const toList = String(process.env.INTERNAL_NOTICE_EMAIL || sender).split(',').map((x) => x.trim()).filter(Boolean);
 

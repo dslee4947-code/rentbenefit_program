@@ -43,7 +43,6 @@ import { syncInvoiceSendSchedules } from './utils/invoiceScheduleJob.js';
 import { syncFineNoticeSchedules } from './utils/fineNoticeScheduleJob.js';
 import { syncVehicleServiceSchedules } from './utils/vehicleServiceScheduleJob.js';
 import { refreshAllUnbilledInterest } from './controllers/billingScheduleController.js';
-import { runDeliveryDocsSend } from './controllers/deliveryDocsController.js';
 import { syncCalendarInbox } from './utils/calendarInboxSync.js';
 import { syncInspectionValidity } from './utils/cybertsInspection.js';
 import { isGoogleCalendarConfigured } from './utils/googleCalendar.js';
@@ -126,12 +125,9 @@ connectDB().then(async () => {
   // 담당자 알림 메일(9시 '오늘 보낼 청구서', 16시 '내일 발송 승인 대기')도 보내지 않는다. 다른 메일과 섞여
   // 관리가 어렵다고 하셔서(2026-10-30 대표님) 할 일은 프로그램 화면(청구서 발송 센터)에서만 본다.
 
-  // 인도 서류(계약사실 증명원·상환스케쥴) 발송. 인도일 다음 날 아침 9시, 담당자가 승인한 건만 보낸다.
-  cron.schedule('5 9 * * *', () => {
-    runDeliveryDocsSend().catch((err) => console.error('[인도 서류 발송] 실패:', err.message));
-  }, CRON_OPTIONS);
-  // 승인 안 한 인도 서류 알림 메일은 보내지 않는다(2026-10-30 대표님). 인도 서류 화면에서 본다.
-  console.log('[Cron Scheduler] 인도 서류 발송 예약 완료 (매일 09:05). 담당자 알림 메일은 보내지 않음.');
+  // 인도 서류(계약사실 증명원·상환스케쥴)도 자동으로 보내지 않는다(2026-11-03 대표님 — 프로그램이 메일을 혼자 보내지 않게).
+  // 승인하면 PDF만 계약서 폴더에 저장되고, 고객에게는 인도 서류 화면의 [지금 보내기]를 눌러야 나간다.
+  console.log('[Cron Scheduler] 자동 메일 없음 — 청구서·인도 서류·알림 메일은 화면에서 눌러야만 나간다.');
 
   // 구글 업무캘린더 → 정비 기록 '확인 대기'. 직원이 핸드폰 캘린더에 적은 정비 일정을 10분마다 읽어 온다.
   // 열쇠(GOOGLE_SERVICE_ACCOUNT_KEY)가 없는 서버에서는 아무것도 하지 않는다.

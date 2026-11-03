@@ -474,6 +474,11 @@ const EXPENSE_FIXED = [
 ];
 const FIXED_CATEGORIES = new Set(EXPENSE_FIXED.map((f) => f.category));
 
+// 의무보험료·책임보험·보험 가입비는 한 번만 내는 돈이라 보험 회차표가 아니라 아래 내용 줄에 둔다.
+// 회차 없이 적혀 있어 빈 1회차 칸에 끼어 들어갔다(Ray-056 의무보험료 1,900원, 대표님 2026-11-03)
+const isOneTimeInsurance = (e) => e.category === '보험' && !e.round && /의무\s*보험|책임\s*보험|보험\s*가입비/.test(e.label || '');
+const inRoundTable = (e) => FIXED_CATEGORIES.has(e.category) && !isOneTimeInsurance(e);
+
 // 견적서에서 이 차의 견적 비용을 꺼내는 식(quotePlanOf)은 서버의 기준표 저장과 같이 쓰려고 shared/ledgerPlan.js에 있다.
 
 // 운영하면서 나간 돈으로 보지 않는 분류. 차를 사고 등록하고 취득세·보험·할부를 내는 돈은 판관비가 아니다.
@@ -2659,7 +2664,7 @@ function LedgerView({ showToast, currentUser }) {
               fixed: f,
               defaultAmount: 0,
               rounds: fillRounds(
-                allRows.filter((e) => e.category === f.category),
+                allRows.filter((e) => e.category === f.category && !isOneTimeInsurance(e)),
                 f.count(totalMonths) + (extraRounds[f.category] || 0)
               )
             }))
@@ -2673,7 +2678,7 @@ function LedgerView({ showToast, currentUser }) {
 
           let rows = allRows;
           if (showRent) rows = allRows.filter((e) => !rentRoundOf(e));
-          if (isExpense) rows = [...fixedTop, ...allRows.filter((e) => !FIXED_CATEGORIES.has(e.category))];
+          if (isExpense) rows = [...fixedTop, ...allRows.filter((e) => !inRoundTable(e))];
           const d = draft[column.group] || {};
           const addOnEnter = (e) => { if (e.key === 'Enter') addFromDraft(column); };
 

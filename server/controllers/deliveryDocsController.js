@@ -45,7 +45,7 @@ const pct = (v) => {
   return `${n <= 1 ? Math.round(n * 1000) / 10 : n}%`;
 };
 
-// 화면에서 담당자가 채우는 칸. 프로그램에 저장된 값이 없는 항목들이다.
+// 화면에서 담당자가 고쳐 쓰는 칸. 운전자 범위·사고수리는 렌트차량 DB(보험) 값이 기본이고, 적으면 그 값이 우선한다.
 // residentFront: 개인 계약자의 주민등록번호 앞 6자리. 뒷자리는 받지 않고 서류에는 '******'로 찍는다
 export const OVERRIDE_FIELDS = ['driverRange', 'accidentRepair', 'commission', 'receiptDate', 'residentFront'];
 const BIZ_NO = /^\d{3}-?\d{2}-?\d{5}$/;
@@ -128,9 +128,11 @@ export const buildDeliveryDocs = async (contractId) => {
       generalMaintenance: maint.generalMaintenance || '',
       consumables: joined ? (maint.consumables || '가입') : '브랜드보증 외 사용자 부담',
       tireText: joined ? describeTireProvision(termMonths, mileage) : '브랜드보증 외 사용자 부담',
-      accidentRepair: overrides.accidentRepair || '',
+      accidentRepair: overrides.accidentRepair || ins.accidentRepair || '',
+      // 화면에서 입력 칸을 비우면 들어갈 렌트차량 DB 값
+      db: { driverRange: ins.driverRange || '', accidentRepair: ins.accidentRepair || '' },
       insurance: {
-        driverRange: overrides.driverRange || '',
+        driverRange: overrides.driverRange || ins.driverRange || '',
         driverAge: ins.driverAge || '',
         liability: ins.liabilityLimit || '',
         property: ins.propertyLimit || '',
@@ -162,7 +164,7 @@ export const buildDeliveryDocs = async (contractId) => {
   // 비어 있어도 보낼 수는 있지만 확인이 필요한 칸
   const warnings = [];
   if (company && !party.corpNo) warnings.push('법인등록번호가 비어 있습니다(법인 관리에서 채워 주세요)');
-  if (!overrides.driverRange) warnings.push('운전자 범위를 적어 주세요');
+  if (docs.some((d) => !d.insurance.driverRange)) warnings.push('운전자 범위가 렌트차량 DB(보험)에 없습니다. 적어 주세요');
 
   const data = {
     contractId: String(contract._id),

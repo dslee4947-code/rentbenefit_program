@@ -3,6 +3,7 @@ import { Search, FileText, Download, Save, ExternalLink, X } from 'lucide-react'
 import ContractFactSheet from './ContractFactSheet.jsx';
 import { makeFittedPdf } from '../../utils/printFit.js';
 import { partyWithResidentFront } from '../../utils/residentNo.js';
+import { dbValue } from '../../utils/factDocs.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -78,7 +79,7 @@ export default function ContractFactView({ showToast, currentUser, contractId: p
     party: partyWithResidentFront(open.party, form.residentFront),
     commission: form.commission,
     receiptDate: form.receiptDate,
-    docs: docs.map((d) => ({ ...d, accidentRepair: form.accidentRepair, insurance: { ...d.insurance, driverRange: form.driverRange } }))
+    docs: docs.map((d) => ({ ...d, accidentRepair: form.accidentRepair || d.db.accidentRepair, insurance: { ...d.insurance, driverRange: form.driverRange || d.db.driverRange } }))
   } : null;
 
   // 고른 서류에 꼭 있어야 하는 것
@@ -241,8 +242,8 @@ export default function ContractFactView({ showToast, currentUser, contractId: p
             {parts !== 'schedule' && [
               // 개인 계약자(사업자번호 없음)는 주민등록번호 앞자리만 받는다
               ...(open.party.bizNoLabel === '주민등록번호' ? [['residentFront', '주민등록번호 앞 6자리', '예: 760101 (뒷자리는 *로 가려 찍힘)']] : []),
-              ['driverRange', '운전자 범위', '예: 임직원 / 누구나'],
-              ['accidentRepair', '사고수리', '예: 가입 / 미가입'],
+              ['driverRange', '운전자 범위', `비우면 차량 DB 값(${dbValue(open, 'driverRange')})`],
+              ['accidentRepair', '사고수리', `비우면 차량 DB 값(${dbValue(open, 'accidentRepair')})`],
               ['commission', '수수료 (원)', '없으면 비워 두세요'],
               ['receiptDate', '영수일', '예: 2026년 11월 3일']
             ].map(([k, label, ph]) => (

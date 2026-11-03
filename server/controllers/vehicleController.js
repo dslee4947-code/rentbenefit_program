@@ -678,10 +678,12 @@ export const VEHICLE_EXCEL_COLUMNS = [
   { key: 'insurance.driverAge', type: 'text', labels: ['운전자연령'] },
   { key: 'insurance.liabilityLimit', type: 'text', labels: ['대인'] },
   { key: 'insurance.propertyLimit', type: 'text', labels: ['대물'] },
-  { key: 'insurance.personalInjury', type: 'text', labels: ['자기신체'] },
+  { key: 'insurance.personalInjury', type: 'text', labels: ['자기신체', '자손'] },
   { key: 'insurance.uninsuredInjury', type: 'text', labels: ['무보험차상해'] },
   { key: 'insurance.deductible', type: 'number', labels: ['자기부담금'] },
   { key: 'insurance.emergencyService', type: 'text', labels: ['긴급출동'] },
+  { key: 'insurance.driverRange', type: 'text', labels: ['운전자범위', '보험종류'], hint: '임직원 / 누구나 / 가족한정' },
+  { key: 'insurance.accidentRepair', type: 'text', labels: ['사고수리'], hint: '가입 / 미가입' },
 
   { key: 'maintenance.tireType', type: 'text', labels: ['타이어등급', '타이어'] },
   { key: 'maintenance.mileage', type: 'number', labels: ['연간주행거리', '약정주행거리', '운행 거리'] },

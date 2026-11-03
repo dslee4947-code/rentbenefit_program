@@ -69,7 +69,10 @@ const VehicleSchema = new Schema({
     personalInjury: String,
     uninsuredInjury: String,
     deductible: Number,
-    emergencyService: String
+    emergencyService: String,
+    // 계약사실 증명원 칸. 운영 엑셀의 '보험종류'(임직원 / 누구나 / 가족한정/누구나)와 '사고수리'(가입 / 미가입)
+    driverRange: String,
+    accidentRepair: String
   },
 
   // 5. 정비 서비스 정보 (견적서의 maintenance 선택값 기반)

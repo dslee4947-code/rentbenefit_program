@@ -193,7 +193,9 @@ const EMPTY_FORM = {
     personalInjury: '1억원',
     uninsuredInjury: '2억원',
     deductible: 300000,
-    emergencyService: '가입'
+    emergencyService: '가입',
+    driverRange: '',
+    accidentRepair: ''
   },
   maintenance: {
     enabled: false,
@@ -402,7 +404,9 @@ function VehicleManagementView({ showToast, currentUser }) {
         personalInjury: vehicle.insurance?.personalInjury || '1억원',
         uninsuredInjury: vehicle.insurance?.uninsuredInjury || '2억원',
         deductible: vehicle.insurance?.deductible ?? 300000,
-        emergencyService: vehicle.insurance?.emergencyService || '가입'
+        emergencyService: vehicle.insurance?.emergencyService || '가입',
+        driverRange: vehicle.insurance?.driverRange || '',
+        accidentRepair: vehicle.insurance?.accidentRepair || ''
       },
       maintenance: {
         enabled: !!vehicle.maintenance?.enabled,
@@ -1455,6 +1459,15 @@ function VehicleManagementView({ showToast, currentUser }) {
                   <div>
                     <label style={labelStyle}>긴급출동</label>
                     <input value={formData.insurance.emergencyService} onChange={(e) => setFormData({ ...formData, insurance: { ...formData.insurance, emergencyService: e.target.value } })} style={inputStyle} />
+                  </div>
+                  {/* 계약사실 증명원에 찍히는 칸 */}
+                  <div>
+                    <label style={labelStyle}>운전자 범위</label>
+                    <input value={formData.insurance.driverRange} placeholder="임직원 / 누구나 / 가족한정" onChange={(e) => setFormData({ ...formData, insurance: { ...formData.insurance, driverRange: e.target.value } })} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>사고수리</label>
+                    <input value={formData.insurance.accidentRepair} placeholder="가입 / 미가입" onChange={(e) => setFormData({ ...formData, insurance: { ...formData.insurance, accidentRepair: e.target.value } })} style={inputStyle} />
                   </div>
                 </div>
               </div>

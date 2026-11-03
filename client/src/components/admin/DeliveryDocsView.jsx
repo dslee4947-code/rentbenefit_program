@@ -3,6 +3,7 @@ import { RefreshCw, Send, FileText, X, Check, Download, Ban, Undo2, Search, Eye 
 import ContractFactSheet from './ContractFactSheet.jsx';
 import { makeFittedPdf } from '../../utils/printFit.js';
 import { partyWithResidentFront } from '../../utils/residentNo.js';
+import { dbValue } from '../../utils/factDocs.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -220,8 +221,8 @@ export default function DeliveryDocsView({ showToast, currentUser }) {
     receiptDate: form.receiptDate,
     docs: open.docs.map((d) => ({
       ...d,
-      accidentRepair: form.accidentRepair,
-      insurance: { ...d.insurance, driverRange: form.driverRange }
+      accidentRepair: form.accidentRepair || d.db.accidentRepair,
+      insurance: { ...d.insurance, driverRange: form.driverRange || d.db.driverRange }
     }))
   } : null;
 
@@ -340,8 +341,8 @@ export default function DeliveryDocsView({ showToast, currentUser }) {
                 {[
                   ['to', '받는 사람 이메일', '법인 청구 이메일이 기본'],
                   ...(open.party.bizNoLabel === '주민등록번호' ? [['residentFront', '주민등록번호 앞 6자리', '예: 760101 (뒷자리는 *로 가려 찍힘)']] : []),
-                  ['driverRange', '운전자 범위', '예: 임직원 / 누구나'],
-                  ['accidentRepair', '사고수리', '예: 가입 / 미가입'],
+                  ['driverRange', '운전자 범위', `비우면 차량 DB 값(${dbValue(open, 'driverRange')})`],
+                  ['accidentRepair', '사고수리', `비우면 차량 DB 값(${dbValue(open, 'accidentRepair')})`],
                   ['commission', '수수료 (원)', '없으면 비워 두세요'],
                   ['receiptDate', '영수일', '예: 2026년 10월 23일']
                 ].map(([k, label, ph]) => (

@@ -28,7 +28,7 @@ export const getDashboardSummary = async (req, res) => {
         { $count: 'count' }
       ]),
       Customer.countDocuments({}),
-      Contract.countDocuments({ status: '진행중' }),
+      Contract.countDocuments({ status: '진행중', rentalKind: { $ne: '단기렌트' } }),
       Schedule.countDocuments({ status: '예정' }),
       Schedule.find({
         status: '예정',
@@ -211,7 +211,7 @@ export const getExecutiveSummary = async (req, res) => {
         countBetween(Contract, 'contractDate', lastMonth, thisMonth, realContract)
       ]),
       // 90일 안에 끝나는 계약. 재계약·인수를 권할 영업 기회이자, 놓치면 차가 그냥 돌아온다.
-      Contract.find({ status: '진행중', endDate: { $gte: today, $lte: in90 } })
+      Contract.find({ status: '진행중', rentalKind: { $ne: '단기렌트' }, endDate: { $gte: today, $lte: in90 } })
         .select('contractNo endDate termMonths companyId customer vehicle pricing.monthlyFee')
         .populate('companyId', 'name')
         .populate('customer', 'name')

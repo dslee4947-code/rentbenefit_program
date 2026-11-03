@@ -733,7 +733,7 @@ let customerSeqCache = null;
  *
  * @returns {Promise<string>} 고객 코드
  */
-const nextCustomerId = async () => {
+export const nextCustomerId = async () => {
   if (customerSeqCache === null) {
     const all = await Customer.find({ customerId: /^CUST\d+$/ }).select('customerId').lean();
     customerSeqCache = all.reduce((max, c) => {

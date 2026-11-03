@@ -19,6 +19,7 @@ import { isMaintenanceKind } from '../utils/maintenance.js';
 import { noticeKeyOf, findOverdueNotices, upsertNoticeSchedule, collectNotices } from '../utils/fineNoticeScheduleJob.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
 import { vehicleEndOf, lastDayOf } from '../utils/contractTerm.js';
+import { isShortTerm, buildShortTermSchedule, ensureShortTermRounds, shortTermVehicleView, postShortTermPaymentToLedger } from '../utils/shortTermBilling.js';
 
 /**
  * 날짜를 YYYY-MM-DD로. Date 객체를 그냥 자르면 'Sun Oct 25 2026...'이 나온다.
@@ -321,6 +322,9 @@ export const resolveScheduleInputs = async (contractId) => {
 };
 
 export const buildScheduleForContract = async (contractId) => {
+  // 단기렌트 월 청구는 계약 기간 없이 반납 때까지 한 달씩 만든다
+  const kind = await Contract.findById(contractId).select('rentalKind').lean();
+  if (isShortTerm(kind)) return buildShortTermSchedule(contractId);
   const { contract, monthlyRent, paymentDay, rentStartDate, deliveryDate, totalRounds } = await resolveScheduleInputs(contractId);
 
   const dueDates = buildDueDates({ rentStartDate, deliveryDate, paymentDay, totalRounds });
@@ -388,14 +392,14 @@ export const getScheduleByContract = async (req, res) => {
     if (!schedule) {
       return res.status(404).json({ success: false, message: '회차표가 아직 없습니다.' });
     }
-    const contract = await Contract.findById(req.params.contractId).select('contractNo termMonths contractKind contractDate deliveryDate endDate extensionInfo').lean();
+    const contract = await Contract.findById(req.params.contractId).select('contractNo termMonths contractKind rentalKind rentStartDate pricing.monthlyFee contractDate deliveryDate endDate extensionInfo').lean();
     const found = await Vehicle.find({ contract: req.params.contractId })
       .select('code carModel plateNo monthlyFee deliveryDate advancePayment paymentTerm banking')
       .lean();
     // 선납금은 차량마다 '선납금 ÷ 개월 수'씩 월 렌트료에서 빠진다(계약서 조건). 개월 수는 차량 값,
     // 없으면 계약기간, 그것도 없으면 회차표의 회차 수(일할 회차가 끼면 하나 많을 수 있다)를 쓴다. 청구서가 차감액·잔액을 그릴 때 쓴다(advancePayment.js).
     // 종료일은 차마다 계약 기간의 마지막 날(인도일 + 계약 개월 수 - 1일, 연장 계약은 계약 만기 기준). 청구서 차량 표에 인도일과 함께 보인다
-    const vehicles = found.map((v) => ({
+    const vehicles = found.map((v) => shortTermVehicleView(contract, v)).map((v) => ({
       ...v,
       advanceMonths: Number(v.paymentTerm) || Number(contract?.termMonths) || schedule.totalRounds || 0,
       endDate: lastDayOf(vehicleEndOf(contract, v))
@@ -455,9 +459,11 @@ export const getDueRounds = async (req, res) => {
     }
     const from = new Date(year, mon - 1, 1);
     const to = new Date(year, mon, 1);
+    // 단기렌트 월 청구는 회차를 미리 다 만들지 않는다. 화면을 열 때 이번 달 회차까지 늘린다
+    await ensureShortTermRounds();
 
     const schedules = await BillingSchedule.find({ 'rounds.dueDate': { $gte: from, $lt: to } })
-      .populate('contract', 'contractNo contractKind extensionInfo contractDate endDate termMonths terms')
+      .populate('contract', 'contractNo contractKind rentalKind extensionInfo contractDate endDate termMonths terms')
       .populate('company', 'name bizNo billingEmail')
       .populate('customer', 'name contactName')
       .lean();
@@ -675,8 +681,9 @@ export const roundSnapshot = (round, to, context = {}) => crypto.createHash('sha
  */
 export const snapshotContextOf = async (schedule) => {
   const contractId = schedule.contract?._id || schedule.contract;
+  const contract = contractId ? await Contract.findById(contractId).select('rentalKind rentStartDate pricing.monthlyFee').lean() : null;
   const vehicles = contractId
-    ? await Vehicle.find({ contract: contractId }).select('plateNo carModel monthlyFee advancePayment paymentTerm').sort({ _id: 1 }).lean()
+    ? (await Vehicle.find({ contract: contractId }).select('plateNo carModel monthlyFee advancePayment paymentTerm').sort({ _id: 1 }).lean()).map((v) => shortTermVehicleView(contract, v))
     : [];
   return {
     partyName: resolvePartyName(schedule),
@@ -1621,6 +1628,8 @@ export const updateRoundPayment = async (req, res) => {
     const rate = rateMap.get(String(schedule.contract)) || 25;
     const carried = applyCarryForward(schedule, rate, round.no);
     await schedule.save();
+    // 단기렌트 월 청구면 입금을 그 차의 손익 원장에 적는다
+    const ledgerNote = await postShortTermPaymentToLedger(schedule, round.no).catch((err) => `원장 기록 실패: ${err.message}`);
 
     const unpaid = Math.max(0, total - paid);
     logActivity({
@@ -1642,6 +1651,7 @@ export const updateRoundPayment = async (req, res) => {
             ? `${round.no}회차 부분 입금 ${paid.toLocaleString()}원. 미납 ${unpaid.toLocaleString()}원이 다음 회차로 넘어갑니다.`
             : `${round.no}회차를 미납으로 처리했습니다. 미납 ${unpaid.toLocaleString()}원이 다음 회차로 넘어갑니다.`))
         + (carried ? ` 뒤 ${carried}개 회차의 미결제·이자를 다시 계산했습니다.` : '')
+        + (ledgerNote ? ` (${ledgerNote})` : '')
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -1698,6 +1708,7 @@ export const bulkUpdateRoundStatus = async (req, res) => {
       const rateMap = await loadLateInterestRates([schedule.contract]);
       applyCarryForward(schedule, rateMap.get(String(schedule.contract)) || 25, round.no);
       await schedule.save();
+      await postShortTermPaymentToLedger(schedule, round.no).catch((err) => skipped.push(`${round.no}회차 원장 기록 실패: ${err.message}`));
       changed += 1;
       // 입금완료·미납으로 찍는 것은 입금 입력이다(대부분 이 화면에서 전액 입금을 한꺼번에 처리한다).
       logActivity({

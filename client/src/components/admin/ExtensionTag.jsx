@@ -6,6 +6,14 @@
  * @param {object} [props.contract] populate된 계약(contractKind, extensionInfo)
  */
 function ExtensionTag({ contract }) {
+  // 단기렌트 월 청구(자금팀 > 단기렌트 월 청구에서 등록한 건)
+  if (contract?.rentalKind === '단기렌트') {
+    return (
+      <span title="단기렌트 월 청구" style={{ marginLeft: '0.3rem', fontSize: '0.68rem', fontWeight: 800, color: '#b45309', border: '1px solid #fcd34d', background: '#fffbeb', borderRadius: '4px', padding: '0 0.3rem', whiteSpace: 'nowrap' }}>
+        단기
+      </span>
+    );
+  }
   if (contract?.contractKind !== '연장') return null;
   const prev = contract.extensionInfo?.previousContractNo;
   return (

@@ -91,8 +91,8 @@ const EXTRA_FIELDS = [
  * 회차를 사람이 고르지 않고 청구일로 정한다. 엑셀로 할 때 회차를 손으로 넣다 틀리는 일이 가장 잦았다.
  * 전월 미결제도 직전 회차에서 자동으로 끌어와, 회차를 잘못 보고 금액을 옮겨 적는 실수를 없앤다.
  */
-function MonthlyBillingView({ showToast, currentUser }) {
-  const [month, setMonth] = useState(thisMonth());
+function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
+  const [month, setMonth] = useState(initialMonth || thisMonth());
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 

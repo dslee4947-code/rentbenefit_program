@@ -78,6 +78,13 @@ const ContractSchema = new Schema({
   status: { type: String, enum: ['임시저장', '진행중', '보관됨', '종료', '중도해지'], default: '진행중' },
 
   /**
+   * 단기렌트 월 청구(대표님 2026-11-03). 단기렌트·사고대차 차를 한 달 단위로 빌려주고 매달 청구하는 건이다.
+   * 계약 기간이 없고 반납일(returnDate)에 끝난다. 회차표는 utils/shortTermBilling.js가 만든다.
+   */
+  rentalKind: { type: String, enum: ['장기렌트', '단기렌트'], default: '장기렌트' },
+  returnDate: Date,
+
+  /**
    * 계약의 이어짐. 차 한 대에 계약이 순서대로 붙는다(신규 → 연장 → 반납 후 재렌트 …).
    *
    * 예전에는 연장할 때 기존 계약의 계약일을 고쳐 쓰거나 계약을 새로 만들면서 차량도 새로 만들었다.

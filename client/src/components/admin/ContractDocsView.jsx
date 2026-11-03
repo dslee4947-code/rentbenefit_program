@@ -121,9 +121,11 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
     if (Object.keys(dirty).length && !(await save())) return;
     await call(`${API_HOST}/api/contract-documents/${docId}/refresh`, 'POST');
   };
-  const confirm = (reopen) => {
-    if (!reopen && Object.keys(dirty).length) { showToast?.('저장하지 않은 칸이 있습니다. 먼저 저장해 주세요.', 'error'); return; }
-    if (!reopen && !window.confirm('계약서를 확정할까요? 확정하면 [확정 풀기]를 누르기 전까지 고칠 수 없습니다.')) return;
+  // [PDF 받기]·[확정]은 저장하지 않은 칸을 먼저 저장한다([저장]을 안 눌러도 고친 내용이 PDF·확정본에 들어가게, 대표님 2026-11-03)
+  const saveIfDirty = async () => (Object.keys(dirty).length ? save() : true);
+  const confirm = async (reopen) => {
+    if (!reopen && !window.confirm('계약서를 확정할까요? 고친 칸은 저장한 뒤 확정합니다. 확정하면 [확정 풀기]를 누르기 전까지 고칠 수 없습니다.')) return;
+    if (!reopen && !(await saveIfDirty())) return;
     call(`${API_HOST}/api/contract-documents/${docId}/confirm`, 'POST', { reopen });
   };
   const remove = async () => {
@@ -140,12 +142,28 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
       setBusy(false);
     }
   };
-  const download = () => {
-    if (!pdf.url) return;
+  const download = async () => {
+    const hadChanges = Object.keys(dirty).length > 0;
+    if (!(await saveIfDirty())) return;
+    // 방금 저장했으면 화면의 PDF는 아직 옛것일 수 있어 새로 받아 내려받는다
+    let url = pdf.url;
+    let temp = false;
+    if (hadChanges || !url) {
+      try {
+        const res = await fetch(`${API_HOST}/api/contract-documents/${docId}/pdf`);
+        if (!res.ok) { showToast?.('PDF를 만들지 못했습니다.', 'error'); return; }
+        url = URL.createObjectURL(await res.blob());
+        temp = true;
+      } catch {
+        showToast?.('서버 통신 오류가 발생했습니다.', 'error');
+        return;
+      }
+    }
     const a = document.createElement('a');
-    a.href = pdf.url;
+    a.href = url;
     a.download = `자동차임대차계약서_${partyOf(doc)}_${contractNoOf(doc)}${doc?.extensionOf ? '_연장' : ''}.pdf`;
     a.click();
+    if (temp) setTimeout(() => URL.revokeObjectURL(url), 5000);
   };
   const setValue = (key, next) => {
     setValues((prev) => ({ ...prev, [key]: next }));
@@ -180,7 +198,7 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
           {!locked && <button type="button" disabled={busy || !dirtyCount} onClick={save} style={btn('#2563eb', Boolean(dirtyCount))}><Save size={13} /> 저장{dirtyCount ? ` (${dirtyCount})` : ''}</button>}
           {canWrite && doc.status !== '확정' && <button type="button" disabled={busy} onClick={() => confirm(false)} style={btn('#15803d', true)}><CheckCircle2 size={13} /> 확정</button>}
           {canWrite && doc.status === '확정' && <button type="button" disabled={busy} onClick={() => confirm(true)} style={btn('#a16207')}><Unlock size={13} /> 확정 풀기</button>}
-          <button type="button" disabled={!pdf.url} onClick={download} style={btn('#0f172a', true)}><Download size={13} /> PDF 받기</button>
+          <button type="button" disabled={busy || (!pdf.url && !dirtyCount)} onClick={download} style={btn('#0f172a', true)} title={dirtyCount ? '고친 칸을 저장한 뒤 PDF를 받습니다' : ''}><Download size={13} /> PDF 받기</button>
           {canWrite && doc.status !== '확정' && <button type="button" disabled={busy} onClick={remove} style={btn('#dc2626')} title="이 전자계약서를 지웁니다. 계약은 그대로입니다."><Trash2 size={13} /> 삭제</button>}
         </div>
       </div>

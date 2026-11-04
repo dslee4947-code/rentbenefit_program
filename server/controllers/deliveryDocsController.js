@@ -8,25 +8,18 @@ import BillingSchedule from '../models/BillingSchedule.js';
 import '../models/Company.js';
 import '../models/Customer.js';
 import { saveDocument, readSavedFile } from '../utils/documentStorageService.js';
-import { sendDeliveryDocsMail, sendEndDocMail, sendInternalMail } from '../utils/mailService.js';
+import { sendEndDocMail } from '../utils/mailService.js';
 import { mergeCarModel } from '../utils/carModel.js';
 import { vehicleEndOf, lastDayOf } from '../utils/contractTerm.js';
 import { describeTireProvision } from '../../shared/quoteCalc.js';
 import { stripHonorific, maskResidentNo } from '../utils/personName.js';
 
 /**
- * 인도 서류 발송 — 계약사실 증명원 + 상환스케쥴.
+ * 계약사실 증명원 · 상환스케쥴표 값 만들기, 저장, 메일 보내기. 계약 종료 서류도 같은 값을 쓴다.
  *
- * 차량을 인도하면 등록이 끝나 차량번호가 정해진다. 그다음 날 아침 9시에 고객에게 두 서류를 보낸다
- * (대표님 요청 2026-10-23). 양식은 Dropbox "계약사실 증명원_인도일, 계약 종료일.xlsx"의
- * '계약사실 증명원'·'상환스케쥴' 시트 그대로다.
- *
- * 흐름은 청구서 자동 발송과 같다.
- *   1. 화면(인도 서류 발송)이 이 계약의 값으로 두 서류를 그려 보여 준다.
- *   2. 담당자가 [승인]하면 화면이 PDF를 만들어 보내고, 서버가 계약서 폴더(OneDrive)에 저장한다.
- *   3. 발송일(인도일 다음 날) 아침 9시에 서버가 그 PDF를 고객 메일로 보낸다.
- * 승인한 뒤 값(차량번호·금액·회차·받는 주소 등)이 바뀌면 보내지 않고 '변경됨'으로 둔다.
- * 담당자가 본 것과 다른 서류가 고객에게 나가면 되돌릴 수 없다.
+ * 양식은 Dropbox "계약사실 증명원_인도일, 계약 종료일.xlsx"의 '계약사실 증명원'·'상환스케쥴' 시트 그대로다.
+ * 화면(자금팀 > 계약사실 증명원)이 PDF를 만들어 보내면 서버가 계약서 폴더(OneDrive)에 저장한다.
+ * 메일은 담당자가 [메일 보내기]를 눌렀을 때만 나간다. 자동으로 보내는 길은 없다(2026-11-03).
  */
 
 const DAY = 864e5;
@@ -200,50 +193,6 @@ export const buildDeliveryDocs = async (contractId) => {
   return { ...data, snapshot, missing, warnings, overrides, factDocs, endDocs, ending, deliveryDocs: contract.deliveryDocs || null, docFolderName: contract.docFolderName || contract.contractNo };
 };
 
-const statusOf = (d) => d.deliveryDocs?.status || (d.missing.length ? '준비 안 됨' : '승인 대기');
-
-/**
- * 발송 목록. 인도일이 최근 N일(기본 14, 화면에서 늘릴 수 있음) ~ 앞으로 30일인 계약과, 승인했지만 아직 안 보낸 계약.
- * @route GET /api/delivery-docs/queue?back=14
- */
-export const getDeliveryDocsQueue = async (req, res) => {
-  try {
-    const today = todayKst();
-    const back = Math.min(Math.max(Number(req.query.back) || 14, 1), 365);
-    const from = new Date(Date.parse(`${addDays(today, -back)}T00:00:00+09:00`));
-    const until = new Date(Date.parse(`${addDays(today, 31)}T00:00:00+09:00`));
-    const vehicleContracts = await Vehicle.distinct('contract', { deliveryDate: { $gte: from, $lt: until }, contract: { $ne: null } });
-    const pending = await Contract.distinct('_id', { 'deliveryDocs.status': { $in: ['승인', '발송중', '실패', '변경됨'] } });
-    const ids = [...new Set([...vehicleContracts, ...pending].map(String))];
-
-    const items = [];
-    for (const id of ids) {
-      // eslint-disable-next-line no-await-in-loop
-      const d = await buildDeliveryDocs(id);
-      if (!d || d.contractStatus === '임시저장') continue;
-      items.push({
-        contractId: d.contractId,
-        contractNo: d.contractNo,
-        partyName: d.party.name,
-        vehicles: d.docs.map((x) => ({ plateNo: x.plateNo, carModel: x.carModel, deliveryDate: x.deliveryDate })),
-        to: d.to,
-        sendDate: d.sendDate,
-        status: statusOf(d),
-        changed: d.deliveryDocs?.status === '승인' && d.deliveryDocs.snapshot !== d.snapshot,
-        message: d.deliveryDocs?.message || '',
-        sentAt: d.deliveryDocs?.sentAt || null,
-        approvedBy: d.deliveryDocs?.approvedBy || '',
-        missing: d.missing,
-        warnings: d.warnings
-      });
-    }
-    items.sort((a, b) => String(a.sendDate || '9').localeCompare(String(b.sendDate || '9')));
-    res.json({ success: true, today, items });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
 /** @route GET /api/delivery-docs/:contractId */
 export const getDeliveryDocs = async (req, res) => {
   try {
@@ -279,55 +228,6 @@ export const saveDeliveryDocsInput = async (req, res) => {
     await contract.save();
     const d = await buildDeliveryDocs(contract._id);
     res.json({ success: true, data: d, message: '저장했습니다.' });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * 승인. 화면이 만든 PDF를 계약서 폴더에 저장하고 발송일 아침에 보낸다.
- * @route POST /api/delivery-docs/:contractId/approve (multipart: file, snapshot)
- */
-export const approveDeliveryDocs = async (req, res) => {
-  try {
-    const d = await buildDeliveryDocs(req.params.contractId);
-    if (!d) return res.status(404).json({ success: false, message: '계약을 찾을 수 없습니다.' });
-    if (!req.file) return res.status(400).json({ success: false, message: 'PDF가 없습니다.' });
-    if (d.missing.length) return res.status(400).json({ success: false, message: `아직 보낼 수 없습니다: ${d.missing.join(', ')}` });
-    if (req.body.snapshot !== d.snapshot) {
-      return res.status(409).json({ success: false, message: '화면을 연 뒤 계약·차량 정보가 바뀌었습니다. 새로고침 후 다시 승인해 주세요.' });
-    }
-    const contract = await Contract.findById(d.contractId);
-    if (['발송중', '발송완료'].includes(contract.deliveryDocs?.status)) {
-      return res.status(409).json({ success: false, message: '이미 보냈거나 보내는 중인 서류입니다.' });
-    }
-
-    const fileName = `계약사실증명원_상환스케쥴_${d.party.name}_${d.contractNo}.pdf`;
-    const saved = await saveDocument({
-      partyName: d.party.name,
-      kind: 'contract',
-      subFolder: d.docFolderName,
-      fileName,
-      fileBuffer: req.file.buffer
-    });
-    const who = req.user?.name || req.user?.email || '';
-    contract.deliveryDocs = {
-      ...(contract.deliveryDocs?.toObject?.() || {}),
-      status: '승인',
-      to: d.to,
-      approvedAt: new Date(),
-      approvedBy: who,
-      snapshot: d.snapshot,
-      pdfFileName: saved.fileName,
-      pdfSavedPath: saved.localPath,
-      pdfHash: crypto.createHash('sha256').update(req.file.buffer).digest('hex'),
-      sentAt: undefined,
-      message: ''
-    };
-    contract.markModified('deliveryDocs');
-    await contract.save();
-    const when = d.sendDate && d.sendDate > todayKst() ? `${d.sendDate} 아침 9시에` : '오늘(발송일이 지났으면 다음 정기 발송 때)';
-    res.json({ success: true, message: `${d.party.name} 계약사실 증명원·상환스케쥴을 승인했습니다. ${when} ${d.to}로 보냅니다.` });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -387,131 +287,96 @@ export const searchDeliveryDocs = async (req, res) => {
   }
 };
 
-/**
- * 바로 보내기(다시 요청한 고객 등). 화면이 만든 PDF를 담당자가 확인한 뒤 누르면 저장하고 그 자리에서 보낸다.
- * 이미 보낸 계약도 다시 보낼 수 있다. 보낸 기록은 history에 쌓인다.
- * @route POST /api/delivery-docs/:contractId/send-now (multipart: file, snapshot, to)
- */
-export const sendDeliveryDocsNow = async (req, res) => {
-  try {
-    const d = await buildDeliveryDocs(req.params.contractId);
-    if (!d) return res.status(404).json({ success: false, message: '계약을 찾을 수 없습니다.' });
-    if (!req.file) return res.status(400).json({ success: false, message: 'PDF가 없습니다.' });
-    if (req.body.snapshot !== d.snapshot) {
-      return res.status(409).json({ success: false, message: '화면을 연 뒤 계약·차량 정보가 바뀌었습니다. 새로고침 후 다시 보내 주세요.' });
-    }
-    const to = String(req.body.to || d.to || '').trim();
-    if (!isEmail(to)) return res.status(400).json({ success: false, message: '받는 사람 이메일을 확인해 주세요.' });
-    const blocking = d.missing.filter((m) => !m.startsWith('받는 사람'));
-    if (blocking.length) return res.status(400).json({ success: false, message: `아직 보낼 수 없습니다: ${blocking.join(', ')}` });
-    if (d.deliveryDocs?.status === '발송중') return res.status(409).json({ success: false, message: '지금 보내는 중입니다. 잠시 뒤 다시 확인해 주세요.' });
-
-    const fileName = `계약사실증명원_상환스케쥴_${d.party.name}_${d.contractNo}.pdf`;
-    const saved = await saveDocument({ partyName: d.party.name, kind: 'contract', subFolder: d.docFolderName, fileName, fileBuffer: req.file.buffer });
-    await sendDeliveryDocsMail({
-      to,
-      fileName,
-      fileBuffer: req.file.buffer,
-      values: {
-        계약자: d.party.name,
-        계약번호: d.contractNo,
-        차량번호: d.docs.map((x) => x.plateNo).filter(Boolean).join(', '),
-        인도일: d.docs.map((x) => x.deliveryDate).filter(Boolean).sort()[0] || ''
-      }
-    });
-    const who = req.user?.name || req.user?.email || '';
-    await Contract.updateOne({ _id: d.contractId }, {
-      $set: {
-        'deliveryDocs.status': '발송완료',
-        'deliveryDocs.sentAt': new Date(),
-        'deliveryDocs.message': '',
-        'deliveryDocs.pdfFileName': saved.fileName,
-        'deliveryDocs.pdfSavedPath': saved.localPath,
-        'deliveryDocs.pdfHash': crypto.createHash('sha256').update(req.file.buffer).digest('hex'),
-        'deliveryDocs.snapshot': d.snapshot
-      },
-      $push: { 'deliveryDocs.history': { sentAt: new Date(), to, by: who, kind: '요청 발송', fileName: saved.fileName } }
-    });
-    res.json({ success: true, message: `${d.party.name} 계약사실 증명원·상환스케쥴을 ${to}로 보냈습니다.` });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/** 승인 취소 / 보내지 않기. @route POST /api/delivery-docs/:contractId/cancel { skip? } */
-export const cancelDeliveryDocs = async (req, res) => {
-  try {
-    const contract = await Contract.findById(req.params.contractId);
-    if (!contract) return res.status(404).json({ success: false, message: '계약을 찾을 수 없습니다.' });
-    if (['발송중', '발송완료'].includes(contract.deliveryDocs?.status)) {
-      return res.status(409).json({ success: false, message: '이미 보냈거나 보내는 중인 서류입니다.' });
-    }
-    const current = contract.deliveryDocs?.toObject?.() || {};
-    contract.deliveryDocs = { overrides: current.overrides, to: current.to, ...(req.body?.skip ? { status: '보내지 않음' } : {}) };
-    contract.markModified('deliveryDocs');
-    await contract.save();
-    res.json({ success: true, message: req.body?.skip ? '이 계약은 보내지 않음으로 표시했습니다.' : '승인을 취소했습니다.' });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/** 승인할 때 저장한 PDF. @route GET /api/delivery-docs/:contractId/file */
-export const getDeliveryDocsFile = async (req, res) => {
-  try {
-    const contract = await Contract.findById(req.params.contractId).select('deliveryDocs').lean();
-    if (!contract?.deliveryDocs?.pdfSavedPath) return res.status(404).json({ success: false, message: '승인한 서류가 없습니다.' });
-    const buffer = await readSavedFile(contract.deliveryDocs.pdfSavedPath);
-    if (!buffer) return res.status(410).json({ success: false, message: '파일이 OneDrive에서 옮겨졌거나 지워져 열 수 없습니다.' });
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(contract.deliveryDocs.pdfFileName || 'docs.pdf')}`);
-    res.send(buffer);
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
 const FACT_KIND_NAME = { fact: '계약사실증명원', schedule: '상환스케쥴표', both: '계약사실증명원_상환스케쥴표' };
+// 메일 양식의 {{서류}}에 넣을 이름
+const FACT_MAIL_NAME = { fact: '계약사실 증명원', schedule: '상환스케쥴표', both: '계약사실 증명원 및 상환스케쥴표' };
 
 /**
- * 계약사실 증명원 · 상환스케쥴표를 계약서 폴더에 저장한다 (장기렌트 청구서 > 계약사실 증명원).
- * 화면이 고른 차 한 대(또는 전체)와 고른 서류로 PDF를 만들어 보낸다. 메일은 보내지 않는다.
- * 계약사실 증명원은 차량번호·차대번호를 증명하려고 만드는 서류라 둘 다 있어야 저장한다.
+ * 요청에서 서류 종류와 차를 고르고 빠진 값을 확인한다. 저장과 메일이 같이 쓴다.
+ * 계약사실 증명원은 차량번호·차대번호를 증명하려고 만드는 서류라 둘 다 있어야 한다.
+ */
+const pickFactDoc = (req, d) => {
+  if (!req.file) return { error: 'PDF가 없습니다.' };
+  const kind = FACT_KIND_NAME[req.body.kind] ? req.body.kind : 'both';
+  const vehicleId = String(req.body.vehicleId || '');
+  const docs = vehicleId ? d.docs.filter((x) => x.vehicleId === vehicleId) : d.docs;
+  if (!docs.length) return { error: '이 계약에 묶인 차량을 찾지 못했습니다.' };
+  const lacking = docs.filter((x) => !x.plateNo || (kind !== 'schedule' && !x.vin));
+  if (lacking.length) return { error: `차량번호·차대번호가 없는 차가 있어 저장하지 않았습니다: ${lacking.map((x) => x.code || x.carModel).join(', ')} (렌트차량 DB에서 채워 주세요)` };
+  if (kind !== 'fact' && docs.some((x) => !x.schedule.length)) return { error: '청구 회차표가 없어 상환스케쥴표를 만들 수 없습니다.' };
+  return { kind, docs, plates: docs.map((x) => x.plateNo).join(',') };
+};
+
+const storeFactDoc = (req, d, { kind, plates }) => saveDocument({
+  partyName: d.party.name,
+  kind: 'contract',
+  subFolder: d.docFolderName,
+  fileName: `${FACT_KIND_NAME[kind]}_${d.party.name}_${plates}_${todayKst()}.pdf`,
+  fileBuffer: req.file.buffer
+});
+
+/** 계약에 남길 기록. 차가 여러 대면 차마다 한 줄이다 */
+const factDocEntries = (req, { kind, docs }, saved, sent = {}) => docs.map((x) => ({
+  kind,
+  vehicleId: x.vehicleId,
+  plateNo: x.plateNo,
+  vin: x.vin,
+  fileName: saved.fileName,
+  savedPath: saved.localPath,
+  savedAt: new Date(),
+  savedBy: req.user?.name || req.user?.email || '',
+  ...sent
+}));
+
+/** 같은 차에 같은 서류를 메일로 보낸 기록 */
+export const alreadySentFactDoc = (factDocs, kind, vehicleIds) => (factDocs || [])
+  .find((f) => f.sentAt && f.kind === kind && vehicleIds.includes(String(f.vehicleId)));
+
+/**
+ * 계약사실 증명원 · 상환스케쥴표를 계약서 폴더에 저장한다.
  * @route POST /api/delivery-docs/:contractId/fact-docs (multipart: file, kind, vehicleId?)
  */
 export const saveFactDoc = async (req, res) => {
   try {
     const d = await buildDeliveryDocs(req.params.contractId);
     if (!d) return res.status(404).json({ success: false, message: '계약을 찾을 수 없습니다.' });
-    if (!req.file) return res.status(400).json({ success: false, message: 'PDF가 없습니다.' });
-    const kind = FACT_KIND_NAME[req.body.kind] ? req.body.kind : 'both';
-    const vehicleId = String(req.body.vehicleId || '');
-    const docs = vehicleId ? d.docs.filter((x) => x.vehicleId === vehicleId) : d.docs;
-    if (!docs.length) return res.status(400).json({ success: false, message: '이 계약에 묶인 차량을 찾지 못했습니다.' });
-    const lacking = docs.filter((x) => !x.plateNo || (kind !== 'schedule' && !x.vin));
-    if (lacking.length) {
-      return res.status(400).json({ success: false, message: `차량번호·차대번호가 없는 차가 있어 저장하지 않았습니다: ${lacking.map((x) => x.code || x.carModel).join(', ')} (렌트차량 DB에서 채워 주세요)` });
-    }
-    if (kind !== 'fact' && docs.some((x) => !x.schedule.length)) {
-      return res.status(400).json({ success: false, message: '청구 회차표가 없어 상환스케쥴표를 만들 수 없습니다.' });
-    }
-
-    const plates = docs.map((x) => x.plateNo).join(',');
-    const fileName = `${FACT_KIND_NAME[kind]}_${d.party.name}_${plates}_${todayKst()}.pdf`;
-    const saved = await saveDocument({ partyName: d.party.name, kind: 'contract', subFolder: d.docFolderName, fileName, fileBuffer: req.file.buffer });
-    const who = req.user?.name || req.user?.email || '';
-    const entries = docs.map((x) => ({
-      kind,
-      vehicleId: x.vehicleId,
-      plateNo: x.plateNo,
-      vin: x.vin,
-      fileName: saved.fileName,
-      savedPath: saved.localPath,
-      savedAt: new Date(),
-      savedBy: who
-    }));
-    await Contract.updateOne({ _id: d.contractId }, { $push: { factDocs: { $each: entries } } });
+    const picked = pickFactDoc(req, d);
+    if (picked.error) return res.status(400).json({ success: false, message: picked.error });
+    const saved = await storeFactDoc(req, d, picked);
+    await Contract.updateOne({ _id: d.contractId }, { $push: { factDocs: { $each: factDocEntries(req, picked, saved) } } });
     res.json({ success: true, message: `${saved.fileName}을(를) 계약서 폴더에 저장했습니다.`, data: await buildDeliveryDocs(d.contractId) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 계약사실 증명원 · 상환스케쥴표를 고객에게 메일로 보내고 계약서 폴더에도 저장한다 (화면의 [메일 보내기]).
+ * 같은 차에 같은 서류를 이미 보냈으면 force 없이는 다시 보내지 않는다(고객이 두 번 받는다).
+ * @route POST /api/delivery-docs/:contractId/fact-docs/send (multipart: file, kind, vehicleId?, to, force?)
+ */
+export const sendFactDoc = async (req, res) => {
+  try {
+    const d = await buildDeliveryDocs(req.params.contractId);
+    if (!d) return res.status(404).json({ success: false, message: '계약을 찾을 수 없습니다.' });
+    const picked = pickFactDoc(req, d);
+    if (picked.error) return res.status(400).json({ success: false, message: picked.error });
+    const to = String(req.body.to || d.ending.mailTo || '').trim();
+    if (!isEmail(to)) return res.status(400).json({ success: false, message: '받는 사람 이메일을 확인해 주세요.' });
+    const sent = alreadySentFactDoc(d.factDocs, picked.kind, picked.docs.map((x) => x.vehicleId));
+    if (sent && req.body.force !== 'true') {
+      return res.status(409).json({ success: false, alreadySent: true, message: `이미 ${kstYmd(sent.sentAt)}에 ${sent.sentTo}(으)로 보낸 기록이 있습니다.` });
+    }
+    const saved = await storeFactDoc(req, d, picked);
+    await sendEndDocMail({
+      to,
+      templateKey: 'contract-fact',
+      fileName: saved.fileName,
+      fileBuffer: req.file.buffer,
+      values: { 계약자: d.party.name, 계약번호: d.contractNo, 차량번호: picked.plates, 서류: FACT_MAIL_NAME[picked.kind] }
+    });
+    await Contract.updateOne({ _id: d.contractId }, { $push: { factDocs: { $each: factDocEntries(req, picked, saved, { sentAt: new Date(), sentTo: to }) } } });
+    res.json({ success: true, message: `${to}(으)로 메일을 보내고 계약서 폴더에 저장했습니다.`, data: await buildDeliveryDocs(d.contractId) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -682,109 +547,4 @@ export const getEndDocFile = async (req, res) => {
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
-};
-
-let running = false;
-
-/**
- * 승인된 서류 중 발송일이 된 것을 보낸다. 매일 아침 9시 정기 작업과 화면의 [지금 보내기]가 부른다.
- * @param {{contractId?: string, ignoreSendDate?: boolean}} [options]
- */
-export const runDeliveryDocsSend = async ({ contractId, ignoreSendDate = false } = {}) => {
-  if (running) return { sent: 0, held: 0, failed: 0, results: [], busy: true };
-  running = true;
-  try {
-    const today = todayKst();
-    const filter = { 'deliveryDocs.status': '승인' };
-    if (contractId) filter._id = contractId;
-    const contracts = await Contract.find(filter).select('_id').lean();
-    const results = [];
-    for (const { _id } of contracts) {
-      /* eslint-disable no-await-in-loop */
-      const d = await buildDeliveryDocs(_id);
-      if (!d) continue;
-      if (!ignoreSendDate && (!d.sendDate || d.sendDate > today)) continue;
-      const record = { partyName: d.party.name, contractNo: d.contractNo, to: d.deliveryDocs.to };
-      const hold = async (status, message) => {
-        await Contract.updateOne({ _id }, { $set: { 'deliveryDocs.status': status, 'deliveryDocs.message': message } });
-        results.push({ ...record, status, message });
-      };
-      if (d.deliveryDocs.snapshot !== d.snapshot) { await hold('변경됨', '승인한 뒤 계약·차량·회차·받는 주소가 바뀌었습니다. 다시 확인하고 승인해 주세요.'); continue; }
-      const pdf = await readSavedFile(d.deliveryDocs.pdfSavedPath);
-      if (!pdf) { await hold('실패', '승인할 때 저장한 PDF를 찾지 못했습니다. 다시 승인해 주세요.'); continue; }
-      if (d.deliveryDocs.pdfHash && crypto.createHash('sha256').update(pdf).digest('hex') !== d.deliveryDocs.pdfHash) {
-        await hold('변경됨', '승인한 뒤 OneDrive의 PDF가 바뀌었습니다. 다시 승인해 주세요.');
-        continue;
-      }
-      // 보내기 직전에 붙잡는다. 화면의 [지금 보내기]와 정기 작업이 겹쳐도 한 번만 나간다.
-      const claim = await Contract.updateOne({ _id, 'deliveryDocs.status': '승인' }, { $set: { 'deliveryDocs.status': '발송중' } });
-      if (claim.modifiedCount !== 1) { results.push({ ...record, status: '건너뜀', message: '그사이 다른 곳에서 처리했습니다.' }); continue; }
-      try {
-        await sendDeliveryDocsMail({
-          to: d.deliveryDocs.to,
-          fileName: d.deliveryDocs.pdfFileName,
-          fileBuffer: pdf,
-          values: {
-            계약자: d.party.name,
-            계약번호: d.contractNo,
-            차량번호: d.docs.map((x) => x.plateNo).filter(Boolean).join(', '),
-            인도일: d.docs.map((x) => x.deliveryDate).filter(Boolean).sort()[0] || ''
-          }
-        });
-        await Contract.updateOne({ _id }, {
-          $set: { 'deliveryDocs.status': '발송완료', 'deliveryDocs.sentAt': new Date(), 'deliveryDocs.message': '' },
-          $push: { 'deliveryDocs.history': { sentAt: new Date(), to: d.deliveryDocs.to, by: '자동 발송', kind: '인도 다음 날', fileName: d.deliveryDocs.pdfFileName } }
-        });
-        results.push({ ...record, status: '발송완료' });
-      } catch (err) {
-        // 메일이 나갔는지 모르므로 '승인'으로 되돌리지 않는다. 사람이 확인한다.
-        await hold('실패', `보내는 도중 오류가 났습니다. 메일이 나갔는지 확인해 주세요. (${err.message})`);
-      }
-      /* eslint-enable no-await-in-loop */
-    }
-    const count = (st) => results.filter((r) => r.status === st).length;
-    const summary = { sent: count('발송완료'), held: count('변경됨'), failed: count('실패'), results };
-    if (results.length) console.log(`[인도 서류 발송] 보냄 ${summary.sent} · 보류 ${summary.held} · 실패 ${summary.failed}`);
-    return summary;
-  } finally {
-    running = false;
-  }
-};
-
-/** @route POST /api/delivery-docs/run { contractId? } */
-export const runDeliveryDocsNow = async (req, res) => {
-  try {
-    const one = Boolean(req.body?.contractId);
-    const summary = await runDeliveryDocsSend({ contractId: req.body?.contractId, ignoreSendDate: one });
-    if (summary.busy) return res.status(409).json({ success: false, message: '발송이 이미 돌고 있습니다. 잠시 뒤 새로고침해 주세요.' });
-    const parts = [`${summary.sent}건 보냈습니다.`];
-    if (summary.held) parts.push(`${summary.held}건은 내용이 바뀌어 보류했습니다.`);
-    if (summary.failed) parts.push(`${summary.failed}건은 실패했습니다.`);
-    res.json({ success: true, ...summary, message: summary.results.length ? parts.join(' ') : '보낼 서류가 없습니다.' });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * 오후 알림: 내일(또는 이미 지난) 발송일인데 아직 승인 안 한 계약을 담당자 메일로 알린다. 없으면 보내지 않는다.
- */
-export const sendDeliveryDocsReminder = async () => {
-  const tomorrow = addDays(todayKst(), 1);
-  const from = new Date(Date.now() - 30 * DAY);
-  const ids = await Vehicle.distinct('contract', { deliveryDate: { $gte: from }, contract: { $ne: null } });
-  const rows = [];
-  for (const id of ids) {
-    // eslint-disable-next-line no-await-in-loop
-    const d = await buildDeliveryDocs(id);
-    if (!d || d.contractStatus === '임시저장' || d.deliveryDocs?.status) continue;
-    if (!d.sendDate || d.sendDate > tomorrow) continue;
-    rows.push(`<li>${d.party.name} (${d.contractNo}) · 발송일 ${d.sendDate}${d.missing.length ? ` · 빠진 것: ${d.missing.join(', ')}` : ''}</li>`);
-  }
-  if (!rows.length) return { count: 0 };
-  await sendInternalMail({
-    subject: `[인도 서류] 승인 안 한 계약사실 증명원 ${rows.length}건`,
-    html: `<p>아래 계약은 계약사실 증명원·상환스케쥴 발송일이 내일이거나 지났는데 아직 승인하지 않았습니다.</p><ul>${rows.join('')}</ul><p>프로그램 &gt; 계약·출고 &gt; 인도 서류 발송에서 확인해 주세요.</p>`
-  });
-  return { count: rows.length };
 };

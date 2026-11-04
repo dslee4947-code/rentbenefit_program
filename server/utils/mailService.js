@@ -158,33 +158,14 @@ export const sendFineNoticeMail = async ({ to, cc, fileName, fileBuffer, values 
 };
 
 /**
- * 인도 서류 메일 (계약사실 증명원 + 상환스케쥴). 차량 인도 다음 날 아침에 고객 청구 메일로 보낸다.
+ * 서류 메일 (계약종료 확인서 · 중도해지 정산서 · 계약사실 증명원 · 보증금·선수금 안내문). 담당자가 화면에서 버튼을 눌렀을 때만 나간다.
  *
  * @param {object} params
  * @param {string} params.to 받는 사람
+ * @param {'contract-end'|'early-settlement'|'contract-fact'|'deposit-notice'} params.templateKey 양식 종류
  * @param {string} params.fileName PDF 파일명
  * @param {Buffer} params.fileBuffer PDF
- * @param {object} [params.values] 치환 값 ({{계약자}} {{계약번호}} {{차량번호}} {{인도일}})
- */
-export const sendDeliveryDocsMail = async ({ to, fileName, fileBuffer, values = {} }) => {
-  return sendTemplateMail({
-    to,
-    values,
-    templateKey: 'delivery-docs',
-    files: [{ fileName, buffer: fileBuffer, contentType: 'application/pdf' }],
-    missingToMessage: '받는 사람 이메일이 없습니다. 법인 관리에서 청구 이메일을 먼저 등록해 주세요.'
-  });
-};
-
-/**
- * 계약 종료 서류 메일 (계약종료 확인서 · 중도해지 정산서). 담당자가 화면에서 버튼을 눌렀을 때만 나간다.
- *
- * @param {object} params
- * @param {string} params.to 받는 사람
- * @param {'contract-end'|'early-settlement'} params.templateKey 양식 종류
- * @param {string} params.fileName PDF 파일명
- * @param {Buffer} params.fileBuffer PDF
- * @param {object} [params.values] 치환 값 ({{계약자}} {{계약번호}} {{차량번호}})
+ * @param {object} [params.values] 치환 값 (양식에 적힌 {{계약자}} {{계약번호}} {{차량번호}} 등)
  */
 export const sendEndDocMail = async ({ to, templateKey, fileName, fileBuffer, values = {} }) => {
   return sendTemplateMail({

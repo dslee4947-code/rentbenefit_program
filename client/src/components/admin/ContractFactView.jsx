@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Search, FileText, Download, Save, ExternalLink, X } from 'lucide-react';
+import { Search, FileText, Download, Save, ExternalLink, X, Send } from 'lucide-react';
 import ContractFactSheet from './ContractFactSheet.jsx';
 import { makeFittedPdf } from '../../utils/printFit.js';
 import { partyWithResidentFront } from '../../utils/residentNo.js';
@@ -8,7 +8,8 @@ import { dbValue } from '../../utils/factDocs.js';
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
 // 서류는 장마다 A4 크기(794×1120px)로 그려 두었으므로 여백 없이 뜬다
-const makeSheetPdf = (element) => makeFittedPdf(element, { orientation: 'portrait', marginMm: 0, imageType: 'png' });
+// 메일에 붙일 때는 jpeg로 뜬다. png는 한 장에 10MB가 넘어 메일이 막힐 수 있다
+const makeSheetPdf = (element, imageType = 'png') => makeFittedPdf(element, { orientation: 'portrait', marginMm: 0, imageType });
 // 숨겨 둔 양식이 이미지까지 자리 잡을 때까지 잠깐 기다린다
 const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
 
@@ -25,7 +26,8 @@ const normPlate = (v) => String(v || '').replace(/\s+/g, '');
  *
  * 장기렌트 계약서는 차가 나오기 전에 써서 차량번호가 들어가지 않는다. 그래서 차가 나온 뒤
  * 차량번호·차대번호가 든 계약사실 증명원을 따로 만들어 둔다. 고지서 운전자(임차인) 변경 때 관공서에 낸다.
- * 계약을 찾아 차와 서류(증명원 / 상환스케쥴표 / 둘 다)를 고르고, PDF로 받거나 계약서 폴더에 저장한다.
+ * 계약을 찾아 차와 서류(증명원 / 상환스케쥴표 / 둘 다)를 고르고, PDF로 받거나 계약서 폴더에 저장하거나 고객 메일로 보낸다.
+ * 메일은 담당자가 [메일 보내기]를 눌렀을 때만 나간다. 고지서에서 띄울 때는 관공서에 내는 용도라 메일 칸이 없다.
  *
  * 고지서 관리에서도 이 화면을 그대로 띄운다. 그때는 contractId·plateNo를 받아 그 차로 바로 연다.
  */
@@ -37,6 +39,7 @@ export default function ContractFactView({ showToast, currentUser, contractId: p
   const [parts, setParts] = useState('fact');
   const [form, setForm] = useState({});
   const [busy, setBusy] = useState(false);
+  const [mailTo, setMailTo] = useState(''); // 받는 메일. 계약을 열면 청구서 메일로 채운다
   const sheetRef = useRef(null);
   const canEdit = currentUser?.role !== 'viewer';
   const headers = { 'X-User-Role': currentUser?.role || 'viewer' };
@@ -46,6 +49,7 @@ export default function ContractFactView({ showToast, currentUser, contractId: p
     if (!data?.success) { showToast?.(data?.message || '계약을 불러오지 못했습니다.', 'error'); return; }
     const d = data.data;
     setOpen(d);
+    setMailTo(d.ending?.mailTo || '');
     setForm({
       driverRange: d.overrides?.driverRange || '',
       accidentRepair: d.overrides?.accidentRepair || '',
@@ -99,10 +103,10 @@ export default function ContractFactView({ showToast, currentUser, contractId: p
     }).catch(() => null);
   };
 
-  const buildPdf = async () => {
+  const buildPdf = async (imageType) => {
     await settle();
     if (!sheetRef.current) throw new Error('서류 양식을 그리지 못했습니다.');
-    return makeSheetPdf(sheetRef.current);
+    return makeSheetPdf(sheetRef.current, imageType);
   };
 
   const download = async () => {
@@ -136,6 +140,36 @@ export default function ContractFactView({ showToast, currentUser, contractId: p
       if (res.success && res.data) setOpen((o) => ({ ...o, factDocs: res.data.factDocs }));
     } catch (err) {
       showToast?.(err.message || '저장 중 오류가 났습니다.', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const postMail = (blob, force) => {
+    const fd = new FormData();
+    fd.append('file', blob, 'contract-fact.pdf');
+    fd.append('kind', parts);
+    fd.append('to', mailTo.trim());
+    if (vehicleId) fd.append('vehicleId', vehicleId);
+    if (force) fd.append('force', 'true');
+    return fetch(`${API_HOST}/api/delivery-docs/${open.contractId}/fact-docs/send`, { method: 'POST', headers, body: fd }).then((r) => r.json());
+  };
+
+  const sendMail = async () => {
+    if (lacking.length) { showToast?.(`보낼 수 없습니다: ${lacking.join(', ')}`, 'error'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mailTo.trim())) { showToast?.('받는 메일 주소를 확인해 주세요.', 'error'); return; }
+    if (!window.confirm(`${open.party.name} ${PARTS.find(([k]) => k === parts)[1]}를 ${mailTo.trim()}(으)로 보낼까요?`)) return;
+    setBusy(true);
+    try {
+      if (canEdit) await saveInputs();
+      const blob = await buildPdf('jpeg');
+      let res = await postMail(blob, false);
+      if (res.alreadySent && window.confirm(`${res.message}\n그래도 다시 보낼까요?`)) res = await postMail(blob, true);
+      else if (res.alreadySent) return;
+      showToast?.(res.message || (res.success ? '보냈습니다.' : '보내지 못했습니다.'), res.success ? 'success' : 'error');
+      if (res.success && res.data) setOpen((o) => ({ ...o, factDocs: res.data.factDocs }));
+    } catch (err) {
+      showToast?.(err.message || '보내는 중 오류가 났습니다.', 'error');
     } finally {
       setBusy(false);
     }
@@ -262,6 +296,17 @@ export default function ContractFactView({ showToast, currentUser, contractId: p
               <button type="button" onClick={download} disabled={busy || !docs.length} style={btn('#fff', 'var(--text-main)')}>
                 <Download size={14} /> PDF 받기
               </button>
+              {canEdit && !presetContract && (
+                <>
+                  <label style={{ marginTop: '0.3rem' }}>
+                    <div style={{ fontWeight: 700, marginBottom: '0.2rem' }}>받는 메일</div>
+                    <input type="email" value={mailTo} placeholder="청구 메일이 없습니다" onChange={(e) => setMailTo(e.target.value)} style={input} />
+                  </label>
+                  <button type="button" onClick={sendMail} disabled={busy || lacking.length > 0} style={btn(lacking.length ? '#94a3b8' : 'var(--primary)')}>
+                    <Send size={14} /> {busy ? '만드는 중…' : '메일 보내기'}
+                  </button>
+                </>
+              )}
             </div>
 
             <div style={{ fontSize: '0.75rem', background: 'var(--bg-main)', borderRadius: '8px', padding: '0.5rem 0.6rem' }}>
@@ -271,7 +316,7 @@ export default function ContractFactView({ showToast, currentUser, contractId: p
               {savedDocs.filter((f, i, arr) => arr.findIndex((g) => g.savedPath === f.savedPath) === i).map((f) => (
                 <div key={f._id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.25rem' }}>
                   <span style={{ flex: 1, color: 'var(--text-muted)' }}>
-                    {new Date(f.savedAt).toLocaleDateString('ko-KR')} · {PARTS.find(([k]) => k === f.kind)?.[1] || f.kind} · {f.plateNo}
+                    {new Date(f.savedAt).toLocaleDateString('ko-KR')} · {PARTS.find(([k]) => k === f.kind)?.[1] || f.kind} · {f.plateNo}{f.sentAt ? ` · 메일 ${f.sentTo}` : ''}
                   </span>
                   <button type="button" onClick={() => openSaved(f)} title={f.fileName} style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}>
                     <ExternalLink size={12} /> 열기

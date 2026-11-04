@@ -215,7 +215,20 @@ const ContractSchema = new Schema({
     fileName: String,
     savedPath: String,
     savedAt: Date,
-    savedBy: String
+    savedBy: String,
+    // 메일로 보냈으면 언제 어디로 보냈는지. 저장만 했으면 비어 있다
+    sentAt: Date,
+    sentTo: String
+  }],
+  // 보낸 보증금·선수금 안내문(계약·출고 > 보증금·선수금 안내)
+  depositNotices: [{
+    deposit: Number,
+    advancePayment: Number,
+    fileName: String,
+    savedPath: String,
+    sentAt: Date,
+    sentTo: String,
+    sentBy: String
   }],
   // 저장해 둔 계약종료 확인서(자금팀 > 계약종료 확인서). 중도해지 · 만기 후 인수 · 만기 후 반납, settlement = 중도해지 정산서
   endDocs: [{

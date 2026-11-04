@@ -3,7 +3,7 @@ import { Search, FileText, Download, Save, ExternalLink, X, Send } from 'lucide-
 import ContractEndSheet from './ContractEndSheet.jsx';
 import EarlySettlementSheet from './EarlySettlementSheet.jsx';
 import { DEPOSIT_ACCOUNT } from './InvoiceSheet.jsx';
-import { END_KINDS, FINE_DEPOSIT, SETTLEMENT_LAYOUTS, originOf, ratePctOf, settlementOf } from '../../utils/contractEnd.js';
+import { END_KINDS, FINE_DEPOSIT, SETTLEMENT_LAYOUTS, originOf, ratePctOf, settlementOf, unpaidCoverage } from '../../utils/contractEnd.js';
 import { makeFittedPdf } from '../../utils/printFit.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -67,8 +67,12 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
   const canEdit = currentUser?.role !== 'viewer';
   const headers = { 'X-User-Role': currentUser?.role || 'viewer' };
 
-  // 종료 구분에 맞는 날짜: 실제 종료일이 있으면 그것, 없으면 만기 인수·반납은 계약 종료일, 중도해지는 오늘
-  const defaultDate = (d, kind) => d.ending?.actualEndDate || (kind === 'early' ? todayYmd() : d.docs[0]?.endDate || '');
+  // 최근 정산서. 있으면 확인서의 구분과 날짜를 여기에 맞춘다
+  const savedSettlement = (d) => (d.endDocs || []).find((f) => f.kind === 'settlement');
+  // 종료 구분에 맞는 날짜: 실제 종료일이 있으면 그것, 없으면 만기 인수·반납은 계약 종료일, 중도해지는 정산서의 반납일 또는 오늘
+  const defaultDate = (d, kind) => d.ending?.actualEndDate || (kind === 'early' ? savedSettlement(d)?.endDate || todayYmd() : d.docs[0]?.endDate || '');
+  // 종료 사유가 없으면, 정산서가 있거나 만기 전인 계약은 중도해지로 시작한다
+  const defaultKind = (d) => KIND_OF_REASON[d.ending?.endReason] || (savedSettlement(d) || d.docs[0]?.endDate > todayYmd() ? 'early' : 'return');
 
   const openOne = async (contractId, plate) => {
     const data = await fetch(`${API_HOST}/api/delivery-docs/${contractId}`, { cache: 'no-store' }).then((r) => r.json()).catch(() => null);
@@ -78,7 +82,7 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
       const res = await fetch(`${API_HOST}/api/delivery-docs/${contractId}/settlement-info`, { cache: 'no-store' }).then((r) => r.json()).catch(() => null);
       setSettlementInfo(res?.success ? res.data : null);
     }
-    const kind = KIND_OF_REASON[d.ending?.endReason] || 'return';
+    const kind = defaultKind(d);
     setOpen(d);
     setMailTo(d.ending?.mailTo || '');
     setForm(mode === 'end' ? { kind, endDate: defaultDate(d, kind), pickupAddress: d.party.address || '', phone: d.party.phone || '', issueDate: todayYmd() } : FORM_OF[mode](d));
@@ -105,7 +109,8 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
   docs.forEach((d) => { if (!d.plateNo) lacking.push(`${d.code || d.carModel} 차량번호`); });
   if (open && !docs.length) lacking.push('계약에 묶인 차량');
   if (open && mode === 'end' && !/^\d{4}-\d{2}-\d{2}$/.test(form.endDate)) lacking.push(END_KINDS[form.kind].dateLabel);
-  const unpaid = mode === 'end' ? open?.ending?.unpaidRounds || [] : [];
+  const coverage = unpaidCoverage(mode === 'end' ? open?.ending?.unpaidRounds || [] : [], open?.docs, open?.endDocs);
+  const coveredAmount = coverage.settlements.reduce((s, f) => s + (Number(f.settleAmount) || 0), 0);
 
   // 정산서: 고른 차 한 대를 계산하고, 사람이 확인해야 할 것을 화면에 알린다(종이에는 들어가지 않는다)
   const info = settlement && docs[0] ? settlementInfo?.[docs[0].vehicleId] : null;
@@ -165,17 +170,26 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
     }
   };
 
+  // 저장과 메일이 같이 쓰는 값. 정산서는 납부 회차와 정산금을 함께 남겨 계약종료 확인서가 읽는다
+  const endDocForm = (blob) => {
+    const fd = new FormData();
+    fd.append('file', blob, 'contract-end.pdf');
+    fd.append('kind', mode === 'end' ? form.kind : mode);
+    fd.append('endDate', settlement ? form.returnDate : form.endDate);
+    if (vehicleId) fd.append('vehicleId', vehicleId);
+    if (settled) {
+      fd.append('paidCount', settled.paidCount);
+      fd.append('settleAmount', settled.final);
+    }
+    return fd;
+  };
+
   const saveToFolder = async () => {
     if (lacking.length) { showToast?.(`저장할 수 없습니다: ${lacking.join(', ')}`, 'error'); return; }
     setBusy(true);
     try {
       const blob = await buildPdf();
-      const fd = new FormData();
-      fd.append('file', blob, 'contract-end.pdf');
-      fd.append('kind', mode === 'end' ? form.kind : mode);
-      fd.append('endDate', settlement ? form.returnDate : form.endDate);
-      if (vehicleId) fd.append('vehicleId', vehicleId);
-      const res = await fetch(`${API_HOST}/api/delivery-docs/${open.contractId}/end-docs`, { method: 'POST', headers, body: fd }).then((r) => r.json());
+      const res = await fetch(`${API_HOST}/api/delivery-docs/${open.contractId}/end-docs`, { method: 'POST', headers, body: endDocForm(blob) }).then((r) => r.json());
       showToast?.(res.message || (res.success ? '저장했습니다.' : '저장하지 못했습니다.'), res.success ? 'success' : 'error');
       if (res.success && res.data) setOpen((o) => ({ ...o, endDocs: res.data.endDocs }));
     } catch (err) {
@@ -186,13 +200,9 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
   };
 
   const postMail = async (blob, force) => {
-    const fd = new FormData();
-    fd.append('file', blob, 'contract-end.pdf');
-    fd.append('kind', mode === 'end' ? form.kind : mode);
-    fd.append('endDate', settlement ? form.returnDate : form.endDate);
+    const fd = endDocForm(blob);
     fd.append('to', mailTo.trim());
     if (force) fd.append('force', 'true');
-    if (vehicleId) fd.append('vehicleId', vehicleId);
     return fetch(`${API_HOST}/api/delivery-docs/${open.contractId}/end-docs/send`, { method: 'POST', headers, body: fd }).then((r) => r.json());
   };
 
@@ -386,11 +396,26 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
               </label>
             ))}
 
-            {unpaid.length > 0 && (
+            {coverage.covered.length > 0 && (
+              <div style={{ background: '#d1fae5', color: '#065f46', borderRadius: '8px', padding: '0.6rem', lineHeight: 1.5 }}>
+                <b>{coverage.covered.join(', ')}회차는 중도해지 정산서로 처리합니다</b>
+                {coverage.settlements.map((f) => (
+                  <div key={f._id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <span style={{ flex: 1 }}>{f.plateNo} · 반납 {f.endDate} · 납부 {f.paidCount}회{f.sentAt ? ` · ${new Date(f.sentAt).toLocaleDateString('ko-KR')} 메일 보냄` : ' · 메일 전'}</span>
+                    <button type="button" onClick={() => openSaved(f)} title={f.fileName} style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}>
+                      <ExternalLink size={12} /> 열기
+                    </button>
+                  </div>
+                ))}
+                <div>{coveredAmount > 0 ? `정산금 ${wonText(coveredAmount)}이 입금되었는지 확인한 뒤 보내 주세요.` : coveredAmount < 0 ? `환급금 ${wonText(-coveredAmount)}을 돌려드린 뒤 보내 주세요.` : '정산서를 고객이 확인했는지 본 뒤 보내 주세요.'}</div>
+              </div>
+            )}
+
+            {coverage.left.length > 0 && (
               <div style={{ background: '#fef3c7', color: '#92400e', borderRadius: '8px', padding: '0.6rem', lineHeight: 1.5 }}>
                 <b>입금되지 않은 회차가 있습니다</b>
-                <div>{unpaid.join(', ')}회차 (청구 회차표 기준)</div>
-                <div>정산이 끝났는지 확인한 뒤 보내 주세요.</div>
+                <div>{coverage.left.join(', ')}회차 (청구 회차표 기준)</div>
+                <div>{coverage.covered.length ? '정산서의 납부 회차에 넣은 회차입니다. 입금을 확인해 주세요.' : '정산이 끝났는지 확인한 뒤 보내 주세요. 중도해지라면 중도해지 정산서를 먼저 저장하거나 보내면 여기에 연결됩니다.'}</div>
               </div>
             )}
 

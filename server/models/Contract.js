@@ -233,6 +233,9 @@ const ContractSchema = new Schema({
   // 저장해 둔 계약종료 확인서(자금팀 > 계약종료 확인서). 중도해지 · 만기 후 인수 · 만기 후 반납, settlement = 중도해지 정산서
   endDocs: [{
     kind: { type: String, enum: ['early', 'takeover', 'return', 'settlement'] },
+    // 정산서만: 납부 회차와 총 정산금(음수면 환급). endDate는 차량 반납일이다
+    paidCount: Number,
+    settleAmount: Number,
     vehicleId: { type: Schema.Types.ObjectId, ref: 'Vehicle' },
     plateNo: String,
     endDate: String,

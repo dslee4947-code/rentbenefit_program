@@ -70,6 +70,22 @@ export const earlyPenalty = ({ monthlyFee, advancePayment = 0, termMonths = 0, e
 /** 위약금율(%). 화면에서 적은 값이 우선이고, 없으면 계약 값('35%'처럼 온다) */
 export const ratePctOf = (doc, override) => Number.parseFloat(override) || Number.parseFloat(doc?.earlyRate) || 0;
 
+/**
+ * 미입금 회차 중 중도해지 정산서가 맡은 회차를 가른다(계약종료 확인서 화면).
+ * 정산서의 납부 회차 뒤 회차는 이미 미납 렌트료 계산에 들어가 있어 따로 받을 돈이 아니다.
+ * 회차표는 계약 전체라 차가 여러 대면 모든 차에 정산서가 있어야 한다.
+ * @param {number[]} unpaidRounds 미입금 회차 번호
+ * @param {{vehicleId: string}[]} docs 계약의 차
+ * @param {object[]} endDocs 저장한 종료 서류(최근 것이 앞)
+ * @returns {{covered: number[], left: number[], settlements: object[]}} 정산서가 맡은 회차, 남은 회차, 차마다 최근 정산서
+ */
+export const unpaidCoverage = (unpaidRounds = [], docs = [], endDocs = []) => {
+  const settlements = docs.map((d) => endDocs.find((f) => f.kind === 'settlement' && String(f.vehicleId) === String(d.vehicleId)));
+  if (!settlements.length || settlements.some((f) => !Number.isFinite(f?.paidCount))) return { covered: [], left: unpaidRounds, settlements: [] };
+  const paid = Math.min(...settlements.map((f) => f.paidCount));
+  return { covered: unpaidRounds.filter((no) => no > paid), left: unpaidRounds.filter((no) => no <= paid), settlements };
+};
+
 const ymdOf = (time) => new Date(time).toISOString().slice(0, 10);
 /** 엑셀 EDATE: n달 뒤 같은 날. 그 달에 없는 날이면 말일 */
 const edate = (ymd, n) => {

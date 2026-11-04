@@ -428,7 +428,12 @@ const storeEndDoc = (req, d, { kind, plates }) => saveDocument({
 /** 계약에 남길 기록. 차가 여러 대면 차마다 한 줄이다 */
 const endDocEntries = (req, { kind, docs }, saved, sent = {}) => {
   const endDate = /^\d{4}-\d{2}-\d{2}$/.test(req.body.endDate || '') ? req.body.endDate : '';
+  // 정산서는 납부 회차와 정산금을 남긴다. 계약종료 확인서가 미입금 회차를 맞춰 볼 때 읽는다
+  const settle = kind === 'settlement' && req.body.paidCount !== undefined && Number.isFinite(Number(req.body.paidCount))
+    ? { paidCount: Number(req.body.paidCount), settleAmount: Number(req.body.settleAmount) || 0 }
+    : {};
   return docs.map((x) => ({
+    ...settle,
     kind,
     vehicleId: x.vehicleId,
     plateNo: x.plateNo,

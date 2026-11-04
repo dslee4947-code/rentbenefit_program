@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FINE_DEPOSIT, earlyPenalty, originOf, settlementOf } from '../../client/src/utils/contractEnd.js';
+import { FINE_DEPOSIT, earlyPenalty, originOf, settlementOf, unpaidCoverage } from '../../client/src/utils/contractEnd.js';
 import { ledgerCheckOf } from '../utils/settlementLedgerCheck.js';
 
 // 엑셀 '중도해지_정산서261104.xlsx' 입력값 시트의 예시(Carnival-006 더데이랩스)
@@ -139,4 +139,21 @@ test('차종 이름으로 국산·외산을 나눈다', () => {
   for (const m of ['G63 Edition', 'E350 4Matic AV', 'S580 4Matic L', 'RX 350h Luxury', 'ALPHARD-HEV SFX', 'GLE450 4M', 'MAYBACH S580 4Matic L']) {
     assert.equal(originOf(m), '외산', m);
   }
+});
+
+test('미입금 회차: 정산서의 납부 회차 뒤 회차는 정산서가 맡는다', () => {
+  const docs = [{ vehicleId: 'v1' }];
+  const endDocs = [{ kind: 'return', vehicleId: 'v1' }, { kind: 'settlement', vehicleId: 'v1', paidCount: 17 }, { kind: 'settlement', vehicleId: 'v1', paidCount: 9 }];
+  const r = unpaidCoverage([18, 19], docs, endDocs);
+  assert.deepEqual(r.covered, [18, 19]);
+  assert.deepEqual(r.left, []);
+  // 납부했다고 적은 회차가 회차표에 미입금이면 남겨서 알린다
+  assert.deepEqual(unpaidCoverage([17, 18], docs, endDocs).left, [17]);
+});
+
+test('미입금 회차: 정산서가 없거나 일부 차만 있으면 맡지 않는다', () => {
+  assert.deepEqual(unpaidCoverage([18], [{ vehicleId: 'v1' }], []).left, [18]);
+  const two = [{ vehicleId: 'v1' }, { vehicleId: 'v2' }];
+  assert.deepEqual(unpaidCoverage([18], two, [{ kind: 'settlement', vehicleId: 'v1', paidCount: 17 }]).covered, []);
+  assert.deepEqual(unpaidCoverage([18], two, [{ kind: 'settlement', vehicleId: 'v1', paidCount: 17 }, { kind: 'settlement', vehicleId: 'v2', paidCount: 17 }]).covered, [18]);
 });

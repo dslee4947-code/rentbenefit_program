@@ -177,11 +177,11 @@ export const sendDeliveryDocsMail = async ({ to, fileName, fileBuffer, values = 
 };
 
 /**
- * 계약 종료 서류 메일 (계약종료 확인서 · 중도해지 안내문 · 중도해지 정산서). 담당자가 화면에서 버튼을 눌렀을 때만 나간다.
+ * 계약 종료 서류 메일 (계약종료 확인서 · 중도해지 정산서). 담당자가 화면에서 버튼을 눌렀을 때만 나간다.
  *
  * @param {object} params
  * @param {string} params.to 받는 사람
- * @param {'contract-end'|'early-guide'|'early-settlement'} params.templateKey 양식 종류
+ * @param {'contract-end'|'early-settlement'} params.templateKey 양식 종류
  * @param {string} params.fileName PDF 파일명
  * @param {Buffer} params.fileBuffer PDF
  * @param {object} [params.values] 치환 값 ({{계약자}} {{계약번호}} {{차량번호}})

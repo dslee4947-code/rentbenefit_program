@@ -1,5 +1,5 @@
 /**
- * 중도해지 정산서 · 중도해지 안내문 · 계약종료 확인서가 함께 쓰는 값(색, 칸 모양, 숫자 표기). 모양 부품은 components/admin/EndDocParts.jsx.
+ * 중도해지 정산서 · 계약종료 확인서가 함께 쓰는 값(색, 칸 모양, 숫자 표기). 모양 부품은 components/admin/EndDocParts.jsx.
  */
 
 export const PAGE_W = 794;

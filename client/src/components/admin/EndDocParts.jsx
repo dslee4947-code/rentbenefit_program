@@ -1,7 +1,7 @@
 import { COMPANY, LINE, NAVY, NOTE_BG, PAGE_H, PAGE_W, RED, labelCell, tableStyle, valueCell, won } from '../../utils/endDocStyle.js';
 
 /**
- * 중도해지 정산서 · 중도해지 안내문 · 계약종료 확인서가 함께 쓰는 모양.
+ * 중도해지 정산서 · 계약종료 확인서가 함께 쓰는 모양.
  *
  * 디자인은 Dropbox "09.중도해지/중도해지_정산서261104.xlsx"를 따른다(대표님 2026-11-04):
  * 남색 제목과 남색 띠, 회색 이름 칸, 노란 결과 띠.

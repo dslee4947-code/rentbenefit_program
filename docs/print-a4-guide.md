@@ -97,7 +97,7 @@ const blob = await makeFittedPdf(element, { orientation: 'portrait', marginMm: 8
 | 업무 매뉴얼 | `HandbookView.jsx` 인쇄 버튼 | `window.print()`로 화면 전체를 찍음 | - | ⏳ 긴 글이라 `onePage: false`로 적용 |
 | 단기렌트 요금표 | `ShortTermRatesView.jsx` (`RateSheet`, 비교견적서 양식) | `printFitted` | - | ✅ 적용 (2026-10-28) |
 | 증차·감차 공문 (신청서·신구사업대비표·매매계약서) | `FleetFilingDocs.jsx` → `FleetFilingView.jsx` | 묶은 PDF를 새 창에 열어 인쇄 | `makeA4PagesPdf` (쪽마다 세로·가로 A4 그대로) | ✅ 적용 (2026-10-30) |
-| 중도해지 정산서 (구분형·요약형·상세) · 중도해지 안내문 · 계약종료 확인서 | `EarlySettlementSheet.jsx`, `EarlyTerminationGuideSheet.jsx`, `ContractEndSheet.jsx` (공통 모양 `EndDocParts.jsx`) → `ContractEndView.jsx` | - | `makeFittedPdf` (jpeg, 여백 0, A4 크기로 그림. 메일 첨부라 png를 쓰지 않음) | ✅ 적용 (2026-11-04) |
+| 중도해지 정산서 (구분형·요약형·상세, 맨 뒤에 중도해지 절차) · 계약종료 확인서 | `EarlySettlementSheet.jsx`, `ContractEndSheet.jsx` (공통 모양 `EndDocParts.jsx`) → `ContractEndView.jsx` | - | `makeFittedPdf` (jpeg, 여백 0, A4 크기로 그림. 메일 첨부라 png를 쓰지 않음) | ✅ 적용 (2026-11-04) |
 
 새 인쇄·PDF 기능을 만들거나 위 ⏳ 항목을 고치면 이 표를 함께 고친다.
 

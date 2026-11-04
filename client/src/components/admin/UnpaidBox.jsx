@@ -23,9 +23,9 @@ export default function UnpaidBox({ scheduleId, round, rounds, onDone, showToast
   const since = daysSinceDue(round);
   const inGrace = since <= LATE_GRACE_DAYS;
 
-  // 이 회차 미납이 붙어 있는 다음 청구서(이미 청구 중이면 알려 준다)
+  // 이 회차 미납이 붙어 있는 청구서(다음 청구서가 이미 나갔으면 그다음 미발행 청구서). 이미 청구 중이면 알려 준다
   const chargedIn = isUnpaid
-    ? rounds.find((r) => r.no > round.no && Number(r.prevUnpaid) > 0 && Number(r.interest) >= 0 && r.no === round.no + 1)
+    ? [...rounds].sort((a, b) => a.no - b.no).find((r) => r.no > round.no && Number(r.prevUnpaid) > 0)
     : null;
 
   const call = async (dryRun) => {

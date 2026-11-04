@@ -164,23 +164,32 @@ export const unbilledInterestToDate = (rounds, no) => {
  *
  * 회차 안에 들어 있는 '아직 안 받은 이자'를 첫 회차부터 따라가며 센다. 회차 수가 많아야 60이라 매번 처음부터 센다.
  *
+ * 다음 청구서가 이미 나가 그 금액을 못 넣었으면(발행한 청구서는 안 바꾼다) 그다음 미발행 청구서로 넘어간다.
+ * 사람이 기타 청구에 'n회차 미납' 줄로 직접 넣은 회차는 두 번 청구하지 않도록 넘기지 않는다.
+ *
  * @param {Array<object>} rounds 회차표의 회차들 (순서 상관없음)
  * @param {number} no 이번 회차 번호
  * @returns {{carried: number, interestBase: number}} carried: 전월 미결제로 넘어오는 돈, interestBase: 이자가 붙는 원금
  */
 export const carryInto = (rounds, no) => {
   const sorted = [...(rounds || [])].sort((a, b) => a.no - b.no);
+  const chargedByHand = (n) => sorted.some((r) => (r.extras || [])
+    .some((e) => new RegExp(`(^|[^0-9])${n}회차 미납`).test(e.label || '')));
   let interestIn = 0; // 이 회차의 '전월 미결제' 안에 들어 있는 이자
   let carried = 0;
   let interestBase = 0;
   for (const r of sorted) {
     if (r.no >= no) break;
-    const owe = r.status === '미납' ? Math.max(0, (r.total || 0) - (r.paidAmount || 0)) : 0;
+    const owe = r.status === '미납' && !chargedByHand(r.no) ? Math.max(0, (r.total || 0) - (r.paidAmount || 0)) : 0;
     // 이 회차 청구액 안의 이자 = 이번에 붙은 이자 + 앞에서 넘어온 이자. 입금은 원금부터 갚은 것으로 보므로 이자가 남는다.
     const interestPart = Math.min(owe, (r.interest || 0) + Math.min(r.prevUnpaid || 0, interestIn));
-    carried = owe;
-    interestBase = owe - interestPart;
-    interestIn = interestPart;
+    // 이 회차가 앞 회차 미납을 안 담은 채 나갔으면 그 돈은 아직 청구되지 않았으니 계속 넘어간다
+    const skipped = r.issuedAt && !(r.prevUnpaid > 0);
+    const leftOver = skipped ? carried : 0;
+    const leftOverInterest = skipped ? interestIn : 0;
+    carried = owe + leftOver;
+    interestBase = (owe - interestPart) + (leftOver - leftOverInterest);
+    interestIn = interestPart + leftOverInterest;
   }
   return { carried, interestBase };
 };
@@ -2922,8 +2931,11 @@ export const refreshUnbilledInterestOf = (s, rate, now = new Date()) => {
   let touched = false;
   for (const r of s.rounds) {
     const made = r.issuedAt || new Date(r.dueDate).getTime() - 12 * 864e5 <= now.getTime();
+    // 사이 청구서가 미납을 못 담고 나갔으면 그 미납의 이자는 이 회차 연체 이자 칸에 들어 있다(carryInto)
+    const carriedHere = (fromNo) => s.rounds.find((x) => x.no === fromNo)?.status === '미납'
+      && s.rounds.filter((x) => x.no > fromNo && x.no < r.no).every((x) => x.issuedAt && !(x.prevUnpaid > 0));
     const charged = (fromNo) => (r.extras || []).some((e) => new RegExp(`^연체 이자 \\(${fromNo}회차`).test(e.label || ''))
-      || (Number(r.interest) > 0 && fromNo === r.no - 1);
+      || (Number(r.interest) > 0 && carriedHere(fromNo));
     const items = made ? (map.get(r.no) || []).filter((it) => !charged(it.fromNo)) : [];
     const next = items.length
       ? {

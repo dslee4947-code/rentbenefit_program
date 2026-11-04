@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyCarryForward } from '../controllers/billingScheduleController.js';
+import { applyCarryForward, findMissingAttachment } from '../controllers/billingScheduleController.js';
 
 // [미납으로 처리] / [미납 취소] (2026-10-21): 전달 회차를 미납으로 누르면 다음 미발행 청구서에
 // 미납 원금 + 이자(원금 × 연 이율 × 출금일 사이 일수, 10원 미만 버림)가 붙고, 취소하면 원래대로 돌아간다.
@@ -113,4 +113,11 @@ test('기타 청구에 직접 넣은 미납은 두 번 청구하지 않는다(�
   t.rounds[3].extras = [{ label: '9/30 19회차 미납 렌트료', amount: 1000 }];
   applyCarryForward(t, RATE, 9);
   assert.equal(t.rounds[3].prevUnpaid, RENT);
+});
+
+test('함께 보낼 서류를 못 읽으면 그 파일 이름을 알려 준다', async () => {
+  const round = { attachments: [{ kind: '범칙금', fileName: 'a.jpg', savedPath: 'a' }, { kind: '정비내역', fileName: 'b.jpg', savedPath: 'b' }] };
+  assert.equal(await findMissingAttachment(round, async () => Buffer.from('x')), '');
+  assert.equal(await findMissingAttachment(round, async (p) => (p === 'b' ? null : Buffer.from('x'))), 'b.jpg');
+  assert.equal(await findMissingAttachment({}, async () => null), '');
 });

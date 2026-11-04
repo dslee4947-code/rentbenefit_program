@@ -95,6 +95,13 @@ export const formSnapshot = (form) => JSON.stringify({
   note: form.note || ''
 });
 
+/** 메일에 함께 나가는 서류를 종류별로 센 글. 예: '범칙금 2건, 정비내역 1건'. 없으면 '' */
+export const attachmentSummary = (attachments) => {
+  const counts = new Map();
+  for (const a of attachments || []) counts.set(a.kind || '서류', (counts.get(a.kind || '서류') || 0) + 1);
+  return [...counts].map(([kind, n]) => `${kind} ${n}건`).join(', ');
+};
+
 /** 회차 저장(PUT) 본문. 화면에 보이는 금액 그대로 저장되게 합산한 값을 넣는다. */
 export const roundSaveBody = (form, totals) => ({
   ...form,

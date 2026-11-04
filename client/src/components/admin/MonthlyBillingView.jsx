@@ -4,7 +4,7 @@ import { Calendar, RefreshCw, Save, FileText, Send, Paperclip, Trash2, AlertCirc
 import InvoiceSheet, { isMaintenanceKind, makeInvoicePdf } from './InvoiceSheet.jsx';
 import ExtensionTag from './ExtensionTag.jsx';
 import MoneyInput from './MoneyInput.jsx';
-import { buildRoundForm, formSnapshot, formTotals, removeExtra, roundSaveBody } from './billingForm.js';
+import { attachmentSummary, buildRoundForm, formSnapshot, formTotals, removeExtra, roundSaveBody } from './billingForm.js';
 import { useUnsavedPrompt } from './UnsavedDialog.jsx';
 import AutoSendView from './AutoSendView.jsx';
 import BulkSendDialog from './BulkSendDialog.jsx';
@@ -365,6 +365,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
       const message = [
         `${partyName}  ${form.no}회차 청구서`,
         `청구액 ${won(total)}`,
+        `함께 보낼 서류 :  ${attachmentSummary(attachments) || '없음'}`,
         '',
         `받는 사람 :  ${to}`,
         ourDomain ? '(회사 계정입니다. 시험 발송으로 보입니다)' : '(고객 주소입니다. 실제로 발송됩니다)',
@@ -1608,6 +1609,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
                 <Paperclip size={14} style={{ color: 'var(--primary)' }} />
                 <span style={{ fontSize: '0.82rem', fontWeight: '700', color: 'var(--text-bright)' }}>함께 보낼 서류</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>올려 두면 청구서 메일에 함께 첨부됩니다</span>
               </div>
 
               {attachments.length > 0 && (

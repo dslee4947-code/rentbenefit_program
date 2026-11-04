@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom';
 import { Send, X } from 'lucide-react';
 import InvoiceSheet, { makeInvoicePdf } from './InvoiceSheet.jsx';
 import PaymentDayBadge from './PaymentDayBadge.jsx';
-import { buildRoundForm, formTotals, roundSaveBody } from './billingForm.js';
+import { attachmentSummary, buildRoundForm, formTotals, roundSaveBody } from './billingForm.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -49,7 +49,7 @@ export default function BulkSendDialog({ title, items, currentUser, showToast, o
           const to = data.schedule.billingEmail || data.schedule.company?.billingEmail || data.schedule.customer?.email || '';
           if (!round) return { to };
           const totals = formTotals(buildRoundForm(it, round, data.schedule.rounds), round.attachments);
-          return { to, total: totals.total, issued: Boolean(round.issuedAt) };
+          return { to, total: totals.total, issued: Boolean(round.issuedAt), docs: attachmentSummary(round.attachments) };
         } catch {
           return {};
         }
@@ -59,6 +59,7 @@ export default function BulkSendDialog({ title, items, currentUser, showToast, o
         ...r,
         to: filled[i].to ?? r.to,
         total: filled[i].total ?? r.total,
+        docs: filled[i].docs || '',
         ...(filled[i].issued ? { pick: false, state: '이미 발행' } : {})
       })));
       setLoading(false);
@@ -187,7 +188,9 @@ export default function BulkSendDialog({ title, items, currentUser, showToast, o
                     <input type="checkbox" checked={r.pick} disabled={running || done || Boolean(r.state)} onChange={(e) => update(i, { pick: e.target.checked })} />
                   </td>
                   <td style={cell}><strong>{nameOf(r.it)}</strong><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{r.it.carSummary || ''}</div></td>
-                  <td style={{ ...cell, whiteSpace: 'nowrap' }}><PaymentDayBadge date={r.it.round.dueDate} /> {r.it.round.no}회차 · {String(r.it.round.dueDate || '').slice(0, 10)}</td>
+                  <td style={{ ...cell, whiteSpace: 'nowrap' }}><PaymentDayBadge date={r.it.round.dueDate} /> {r.it.round.no}회차 · {String(r.it.round.dueDate || '').slice(0, 10)}
+                    {r.docs && <div style={{ fontSize: '0.72rem', color: 'var(--primary)', fontWeight: 700, marginTop: '0.15rem' }}>함께 보냄: {r.docs}</div>}
+                  </td>
                   <td style={{ ...cell, textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>{won(r.total)}</td>
                   <td style={cell}>
                     <input

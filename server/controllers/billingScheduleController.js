@@ -587,6 +587,20 @@ const extensionLeadOf = (schedule, round) => {
 };
 
 /**
+ * 함께 보낼 서류 중 읽지 못하는 첫 파일 이름. 모두 읽히면 ''.
+ * 서류가 빠진 청구서가 고객에게 나가면 안 되므로 보내기 전에 확인한다.
+ *
+ * @param {object} round 회차
+ * @param {(path: string) => Promise<Buffer|null>} [read] 파일 읽기
+ */
+export const findMissingAttachment = async (round, read = readSavedFile) => {
+  for (const att of round.attachments || []) {
+    if (!(await read(att.savedPath))) return att.fileName || att.kind || '서류';
+  }
+  return '';
+};
+
+/**
  * 저장해 둔 청구서를 메일로 보내고 회차를 '청구됨'으로 바꾼다.
  *
  * 화면의 [발행]과 아침 자동 발송이 함께 쓴다. 두 길이 따로 놀면 한쪽만 서류 첨부나
@@ -1101,10 +1115,7 @@ const sendApprovedInvoices = async ({ user, scheduleId, roundNo, ignoreSendDate,
         continue;
       }
       // 붙여 보낼 서류가 하나라도 없으면 보내지 않는다. 승인한 것과 다른 묶음이 나가면 안 된다.
-      let missingDoc = '';
-      for (const att of round.attachments || []) {
-        if (!(await readSavedFile(att.savedPath))) { missingDoc = att.fileName || att.kind; break; }
-      }
+      const missingDoc = await findMissingAttachment(round);
       if (missingDoc) { await hold('실패', `함께 보낼 서류(${missingDoc})를 찾지 못했습니다. 서류를 확인한 뒤 다시 승인해 주세요.`); continue; }
 
       // 보내기 직전에 이 회차를 DB에서 붙잡는다. 화면의 [발행]이나 다른 서버가 먼저 잡았으면 보내지 않는다.
@@ -1531,6 +1542,13 @@ export const issueRound = async (req, res) => {
       : (req.body.companyName || '거래처');
     const contractNo = invoiceFolderOf(schedule);
     const fileName = await invoiceFileNameOf(partyName, round);
+
+    if (String(req.body.sendEmail) === 'true') {
+      const missingDoc = await findMissingAttachment(round);
+      if (missingDoc) {
+        return res.status(410).json({ success: false, message: `함께 보낼 서류(${missingDoc})를 찾지 못해 보내지 않았습니다. 서류를 다시 올린 뒤 보내 주세요.` });
+      }
+    }
 
     // 1) 계약자 폴더 > 02.청구서 > 계약번호 에 저장.
     //    한 법인에 계약이 여러 건이라, 계약번호로 한 단계 더 나누지 않으면

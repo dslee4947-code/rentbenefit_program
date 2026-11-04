@@ -17,6 +17,8 @@ import { calcDailyRent } from './billingDate.js';
  *  - 계약 기간이 없다. 회차는 대여 시작일부터 한 달씩, 다음 청구까지 필요한 만큼만 만들어 둔다
  *    (청구 화면에서 그 달을 열 때 늘어난다). 반납하면 그날까지 일할로 마지막 회차를 맞추고 끝낸다.
  *  - 청구일은 대여 시작일과 같은 날(9/16 시작이면 매달 16일, 그 달의 대여료를 미리 받는다).
+ *    결제일(pricing.billingDay)을 정하면 그날이 청구일이다. 대여 기간과 반납 일할은 그대로 시작일 기준이다
+ *    (레이 그랜저: 9/16 시작, 25일 결제 → 9/25에 9/16~10/15분을 받는다).
  *  - 차는 단기렌트 차량 그대로 둔다(상태·원장 형태를 바꾸지 않는다). 차량 DB의 월 렌트료도 건드리지 않는다.
  *  - 입금이 확인되면 그 차의 차량 손익 원장(단기렌트 갑지)에 '○○ 단기렌트료 n회차' 입금 줄이 들어간다.
  */
@@ -39,6 +41,17 @@ const addMonths = (start, n) => {
   const last = new Date(Date.UTC(y, m + n + 1, 0)).getUTCDate();
   return kstNoon(y, m + n, Math.min(d, last));
 };
+/**
+ * n번째 회차(0부터)의 청구일. 결제일이 없으면 시작일에서 n개월 뒤 같은 날이다.
+ * 결제일이 시작일의 날짜보다 앞이면 그 달 결제일은 이미 지났으므로 다음 달부터 낸다. 그 달에 그날이 없으면 말일.
+ */
+export const shortTermDueDate = (start, n, billingDay) => {
+  if (!billingDay) return addMonths(start, n);
+  const { y, m, d } = kstParts(start);
+  const month = m + n + (billingDay < d ? 1 : 0);
+  const last = new Date(Date.UTC(y, month + 1, 0)).getUTCDate();
+  return kstNoon(y, month, Math.min(billingDay, last));
+};
 const dayDiff = (a, b) => Math.round((kstNoon(...Object.values(kstParts(b))) - kstNoon(...Object.values(kstParts(a)))) / 86400000);
 const ymd = (d) => { const { y, m, d: dd } = kstParts(d); return `${y}-${String(m + 1).padStart(2, '0')}-${String(dd).padStart(2, '0')}`; };
 
@@ -54,6 +67,7 @@ export const buildShortTermSchedule = async (contractOrId, now = new Date()) => 
   if (!isShortTerm(contract)) throw new Error('단기렌트 계약이 아닙니다.');
   const start = contract.rentStartDate || contract.deliveryDate;
   const monthly = Number(contract.pricing?.monthlyFee) || 0;
+  const billingDay = Number(contract.pricing?.billingDay) || 0;
   if (!start) throw new Error('대여 시작일이 없습니다.');
   if (!monthly) throw new Error('월 대여료가 0원입니다.');
 
@@ -63,8 +77,9 @@ export const buildShortTermSchedule = async (contractOrId, now = new Date()) => 
 
   const rounds = [];
   for (let i = 0; i < 600; i += 1) {
-    const due = addMonths(start, i);
-    if (contract.returnDate ? dayDiff(due, until) <= 0 : due > until) break;
+    const period = addMonths(start, i); // 이 회차 대여 기간의 시작
+    const due = shortTermDueDate(start, i, billingDay);
+    if (contract.returnDate ? dayDiff(period, until) <= 0 : due > until) break;
     const no = i + 1;
     if (kept.has(no)) { rounds.push(kept.get(no)); continue; }
     // 반납이 이번 달 대여 기간 안이면 반납일까지 일할(반납일은 빼고 센다)
@@ -72,8 +87,8 @@ export const buildShortTermSchedule = async (contractOrId, now = new Date()) => 
     let amount = monthly;
     let note;
     if (contract.returnDate && dayDiff(until, next) > 0) {
-      const days = dayDiff(due, until);
-      const span = dayDiff(due, next);
+      const days = dayDiff(period, until);
+      const span = dayDiff(period, next);
       amount = Math.round((monthly * days) / span);
       note = `반납일(${ymd(until)})까지 ${days}일 일할 (월 ${monthly.toLocaleString()}원 × ${days}/${span}일)`;
     }
@@ -90,7 +105,7 @@ export const buildShortTermSchedule = async (contractOrId, now = new Date()) => 
     totalRounds: rounds.length,
     monthlyRent: monthly,
     dailyRent: calcDailyRent(monthly),
-    paymentDay: String(kstParts(start).d),
+    paymentDay: String(billingDay || kstParts(start).d),
     baseDate: start,
     rounds
   };

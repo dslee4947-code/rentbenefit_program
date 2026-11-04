@@ -62,7 +62,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   const getTabFromHash = () => {
     const hash = window.location.hash.replace('#/', '');
     // 메뉴를 새로 추가하면 여기에도 넣어야 한다. 빠지면 주소는 바뀌는데 화면은 대시보드로 되돌아간다.
-    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'contract-docs', 'delivery-prep', 'deposit-notice', 'vehicles', 'vehicle-service', 'calendar', 'users', 'billing', 'contract-facts', 'contract-ends', 'early-settlement', 'invoice-archive', 'fine-notices', 'ledgers', 'handbook', 'storage-settings', 'maintenance-rates', 'company-funding', 'company-book', 'vehicle-depreciation', 'short-term-rates', 'fleet-filings', 'mypage'];
+    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'contract-docs', 'delivery-prep', 'deposit-notice', 'vehicles', 'vehicle-service', 'calendar', 'users', 'billing', 'short-term-billing', 'contract-facts', 'contract-ends', 'early-settlement', 'invoice-archive', 'fine-notices', 'ledgers', 'handbook', 'storage-settings', 'maintenance-rates', 'company-funding', 'company-book', 'vehicle-depreciation', 'short-term-rates', 'fleet-filings', 'mypage'];
     return validTabs.includes(hash) ? hash : 'dashboard';
   };
 

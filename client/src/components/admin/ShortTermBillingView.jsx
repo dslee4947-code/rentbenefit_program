@@ -12,16 +12,18 @@ const STATUS_COLOR = { 예정: '#64748b', 청구됨: '#2563eb', 입금완료: '#
  * 단기렌트 월 청구 (자금팀 > 단기렌트 월 청구).
  *
  * 단기렌트·사고대차 차를 한 달 단위로 빌려주면(예: 주식회사 레이 그랜저 142호9185, 2026-09-16부터) 여기서 한 번 등록한다.
- * 그러면 매달 대여 시작일과 같은 날을 청구일로 회차가 생기고, 청구서는 [장기렌트 청구서]에서 그 달을 열어 장기렌트와
+ * 그러면 매달 결제일(고르지 않으면 대여 시작일과 같은 날)을 청구일로 회차가 생기고, 청구서는 [장기렌트 청구서]에서 그 달을 열어 장기렌트와
  * 똑같이 발행·발송·입금 처리한다. 입금을 넣으면 그 차의 차량 손익 원장에 '○○ 단기렌트료 n회차'가 들어간다.
  * 반납하면 반납일까지 일할로 마지막 회차를 맞춘다.
  */
+const EMPTY_FORM = () => ({ startDate: todayYmd(), billingDay: '', monthlyFee: '', vehicleId: '', billingEmail: '' });
+
 export default function ShortTermBillingView({ showToast, currentUser, onOpenBilling }) {
   const canEdit = currentUser?.role !== 'viewer';
   const [data, setData] = useState({ items: [], vehicles: [] });
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ startDate: todayYmd(), monthlyFee: '', vehicleId: '', billingEmail: '' });
+  const [form, setForm] = useState(EMPTY_FORM());
   const [party, setParty] = useState(null); // 고른 법인
   const [query, setQuery] = useState('');
   const [found, setFound] = useState([]);
@@ -75,10 +77,10 @@ export default function ShortTermBillingView({ showToast, currentUser, onOpenBil
     e.preventDefault();
     if (!party) { showToast?.('법인을 골라 주세요.', 'error'); return; }
     const ok = await call('/api/short-term-billing', 'POST', {
-      companyId: party._id, vehicleId: form.vehicleId, startDate: form.startDate,
+      companyId: party._id, vehicleId: form.vehicleId, startDate: form.startDate, billingDay: Number(form.billingDay) || undefined,
       monthlyFee: Number(String(form.monthlyFee).replace(/[^\d]/g, '')), billingEmail: form.billingEmail || party.billingEmail
     }, '등록했습니다.');
-    if (ok) { setParty(null); setQuery(''); setForm({ startDate: todayYmd(), monthlyFee: '', vehicleId: '', billingEmail: '' }); }
+    if (ok) { setParty(null); setQuery(''); setForm(EMPTY_FORM()); }
   };
 
   const card = { background: '#fff', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '1rem 1.2rem' };
@@ -97,7 +99,7 @@ export default function ShortTermBillingView({ showToast, currentUser, onOpenBil
           <div style={{ flex: '1 1 280px' }}>
             <div style={{ fontWeight: 800 }}>{c.companyId?.name || c.customer?.name || c.leaseCompany} · {c.vehicle?.carModel} {c.vehicle?.plateNo}</div>
             <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-              {c.contractNo} · {ymd(c.rentStartDate)}부터{c.returnDate ? ` ${ymd(c.returnDate)} 반납` : ' 이용 중'} · 월 {won(c.pricing?.monthlyFee)} · 청구 메일 {c.billingEmail || '없음'}
+              {c.contractNo} · {ymd(c.rentStartDate)}부터{c.returnDate ? ` ${ymd(c.returnDate)} 반납` : ' 이용 중'} · 월 {won(c.pricing?.monthlyFee)} · {c.pricing?.billingDay ? `매달 ${c.pricing.billingDay}일 결제` : '시작일과 같은 날 결제'} · 청구 메일 {c.billingEmail || '없음'}
               {c.unpaid > 0 && <b style={{ color: '#dc2626' }}> · 미납 {won(c.unpaid)}</b>}
             </div>
           </div>
@@ -134,7 +136,7 @@ export default function ShortTermBillingView({ showToast, currentUser, onOpenBil
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div style={{ ...card, fontSize: '0.82rem', lineHeight: 1.7, color: 'var(--text-muted)' }}>
-        단기렌트·사고대차 차를 <b>한 달 단위</b>로 빌려줄 때 여기서 한 번 등록하세요. 대여 시작일과 같은 날이 매달 청구일이 됩니다.
+        단기렌트·사고대차 차를 <b>한 달 단위</b>로 빌려줄 때 여기서 한 번 등록하세요. 고른 결제일(고르지 않으면 대여 시작일과 같은 날)이 매달 청구일이 됩니다.
         청구서는 <b>[장기렌트 청구서]</b>에서 그 달을 열면 장기렌트와 함께 보이고(계약번호 '단기-…', <b>단기</b> 꼬리표), 똑같이 발행·보내기·입금 처리합니다.
         입금을 넣으면 그 차의 <b>차량 손익 원장</b>에 '법인명 단기렌트료 n회차'가 자동으로 들어갑니다. 원장에 따로 적지 마세요(두 번 잡힙니다).
         반납하면 반납일까지 일할로 마지막 회차를 맞춥니다.
@@ -175,8 +177,19 @@ export default function ShortTermBillingView({ showToast, currentUser, onOpenBil
             </select>
           </label>
           <label>
-            <div style={label}>대여 시작일 (매달 청구일)</div>
+            <div style={label}>대여 시작일</div>
             <input type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} style={{ ...input, width: '100%' }} />
+          </label>
+          <label>
+            <div style={label}>결제일 (매달 청구일)</div>
+            <select value={form.billingDay} onChange={(e) => setForm((f) => ({ ...f, billingDay: e.target.value }))} style={{ ...input, width: '100%' }}>
+              <option value="">대여 시작일과 같은 날</option>
+              <option value="5">5일</option>
+              <option value="10">10일</option>
+              <option value="15">15일</option>
+              <option value="25">25일</option>
+              <option value="31">말일</option>
+            </select>
           </label>
           <label>
             <div style={label}>월 대여료 (부가세 포함)</div>

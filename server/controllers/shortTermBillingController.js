@@ -19,7 +19,7 @@ const yymmdd = (d) => new Date(d.getTime() + 9 * 3600 * 1000).toISOString().slic
 export const listShortTerm = async (req, res) => {
   try {
     const contracts = await Contract.find({ rentalKind: SHORT_TERM })
-      .select('contractNo status rentStartDate returnDate pricing.monthlyFee companyId customer leaseCompany vehicle vehicles')
+      .select('contractNo status rentStartDate returnDate pricing.monthlyFee pricing.billingDay companyId customer leaseCompany vehicle vehicles')
       .populate('companyId', 'name billingEmail')
       .populate('customer', 'name email')
       .populate('vehicle', 'code carModel plateNo')
@@ -52,7 +52,7 @@ export const listShortTerm = async (req, res) => {
 
 /**
  * 단기렌트 월 청구를 등록한다. 계약(단기렌트)과 청구 회차표가 생기고, 장기렌트 청구서 화면에 그 달 회차가 뜬다.
- * @route POST /api/short-term-billing  { companyId | customerId, vehicleId, startDate, monthlyFee, billingEmail }
+ * @route POST /api/short-term-billing  { companyId | customerId, vehicleId, startDate, monthlyFee, billingDay, billingEmail }
  */
 export const createShortTerm = async (req, res) => {
   try {
@@ -63,6 +63,8 @@ export const createShortTerm = async (req, res) => {
     if (!vehicleId) return badRequest(res, '차량을 골라 주세요.');
     if (!start) return badRequest(res, '대여 시작일을 YYYY-MM-DD로 넣어 주세요.');
     if (monthlyFee <= 0) return badRequest(res, '월 대여료를 넣어 주세요.');
+    const billingDay = Math.round(Number(req.body.billingDay) || 0); // 없으면 대여 시작일과 같은 날
+    if (billingDay < 0 || billingDay > 31) return badRequest(res, '결제일을 확인해 주세요.');
 
     const vehicle = await Vehicle.findById(vehicleId);
     if (!vehicle) return badRequest(res, '차량을 찾을 수 없습니다.', 404);
@@ -105,7 +107,7 @@ export const createShortTerm = async (req, res) => {
       rentStartDate: start,
       vehicle: vehicle._id,
       vehicles: [vehicle._id],
-      pricing: { monthlyFee },
+      pricing: { monthlyFee, ...(billingDay ? { billingDay } : {}) },
       status: '진행중',
     });
     // 청구서 차량 표는 이 계약에 묶인 차를 찾는다. 차 상태(단기렌트)와 원장 형태는 그대로 둔다

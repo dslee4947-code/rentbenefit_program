@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { earlyPenalty, originOf, settlementOf } from '../../client/src/utils/contractEnd.js';
-import { rentReceivedOf } from '../utils/rentReceived.js';
+import { FINE_DEPOSIT, earlyPenalty, originOf, settlementOf } from '../../client/src/utils/contractEnd.js';
+import { ledgerCheckOf } from '../utils/settlementLedgerCheck.js';
 
 // 엑셀 '중도해지_정산서261104.xlsx' 입력값 시트의 예시(Carnival-006 더데이랩스)
 const DOC = {
@@ -15,7 +15,7 @@ const DOC = {
   deliveryDate: '2025-07-15',
   endDate: '2029-07-14'
 };
-const FORM = { returnDate: '2026-09-18', paidRent: 643000 * 12, actualKm: 30000, baseKm: 200, repairs: [0, 0, 0, 0, 0], toll: 0, fine: 300000, unpaidRepair: 0 };
+const FORM = { returnDate: '2026-09-18', paidCount: 12, actualKm: 30000, baseKm: 200, repairs: [0, 0, 0, 0, 0], toll: 0, unpaidRepair: 0 };
 
 test('엑셀 예시와 칸마다 같은 값이 나온다', () => {
   const s = settlementOf(DOC, FORM);
@@ -24,13 +24,14 @@ test('엑셀 예시와 칸마다 같은 값이 나온다', () => {
   assert.equal(s.totalDays, 1461); // F29
   assert.equal(s.advanceRemain, 5558193); // F32
   assert.equal(s.advanceUsed, 2325807); // F31
-  assert.equal(s.usedMonths, 14);
-  assert.equal(s.monthsRent, 9002000);
+  assert.equal(s.paidUntil, '2026-07-14'); // F48
+  assert.equal(s.unpaidDays, 66); // F49
+  assert.equal(s.unpaidRounds, 2); // F50
+  assert.equal(s.roundRent, 1286000); // F51
   assert.equal(s.leftFrom, '2026-09-15'); // E52
   assert.equal(s.leftDays, 4); // F52
   assert.equal(s.dailyRent, 21139); // F53
   assert.equal(s.leftRent, 84556); // F54
-  assert.equal(s.dueRent, 9086556);
   assert.equal(s.unpaidRent, 1370556); // F55
   assert.equal(s.overpaidRent, 0);
   assert.equal(Math.round(s.contractKm), 35425); // F59
@@ -64,86 +65,61 @@ test('보증금은 최종 정산금에서 뺀다. 빼고 남으면 환급이라 
   assert.equal(s.final, 4806967 - 20000000);
 });
 
-test('반납일까지의 렌트료보다 더 냈으면 초과분을 위약금 등과 상계한다', () => {
-  const s = settlementOf(DOC, { ...FORM, paidRent: 643000 * 15 });
+test('납부 회차가 반납일을 넘으면 미납은 0이고, 넘긴 기간을 위약금 등과 상계한다', () => {
+  const s = settlementOf(DOC, { ...FORM, paidCount: 15 });
+  assert.equal(s.paidUntil, '2026-10-14');
   assert.equal(s.unpaidRent, 0);
-  assert.equal(s.overpaidRent, 558444);
-  assert.equal(s.claimTotal, 8994604);
-  assert.equal(s.final, 8994604 - 5558193 - 558444);
+  assert.equal(s.unpaidRounds, 0);
+  assert.equal(s.overFrom, '2026-09-19');
+  assert.equal(s.overDays, 26);
+  assert.equal(s.overpaidRent, 21139 * 26);
+  assert.equal(s.final, 8994604 - 5558193 - 21139 * 26);
 });
 
-test('1회차를 일할로 받은 계약도 실제 납부액으로 같은 식이다', () => {
-  const full = settlementOf(DOC, FORM);
-  const prorated = settlementOf(DOC, { ...FORM, paidRent: 643000 * 12 - 250000 });
-  assert.equal(prorated.dueRent, full.dueRent);
-  assert.equal(prorated.unpaidRent, full.unpaidRent + 250000);
-  assert.equal(prorated.penalty, full.penalty);
+test('넘긴 기간이 한 달을 넘으면 월 렌트료 + 일할로 센다', () => {
+  const s = settlementOf(DOC, { ...FORM, returnDate: '2026-08-10', paidCount: 15 });
+  assert.equal(s.overMonths, 2);
+  assert.equal(s.overDays, 4);
+  assert.equal(s.overpaidRent, 643000 * 2 + 21139 * 4);
+});
+
+test('납부 회차와 반납일이 딱 맞으면 미납도 초과도 없다', () => {
+  const s = settlementOf(DOC, { ...FORM, returnDate: '2026-07-14' });
+  assert.equal(s.unpaidRent, 0);
+  assert.equal(s.overpaidRent, 0);
+});
+
+test('범칙금은 입력과 상관없이 30만원 고정이다', () => {
+  assert.equal(FINE_DEPOSIT, 300000);
+  assert.equal(settlementOf(DOC, { ...FORM, fine: '999' }).fine, 300000);
+  assert.equal(settlementOf(DOC, FORM).unpaidClaim, 300000);
 });
 
 test('말일 인도는 엑셀 EDATE처럼 그 달 말일로 맞춘다', () => {
-  const s = settlementOf({ ...DOC, deliveryDate: '2025-01-31', endDate: '2029-01-30' }, { ...FORM, returnDate: '2025-03-10', paidRent: 643000 });
-  assert.equal(s.usedMonths, 1);
-  assert.equal(s.leftFrom, '2025-02-28');
+  const s = settlementOf({ ...DOC, deliveryDate: '2025-01-31', endDate: '2029-01-30' }, { ...FORM, returnDate: '2025-03-10', paidCount: 1 });
+  assert.equal(s.paidUntil, '2025-02-27');
+  assert.equal(s.unpaidFrom, '2025-02-28');
+  assert.equal(s.unpaidRounds, 0);
+  assert.equal(s.unpaidDays, 11);
   assert.equal(s.leftDays, 11);
-  assert.equal(s.unpaidRent, 21139 * 11);
 });
 
-const rentRow = (round, amount, extra = {}) => ({ side: '입금', category: '렌트료', round, amount, ...extra });
-const ROUNDS = [1, 2, 3].map((no) => ({ no, monthlyRent: 643000, status: '입금완료' }));
-
-test('원장: 자동이체 수수료만큼 적은 줄은 다 낸 것으로, 과태료가 섞인 줄은 렌트료까지만 센다', () => {
-  const r = rentReceivedOf({ entries: [rentRow(1, 642725), rentRow(2, 679325), rentRow(3, 643000)], rounds: ROUNDS });
-  assert.equal(r.total, 643000 * 3);
-  assert.equal(r.count, 3);
-  assert.deepEqual(r.short, []);
-});
-
-test('원장: 정말 적게 낸 회차는 입금액만 인정하고 알려 준다', () => {
-  const r = rentReceivedOf({ entries: [rentRow(1, 300000), rentRow(2, 643000), rentRow(3, 643000)], rounds: ROUNDS });
-  assert.equal(r.total, 300000 + 643000 * 2);
-  assert.deepEqual(r.short, [{ no: 1, amount: 300000, rent: 643000 }]);
-});
-
-test('원장: 1회차 일할은 그 회차 렌트료로 본다', () => {
-  const rounds = [{ no: 1, monthlyRent: 321880, status: '입금완료' }, { no: 2, monthlyRent: 376700, status: '입금완료' }];
-  const r = rentReceivedOf({ entries: [rentRow(1, 321605), rentRow(2, 376425)], rounds });
-  assert.equal(r.total, 321880 + 376700);
-});
-
-test('원장: 다른 구간·지출·다른 분류 줄은 세지 않고, 빠진 회차와 번호 없는 줄을 알려 준다', () => {
-  const r = rentReceivedOf({
+test('원장 확인값: 렌트료 회차 수와 이 구간 선수금만 센다', () => {
+  const r = ledgerCheckOf({
+    periodSeq: 2,
     entries: [
-      rentRow(1, 643000, { periodSeq: 2 }),
-      rentRow(1, 111000, { periodSeq: 1 }),
-      rentRow(2, 643000, { periodSeq: 2, side: '지출' }),
+      { side: '입금', category: '렌트료', round: 1, amount: 642725, periodSeq: 2 },
+      { side: '입금', category: '렌트료', round: 1, amount: 100, periodSeq: 2 },
+      { side: '입금', category: '렌트료', round: 2, amount: 642725, periodSeq: 2 },
+      { side: '입금', category: '렌트료', round: 3, amount: 642725, periodSeq: 1 },
       { side: '입금', category: '렌트료', amount: 5000, periodSeq: 2 },
-      { side: '입금', category: '과태료·통행료', round: 2, amount: 9000, periodSeq: 2 }
-    ],
-    rounds: ROUNDS,
-    periodSeq: 2
-  });
-  assert.equal(r.total, 643000);
-  assert.deepEqual(r.missing, [2, 3]);
-  assert.equal(r.unnumbered, 1);
-});
-
-test('원장: 이 구간에 받은 선수금을 함께 센다', () => {
-  const r = rentReceivedOf({
-    entries: [
-      { side: '입금', category: '선납금', amount: 7884000, periodSeq: 1 },
+      { side: '지출', category: '렌트료', round: 4, amount: 1, periodSeq: 2 },
       { side: '입금', category: '선납금', amount: 1000000, periodSeq: 2 },
-      { side: '지출', category: '선납금', amount: 500, periodSeq: 1 }
-    ],
-    rounds: ROUNDS
+      { side: '입금', category: '선납금', amount: 7000000, periodSeq: 1 }
+    ]
   });
-  assert.equal(r.advanceIn, 7884000);
-});
-
-test('원장: 여러 대 계약은 적힌 금액을 그대로 합친다', () => {
-  const r = rentReceivedOf({ entries: [rentRow(1, 366700), rentRow(2, 367200)], rounds: ROUNDS, share: 0.49, multi: true });
-  assert.equal(r.total, 366700 + 367200);
-  assert.deepEqual(r.short, []);
-  assert.equal(r.lastAmount, 367200);
+  assert.equal(r.ledgerRounds, 2);
+  assert.equal(r.advanceIn, 1000000);
 });
 
 test('날짜가 없으면 계산하지 않는다', () => {

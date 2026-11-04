@@ -4,7 +4,7 @@ import ContractEndSheet from './ContractEndSheet.jsx';
 import EarlyTerminationGuideSheet from './EarlyTerminationGuideSheet.jsx';
 import EarlySettlementSheet from './EarlySettlementSheet.jsx';
 import { DEPOSIT_ACCOUNT } from './InvoiceSheet.jsx';
-import { END_KINDS, SETTLEMENT_LAYOUTS, earlyPenalty, originOf, ratePctOf, settlementOf } from '../../utils/contractEnd.js';
+import { END_KINDS, FINE_DEPOSIT, SETTLEMENT_LAYOUTS, earlyPenalty, originOf, ratePctOf, settlementOf } from '../../utils/contractEnd.js';
 import { makeFittedPdf } from '../../utils/printFit.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -21,11 +21,11 @@ const GUIDE_FORM = () => ({ terminateDate: todayYmd(7), issueDate: todayYmd(), s
 const wonText = (n) => `${(Number(n) || 0).toLocaleString('ko-KR')}원`;
 // 계약에 적힌 종료 사유로 처음 고를 구분을 정한다
 const KIND_OF_REASON = { 중도해지: 'early', 인수: 'takeover', 반납: 'return' };
-// 중도해지 정산서 입력값. 납부한 렌트료는 비우면 차량 손익 원장 입금으로 채우고, 나머지 비운 칸은 차량 DB 값을 쓴다
+// 중도해지 정산서 입력값. 납부 회차는 비우면 청구 회차표의 입금완료 수, 나머지 비운 칸은 차량 DB 값을 쓴다
 const SETTLEMENT_FORM = (d) => ({
   layout: 'split',
   returnDate: d?.ending?.actualEndDate || todayYmd(),
-  paidRent: '',
+  paidCount: '',
   actualKm: '',
   baseKm: '200',
   annualKm: '',
@@ -33,7 +33,6 @@ const SETTLEMENT_FORM = (d) => ({
   ratePct: '',
   repairs: ['', '', '', '', ''],
   toll: '',
-  fine: '',
   unpaidRepair: '',
   issueDate: todayYmd(),
   manager: '렌트베네핏 팀장 이두식 010-9061-3000 / 02-547-0303',
@@ -68,7 +67,7 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
   const [open, setOpen] = useState(null); // buildDeliveryDocs 결과
   const [vehicleId, setVehicleId] = useState(''); // '' = 계약의 차 전체
   const [form, setForm] = useState(FORM_OF[mode](null));
-  const [rentReceived, setRentReceived] = useState(null); // 정산서: 차마다 원장에서 센 납부 렌트료
+  const [settlementInfo, setSettlementInfo] = useState(null); // 정산서: 차마다 납부 회차와 확인할 값
   const [mailTo, setMailTo] = useState(''); // 받는 메일. 계약을 열면 청구서 메일로 채운다
   const [busy, setBusy] = useState(false);
   const sheetRef = useRef(null);
@@ -83,8 +82,8 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
     if (!data?.success) { showToast?.(data?.message || '계약을 불러오지 못했습니다.', 'error'); return; }
     const d = data.data;
     if (settlement) {
-      const rent = await fetch(`${API_HOST}/api/delivery-docs/${contractId}/rent-received`, { cache: 'no-store' }).then((r) => r.json()).catch(() => null);
-      setRentReceived(rent?.success ? rent.data : null);
+      const res = await fetch(`${API_HOST}/api/delivery-docs/${contractId}/settlement-info`, { cache: 'no-store' }).then((r) => r.json()).catch(() => null);
+      setSettlementInfo(res?.success ? res.data : null);
     }
     const kind = KIND_OF_REASON[d.ending?.endReason] || 'return';
     setOpen(d);
@@ -122,14 +121,14 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
   const penaltyTotal = guide ? docs.reduce((s, d) => s + (earlyPenalty({ monthlyFee: d.monthlyFee, advancePayment: d.advancePayment, termMonths: d.termMonths, endDate: d.endDate, terminateDate: form.terminateDate, ratePct: ratePctOf(d, form.ratePct) })?.penalty || 0), 0) : 0;
 
   // 정산서: 고른 차 한 대를 계산하고, 사람이 확인해야 할 것을 화면에 알린다(종이에는 들어가지 않는다)
-  const received = settlement && docs[0] ? rentReceived?.[docs[0].vehicleId] : null;
+  const info = settlement && docs[0] ? settlementInfo?.[docs[0].vehicleId] : null;
   // 연장 계약은 연장 시작일부터 센다(인도일이 최초 인도일로 남아 있는 차가 있다)
-  const extended = settlement && received?.periodStart > (docs[0]?.deliveryDate || '');
-  const settleDoc = !settlement ? null : extended ? { ...docs[0], deliveryDate: received.periodStart } : docs[0];
+  const extended = settlement && info?.periodStart > (docs[0]?.deliveryDate || '');
+  const settleDoc = !settlement ? null : extended ? { ...docs[0], deliveryDate: info.periodStart } : docs[0];
   const sheetData = settleDoc ? { ...previewData, docs: [settleDoc] } : previewData;
-  const paidTyped = String(form.paidRent ?? '').trim() !== '';
-  // 서류에 들어가는 값: 납부한 렌트료를 적지 않았으면 원장 값. 고쳐 적으면 원장 회차 수는 맞지 않아 보여 주지 않는다
-  const sheetForm = settlement ? { ...form, paidRent: paidTyped ? form.paidRent : received?.total ?? '', paidCount: paidTyped ? '' : received?.count ?? '' } : form;
+  const paidTyped = String(form.paidCount ?? '').trim() !== '';
+  // 납부 회차를 적지 않았으면 청구 회차표의 입금완료 수
+  const sheetForm = settlement ? { ...form, paidCount: paidTyped ? form.paidCount : info?.paidRounds ?? '' } : form;
   const settled = settleDoc ? settlementOf(settleDoc, sheetForm) : null;
   const settleWarnings = [];
   if (settleDoc) {
@@ -140,20 +139,16 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
     if (!ratePctOf(settleDoc, form.ratePct)) lacking.push('위약금율(계약에 없음 — 화면에 적어 주세요)');
     if (!(settled?.annualKm || settleDoc.mileage)) lacking.push('연간 약정 주행거리(차량 DB에 없음 — 화면에 적어 주세요)');
     if (String(form.actualKm).trim() === '') lacking.push('반납 시 실주행거리');
-    if (!paidTyped && !received?.hasLedger) lacking.push('납부한 렌트료(차량 손익 원장을 찾지 못함 — 화면에 적어 주세요)');
+    if (!paidTyped && !info) lacking.push('납부 회차(청구 회차표를 읽지 못함 — 화면에 적어 주세요)');
     if (settled?.returnDate > settled?.end) settleWarnings.push(`반납일이 계약 만료일(${settled.end}) 뒤입니다. 중도해지가 맞는지 확인해 주세요.`);
-    if (extended) settleWarnings.push(`연장 계약이라 인도일 대신 연장 시작일(${received.periodStart})부터 계산했습니다. 보증금·선수금이 이번 계약의 금액인지 확인해 주세요.`);
-    if (received?.hasLedger) {
-      if (settleDoc.advancePayment !== received.advanceIn) settleWarnings.push(`차량 DB의 선수금(${wonText(settleDoc.advancePayment)})이 원장에 입금된 선수금(${wonText(received.advanceIn)})과 다릅니다. 선수금 잔액을 확인해 주세요.`);
-      if (paidTyped && settled?.paidRent !== received.total) settleWarnings.push(`납부한 렌트료를 원장(${wonText(received.total)})과 다르게 적었습니다.`);
-      if (received.short.length) settleWarnings.push(`렌트료보다 적게 입금된 회차가 있어 입금액만 인정했습니다: ${received.short.slice(0, 5).map((r) => `${r.no}회차 ${wonText(r.amount)}(렌트료 ${wonText(r.rent)})`).join(', ')}${received.short.length > 5 ? ` 외 ${received.short.length - 5}건` : ''}. 다음 회차에 함께 받았다면 납부한 렌트료를 고쳐 주세요.`);
-      if (received.missing.length) settleWarnings.push(`회차표는 입금완료인데 원장에 줄이 없는 회차가 있어 넣지 않았습니다: ${received.missing.join(', ')}회차.`);
-      if (received.unnumbered) settleWarnings.push(`회차 번호가 없는 렌트료 줄 ${received.unnumbered}건은 납부액에 넣지 않았습니다. 원장을 확인해 주세요.`);
-      if (received.multi) settleWarnings.push('여러 대 계약이라 원장에 적힌 금액을 그대로 합쳤습니다. 과태료 등이 섞였는지 확인해 주세요.');
+    if (extended) settleWarnings.push(`연장 계약이라 인도일 대신 연장 시작일(${info.periodStart})부터 계산했습니다. 보증금·선수금이 이번 계약의 금액인지 확인해 주세요.`);
+    if (info) {
+      if (paidTyped && Number(form.paidCount) !== info.paidRounds) settleWarnings.push(`납부 회차를 청구 회차표(입금완료 ${info.paidRounds}회)와 다르게 적었습니다.`);
+      if (info.hasLedger && info.ledgerRounds !== info.paidRounds) settleWarnings.push(`청구 회차표는 입금완료 ${info.paidRounds}회인데 차량 손익 원장에는 렌트료가 ${info.ledgerRounds}회 있습니다. 입금 처리가 늦은 회차면 고객이 낸 돈이 미납으로 잡힙니다. 확인 후 납부 회차 칸에 맞는 수를 적어 주세요.`);
+      if (info.hasLedger && settleDoc.advancePayment !== info.advanceIn) settleWarnings.push(`차량 DB의 선수금(${wonText(settleDoc.advancePayment)})이 원장에 입금된 선수금(${wonText(info.advanceIn)})과 다릅니다. 선수금 잔액을 확인해 주세요.`);
+      if (info.firstRoundRent && info.roundRent && Math.abs(info.firstRoundRent - info.roundRent) > 1000) settleWarnings.push(`1회차를 일할로 받은 계약입니다(1회차 ${wonText(info.firstRoundRent)}, 월 ${wonText(info.roundRent)}, 차액 ${wonText(Math.abs(info.roundRent - info.firstRoundRent))}). 이 차액은 정산서에 넣지 않았습니다.`);
+      if (info.roundRent && Math.abs(info.roundRent - settleDoc.monthlyFee) > 1000) settleWarnings.push(`차량 DB의 월 렌트료(${wonText(settleDoc.monthlyFee)})가 청구 회차표(${wonText(info.roundRent)})와 다릅니다. 차량 DB를 고친 뒤 만들어 주세요.`);
     }
-    // 차량 DB의 월 렌트료로 계산하는데, 실제 청구·입금과 다른 차가 있다(Ray-001 등 여러 대 계약)
-    const billed = received?.multi ? received?.lastAmount : received?.roundRent;
-    if (billed && Math.abs(billed - settleDoc.monthlyFee) > 1000) settleWarnings.push(`차량 DB의 월 렌트료(${wonText(settleDoc.monthlyFee)})가 실제 청구·입금(${wonText(billed)})과 다릅니다. 차량 DB를 고친 뒤 만들어 주세요.`);
   }
 
   const buildPdf = async () => {
@@ -345,7 +340,7 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                   {[
                     ['returnDate', '차량 반납일', 'date', ''],
-                    ['paidRent', '납부한 렌트료', 'text', received?.hasLedger ? `원장 ${(received.total || 0).toLocaleString('ko-KR')}` : '원장 없음'],
+                    ['paidCount', '납부 회차', 'text', info ? `회차표 ${info.paidRounds}회` : '회차표 없음'],
                     ['actualKm', '실주행거리(km)', 'text', '계기판 기준'],
                     ['baseKm', '기본 제공 거리(km)', 'text', ''],
                     ['annualKm', '연간 약정(km)', 'text', settleDoc.mileage ? `차량 DB ${settleDoc.mileage.toLocaleString('ko-KR')}` : '차량 DB에 없음'],
@@ -373,14 +368,15 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
                     ))}
                   </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
-                  {[['toll', '미납 통행료'], ['fine', '범칙금'], ['unpaidRepair', '미납 수리비']].map(([k, label]) => (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                  {[['toll', '미납 통행료'], ['unpaidRepair', '미납 수리비']].map(([k, label]) => (
                     <label key={k}>
                       <div style={{ fontWeight: 700, marginBottom: '0.2rem' }}>{label}</div>
                       <input inputMode="numeric" value={form[k]} onChange={setField(k)} style={input} />
                     </label>
                   ))}
                 </div>
+                <div style={{ color: 'var(--text-muted)' }}>범칙금·과태료 예치금 {wonText(FINE_DEPOSIT)} 고정 (반납 3개월 후 잔액 반환)</div>
                 {[['issueDate', '발행일', 'date'], ['account', '입금 계좌', 'text'], ['manager', '담당자', 'text']].map(([k, label, type]) => (
                   <label key={k}>
                     <div style={{ fontWeight: 700, marginBottom: '0.2rem' }}>{label}</div>
@@ -389,8 +385,7 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
                 ))}
                 {settled && (
                   <div style={{ background: 'var(--bg-main)', borderRadius: '8px', padding: '0.5rem 0.6rem', lineHeight: 1.65 }}>
-                    <div>이용기간 렌트료 {wonText(settled.dueRent)} <span style={{ color: 'var(--text-muted)' }}>(인도일~반납일)</span></div>
-                    <div>납부한 렌트료 {wonText(settled.paidRent)} {!paidTyped && received?.hasLedger && <span style={{ color: 'var(--text-muted)' }}>(원장 {received.ledgerNo} {received.count}회)</span>}</div>
+                    <div>납부 회차 {settled.paidCount}회 <span style={{ color: 'var(--text-muted)' }}>({settled.paidUntil}까지)</span></div>
                     <div>{settled.overpaidRent ? <>초과 납부 렌트료 <b>{wonText(settled.overpaidRent)}</b> <span style={{ color: 'var(--text-muted)' }}>(상계)</span></> : <>미납 렌트료 {wonText(settled.unpaidRent)}</>}</div>
                     <div>위약금 {wonText(settled.penalty)}</div>
                     <div>초과운행 {wonText(settled.excessFee)} · 수리 {wonText(settled.repairTotal)} · 미납 청구 {wonText(settled.unpaidClaim)}</div>

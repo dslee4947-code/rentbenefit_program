@@ -1,5 +1,5 @@
 import VehicleLedger from '../models/VehicleLedger.js';
-import { rentReceivedOf } from '../utils/rentReceived.js';
+import { ledgerCheckOf } from '../utils/settlementLedgerCheck.js';
 import crypto from 'crypto';
 import Contract from '../models/Contract.js';
 import Vehicle from '../models/Vehicle.js';
@@ -631,13 +631,13 @@ export const sendEndDoc = async (req, res) => {
 };
 
 /**
- * 중도해지 정산서에 넣을, 차마다 실제로 받은 렌트료(차량 손익 원장 기준). utils/rentReceived.js
- * @route GET /api/delivery-docs/:contractId/rent-received
+ * 중도해지 정산서에 넣을 값. 납부 회차는 청구 회차표의 입금완료 수다.
  * 연장 계약은 회차와 렌트료가 연장 구간부터 다시 시작해 periodStart(구간 시작일)도 준다.
  * 차량의 인도일은 최초 인도일로 남아 있는 차가 있다(Ray-001: 2021년 인도, 2026-10-28 연장).
- * @returns data = { 차량 id: { total, count, lastAmount, short, missing, unnumbered, advanceIn, multi, hasLedger, ledgerNo, roundRent, periodSeq, periodStart } }
+ * @route GET /api/delivery-docs/:contractId/settlement-info
+ * @returns data = { 차량 id: { paidRounds, roundRent, firstRoundRent, hasLedger, ledgerNo, ledgerRounds, advanceIn, periodStart } }
  */
-export const getRentReceived = async (req, res) => {
+export const getSettlementInfo = async (req, res) => {
   try {
     const contract = await Contract.findById(req.params.contractId).select('vehicles').lean();
     if (!contract) return res.status(404).json({ success: false, message: '계약을 찾을 수 없습니다.' });
@@ -645,20 +645,23 @@ export const getRentReceived = async (req, res) => {
     const schedule = await BillingSchedule.findOne({ contract: contract._id }).select('rounds.no rounds.monthlyRent rounds.status').lean();
     const rounds = schedule?.rounds || [];
     const feeSum = vehicles.reduce((s, v) => s + (Number(v.monthlyFee) || 0), 0);
-    const multi = vehicles.length > 1;
+    const paidRounds = rounds.filter((r) => r.status === '입금완료').length;
+    const rentOf = (no) => Number(rounds.find((r) => r.no === no)?.monthlyRent) || 0;
     const data = {};
     for (const v of vehicles) {
+      const share = vehicles.length > 1 && feeSum > 0 ? (Number(v.monthlyFee) || 0) / feeSum : 1;
       const ledger = await VehicleLedger.findOne({ vehicle: v._id }).select('ledgerNo entries contractPeriods').lean();
-      const share = multi && feeSum > 0 ? (Number(v.monthlyFee) || 0) / feeSum : 1;
-      const secondRound = rounds.find((r) => r.no === 2) || rounds[0];
-      const roundRent = Math.round((Number(secondRound?.monthlyRent) || 0) * share);
-      if (!ledger) {
-        data[v._id] = { hasLedger: false, multi, roundRent };
-        continue;
-      }
-      const period = (ledger.contractPeriods || []).find((p) => String(p.contract) === String(contract._id));
+      const period = (ledger?.contractPeriods || []).find((p) => String(p.contract) === String(contract._id));
       const periodSeq = period?.seq || 1;
-      data[v._id] = { hasLedger: true, ledgerNo: ledger.ledgerNo, multi, roundRent, periodSeq, periodStart: periodSeq > 1 ? kstYmd(period.startDate) : '', ...rentReceivedOf({ entries: ledger.entries, rounds, periodSeq, share, multi }) };
+      data[v._id] = {
+        paidRounds,
+        roundRent: Math.round(rentOf(2) * share),
+        firstRoundRent: Math.round(rentOf(1) * share),
+        hasLedger: Boolean(ledger),
+        ledgerNo: ledger?.ledgerNo || '',
+        periodStart: periodSeq > 1 ? kstYmd(period.startDate) : '',
+        ...(ledger ? ledgerCheckOf({ entries: ledger.entries, periodSeq }) : {})
+      };
     }
     res.json({ success: true, data });
   } catch (error) {

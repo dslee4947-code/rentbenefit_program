@@ -93,12 +93,15 @@ export const originOf = (carModel) => (DOMESTIC_MODEL.test(String(carModel || ''
 /** 중도해지 정산서 양식. 엑셀의 세 시트다 */
 export const SETTLEMENT_LAYOUTS = { split: '구분형 (정산 안내)', summary: '요약형', detail: '상세' };
 
+/** 범칙금·과태료 예치금. 30만원 고정이고 반납 3개월 후 최종 부과를 확인해 잔액을 돌려준다(대표님 2026-11-04) */
+export const FINE_DEPOSIT = 300000;
+
 const toNum = (v) => Number(String(v ?? '').replace(/[^\d.-]/g, '')) || 0;
 
 /**
  * 중도해지 정산. 엑셀 '중도해지_정산서261104.xlsx'(대표님 2026-11-04) 정산서상세 시트의 식 그대로다.
- *   단 렌트료는 엑셀의 '납부 회차 수' 대신 원장의 실제 입금액으로 본다(대표님 2026-11-04).
- *   A 미납 렌트료 = 이용기간 렌트료(월 렌트료 × 이용 개월 + 1일 렌트료 × 잔여 일수) − 납부한 렌트료
+ *   A 미납 렌트료 = 월 렌트료 × 미납 회차 + 1일 렌트료 × 잔여 일수 (납부 회차는 청구 회차표의 입금완료 수, 인도일부터 한 달씩 충당)
+ *     원장 금액으로 계산하지 않는다. 원장에는 CMS 수수료가 빠진 금액이 적혀 있다(대표님 2026-11-04).
  *   B 초과운행 부담금 = (실주행 − 연 약정 ÷ 365 × 이용일 − 기본 제공) × km당 요금
  *   C 면책금(수리비) = 수리내역 합계
  *   D 미납 청구금액 = 미납 통행료 + 범칙금 + 미납 수리비
@@ -118,7 +121,7 @@ export const settlementOf = (doc, form) => {
   const deposit = Number(doc.deposit) || 0;
   const advance = Number(doc.advancePayment) || 0;
   const termMonths = Number(doc.termMonths) || 0;
-  const paidCount = toNum(form.paidCount); // 원장에서 센 회차 수. 서류에 보여 주기만 한다
+  const paidCount = toNum(form.paidCount);
   const ratePct = ratePctOf(doc, form.ratePct);
   const annualKm = toNum(form.annualKm) || Number(doc.mileage) || 0;
   const origin = form.origin || originOf(doc.carModel);
@@ -127,17 +130,25 @@ export const settlementOf = (doc, form) => {
   const remainDays = Math.max(0, daysBetween(returnDate, end));
   const totalDays = daysBetween(start, end) + 1;
 
-  // A. 렌트료: 인도일부터 반납일까지 낼 돈과 실제로 낸 돈(원장)의 차이. 1회차를 일할로 받은 계약도 같은 식이다
-  const usedMonths = fullMonths(start, addDays(returnDate, 1));
-  const monthsRent = fee * usedMonths;
-  const leftFrom = edate(start, usedMonths);
-  const leftDays = Math.max(0, daysBetween(leftFrom, returnDate) + 1);
+  // A. 미납 렌트료: 납부한 회차 다음 날부터 반납일까지
+  const paidUntil = addDays(edate(start, paidCount), -1);
+  const unpaidFrom = addDays(paidUntil, 1);
+  const hasUnpaid = returnDate > paidUntil;
+  const unpaidDays = hasUnpaid ? daysBetween(paidUntil, returnDate) : 0;
+  const unpaidRounds = hasUnpaid ? fullMonths(unpaidFrom, addDays(returnDate, 1)) : 0;
+  const roundRent = fee * unpaidRounds;
+  const leftFrom = edate(unpaidFrom, unpaidRounds);
+  const leftDays = hasUnpaid ? Math.max(0, daysBetween(leftFrom, returnDate) + 1) : 0;
   const dailyRent = Math.floor((fee * 12) / 365);
   const leftRent = dailyRent * leftDays;
-  const dueRent = monthsRent + leftRent;
-  const paidRent = toNum(form.paidRent);
-  const unpaidRent = Math.max(0, dueRent - paidRent);
-  const overpaidRent = Math.max(0, paidRent - dueRent);
+  const unpaidRent = roundRent + leftRent;
+  const firstRoundEnd = addDays(edate(start, 1), -1);
+
+  // 납부한 회차가 반납일을 넘었으면 반납일 다음 날부터 그 회차 끝까지가 돌려줄 렌트료다(미납과 같은 셈법)
+  const overFrom = addDays(returnDate, 1);
+  const overMonths = hasUnpaid ? 0 : fullMonths(overFrom, addDays(paidUntil, 1));
+  const overDays = hasUnpaid ? 0 : Math.max(0, daysBetween(edate(overFrom, overMonths), paidUntil) + 1);
+  const overpaidRent = fee * overMonths + dailyRent * overDays;
 
   // B. 초과운행 부담금
   const contractKm = (annualKm / 365) * usedDays;
@@ -151,7 +162,7 @@ export const settlementOf = (doc, form) => {
   const repairs = (form.repairs || []).map(toNum);
   const repairTotal = repairs.reduce((s, n) => s + n, 0);
   const toll = toNum(form.toll);
-  const fine = toNum(form.fine);
+  const fine = FINE_DEPOSIT;
   const unpaidRepair = toNum(form.unpaidRepair);
   const unpaidClaim = toll + fine + unpaidRepair;
 
@@ -171,7 +182,9 @@ export const settlementOf = (doc, form) => {
   return {
     fee, deposit, advance, termMonths, paidCount, ratePct, annualKm, origin, returnDate, start, end,
     usedDays, remainDays, totalDays,
-    usedMonths, monthsRent, monthsUntil: addDays(leftFrom, -1), leftFrom, leftDays, dailyRent, leftRent, dueRent, paidRent, unpaidRent, overpaidRent,
+    paidUntil, unpaidFrom, hasUnpaid, unpaidDays, unpaidRounds, roundRent, roundsUntil: addDays(leftFrom, -1), leftFrom, leftDays, dailyRent, leftRent, unpaidRent,
+    firstRoundEnd, firstRoundDays: daysBetween(start, firstRoundEnd) + 1,
+    overFrom, overMonths, overDays, overpaidRent,
     contractKm, actualKm, baseKm, excessKm, kmRate, excessFee,
     repairs, repairTotal, toll, fine, unpaidRepair, unpaidClaim,
     penaltyDaily: pen?.daily || 0, penaltyDailySupply: pen ? pen.daily / 1.1 : 0, advanceMonthly: pen?.advanceMonthly || 0, penalty,

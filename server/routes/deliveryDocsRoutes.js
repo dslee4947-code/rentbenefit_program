@@ -14,7 +14,7 @@ import {
   getFactDocFile,
   saveEndDoc,
   sendEndDoc,
-  getEndDocFile, getRentReceived
+  getEndDocFile, getSettlementInfo
 } from '../controllers/deliveryDocsController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
 
@@ -40,6 +40,6 @@ router.get('/:contractId/fact-docs/:docId/file', getFactDocFile);
 router.post('/:contractId/end-docs', checkWritePermission, upload.single('file'), saveEndDoc);
 router.post('/:contractId/end-docs/send', checkWritePermission, upload.single('file'), sendEndDoc);
 router.get('/:contractId/end-docs/:docId/file', getEndDocFile);
-router.get('/:contractId/rent-received', getRentReceived);
+router.get('/:contractId/settlement-info', getSettlementInfo);
 
 export default router;

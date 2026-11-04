@@ -73,6 +73,28 @@ export const formTotals = (form, attachments) => {
   return { fineTotal, maintenanceTotal, otherTotal, total, docFine, docMaintenance, hasDocFine, hasDocMaintenance, extrasTotal };
 };
 
+/**
+ * 기타 청구 한 줄을 지운다. 마지막 줄까지 지우면 기타 청구는 0원이다.
+ * 합계식은 줄이 없으면 예전 방식의 other 값을 쓰므로, 지운 금액이 합계에 남지 않게 함께 비운다.
+ */
+export const removeExtra = (form, index) => {
+  const extras = (form.extras || []).filter((_, i) => i !== index);
+  return { ...form, extras, other: extras.length ? form.other : 0 };
+};
+
+/** 저장 안 한 수정이 있는지 견주는 값. 입력칸의 '1000'과 숫자 1000을 같게 본다. */
+export const formSnapshot = (form) => JSON.stringify({
+  monthlyRent: Number(form.monthlyRent) || 0,
+  prevUnpaid: Number(form.prevUnpaid) || 0,
+  prevOverpaid: Number(form.prevOverpaid) || 0,
+  interest: Number(form.interest) || 0,
+  fine: Number(form.fine) || 0,
+  maintenance: Number(form.maintenance) || 0,
+  other: Number(form.other) || 0,
+  extras: (form.extras || []).map((e) => ({ label: e.label || '', amount: Number(e.amount) || 0 })),
+  note: form.note || ''
+});
+
 /** 회차 저장(PUT) 본문. 화면에 보이는 금액 그대로 저장되게 합산한 값을 넣는다. */
 export const roundSaveBody = (form, totals) => ({
   ...form,

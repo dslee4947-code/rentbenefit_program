@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { confirmLeave } from './UnsavedDialog.jsx';
 import DashboardView from './DashboardView.jsx';
 import QuoteInputView from './QuoteInputView.jsx';
 import ContractRegisterView from './ContractRegisterView.jsx';
@@ -183,10 +184,15 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   };
 
   const handleNavClick = (tabId) => {
-    setOpenContractDocId(null);
-    setBillingMonth(null);
-    navigateToTab(tabId);
     setIsMobileMenuOpen(false);
+    const go = () => {
+      setOpenContractDocId(null);
+      setBillingMonth(null);
+      navigateToTab(tabId);
+    };
+    // 같은 메뉴를 다시 누른 것은 나가는 것이 아니다
+    if (tabId === activeTab) go();
+    else confirmLeave(go);
   };
 
   // 데스크톱 사이드바와 모바일 서랍이 같은 메뉴를 쓴다. 한쪽만 고쳐 둘이 어긋나지 않게 하나로 둔다.
@@ -233,7 +239,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
       </button>
       <button
         type="button"
-        onClick={() => { setIsMobileMenuOpen(false); onLogout(); }}
+        onClick={() => { setIsMobileMenuOpen(false); confirmLeave(onLogout); }}
         className="sidebar-logout"
       >
         <LogOut size={16} />

@@ -4,7 +4,8 @@ import { Calendar, RefreshCw, Save, FileText, Send, Paperclip, Trash2, AlertCirc
 import InvoiceSheet, { isMaintenanceKind, makeInvoicePdf } from './InvoiceSheet.jsx';
 import ExtensionTag from './ExtensionTag.jsx';
 import MoneyInput from './MoneyInput.jsx';
-import { buildRoundForm, formTotals, roundSaveBody } from './billingForm.js';
+import { buildRoundForm, formSnapshot, formTotals, removeExtra, roundSaveBody } from './billingForm.js';
+import { useUnsavedPrompt } from './UnsavedDialog.jsx';
 import AutoSendView from './AutoSendView.jsx';
 import BulkSendDialog from './BulkSendDialog.jsx';
 import PaymentDayBadge from './PaymentDayBadge.jsx';
@@ -100,6 +101,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
   const [schedule, setSchedule] = useState(null); // 그 계약의 회차표 전체
   const [vehicles, setVehicles] = useState([]);
   const [form, setForm] = useState(null); // 편집 중인 회차 금액
+  const [savedForm, setSavedForm] = useState(''); // 마지막으로 저장한(또는 연) 값. 지금 값과 다르면 저장 안 한 수정이 있다
   const [saving, setSaving] = useState(false);
   const [issuing, setIssuing] = useState(false);
   // 담당자가 바뀌면 청구서 받는 주소도 바뀐다. 보내기 전에 이 자리에서 고칠 수 있게 한다.
@@ -157,8 +159,6 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
   const [tab, setTab] = useState('due'); // due: 청구 대상, auto: 자동 발송, issued: 발행 이력
   const [unpaidFor, setUnpaidFor] = useState(null); // [미납 처리] 창을 연 줄
   useBackClose(Boolean(unpaidFor), () => setUnpaidFor(null));
-  // 뒤로 가기(핸드폰 화면 쓸기)로 닫는다 — utils/useBackClose.js
-  useBackClose(Boolean(selected), () => { setSelected(null); setForm(null); setAttachments([]); });
   const [showDocUpload, setShowDocUpload] = useState(false);
   const [showMailTemplate, setShowMailTemplate] = useState(false);
   // 회차표가 없어 청구 대상에 뜨지 못하는 계약. 원인을 화면에서 바로 알려 준다.
@@ -240,13 +240,15 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
       });
       const data = await res.json();
       showToast?.(data.message || (data.success ? '바꿨습니다.' : '바꾸지 못했습니다.'), data.success ? 'success' : 'error');
-      if (data.success) { setSelected(null); setForm(null); fetchDue(); }
+      if (data.success) { closeRound(); fetchDue(); }
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
     } finally {
       setBulkBusy(false);
     }
   };
+
+  const closeRound = () => { setSelected(null); setForm(null); setSchedule(null); setAttachments([]); };
 
   const openRound = async (item) => {
     // 다른 청구서로 옮겨 가면 읽어 둔 고지서를 버린다. 엉뚱한 청구서에 올라가지 않게.
@@ -276,7 +278,9 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
       // 전월을 미결제로 찍어 두었으면 미수금과 연체 이자를 서버 계산값으로 채운다.
       // 연체 이율은 렌트차량 DB의 현재 값이라, 요율이 바뀌면 다음 청구부터 바로 반영된다.
       // 자동 발송 승인(AutoSendView)도 같은 식을 쓴다.
-      setForm(buildRoundForm(item, round, data.schedule.rounds));
+      const built = buildRoundForm(item, round, data.schedule.rounds);
+      setForm(built);
+      setSavedForm(formSnapshot(built));
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
     }
@@ -289,10 +293,17 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
     extrasTotal, otherTotal, fineTotal, maintenanceTotal, total
   } = formTotals(form, attachments);
 
+  // 서류를 올리거나 지우면 서버가 합산해 저장까지 하므로, 그 금액은 저장 안 한 수정으로 치지 않는다
+  const applyDocAmounts = (round) => {
+    const docs = { fine: round.fine || 0, maintenance: round.maintenance || 0 };
+    setForm((prev) => prev ? { ...prev, ...docs } : prev);
+    setSavedForm((prev) => prev ? formSnapshot({ ...JSON.parse(prev), ...docs }) : prev);
+  };
+
   const handleSaveRound = async (silent = false) => {
     if (currentUser?.role === 'viewer') {
       showToast?.('수정 권한이 없습니다. 관리자에게 문의하세요.', 'error');
-      return;
+      return false;
     }
     try {
       setSaving(true);
@@ -303,19 +314,31 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
       });
       const data = await res.json();
       if (data.success) {
+        setSavedForm(formSnapshot(form));
         if (!silent) {
           showToast?.('회차 내역이 저장되었습니다.', 'success');
           fetchDue();
         }
-      } else {
-        showToast?.(data.message || '저장에 실패했습니다.', 'error');
+        return true;
       }
+      showToast?.(data.message || '저장에 실패했습니다.', 'error');
+      return false;
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  const isDirty = Boolean(form && savedForm) && currentUser?.role !== 'viewer' && formSnapshot(form) !== savedForm;
+  const { askThen, unsavedDialog } = useUnsavedPrompt(isDirty, () => handleSaveRound());
+  // 뒤로 가기(핸드폰 화면 쓸기)로 닫는다 — utils/useBackClose.js
+  useBackClose(Boolean(selected), () => {
+    if (isDirty) { askThen(closeRound); return false; }
+    closeRound();
+    return true;
+  });
 
   // 회차 상세를 열어 둔 동안 Ctrl+S로 저장한다
   useSaveShortcut(Boolean(selected && form) && !saving, () => handleSaveRound());
@@ -353,7 +376,8 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
 
     try {
       setIssuing(true);
-      await handleSaveRound(true); // 화면에 보이는 금액 그대로 발행되도록 먼저 저장한다
+      // 화면에 보이는 금액 그대로 발행되도록 먼저 저장한다. 저장이 안 되면 발행하지 않는다.
+      if (!(await handleSaveRound(true))) return;
 
       const element = sheetRef.current;
       if (!element) throw new Error('청구서 양식을 찾지 못했습니다.');
@@ -412,7 +436,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
         setAttachments((prev) => [...prev, data.attachment]);
         // 서버가 서류 금액을 합산해 돌려준 값으로 맞춘다. 화면과 저장된 청구액이 갈리면 안 된다.
         if (data.round) {
-          setForm((prev) => prev ? { ...prev, fine: data.round.fine || 0, maintenance: data.round.maintenance || 0 } : prev);
+          applyDocAmounts(data.round);
         }
         setAttachAmount('');
         setAttachCustomKind('');
@@ -478,7 +502,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
       if (data.success) {
         setAttachments((prev) => prev.filter((_, i) => i !== index));
         if (data.round) {
-          setForm((prev) => prev ? { ...prev, fine: data.round.fine || 0, maintenance: data.round.maintenance || 0 } : prev);
+          applyDocAmounts(data.round);
         }
         showToast?.(data.message, 'success');
       } else {
@@ -532,7 +556,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
       const round = data.schedule.rounds.find((r) => r.no === form?.no);
       if (round) {
         setAttachments(round.attachments || []);
-        setForm((prev) => prev ? { ...prev, fine: round.fine || 0, maintenance: round.maintenance || 0 } : prev);
+        applyDocAmounts(round);
       }
     } catch { /* 목록은 이미 새로 읽었다 */ }
   };
@@ -950,7 +974,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
           <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>전월 회차를 한 번에 처리합니다</span>
           <button
             type="button"
-            onClick={() => bulkSetPrevStatus('미납')}
+            onClick={() => askThen(() => bulkSetPrevStatus('미납'))}
             disabled={bulkBusy}
             style={{ marginLeft: 'auto', background: 'var(--error)', color: '#fff', border: 'none', padding: '0.45rem 0.9rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: '700', cursor: bulkBusy ? 'not-allowed' : 'pointer' }}
           >
@@ -958,7 +982,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
           </button>
           <button
             type="button"
-            onClick={() => bulkSetPrevStatus('입금완료')}
+            onClick={() => askThen(() => bulkSetPrevStatus('입금완료'))}
             disabled={bulkBusy}
             style={{ background: '#16a34a', color: '#fff', border: 'none', padding: '0.45rem 0.9rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: '700', cursor: bulkBusy ? 'not-allowed' : 'pointer' }}
           >
@@ -1091,7 +1115,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                     data-selected={active ? 'true' : undefined}
                     // 클릭 때만 불리는 함수라 렌더 중에 ref를 읽지 않는다. 컴파일러 규칙이 이를 가리지 못해 끈다.
                     // eslint-disable-next-line react-hooks/refs
-                    onClick={() => openRound(it)}
+                    onClick={() => askThen(() => openRound(it))}
                     style={{
                       borderBottom: '1px solid var(--border-color)',
                       cursor: 'pointer',
@@ -1156,7 +1180,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                       ) : <span style={{ color: 'var(--text-muted)' }}>-</span>}
                     </td>
                     <td style={{ padding: '0.7rem', textAlign: 'center' }}>{it.round.no} / {it.totalRounds}</td>
-                    <td style={{ padding: '0.7rem', ...NUMERIC, fontWeight: '800', color: 'var(--text-bright)' }}>{won(it.round.total)}</td>
+                    <td style={{ padding: '0.7rem', ...NUMERIC, fontWeight: '800', color: 'var(--text-bright)' }}>{won(active && form ? total : it.round.total)}</td>
                     <td style={{ padding: '0.7rem', textAlign: 'center' }}>
                       {needsCheck(it.round) ? (
                         <>
@@ -1238,7 +1262,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
               <span>목록을 접어 두었습니다. 아래에서 고른 계약을 처리하세요.</span>
               <button
                 type="button"
-                onClick={() => { setSelected(null); setForm(null); setSchedule(null); }}
+                onClick={() => askThen(closeRound)}
                 style={{ marginLeft: 'auto', border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-muted)', padding: '0.2rem 0.6rem', borderRadius: '5px', fontSize: '0.74rem', fontWeight: '700', cursor: 'pointer' }}
               >
                 목록 전체 보기
@@ -1516,7 +1540,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                   />
                   <button
                     type="button"
-                    onClick={() => setForm({ ...form, extras: form.extras.filter((_, xi) => xi !== i) })}
+                    onClick={() => setForm(removeExtra(form, i))}
                     style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}
                   >
                     <Trash2 size={14} />
@@ -1540,6 +1564,13 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
               {!(form.extras || []).length && Number(form.other) > 0 && (
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
                   항목명 없이 {won(form.other)}이 잡혀 있습니다. 항목을 추가하면 청구서에 이름이 찍힙니다.
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, other: 0 })}
+                    style={{ marginLeft: '0.4rem', border: 'none', background: 'none', color: 'var(--error)', fontWeight: '700', fontSize: '0.75rem', cursor: 'pointer', padding: 0 }}
+                  >
+                    이 금액 지우기
+                  </button>
                 </div>
               )}
             </div>
@@ -1565,7 +1596,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
               </button>
               <button
                 type="button"
-                onClick={() => { setSelected(null); setForm(null); setAttachments([]); }}
+                onClick={() => askThen(closeRound)}
                 style={{ background: '#fff', border: '1px solid var(--border-color)', padding: '0.6rem 1rem', borderRadius: '8px', fontWeight: '600', fontSize: '0.85rem', cursor: 'pointer' }}
               >
                 닫기
@@ -1874,6 +1905,8 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
           onDone={() => { setChecked([]); fetchDue(); }}
         />
       )}
+
+      {unsavedDialog}
 
       {/* PDF로 만들 청구서 양식. 화면에는 보이지 않게 두고 이 요소만 캡처한다. */}
       {selected && form && (

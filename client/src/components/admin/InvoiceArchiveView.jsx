@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Search, FileText, Mail, Plus, Trash2, Save, Download, ExternalLink, Paperclip } from 'lucide-react';
 import MoneyInput from './MoneyInput.jsx';
 import InvoiceSheet, { makeInvoicePdf, roundTotal } from './InvoiceSheet.jsx';
+import { useUnsavedPrompt } from './UnsavedDialog.jsx';
 import useBackClose from '../../utils/useBackClose.js';
 import UnpaidBox from './UnpaidBox.jsx';
 import PaymentDayBadge from './PaymentDayBadge.jsx';
@@ -181,24 +182,6 @@ function InvoiceArchiveView({ showToast, currentUser }) {
     }
   }, [showToast]);
 
-  const pickContract = (c) => {
-    if (dirty && !window.confirm('저장하지 않은 항목이 있습니다. 다른 계약으로 넘어갈까요?')) return;
-    setPicked(c);
-    setDetail(null);
-    loadDetail(c.contractId);
-    // 핸드폰은 목록 아래에 청구서가 나온다. 고르면 바로 그쪽으로 내려간다.
-    jumpToDetail.current = isPhone();
-  };
-
-  // 뒤로 가기(핸드폰 화면 쓸기)로 닫는다 — utils/useBackClose.js
-  useBackClose(Boolean(picked), () => {
-    if (dirty && !window.confirm('저장하지 않은 항목이 있습니다. 계약 목록으로 돌아갈까요?')) return false;
-    setPicked(null);
-    setDetail(null);
-    setDirty(false);
-    if (isPhone()) window.scrollTo({ top: 0 });
-    return true;
-  });
   useBackClose(bigView, () => setBigView(false));
 
   useEffect(() => {
@@ -211,14 +194,6 @@ function InvoiceArchiveView({ showToast, currentUser }) {
   const round = rounds.find((r) => r.no === selectedNo) || null;
   const locked = Boolean(round?.issuedAt); // 발행한 회차는 보낸 내용 그대로 둔다
   const editable = canEdit && round && !locked;
-
-  const selectRound = (no) => {
-    if (no === selectedNo) return;
-    if (dirty && !window.confirm('저장하지 않은 항목이 있습니다. 다른 회차로 넘어갈까요?')) return;
-    setSelectedNo(no);
-    setDraft((rounds.find((r) => r.no === no)?.extras || []).map((e) => ({ ...e })));
-    setDirty(false);
-  };
 
   // 기타 청구 합계. 항목이 있으면 그 합이고, 없으면 예전 방식으로 금액만 적어 둔 값(other)을 그대로 둔다.
   // 서버 recalcRound도 항목이 없을 때는 other를 건드리지 않는다.
@@ -278,6 +253,39 @@ function InvoiceArchiveView({ showToast, currentUser }) {
     } finally {
       setSaving(false);
     }
+  };
+
+  const { askThen, unsavedDialog } = useUnsavedPrompt(dirty, () => saveRound());
+
+  const pickContract = (c) => askThen(() => {
+    setDirty(false);
+    setPicked(c);
+    setDetail(null);
+    loadDetail(c.contractId);
+    // 핸드폰은 목록 아래에 청구서가 나온다. 고르면 바로 그쪽으로 내려간다.
+    jumpToDetail.current = isPhone();
+  });
+
+  // 뒤로 가기(핸드폰 화면 쓸기)로 닫는다 — utils/useBackClose.js
+  const closeContract = () => {
+    setPicked(null);
+    setDetail(null);
+    setDirty(false);
+    if (isPhone()) window.scrollTo({ top: 0 });
+  };
+  useBackClose(Boolean(picked), () => {
+    if (dirty) { askThen(closeContract); return false; }
+    closeContract();
+    return true;
+  });
+
+  const selectRound = (no) => {
+    if (no === selectedNo) return;
+    askThen(() => {
+      setSelectedNo(no);
+      setDraft((rounds.find((r) => r.no === no)?.extras || []).map((e) => ({ ...e })));
+      setDirty(false);
+    });
   };
 
   const partyName = detail?.schedule?.company?.name || detail?.schedule?.customer?.name || picked?.partyName || '';
@@ -360,6 +368,7 @@ function InvoiceArchiveView({ showToast, currentUser }) {
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 260px) minmax(0, 1fr)', gap: '1rem', alignItems: 'start' }}>
+      {unsavedDialog}
       {/* 계약 고르기 */}
       {/* 목록은 화면 위에 붙어 있고(sticky) 안에서만 스크롤한다. 목록 끝에서 휠을 더 굴려도 페이지 전체가 따라 움직이지 않게
           overscrollBehavior를 막는다. 오른쪽 청구서 길이(범칙금 줄 등)가 달라도 위쪽이 흔들리지 않는다. */}
@@ -458,7 +467,8 @@ function InvoiceArchiveView({ showToast, currentUser }) {
                         <td style={{ padding: '0.5rem', textAlign: 'center', fontWeight: 700 }}>{r.no}</td>
                         <td style={{ padding: '0.5rem', textAlign: 'center', whiteSpace: 'nowrap' }}>{ymd(r.dueDate)}</td>
                         <td style={{ padding: '0.5rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          {won(r.total)}
+                          {/* 고치는 중인 회차는 저장 전이라도 바뀐 금액을 보여 준다 */}
+                          {won(r.no === selectedNo && !locked ? previewTotal : r.total)}
                           {r.excelInvoice?.total !== undefined && r.excelInvoice.total !== r.total && (
                             <div style={{ fontSize: '0.7rem', color: '#0f766e' }}>엑셀 {won(r.excelInvoice.total)}</div>
                           )}

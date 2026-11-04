@@ -10,6 +10,7 @@ import Company from '../models/Company.js';
 import Schedule from '../models/Schedule.js';
 import { buildDueDates, resolveFirstDueDate, calcDailyRent, calcLateInterest, daysBetween, calcSendDate } from '../utils/billingDate.js';
 import { isHoliday } from '../utils/koreanHolidays.js';
+import { recipientOf } from '../../shared/billingRecipient.js';
 import { saveDocument, findContractDocument, readSavedFile, getDocumentSettings, fillPattern } from '../utils/documentStorageService.js';
 import { mimeTypeOf } from '../utils/oneDriveStorage.js';
 import { parseHistoryWorkbook, applyHistoryRows } from '../utils/billingHistoryImport.js';
@@ -647,7 +648,10 @@ const deliverInvoice = async ({ schedule, round, partyName, fileName, pdfBuffer,
   round.issuedAt = new Date();
   round.invoiceFileName = saved.fileName;
   round.invoiceSavedPath = saved.localPath;
-  if (mailResult) round.sentAt = new Date();
+  if (mailResult) {
+    round.sentAt = new Date();
+    round.sentTo = mailResult.to;
+  }
   await schedule.save();
 
   const logTarget = { model: 'BillingSchedule', id: schedule._id };
@@ -821,7 +825,7 @@ const buildAutoSendQueue = async (days) => {
       const { carried: unpaid, interestBase } = carryInto(s.rounds, round.no);
       const lateInterestRate = rateByContract.get(String(s.contract?._id)) || s.contract?.terms?.lateInterestRate || 0;
       const overdueDays = prev ? daysBetween(prev.dueDate, round.dueDate) : 0;
-      const to = round.autoSend?.to || s.billingEmail || s.company?.billingEmail || s.customer?.email || '';
+      const to = round.autoSend?.to || recipientOf(s);
 
       // 승인했어도 그 뒤 내용이 바뀌었으면 화면에 '다시 승인'으로 보여 준다
       let autoStatus = round.autoSend?.status || '';
@@ -987,7 +991,7 @@ export const testSendInvoice = async (req, res) => {
     const to = String(req.body.to || '').trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return res.status(400).json({ success: false, message: '시험 메일 주소를 확인해 주세요.' });
     // 실제 발송 때 승인한 주소(직원이 손으로 넣은 고객 주소일 수 있다)도 막는다
-    const customerMails = [schedule.company?.billingEmail, schedule.customer?.email, round.autoSend?.to].filter(Boolean).map((m) => m.toLowerCase());
+    const customerMails = [schedule.company?.billingEmail, schedule.customer?.email, round.autoSend?.to, recipientOf(schedule)].filter(Boolean).map((m) => m.toLowerCase());
     if (customerMails.includes(to.toLowerCase())) {
       return res.status(400).json({ success: false, message: '고객 주소로는 시험 메일을 보낼 수 없습니다. 회사 시험 주소를 넣어 주세요.' });
     }
@@ -1267,7 +1271,7 @@ export const getSendHistory = async (req, res) => {
           total: r.total || 0,
           issuedAt: r.issuedAt || null,
           sentAt: r.sentAt || null,
-          to: r.autoSend?.to || s.billingEmail || s.company?.billingEmail || s.customer?.email || '',
+          to: r.autoSend?.to || recipientOf(s),
           via: r.autoSend?.status ? '자동' : '직접',
           result,
           message: r.autoSend?.message || '',
@@ -1355,7 +1359,7 @@ export const resendInvoice = async (req, res) => {
     if (round.sentAt && req.body.force !== true) {
       return res.status(409).json({ success: false, message: `이미 ${formatYmd(round.sentAt)}에 메일을 보낸 기록이 있습니다. 그래도 다시 보내려면 확인 후 진행해 주세요.`, alreadySent: true });
     }
-    const to = String(req.body.to || round.autoSend?.to || schedule.company?.billingEmail || schedule.customer?.email || '').trim();
+    const to = String(req.body.to || round.autoSend?.to || recipientOf(schedule)).trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return res.status(400).json({ success: false, message: '받는 사람 이메일을 확인해 주세요.' });
 
     const pdfBuffer = await readSavedFile(round.invoiceSavedPath);
@@ -1384,6 +1388,7 @@ export const resendInvoice = async (req, res) => {
       }
     });
     round.sentAt = new Date();
+    round.sentTo = mail.to;
     if (round.autoSend?.status === '실패') {
       round.autoSend.status = '발송완료';
       round.autoSend.sentAt = new Date();
@@ -1524,7 +1529,7 @@ export const issueRound = async (req, res) => {
   try {
     const schedule = await BillingSchedule.findById(req.params.id)
       .populate('company', 'name billingEmail folderName')
-      .populate('customer', 'name')
+      .populate('customer', 'name email')
       .populate('contract', 'contractNo contractKind extensionInfo contractDate endDate docFolderName leaseCompany');
     if (!schedule) {
       return res.status(404).json({ success: false, message: '회차표를 찾을 수 없습니다.' });
@@ -1570,13 +1575,17 @@ export const issueRound = async (req, res) => {
 
     // 2) 메일 발송(요청했을 때만)과 3) 회차 상태 갱신. 자동 발송도 같은 함수를 쓴다.
     const sendEmail = String(req.body.sendEmail) === 'true';
-    const to = req.body.to || schedule.company?.billingEmail;
+    const to = req.body.to || recipientOf(schedule);
 
     // 담당자가 바뀌어 받는 주소를 고쳐 보냈다면, 법인에도 반영해 다음 달부터 그 주소가 기본이 되게 한다.
     // 매달 같은 주소를 다시 고쳐 넣는 일을 없앤다.
-    if (sendEmail && String(req.body.saveEmailToCompany) === 'true' && to && schedule.company?._id
-        && to !== schedule.company.billingEmail) {
-      await Company.findByIdAndUpdate(schedule.company._id, { billingEmail: to });
+    if (sendEmail && String(req.body.saveEmailToCompany) === 'true' && to && to !== recipientOf(schedule)) {
+      // 계약별 주소가 있는 계약(신흥 등)과 법인이 없는 개인 고객은 이 계약에 저장한다
+      if (schedule.company?._id && !schedule.billingEmail) {
+        await Company.findByIdAndUpdate(schedule.company._id, { billingEmail: to });
+      } else {
+        schedule.billingEmail = to;
+      }
     }
 
     // 자동 발송이 이 회차를 보내는 중이거나 이미 보냈으면 화면에서 또 보내지 않는다(고객이 두 번 받는다).
@@ -2258,7 +2267,7 @@ export const getIssuedRounds = async (req, res) => {
     const schedules = await BillingSchedule.find({ rounds: { $elemMatch: { issuedAt: { $ne: null } } } })
       .populate('contract', 'contractNo contractKind extensionInfo contractDate endDate')
       .populate('company', 'name billingEmail')
-      .populate('customer', 'name')
+      .populate('customer', 'name email')
       .lean();
 
     const fromDate = from ? new Date(`${from}T00:00:00`) : null;
@@ -2279,7 +2288,7 @@ export const getIssuedRounds = async (req, res) => {
           contractId: s.contract?._id,
           contractNo: s.contract?.contractNo,
           partyName: name,
-          billingEmail: s.company?.billingEmail,
+          billingEmail: recipientOf(s),
           no: r.no,
           totalRounds: s.totalRounds,
           dueDate: r.dueDate,

@@ -5,6 +5,7 @@ import BillingSchedule from '../models/BillingSchedule.js';
 // populate가 찾을 수 있게 등록만 해 둔다
 import '../models/Company.js';
 import '../models/Customer.js';
+import { recipientOf } from '../../shared/billingRecipient.js';
 import { saveDocument } from '../utils/documentStorageService.js';
 import { sendEndDocMail } from '../utils/mailService.js';
 import { noticeItemOf } from '../utils/depositNotice.js';
@@ -26,7 +27,7 @@ const noticeItems = async (contracts) => {
   const [vehicles, schedules] = await Promise.all([
     Vehicle.find({ $or: [{ _id: { $in: contracts.flatMap((c) => c.vehicles || []) } }, { contract: { $in: ids } }] })
       .select('contract plateNo carModel carSpec deposit advancePayment code').sort({ code: 1 }).lean(),
-    BillingSchedule.find({ contract: { $in: ids } }).select('contract billingEmail').lean()
+    BillingSchedule.find({ contract: { $in: ids } }).select('contract billingEmail rounds.no rounds.sentTo rounds.autoSend.to').lean()
   ]);
   const ledgers = await VehicleLedger.find({ vehicle: { $in: vehicles.map((v) => v._id) } }).select('vehicle entries.side entries.category entries.amount').lean();
   return contracts.map((c) => {
@@ -34,13 +35,13 @@ const noticeItems = async (contracts) => {
     // 계약사실 증명원과 같은 기준: 계약에 묶인 차가 있으면 그 차, 없으면 차에 적힌 계약으로 찾는다
     const mine = vehicles.filter((v) => (linked.length ? linked.includes(String(v._id)) : String(v.contract) === String(c._id)));
     const myIds = mine.map((v) => String(v._id));
-    const billingEmail = schedules.find((s) => String(s.contract) === String(c._id))?.billingEmail;
+    const schedule = schedules.find((s) => String(s.contract) === String(c._id));
     return noticeItemOf({
       contract: c,
       vehicles: mine,
       ledgers: ledgers.filter((l) => myIds.includes(String(l.vehicle))),
       partyName: c.companyId?.name || stripHonorific(c.customer?.name || c.leaseCompany || ''),
-      to: billingEmail || c.companyId?.billingEmail || c.customer?.email || ''
+      to: recipientOf(schedule, c.companyId, c.customer)
     });
   });
 };

@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom';
 import { Send, X } from 'lucide-react';
 import InvoiceSheet, { makeInvoicePdf } from './InvoiceSheet.jsx';
 import PaymentDayBadge from './PaymentDayBadge.jsx';
+import { recipientOf } from '../../../../shared/billingRecipient.js';
 import { attachmentSummary, buildRoundForm, formTotals, roundSaveBody } from './billingForm.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -46,7 +47,7 @@ export default function BulkSendDialog({ title, items, currentUser, showToast, o
           const data = await fetch(`${API_HOST}/api/billing-schedules/contract/${it.contract._id}`, { cache: 'no-store' }).then((r) => r.json());
           if (!data.success) return {};
           const round = data.schedule.rounds.find((r) => r.no === it.round.no);
-          const to = data.schedule.billingEmail || data.schedule.company?.billingEmail || data.schedule.customer?.email || '';
+          const to = recipientOf(data.schedule);
           if (!round) return { to };
           const totals = formTotals(buildRoundForm(it, round, data.schedule.rounds), round.attachments);
           return { to, total: totals.total, issued: Boolean(round.issuedAt), docs: attachmentSummary(round.attachments) };

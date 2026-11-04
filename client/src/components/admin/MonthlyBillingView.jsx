@@ -4,6 +4,7 @@ import { Calendar, RefreshCw, Save, FileText, Send, Paperclip, Trash2, AlertCirc
 import InvoiceSheet, { isMaintenanceKind, makeInvoicePdf } from './InvoiceSheet.jsx';
 import ExtensionTag from './ExtensionTag.jsx';
 import MoneyInput from './MoneyInput.jsx';
+import { recipientOf } from '../../../../shared/billingRecipient.js';
 import { attachmentSummary, buildRoundForm, formSnapshot, formTotals, removeExtra, roundSaveBody } from './billingForm.js';
 import { useUnsavedPrompt } from './UnsavedDialog.jsx';
 import AutoSendView from './AutoSendView.jsx';
@@ -270,7 +271,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
       setAttachPlateNo(plated.length ? plated[0].plateNo : '');
       setCustomPlate(false);
       setShowAllRounds(false);
-      setMailTo(data.schedule.company?.billingEmail || '');
+      setMailTo(recipientOf(data.schedule));
 
       const round = data.schedule.rounds.find((r) => r.no === item.round.no) || item.round;
       setAttachments(round.attachments || []);
@@ -1873,11 +1874,11 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
               />
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.35rem', cursor: 'pointer' }}>
                 <input type="checkbox" checked={saveMailToCompany} onChange={(e) => setSaveMailToCompany(e.target.checked)} />
-                이 주소를 법인 청구 이메일로 저장 (다음 달부터 기본값)
+                이 주소를 {schedule?.company && !schedule?.billingEmail ? '법인 청구 이메일' : '이 계약의 청구 이메일'}로 저장 (다음 달부터 기본값)
               </label>
-              {selected.company?.billingEmail && mailTo !== selected.company.billingEmail && (
+              {schedule && recipientOf(schedule) && mailTo !== recipientOf(schedule) && (
                 <div style={{ fontSize: '0.72rem', color: 'var(--primary)', marginTop: '0.3rem' }}>
-                  기존 등록 주소: {selected.company.billingEmail}
+                  기존 주소: {recipientOf(schedule)}
                 </div>
               )}
             </div>

@@ -1,4 +1,5 @@
 import VehicleLedger from '../models/VehicleLedger.js';
+import { recipientOf } from '../../shared/billingRecipient.js';
 import { ledgerCheckOf } from '../utils/settlementLedgerCheck.js';
 import crypto from 'crypto';
 import Contract from '../models/Contract.js';
@@ -60,7 +61,7 @@ export const buildDeliveryDocs = async (contractId) => {
   const vehicles = await Vehicle.find(contract.vehicles?.length ? { _id: { $in: contract.vehicles } } : { contract: contract._id })
     .sort({ code: 1 })
     .lean();
-  const schedule = await BillingSchedule.findOne({ contract: contract._id }).select('billingEmail rounds.no rounds.dueDate rounds.monthlyRent rounds.status').lean();
+  const schedule = await BillingSchedule.findOne({ contract: contract._id }).select('billingEmail rounds.no rounds.dueDate rounds.monthlyRent rounds.status rounds.sentTo rounds.autoSend.to').lean();
   const rounds = [...(schedule?.rounds || [])].sort((a, b) => a.no - b.no);
 
   const company = contract.companyId || null;
@@ -188,7 +189,7 @@ export const buildDeliveryDocs = async (contractId) => {
     actualEndDate: kstYmd(contract.actualEndDate),
     unpaidRounds: rounds.filter((r) => ['청구됨', '미납'].includes(r.status) && kstYmd(r.dueDate) <= today).map((r) => r.no),
     // 종료 서류를 보낼 곳. 청구서를 보내는 메일과 같은 순서로 찾는다
-    mailTo: schedule?.billingEmail || company?.billingEmail || customer?.email || to
+    mailTo: recipientOf(schedule, company, customer) || to
   };
   return { ...data, snapshot, missing, warnings, overrides, factDocs, endDocs, ending, deliveryDocs: contract.deliveryDocs || null, docFolderName: contract.docFolderName || contract.contractNo };
 };

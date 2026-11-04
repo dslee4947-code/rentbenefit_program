@@ -71,8 +71,8 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
   const savedSettlement = (d) => (d.endDocs || []).find((f) => f.kind === 'settlement');
   // 종료 구분에 맞는 날짜: 실제 종료일이 있으면 그것, 없으면 만기 인수·반납은 계약 종료일, 중도해지는 정산서의 반납일 또는 오늘
   const defaultDate = (d, kind) => d.ending?.actualEndDate || (kind === 'early' ? savedSettlement(d)?.endDate || todayYmd() : d.docs[0]?.endDate || '');
-  // 종료 사유가 없으면, 정산서가 있거나 만기 전인 계약은 중도해지로 시작한다
-  const defaultKind = (d) => KIND_OF_REASON[d.ending?.endReason] || (savedSettlement(d) || d.docs[0]?.endDate > todayYmd() ? 'early' : 'return');
+  // 정산서가 있으면 중도해지다(계약을 닫으면 종료 사유는 '반납'으로 남는다). 그 밖에는 종료 사유, 사유가 없으면 만기 전인지로 고른다
+  const defaultKind = (d) => (savedSettlement(d) ? 'early' : KIND_OF_REASON[d.ending?.endReason] || (d.docs[0]?.endDate > todayYmd() ? 'early' : 'return'));
 
   const openOne = async (contractId, plate) => {
     const data = await fetch(`${API_HOST}/api/delivery-docs/${contractId}`, { cache: 'no-store' }).then((r) => r.json()).catch(() => null);

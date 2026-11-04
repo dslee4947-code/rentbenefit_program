@@ -13,7 +13,8 @@ import {
   saveFactDoc,
   getFactDocFile,
   saveEndDoc,
-  getEndDocFile
+  sendEndDoc,
+  getEndDocFile, getRentReceived
 } from '../controllers/deliveryDocsController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
 
@@ -37,6 +38,8 @@ router.post('/:contractId/fact-docs', checkWritePermission, upload.single('file'
 router.get('/:contractId/fact-docs/:docId/file', getFactDocFile);
 // 계약종료 확인서 (중도해지 · 만기 인수 · 만기 반납) 저장
 router.post('/:contractId/end-docs', checkWritePermission, upload.single('file'), saveEndDoc);
+router.post('/:contractId/end-docs/send', checkWritePermission, upload.single('file'), sendEndDoc);
 router.get('/:contractId/end-docs/:docId/file', getEndDocFile);
+router.get('/:contractId/rent-received', getRentReceived);
 
 export default router;

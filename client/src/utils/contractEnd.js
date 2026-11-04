@@ -41,22 +41,141 @@ export const END_KINDS = {
 const DAY = 864e5;
 const ymdTime = (ymd) => (/^\d{4}-\d{2}-\d{2}$/.test(ymd || '') ? Date.parse(`${ymd}T00:00:00Z`) : NaN);
 
+const floor10 = (n) => Math.floor(n / 10) * 10;
+
 /**
- * 중도해지 예상 위약금. 엑셀 '중도해지 정산서 계산식'과 같은 식이다.
- *   1일 대여료 = 월 대여료(VAT 포함) × 12 ÷ 365, 10원 아래 버림
+ * 중도해지 위약금. 엑셀 '중도해지_정산서261104.xlsx' 정산서상세 E항과 같은 식이다.
+ *   1일 대여료 = (월 대여료 × 12 ÷ 365) + (선수금 ÷ 계약 연수 ÷ 365), 각각 10원 아래 버림
  *   1일 대여료(VAT 제외) = 1일 대여료 ÷ 1.1 (곱할 때는 끝수를 두고, 보여 줄 때만 반올림)
  *   위약금 = 1일 대여료(VAT 제외) × 미경과일수(만료일 − 해지일) × 위약금율, 원 아래 버림
- * @param {{ monthlyFee: number, endDate: string, terminateDate: string, ratePct: number }} p  ratePct = 35 (35%)
- * @returns {{ days: number, daily: number, dailySupply: number, penalty: number } | null}
+ * @param {{ monthlyFee: number, advancePayment?: number, termMonths?: number, endDate: string, terminateDate: string, ratePct: number }} p  ratePct = 35 (35%)
+ * @returns {{ days: number, daily: number, dailySupply: number, penalty: number, advanceMonthly: number } | null}
  */
-export const earlyPenalty = ({ monthlyFee, endDate, terminateDate, ratePct }) => {
+export const earlyPenalty = ({ monthlyFee, advancePayment = 0, termMonths = 0, endDate, terminateDate, ratePct }) => {
   const end = ymdTime(endDate);
   const term = ymdTime(terminateDate);
   if (!monthlyFee || !ratePct || Number.isNaN(end) || Number.isNaN(term)) return null;
   const days = Math.max(0, Math.round((end - term) / DAY));
-  const daily = Math.floor((monthlyFee * 12) / 365 / 10) * 10;
-  return { days, daily, dailySupply: Math.round(daily / 1.1), penalty: Math.floor((daily / 1.1) * days * (ratePct / 100)) };
+  const years = termMonths / 12;
+  const daily = floor10((monthlyFee * 12) / 365) + (years > 0 ? floor10(advancePayment / years / 365) : 0);
+  return {
+    days,
+    daily,
+    dailySupply: Math.round(daily / 1.1),
+    penalty: Math.floor((daily / 1.1) * days * (ratePct / 100)),
+    advanceMonthly: termMonths > 0 ? Math.round(advancePayment / termMonths) : 0
+  };
 };
 
 /** 위약금율(%). 화면에서 적은 값이 우선이고, 없으면 계약 값('35%'처럼 온다) */
 export const ratePctOf = (doc, override) => Number.parseFloat(override) || Number.parseFloat(doc?.earlyRate) || 0;
+
+const ymdOf = (time) => new Date(time).toISOString().slice(0, 10);
+/** 엑셀 EDATE: n달 뒤 같은 날. 그 달에 없는 날이면 말일 */
+const edate = (ymd, n) => {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const last = new Date(Date.UTC(y, m - 1 + n + 1, 0)).getUTCDate();
+  return ymdOf(Date.UTC(y, m - 1 + n, Math.min(d, last)));
+};
+const addDays = (ymd, n) => ymdOf(ymdTime(ymd) + n * DAY);
+const daysBetween = (from, to) => Math.round((ymdTime(to) - ymdTime(from)) / DAY);
+/** 엑셀 DATEDIF(from, to, "m"): 다 채운 달 수 */
+const fullMonths = (from, to) => {
+  const [ay, am, ad] = from.split('-').map(Number);
+  const [by, bm, bd] = to.split('-').map(Number);
+  return Math.max(0, (by - ay) * 12 + bm - am - (bd < ad ? 1 : 0));
+};
+
+// 초과운행료가 국산 100원, 수입 200원이라 나눈다. 차량 DB에 제조사·딜러사 칸이 없어 차종 이름으로 본다(화면에서 고칠 수 있다)
+const DOMESTIC_MODEL = /^(ray|레이|avante|아반떼|sonata|쏘나타|grander|그랜저|casper|캐스퍼|kona|cona|코나|tucson|투싼|santa|싼타페|palisade|팰리세이드|펠리세이드|staria|스타리아|porter|포터|ioniq|아이오닉|nexo|넥쏘|morning|모닝|k[3-9]\b|seltos|셀토스|sportage|스포티지|sorento|쏘렌토|carnival|카니발|mohave|mojave|모하비|niro|니로|ev\d|bongo|봉고|g70|g80|g90|gv\d0|genesis|제네시스|grand koleos|그랑\s*콜레오스|koleos|qm6|xm3|sm6|torres|토레스|rexton|렉스턴|trail|트레일블레이저)/i;
+export const originOf = (carModel) => (DOMESTIC_MODEL.test(String(carModel || '').trim().replace(/^(더|디)\s+(올\s+)?(뉴\s+)?/, '')) ? '국산' : '외산');
+
+/** 중도해지 정산서 양식. 엑셀의 세 시트다 */
+export const SETTLEMENT_LAYOUTS = { split: '구분형 (정산 안내)', summary: '요약형', detail: '상세' };
+
+const toNum = (v) => Number(String(v ?? '').replace(/[^\d.-]/g, '')) || 0;
+
+/**
+ * 중도해지 정산. 엑셀 '중도해지_정산서261104.xlsx'(대표님 2026-11-04) 정산서상세 시트의 식 그대로다.
+ *   단 렌트료는 엑셀의 '납부 회차 수' 대신 원장의 실제 입금액으로 본다(대표님 2026-11-04).
+ *   A 미납 렌트료 = 이용기간 렌트료(월 렌트료 × 이용 개월 + 1일 렌트료 × 잔여 일수) − 납부한 렌트료
+ *   B 초과운행 부담금 = (실주행 − 연 약정 ÷ 365 × 이용일 − 기본 제공) × km당 요금
+ *   C 면책금(수리비) = 수리내역 합계
+ *   D 미납 청구금액 = 미납 통행료 + 범칙금 + 미납 수리비
+ *   E 위약금 = earlyPenalty
+ *   최종 정산금 = A + B + C + D + E − 보증금 − 선수금 미경과분 − 초과 납부 렌트료
+ * @param {object} doc 서버 buildDeliveryDocs의 차 한 대
+ * @param {object} form 화면 입력값(문자열이어도 된다)
+ * @returns {object | null} 반납일·인도일·만료일이 날짜가 아니면 null
+ */
+export const settlementOf = (doc, form) => {
+  const { returnDate } = form;
+  const start = doc?.deliveryDate;
+  const end = doc?.endDate;
+  if ([returnDate, start, end].some((x) => Number.isNaN(ymdTime(x)))) return null;
+
+  const fee = Number(doc.monthlyFee) || 0;
+  const deposit = Number(doc.deposit) || 0;
+  const advance = Number(doc.advancePayment) || 0;
+  const termMonths = Number(doc.termMonths) || 0;
+  const paidCount = toNum(form.paidCount); // 원장에서 센 회차 수. 서류에 보여 주기만 한다
+  const ratePct = ratePctOf(doc, form.ratePct);
+  const annualKm = toNum(form.annualKm) || Number(doc.mileage) || 0;
+  const origin = form.origin || originOf(doc.carModel);
+
+  const usedDays = daysBetween(start, returnDate) + 1;
+  const remainDays = Math.max(0, daysBetween(returnDate, end));
+  const totalDays = daysBetween(start, end) + 1;
+
+  // A. 렌트료: 인도일부터 반납일까지 낼 돈과 실제로 낸 돈(원장)의 차이. 1회차를 일할로 받은 계약도 같은 식이다
+  const usedMonths = fullMonths(start, addDays(returnDate, 1));
+  const monthsRent = fee * usedMonths;
+  const leftFrom = edate(start, usedMonths);
+  const leftDays = Math.max(0, daysBetween(leftFrom, returnDate) + 1);
+  const dailyRent = Math.floor((fee * 12) / 365);
+  const leftRent = dailyRent * leftDays;
+  const dueRent = monthsRent + leftRent;
+  const paidRent = toNum(form.paidRent);
+  const unpaidRent = Math.max(0, dueRent - paidRent);
+  const overpaidRent = Math.max(0, paidRent - dueRent);
+
+  // B. 초과운행 부담금
+  const contractKm = (annualKm / 365) * usedDays;
+  const actualKm = toNum(form.actualKm);
+  const baseKm = toNum(form.baseKm);
+  const excessKm = Math.max(0, actualKm - contractKm - baseKm);
+  const kmRate = origin === '외산' ? 200 : 100;
+  const excessFee = Math.floor(excessKm * kmRate);
+
+  // C·D. 면책금, 미납 청구금액
+  const repairs = (form.repairs || []).map(toNum);
+  const repairTotal = repairs.reduce((s, n) => s + n, 0);
+  const toll = toNum(form.toll);
+  const fine = toNum(form.fine);
+  const unpaidRepair = toNum(form.unpaidRepair);
+  const unpaidClaim = toll + fine + unpaidRepair;
+
+  // E. 위약금
+  const pen = earlyPenalty({ monthlyFee: fee, advancePayment: advance, termMonths, endDate: end, terminateDate: returnDate, ratePct });
+  const penalty = pen?.penalty || 0;
+
+  // 선수금 미경과분
+  const advanceDaily = totalDays > 0 ? advance / totalDays : 0;
+  const advanceRemain = Math.floor(advanceDaily * remainDays);
+  const advanceUsed = advance - advanceRemain;
+
+  const claimTotal = unpaidRent + excessFee + repairTotal + unpaidClaim + penalty;
+  // 선수금은 이용기간만큼 빼고 나머지를, 반납일 뒤까지 낸 렌트료는 그만큼을 돌려줄 돈으로 보고 위약금 등과 상계한다(대표님 2026-11-04)
+  const final = claimTotal - deposit - advanceRemain - overpaidRent;
+
+  return {
+    fee, deposit, advance, termMonths, paidCount, ratePct, annualKm, origin, returnDate, start, end,
+    usedDays, remainDays, totalDays,
+    usedMonths, monthsRent, monthsUntil: addDays(leftFrom, -1), leftFrom, leftDays, dailyRent, leftRent, dueRent, paidRent, unpaidRent, overpaidRent,
+    contractKm, actualKm, baseKm, excessKm, kmRate, excessFee,
+    repairs, repairTotal, toll, fine, unpaidRepair, unpaidClaim,
+    penaltyDaily: pen?.daily || 0, penaltyDailySupply: pen ? pen.daily / 1.1 : 0, advanceMonthly: pen?.advanceMonthly || 0, penalty,
+    advanceDaily, advanceUsed, advanceRemain,
+    claimTotal, final
+  };
+};

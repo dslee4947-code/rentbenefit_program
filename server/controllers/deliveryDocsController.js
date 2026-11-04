@@ -1,3 +1,5 @@
+import VehicleLedger from '../models/VehicleLedger.js';
+import { rentReceivedOf } from '../utils/rentReceived.js';
 import crypto from 'crypto';
 import Contract from '../models/Contract.js';
 import Vehicle from '../models/Vehicle.js';
@@ -6,7 +8,7 @@ import BillingSchedule from '../models/BillingSchedule.js';
 import '../models/Company.js';
 import '../models/Customer.js';
 import { saveDocument, readSavedFile } from '../utils/documentStorageService.js';
-import { sendDeliveryDocsMail, sendInternalMail } from '../utils/mailService.js';
+import { sendDeliveryDocsMail, sendEndDocMail, sendInternalMail } from '../utils/mailService.js';
 import { mergeCarModel } from '../utils/carModel.js';
 import { vehicleEndOf, lastDayOf } from '../utils/contractTerm.js';
 import { describeTireProvision } from '../../shared/quoteCalc.js';
@@ -65,7 +67,7 @@ export const buildDeliveryDocs = async (contractId) => {
   const vehicles = await Vehicle.find(contract.vehicles?.length ? { _id: { $in: contract.vehicles } } : { contract: contract._id })
     .sort({ code: 1 })
     .lean();
-  const schedule = await BillingSchedule.findOne({ contract: contract._id }).select('rounds.no rounds.dueDate rounds.monthlyRent rounds.status').lean();
+  const schedule = await BillingSchedule.findOne({ contract: contract._id }).select('billingEmail rounds.no rounds.dueDate rounds.monthlyRent rounds.status').lean();
   const rounds = [...(schedule?.rounds || [])].sort((a, b) => a.no - b.no);
 
   const company = contract.companyId || null;
@@ -191,7 +193,9 @@ export const buildDeliveryDocs = async (contractId) => {
     contractDate: kstYmd(contract.contractDate),
     endReason: contract.endReason || '',
     actualEndDate: kstYmd(contract.actualEndDate),
-    unpaidRounds: rounds.filter((r) => ['청구됨', '미납'].includes(r.status) && kstYmd(r.dueDate) <= today).map((r) => r.no)
+    unpaidRounds: rounds.filter((r) => ['청구됨', '미납'].includes(r.status) && kstYmd(r.dueDate) <= today).map((r) => r.no),
+    // 종료 서류를 보낼 곳. 청구서를 보내는 메일과 같은 순서로 찾는다
+    mailTo: schedule?.billingEmail || company?.billingEmail || customer?.email || to
   };
   return { ...data, snapshot, missing, warnings, overrides, factDocs, endDocs, ending, deliveryDocs: contract.deliveryDocs || null, docFolderName: contract.docFolderName || contract.contractNo };
 };
@@ -529,43 +533,134 @@ export const getFactDocFile = async (req, res) => {
   }
 };
 
-const END_KIND_NAME = { early: '계약종료확인서_중도해지', takeover: '계약종료확인서_만기인수', return: '계약종료확인서_만기반납', guide: '중도해지안내문' };
+const END_KIND_NAME = { early: '계약종료확인서_중도해지', takeover: '계약종료확인서_만기인수', return: '계약종료확인서_만기반납', guide: '중도해지안내문', settlement: '중도해지정산서' };
+const END_KIND_MAIL = { early: 'contract-end', takeover: 'contract-end', return: 'contract-end', guide: 'early-guide', settlement: 'early-settlement' };
+
+/** 같은 차에 같은 서류를 메일로 보낸 기록. 계약종료 확인서는 종료 구분이 달라도 같은 서류로 본다 */
+export const alreadySentEndDoc = (endDocs, kind, vehicleIds) => (endDocs || [])
+  .find((f) => f.sentAt && END_KIND_MAIL[f.kind] === END_KIND_MAIL[kind] && vehicleIds.includes(String(f.vehicleId)));
+
+/** 요청에서 서류 종류와 차를 고른다. 저장과 메일이 같이 쓴다 */
+const pickEndDoc = (req, d) => {
+  if (!req.file) return { error: 'PDF가 없습니다.' };
+  const kind = req.body.kind;
+  if (!END_KIND_NAME[kind]) return { error: '종료 구분(중도해지·만기 인수·만기 반납·중도해지 안내문·중도해지 정산서)을 골라 주세요.' };
+  const vehicleId = String(req.body.vehicleId || '');
+  const docs = vehicleId ? d.docs.filter((x) => x.vehicleId === vehicleId) : d.docs;
+  if (!docs.length) return { error: '이 계약에 묶인 차량을 찾지 못했습니다.' };
+  if (docs.some((x) => !x.plateNo)) return { error: '차량번호가 없는 차가 있어 저장하지 않았습니다.' };
+  return { kind, docs, plates: docs.map((x) => x.plateNo).join(',') };
+};
+
+const storeEndDoc = (req, d, { kind, plates }) => saveDocument({
+  partyName: d.party.name,
+  kind: 'contract',
+  subFolder: d.docFolderName,
+  fileName: `${END_KIND_NAME[kind]}_${d.party.name}_${plates}_${todayKst()}.pdf`,
+  fileBuffer: req.file.buffer
+});
+
+/** 계약에 남길 기록. 차가 여러 대면 차마다 한 줄이다 */
+const endDocEntries = (req, { kind, docs }, saved, sent = {}) => {
+  const endDate = /^\d{4}-\d{2}-\d{2}$/.test(req.body.endDate || '') ? req.body.endDate : '';
+  return docs.map((x) => ({
+    kind,
+    vehicleId: x.vehicleId,
+    plateNo: x.plateNo,
+    endDate,
+    fileName: saved.fileName,
+    savedPath: saved.localPath,
+    savedAt: new Date(),
+    savedBy: req.user?.name || req.user?.email || '',
+    ...sent
+  }));
+};
 
 /**
  * 계약종료 확인서를 계약서 폴더에 저장한다 (자금팀 > 계약종료 확인서).
  * 중도해지 · 만기 후 인수 · 만기 후 반납으로 정산이 끝난 고객에게 보내는 서류다. 메일은 보내지 않는다.
  * kind 'guide'는 중도해지 위약금 안내문(자금팀 > 중도해지 위약금 안내)이고, endDate는 해지예정일이다.
+ * kind 'settlement'는 중도해지 정산서(자금팀 > 중도해지 정산서)이고, endDate는 차량 반납일이다.
  * @route POST /api/delivery-docs/:contractId/end-docs (multipart: file, kind, vehicleId?, endDate)
  */
 export const saveEndDoc = async (req, res) => {
   try {
     const d = await buildDeliveryDocs(req.params.contractId);
     if (!d) return res.status(404).json({ success: false, message: '계약을 찾을 수 없습니다.' });
-    if (!req.file) return res.status(400).json({ success: false, message: 'PDF가 없습니다.' });
-    const kind = req.body.kind;
-    if (!END_KIND_NAME[kind]) return res.status(400).json({ success: false, message: '종료 구분(중도해지·만기 인수·만기 반납·중도해지 안내문)을 골라 주세요.' });
-    const vehicleId = String(req.body.vehicleId || '');
-    const docs = vehicleId ? d.docs.filter((x) => x.vehicleId === vehicleId) : d.docs;
-    if (!docs.length) return res.status(400).json({ success: false, message: '이 계약에 묶인 차량을 찾지 못했습니다.' });
-    if (docs.some((x) => !x.plateNo)) return res.status(400).json({ success: false, message: '차량번호가 없는 차가 있어 저장하지 않았습니다.' });
-
-    const plates = docs.map((x) => x.plateNo).join(',');
-    const fileName = `${END_KIND_NAME[kind]}_${d.party.name}_${plates}_${todayKst()}.pdf`;
-    const saved = await saveDocument({ partyName: d.party.name, kind: 'contract', subFolder: d.docFolderName, fileName, fileBuffer: req.file.buffer });
-    const who = req.user?.name || req.user?.email || '';
-    const endDate = /^\d{4}-\d{2}-\d{2}$/.test(req.body.endDate || '') ? req.body.endDate : '';
-    const entries = docs.map((x) => ({
-      kind,
-      vehicleId: x.vehicleId,
-      plateNo: x.plateNo,
-      endDate,
-      fileName: saved.fileName,
-      savedPath: saved.localPath,
-      savedAt: new Date(),
-      savedBy: who
-    }));
-    await Contract.updateOne({ _id: d.contractId }, { $push: { endDocs: { $each: entries } } });
+    const picked = pickEndDoc(req, d);
+    if (picked.error) return res.status(400).json({ success: false, message: picked.error });
+    const saved = await storeEndDoc(req, d, picked);
+    await Contract.updateOne({ _id: d.contractId }, { $push: { endDocs: { $each: endDocEntries(req, picked, saved) } } });
     res.json({ success: true, message: `${saved.fileName}을(를) 계약서 폴더에 저장했습니다.`, data: await buildDeliveryDocs(d.contractId) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 계약 종료 서류를 고객에게 메일로 보내고 계약서 폴더에도 저장한다 (자금팀 화면의 [메일 보내기]).
+ * 청구서와 같은 계정·서명으로 나간다. 담당자가 버튼을 눌렀을 때만 나가고, 자동으로 보내는 길은 없다.
+ * 같은 차에 같은 서류를 이미 보냈으면 force 없이는 다시 보내지 않는다(고객이 두 번 받는다).
+ * @route POST /api/delivery-docs/:contractId/end-docs/send (multipart: file, kind, vehicleId?, endDate, to, force?)
+ */
+export const sendEndDoc = async (req, res) => {
+  try {
+    const d = await buildDeliveryDocs(req.params.contractId);
+    if (!d) return res.status(404).json({ success: false, message: '계약을 찾을 수 없습니다.' });
+    const picked = pickEndDoc(req, d);
+    if (picked.error) return res.status(400).json({ success: false, message: picked.error });
+    const to = String(req.body.to || d.ending.mailTo || '').trim();
+    if (!isEmail(to)) return res.status(400).json({ success: false, message: '받는 사람 이메일을 확인해 주세요.' });
+    const sent = alreadySentEndDoc(d.endDocs, picked.kind, picked.docs.map((x) => x.vehicleId));
+    if (sent && req.body.force !== 'true') {
+      return res.status(409).json({ success: false, alreadySent: true, message: `이미 ${kstYmd(sent.sentAt)}에 ${sent.sentTo}(으)로 보낸 기록이 있습니다.` });
+    }
+    const saved = await storeEndDoc(req, d, picked);
+    await sendEndDocMail({
+      to,
+      templateKey: END_KIND_MAIL[picked.kind],
+      fileName: saved.fileName,
+      fileBuffer: req.file.buffer,
+      values: { 계약자: d.party.name, 계약번호: d.contractNo, 차량번호: picked.plates }
+    });
+    await Contract.updateOne({ _id: d.contractId }, { $push: { endDocs: { $each: endDocEntries(req, picked, saved, { sentAt: new Date(), sentTo: to }) } } });
+    res.json({ success: true, message: `${to}(으)로 메일을 보내고 계약서 폴더에 저장했습니다.`, data: await buildDeliveryDocs(d.contractId) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 중도해지 정산서에 넣을, 차마다 실제로 받은 렌트료(차량 손익 원장 기준). utils/rentReceived.js
+ * @route GET /api/delivery-docs/:contractId/rent-received
+ * 연장 계약은 회차와 렌트료가 연장 구간부터 다시 시작해 periodStart(구간 시작일)도 준다.
+ * 차량의 인도일은 최초 인도일로 남아 있는 차가 있다(Ray-001: 2021년 인도, 2026-10-28 연장).
+ * @returns data = { 차량 id: { total, count, lastAmount, short, missing, unnumbered, advanceIn, multi, hasLedger, ledgerNo, roundRent, periodSeq, periodStart } }
+ */
+export const getRentReceived = async (req, res) => {
+  try {
+    const contract = await Contract.findById(req.params.contractId).select('vehicles').lean();
+    if (!contract) return res.status(404).json({ success: false, message: '계약을 찾을 수 없습니다.' });
+    const vehicles = await Vehicle.find(contract.vehicles?.length ? { _id: { $in: contract.vehicles } } : { contract: contract._id }).select('monthlyFee').lean();
+    const schedule = await BillingSchedule.findOne({ contract: contract._id }).select('rounds.no rounds.monthlyRent rounds.status').lean();
+    const rounds = schedule?.rounds || [];
+    const feeSum = vehicles.reduce((s, v) => s + (Number(v.monthlyFee) || 0), 0);
+    const multi = vehicles.length > 1;
+    const data = {};
+    for (const v of vehicles) {
+      const ledger = await VehicleLedger.findOne({ vehicle: v._id }).select('ledgerNo entries contractPeriods').lean();
+      const share = multi && feeSum > 0 ? (Number(v.monthlyFee) || 0) / feeSum : 1;
+      const secondRound = rounds.find((r) => r.no === 2) || rounds[0];
+      const roundRent = Math.round((Number(secondRound?.monthlyRent) || 0) * share);
+      if (!ledger) {
+        data[v._id] = { hasLedger: false, multi, roundRent };
+        continue;
+      }
+      const period = (ledger.contractPeriods || []).find((p) => String(p.contract) === String(contract._id));
+      const periodSeq = period?.seq || 1;
+      data[v._id] = { hasLedger: true, ledgerNo: ledger.ledgerNo, multi, roundRent, periodSeq, periodStart: periodSeq > 1 ? kstYmd(period.startDate) : '', ...rentReceivedOf({ entries: ledger.entries, rounds, periodSeq, share, multi }) };
+    }
+    res.json({ success: true, data });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

@@ -177,6 +177,26 @@ export const sendDeliveryDocsMail = async ({ to, fileName, fileBuffer, values = 
 };
 
 /**
+ * 계약 종료 서류 메일 (계약종료 확인서 · 중도해지 안내문 · 중도해지 정산서). 담당자가 화면에서 버튼을 눌렀을 때만 나간다.
+ *
+ * @param {object} params
+ * @param {string} params.to 받는 사람
+ * @param {'contract-end'|'early-guide'|'early-settlement'} params.templateKey 양식 종류
+ * @param {string} params.fileName PDF 파일명
+ * @param {Buffer} params.fileBuffer PDF
+ * @param {object} [params.values] 치환 값 ({{계약자}} {{계약번호}} {{차량번호}})
+ */
+export const sendEndDocMail = async ({ to, templateKey, fileName, fileBuffer, values = {} }) => {
+  return sendTemplateMail({
+    to,
+    values,
+    templateKey,
+    files: [{ fileName, buffer: fileBuffer, contentType: 'application/pdf' }],
+    missingToMessage: '받는 사람 이메일이 없습니다. 법인 관리에서 청구 이메일을 먼저 등록해 주세요.'
+  });
+};
+
+/**
  * 청구서·안내 메일을 보내는 계정. 고객이 받는 메일의 보내는 사람이다(대표님 지정 2026-10-19: rent@sdibenefit.com).
  * 예전에는 설정이 없으면 연락처 동기화 계정(as@)으로 보냈는데, 고객에게 엉뚱한 주소로 나가므로 rent@로 고정한다.
  */

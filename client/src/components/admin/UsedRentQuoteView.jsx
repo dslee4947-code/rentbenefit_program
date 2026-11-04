@@ -87,7 +87,7 @@ const optForCalc = (o) => ({ ...o, discountRate: (Number(o.discountRate) || 0) /
  * 이미 굴러가는 차(만기 연장, 반납받은 차 재렌트)를 다시 빌려주는 견적이다(대표님 2026-11-02).
  * 계산은 렌트팀 엑셀 '중고렌트_견적서 양식'의 '견적서 보고용' 시트와 같다(shared/usedQuoteCalc.js).
  * 렌트차량 DB에서 차를 고르면 차종·등록일·배기량·지금 인수가(= 중고차 가격)·보증금·계약 만기일을 채우고,
- * 렌터카 차령 한도(2000cc 미만 6년, 이상 9년)로 최대 몇 개월까지 계약할 수 있는지 보여 준다.
+ * 렌터카 차령 한도(연장 포함 2000cc 미만 7년, 이상 10년)로 최대 몇 개월까지 계약할 수 있는지 보여 준다.
  * 한도를 넘는 안은 견적서에 넣을 수 없다.
  */
 function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOpenContractDocument }) {

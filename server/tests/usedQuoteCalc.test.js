@@ -43,24 +43,25 @@ test('수수료 3%(양식 기본값)를 넣으면 원가에 중고차 가격의 
   assert.equal(withFee.monthlyFee, 1198000);
 });
 
-test('차령: 2000cc 미만은 등록 후 6년 전날까지, 레이 2021-11-03 등록이면 2026-11-03부터 12개월', () => {
-  const a = vehicleAgeLimit({ registrationDate: '2021-11-03', cc: 998 }, '2026-11-03');
-  assert.equal(a.years, 6);
-  assert.equal(a.lastDay, '2027-11-02');
-  assert.equal(a.maxMonths, 12);
+test('차령: 2000cc 미만은 등록 후 7년 전날까지, 레이 2021-11-03 등록이면 2026-11-10부터 23개월', () => {
+  const a = vehicleAgeLimit({ registrationDate: '2021-11-03', cc: 998 }, '2026-11-10');
+  assert.equal(a.years, 7);
+  assert.equal(a.lastDay, '2028-11-02');
+  assert.equal(a.maxMonths, 23);
+  assert.equal(vehicleAgeLimit({ registrationDate: '2021-11-03', cc: 998 }, '2026-11-03').maxMonths, 24);
 });
 
-test('차령: 2000cc 이상은 9년, GLE450 2021-11-12 등록·2026-11-13 시작이면 47개월', () => {
+test('차령: 2000cc 이상은 10년, GLE450 2021-11-12 등록·2026-11-13 시작이면 59개월', () => {
   const a = vehicleAgeLimit({ registrationDate: '2021-11-12', cc: 2999 }, '2026-11-13');
-  assert.equal(a.years, 9);
-  assert.equal(a.lastDay, '2030-11-11');
-  assert.equal(a.maxMonths, 47);
+  assert.equal(a.years, 10);
+  assert.equal(a.lastDay, '2031-11-11');
+  assert.equal(a.maxMonths, 59);
 });
 
 test('차령: DB 날짜(한국 자정 = UTC 전날 15시)도 한국 날짜로 읽는다', () => {
   const a = vehicleAgeLimit({ registrationDate: new Date('2021-11-02T15:00:00Z'), cc: 998 }, new Date('2026-11-02T15:00:00Z'));
   assert.equal(a.firstRegistered, '2021-11-03');
-  assert.equal(a.maxMonths, 12);
+  assert.equal(a.maxMonths, 24);
 });
 
 test('차령: 이미 한도를 지난 차는 0개월, 등록일이 없으면 null', () => {

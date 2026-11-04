@@ -116,12 +116,11 @@ export const calculateUsedQuoteOption = (opt = {}, car = {}) => {
 
 /**
  * 대여사업용 승용차 차령(여객자동차 운수사업법 시행령): 경형·소형·중형 5년, 대형 8년, 검사 받으면 2년까지 연장.
- * 법정 끝(7년·10년)은 정확히는 그 전날까지라 그 전에 반납받아야 한다. 그래서 1년 앞서 끊는다
- * (대표님 2026-11-02 "2000cc 미만은 7년이지만 6년 11개월 29일이니 6년까지만").
- * 2000cc 이상(대형)도 같은 방식으로 10년 → 9년. 전기·수소는 배기량이 없어 일단 6년으로 본다.
+ * 연장 가능한 최대 기간까지 계약할 수 있다(대표님 2026-11-04). 2000cc 미만 7년, 이상 10년의 전날이 마지막 날이다.
+ * 지금 연장이 어디까지 됐는지와 상관없이 법정 끝으로 본다. 남은 연장은 차령이 끝나기 2개월 전부터 검사를 받으며 신청한다.
+ * 전기·수소는 배기량이 없어 일단 7년으로 본다.
  */
-export const AGE_LIMIT_YEARS = { small: 6, large: 9 };
-export const LEGAL_AGE_LIMIT_YEARS = { small: 7, large: 10 };
+export const AGE_LIMIT_YEARS = { small: 7, large: 10 };
 
 const toDate = (v) => {
   if (!v) return null;
@@ -152,14 +151,14 @@ const toKstDate = (v) => {
  *
  * @param {{registrationDate: string|Date, cc?: number, fuelType?: string}} vehicle
  * @param {string|Date} [startDate] 계약(연장) 시작일
- * @returns {null|{large: boolean, years: number, legalYears: number, lastDay: string, maxMonths: number|null, label: string}}
+ * @returns {null|{large: boolean, years: number, lastDay: string, maxMonths: number|null, label: string}}
  */
 export const vehicleAgeLimit = (vehicle, startDate) => {
   const reg = toKstDate(vehicle?.registrationDate);
   if (!reg) return null;
   const large = (Number(vehicle?.cc) || 0) >= 2000;
   const years = large ? AGE_LIMIT_YEARS.large : AGE_LIMIT_YEARS.small;
-  // 등록일 + N년의 전날이 마지막 날(2021-11-03 등록 → 6년이면 2027-11-02까지)
+  // 등록일 + N년의 전날이 마지막 날(2021-11-03 등록 → 7년이면 2028-11-02까지)
   const end = addMonthsUtc(reg, years * 12);
   end.setUTCDate(end.getUTCDate() - 1);
 
@@ -179,11 +178,10 @@ export const vehicleAgeLimit = (vehicle, startDate) => {
   return {
     large,
     years,
-    legalYears: large ? LEGAL_AGE_LIMIT_YEARS.large : LEGAL_AGE_LIMIT_YEARS.small,
     firstRegistered: ymd(reg),
     lastDay: ymd(end),
     maxMonths,
-    label: `${kind} · 최대 ${years}년(법정 ${large ? LEGAL_AGE_LIMIT_YEARS.large : LEGAL_AGE_LIMIT_YEARS.small}년 전에 반납) · ${ymd(end)}까지`
+    label: `${kind} · 연장 포함 최대 ${years}년 · ${ymd(end)}까지`
   };
 };
 

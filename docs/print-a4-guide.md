@@ -28,7 +28,7 @@
 | 함수 | 쓰는 곳 |
 |---|---|
 | `printFitted(element, { orientation, marginMm, onePage, title })` | **인쇄 / PDF 다운로드 버튼.** 브라우저 인쇄 창을 연다. 인쇄 창에서 "PDF로 저장"을 고르면 같은 모양의 PDF가 된다. `title`은 저장할 때의 기본 파일 이름이다. |
-| `makeFittedPdf(element, { orientation, marginMm, imageType })` | **PDF 파일(Blob)이 필요할 때.** 서버 보관이나 메일 첨부에 쓴다. 인쇄 창 없이 만든다. |
+| `makeFittedPdf(element, { orientation, marginMm, imageType })` | **PDF 파일(Blob)이 필요할 때.** 서버 보관이나 메일 첨부에 쓴다. 인쇄 창 없이 만든다. 화면을 그림으로 떠서 표의 선이 인쇄본보다 조금 굵게 나온다. 사람이 받아 보는 PDF 버튼은 `printFitted`를 쓴다. |
 | `measurePrintFit(element, options)` | 배율만 계산한다(위 두 함수가 안에서 쓴다). |
 | `makeA4PagesPdf(pages)` | **A4 크기로 그린 쪽 여러 장을 PDF 한 파일로 묶을 때.** 세로·가로가 섞인 서류 묶음(구청 증차 서류)에 쓴다. 쪽마다 `data-orientation`을 단다. |
 
@@ -111,4 +111,4 @@ const blob = await makeFittedPdf(element, { orientation: 'portrait', marginMm: 8
 2. 화면과 **같은 모양**인가 (글자 크기 비율, 줄 간격, 색)
 3. A4 **한 장**에 들어가고, 빈 둘째 장이 생기지 않는가 (`onePage: true`일 때)
 4. 표 머리글의 남색 등 **배경색이 찍히는가**: 안 찍히면 인쇄 창의 "배경 그래픽"을 켠다
-5. 저장된 PDF 파일(계약자 폴더, 청구서 첨부)도 같은 모양인가
+5. 저장된 PDF 파일(계약자 폴더, 청구서 첨부)도 같은 모양인가: **쪽수만 세지 말고 파일을 열어 인쇄본과 비교한다.** `onePage: true`는 쪽 나눔을 끈다 (2026-11-05: 파일만 비고·특약사항 칸이 찌그러졌는데 쪽수는 1장이라 놓쳤다)

@@ -292,24 +292,6 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
     }
   };
 
-  const downloadPdf = async () => {
-    const why = blockedReason();
-    if (why) { showToast?.(why, 'error'); return; }
-    try {
-      document.body.classList.add('pdf-making');
-      const blob = await makeFittedPdf(sheetRef.current, { orientation: 'portrait', marginMm: 0, onePage: true });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `${fileTitle}.pdf`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    } catch {
-      showToast?.('PDF를 만들지 못했습니다.', 'error');
-    } finally {
-      document.body.classList.remove('pdf-making');
-    }
-  };
-
   // 연장 계약서·연장 반영에 넘기는 한 안의 조건
   const extensionTerms = (r) => ({
     startDate: car.startDate,
@@ -605,8 +587,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
           placeholder="예: 보증금 12,360,000원 승계 · 종료 후 인수 시 이전등록비 별도" />
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.7rem', flexWrap: 'wrap' }}>
           <button type="button" onClick={() => saveQuote()} disabled={saving} style={btn(false)}><Save size={15} /> {saving ? '저장 중…' : quoteId ? '고친 내용 저장' : '견적 저장'}</button>
-          <button type="button" onClick={downloadPdf} style={btn(false)}><FileDown size={15} /> PDF 내려받기</button>
-          <button type="button" onClick={printSheet} style={btn(true)}><Printer size={15} /> 인쇄 (PDF 보관)</button>
+          <button type="button" onClick={printSheet} style={btn(true)}><Printer size={15} /> 인쇄하기 / PDF 다운로드</button>
         </div>
       </div>
 
@@ -790,7 +771,7 @@ function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
                     <td rowSpan={2} style={{ textAlign: 'center', border: '1px solid #000', fontWeight: '700', background: '#fafafa', color: '#ccc' }}>{index + 1}</td>
                     {Array.from({ length: 8 }).map((_, k) => <td key={k} style={{ border: '1px solid #000' }}></td>)}
                   </tr>
-                  <tr style={{ height: '1.1rem', background: '#fdfbfa' }}>
+                  <tr className="quote-sub-row" style={{ height: '1.1rem' }}>
                     <td style={{ border: '1px solid #000' }}></td><td colSpan={3} style={{ border: '1px solid #000' }}></td>
                     {Array.from({ length: 4 }).map((_, k) => <td key={k} style={{ border: '1px solid #000' }}></td>)}
                   </tr>
@@ -813,7 +794,7 @@ function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
                   <td style={num}>{won(calc.takeoverPrice)}</td>
                   <td style={{ ...num, fontWeight: '700', color: '#111e38' }}>{won(calc.monthlyFee)}</td>
                 </tr>
-                <tr style={{ background: '#fdfbfa', fontSize: '0.66rem', height: '1.2rem' }}>
+                <tr className="quote-sub-row" style={{ fontSize: '0.66rem', height: '1.2rem' }}>
                   <td style={{ padding: '2px 4px', border: '1px solid #000', color: '#555' }}>정비 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <strong>{opt.maintenance ? '가입' : '미가입'}</strong></td>
                   <td colSpan={3} style={{ border: '1px solid #000' }}></td>
                   <td style={sub}>{rate(calc.deposit)}</td>

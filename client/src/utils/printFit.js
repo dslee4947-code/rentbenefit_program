@@ -137,7 +137,9 @@ export const makeFittedPdf = async (element, { orientation = 'portrait', marginM
         image: imageType === 'png' ? { type: 'png' } : { type: 'jpeg', quality: 0.95 },
         html2canvas: { scale: 2, useCORS: true, width, windowWidth: width },
         jsPDF: { unit: 'mm', format: 'a4', orientation },
-        pagebreak: { mode: ['avoid-all', 'css'] }
+        // 한 장 문서는 쪽을 나누지 않는다. html2pdf는 쪽 높이를 A4 폭(794px) 기준 1123px로 잡아, 폭 900px·높이 1270px 견적서의
+        // 비고 칸 앞에 빈 줄을 끼워 넣었다. 그래서 파일만 화면과 달랐다(2026-11-05 비고·특약사항 칸이 찌그러짐).
+        pagebreak: { mode: onePage ? [] : ['avoid-all', 'css'] }
       })
       .from(element)
       .outputPdf('blob');

@@ -4419,7 +4419,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                           <td style={{ textAlign: 'right', padding: '4px 4px', border: '1px solid #000' }}>{toCommaString(calc.takeoverPrice)}</td>
                           <td style={{ textAlign: 'right', padding: '4px 4px', border: '1px solid #000', fontWeight: '700', color: '#111e38' }}>{toCommaString(calc.monthlyLeaseFee)}</td>
                         </tr>
-                        <tr style={{ background: '#fdfbfa', fontSize: '0.66rem', height: '1.2rem' }}>
+                        <tr className="quote-sub-row" style={{ fontSize: '0.66rem', height: '1.2rem' }}>
                           <td style={{ padding: '2px 4px', border: '1px solid #000', color: '#555' }}>
                             정비 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <strong>{opt.isMaintenanceEnabled !== false ? '가입' : '미가입'}</strong>
                           </td>
@@ -4451,7 +4451,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                           <td style={{ border: '1px solid #000' }}></td>
                           <td style={{ border: '1px solid #000' }}></td>
                         </tr>
-                        <tr style={{ height: '1.1rem', background: '#fdfbfa' }}>
+                        <tr className="quote-sub-row" style={{ height: '1.1rem' }}>
                           <td style={{ border: '1px solid #000' }}></td>
                           <td colSpan={3} style={{ border: '1px solid #000' }}></td>
                           <td style={{ border: '1px solid #000' }}></td>

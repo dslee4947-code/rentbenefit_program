@@ -157,6 +157,11 @@ button {
    화면 폭 그대로 펼친 뒤 배율만 줄여 A4에 넣는다. 글자·여백은 인쇄 때 따로 바꾸지 않는다.
    ───────────────────────────────────────────────────────────── */
 
+/* 견적서 표의 작은 줄 배경은 줄(tr)이 아니라 칸(td)에 칠한다. 줄에 칠하면 PDF 파일에서 위 줄부터 합쳐진 번호 칸을 덮어 번호가 잘린다 */
+.quote-sub-row > td {
+  background: #fdfbfa;
+}
+
 /* PDF 파일로 찍는 동안(makeFittedPdf): 화면 폭 그대로 펼치고 스크롤·고정 머리글을 푼다 */
 .print-fit-capture {
   width: var(--print-fit-width) !important;

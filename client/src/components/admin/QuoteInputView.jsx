@@ -123,38 +123,8 @@ const CONTRACT_TYPE_COLORS = {
 };
 const getContractTypeColors = (type) => CONTRACT_TYPE_COLORS[type] || CONTRACT_TYPE_COLORS['렌트'];
 
-/**
- * 리스 차량의 연간 자동차세(지방교육세 포함)를 계산한다.
- *
- * 리스는 자가용(비영업용) 번호판이라 일반 승용차 요율을 쓴다.
- * 렌터카는 영업용이라 요율이 다르고, 월대여료에 세금이 이미 포함되므로 이 함수를 쓰지 않는다.
- *
- *   비영업용 승용 자동차세 연세액 = 배기량 × 요율
- *     1,000cc 이하 80원 / 1,600cc 이하 140원 / 1,600cc 초과 200원
- *   전기·수소차는 배기량이 없어 정액 100,000원
- *   여기에 지방교육세 30%를 더한 금액이 실제 고지 금액이다.
- *
- * 차령에 따른 경감(3년차부터 매년 5%, 최대 50%)은 신차 기준 견적이라 적용하지 않는다.
- */
-const ELECTRIC_FUEL_TYPES = ['전기', '수소'];
-
-const calculateLeaseCarTax = (vehicle) => {
-  const fuelType = vehicle?.fuelType || '';
-  const isElectric = ELECTRIC_FUEL_TYPES.some((t) => fuelType.includes(t));
-
-  let baseTax;
-  if (isElectric) {
-    baseTax = 100000;
-  } else {
-    const cc = Number(vehicle?.cc) || 0;
-    if (cc <= 0) return null; // 배기량을 모르면 추측하지 않고 '-'로 둔다
-    const ratePerCc = cc <= 1000 ? 80 : cc <= 1600 ? 140 : 200;
-    baseTax = cc * ratePerCc;
-  }
-
-  const educationTax = baseTax * 0.3;
-  return Math.floor((baseTax + educationTax) / 10) * 10; // 10원 미만 절사
-};
+// 비교표에서 타사명을 적지 않은 안의 회사명
+const OWN_COMPANY_NAME = '렌트베네핏';
 
 function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContractData, showToast, currentUser, openContractDocument }) {
   const [customers, setCustomers] = useState([]);
@@ -460,8 +430,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
           ...baseOpt,
           id: nextId,
           name: `${nextId}안`,
-          // 특이사항은 안마다 다른 내용이라 복사하지 않는다
-          specialNote: ''
+          // 특이사항·타사명은 안마다 다른 내용이라 복사하지 않는다
+          specialNote: '',
+          companyName: ''
         }
       : {
           id: nextId,
@@ -1436,6 +1407,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
 
   // 1안~4안은 세로(A4 portrait), 5안 이상은 가로(A4 landscape)로 1페이지에 맞춰 인쇄
   const isComparisonLandscape = printFormType === 'comparison' && displaySelectedOptions.length >= 5;
+  // 회사명 줄은 타사 견적이 하나라도 있을 때만 넣는다. 우리 안끼리 비교하는 표에는 필요 없다
+  const hasCompanyRow = displaySelectedOptions.some(({ opt }) => opt.companyName?.trim());
   // 핸드폰 축소: 비교견적서는 세로 900px, 가로(5안 이상) 1250px 폭으로 그린 모양을 줄인다
   const COMPARISON_PHONE_WIDTH = isComparisonLandscape ? 1250 : 900;
   const rentalFit = phoneFitStyles(usePhoneFit(rentalScrollRef, rentalSheetRef, RENTAL_SHEET_WIDTH_PX, [printFormType]), RENTAL_SHEET_WIDTH_PX);
@@ -1701,55 +1674,6 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
   if (subView === 'maintenance') {
     return renderMaintenancePage();
   }
-
-  /** 비고 문구용 금액 표기. 만 단위로 딱 떨어지면 "120만원", 아니면 "290,830원" */
-  const formatKoreanMoney = (amount) => {
-    if (!amount) return '';
-    return amount % 10000 === 0
-      ? `${(amount / 10000).toLocaleString()}만원`
-      : `${toCommaString(amount)}원`;
-  };
-
-  /**
-   * 비고 열에 넣을 요약 문구를 만든다.
-   * 비고는 행마다 한 칸뿐인데 안마다 값이 다를 수 있어, 값이 모두 같으면 한 번만 쓰고
-   * 다르면 어느 안의 값인지 알 수 있도록 안 이름을 붙여 나열한다.
-   */
-  const buildNoteText = (label, entries) => {
-    const valid = entries.filter((e) => e.value > 0);
-    if (valid.length === 0) return '';
-
-    const uniqueValues = [...new Set(valid.map((e) => e.value))];
-    if (uniqueValues.length === 1) {
-      return `${label} : ${formatKoreanMoney(uniqueValues[0])}`;
-    }
-    return `${label} · ${valid.map((e) => `${e.name} ${formatKoreanMoney(e.value)}`).join(', ')}`;
-  };
-
-  /**
-   * 비교표 맨 오른쪽 비고 칸.
-   * 글자 크기를 em으로 주는 이유: 인쇄/PDF CSS가 td의 font-size를 !important로 덮어쓰기 때문에
-   * rem이나 px로 주면 무시된다. em은 그 덮어쓴 크기를 기준으로 계산되어 화면·인쇄 모두에서
-   * 숫자보다 한 단계 작게 유지된다.
-   */
-  const renderNoteCell = (isEvenRow, text) => (
-    <td
-      style={{
-        background: isEvenRow ? '#f9f8f6' : '#ffffff',
-        textAlign: text ? 'left' : 'center',
-        color: text ? '#334155' : '#94a3b8',
-        padding: '8px 10px',
-        whiteSpace: 'normal',
-        wordBreak: 'keep-all',
-        lineHeight: '1.35',
-        verticalAlign: 'middle'
-      }}
-    >
-      {/* 폭 상한을 여기서 따로 걸지 않는다. 열 폭은 헤더의 width/min-width가 정하고
-          문구는 그 안에서 두 줄로 흘러가야, 구분 열과 폭이 어긋나지 않는다. */}
-      {text ? <span style={{ fontSize: '0.82em' }}>{text}</span> : '-'}
-    </td>
-  );
 
   const getCellStyles = (idx, isEvenRow = false, extraStyles = {}) => {
     return {
@@ -3089,6 +3013,17 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                 <div onClick={(e) => e.stopPropagation()} style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.8rem', flex: 1 }}>
                   {/* Settings Input Grid */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', fontSize: '0.8rem' }}>
+                    {/* 타사 견적이면 회사명을 적는다. 비교표 안 이름 위 줄에 찍힌다 */}
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>타사명 (타사 견적일 때만)</label>
+                      <input
+                        type="text"
+                        value={opt.companyName || ''}
+                        placeholder={`비워 두면 ${OWN_COMPANY_NAME}`}
+                        onChange={(e) => updateActiveVehicleOption(opt.id, { companyName: e.target.value })}
+                        style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px' }}
+                      />
+                    </div>
                     <div>
                       <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>연간 주행거리 (km)</label>
                       <select 
@@ -3178,28 +3113,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                         <option value="premium">고급형</option>
                       </select>
                     </div>
-                    {/* 예상보험료 - 렌트는 보험료가 월대여료에 포함되므로 리스일 때만 입력받는다.
-                        이 칸이 채워지면서 아래 보증금/선수금/인수가의 율(왼쪽)과 액(오른쪽)도 같은 줄에 맞는다. */}
-                    <div>
-                      <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>
-                        예상보험료 (연간/원)
-                      </label>
-                      <input
-                        type="text"
-                        disabled={opt.contractType !== '리스'}
-                        value={opt.contractType === '리스' ? toCommaString(opt.estimatedInsuranceFee || 0) : ''}
-                        placeholder={opt.contractType === '리스' ? '' : '렌트는 월대여료 포함'}
-                        onChange={(e) => updateActiveVehicleOption(opt.id, { estimatedInsuranceFee: parseNumber(e.target.value) })}
-                        style={{
-                          width: '100%',
-                          padding: '0.2rem',
-                          border: '1px solid #ccc',
-                          borderRadius: '4px',
-                          background: opt.contractType === '리스' ? '#fff' : '#f5f5f5',
-                          color: opt.contractType === '리스' ? '#333' : '#bbb'
-                        }}
-                      />
-                    </div>
+                    {/* 빈칸: 아래 보증금/선수금/인수가의 율(왼쪽)과 액(오른쪽)이 같은 줄에 맞게 둔다 */}
+                    <div />
                     <div>
                       <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>기간 (년수)</label>
                       <select 
@@ -3826,7 +3741,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             box-shadow: none;
           }
           /* thead 전체를 한 덩어리로 고정한다. 행별로 top을 주면 1행 높이를 추정해야 하고,
-             비고 칸이 rowspan=2라 두 행에 걸쳐 있어 행 단위 고정과 맞지 않는다. */
+             비고 칸이 rowspan으로 여러 행에 걸쳐 있어 행 단위 고정과 맞지 않는다. */
           .comparison-table-modern thead {
             position: sticky;
             top: 0;
@@ -4038,7 +3953,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                   <tr style={{ background: '#111e38', color: '#fff' }}>
                     {/* 구분과 비고는 같은 폭으로 둔다(양끝 균형).
                         가장 긴 항목명 "약정운행거리(년)"이 줄바꿈 없이 들어가는 값이 기준이다. */}
-                    <th className="comparison-th-corner" rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '11%', minWidth: '140px', borderBottom: '1px solid #ad885c', textAlign: 'center', borderRight: '1px solid #ad885c' }}>구 분</th>
+                    <th className="comparison-th-corner" rowSpan={hasCompanyRow ? 3 : 2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '11%', minWidth: '140px', borderBottom: '1px solid #ad885c', textAlign: 'center', borderRight: '1px solid #ad885c' }}>구 분</th>
                     {vehicleColSpans.map((group, idx) => {
                       return (
                         <th
@@ -4062,8 +3977,31 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                       );
                     })}
                     {/* 구분 열과 같은 값. 문구가 길면 이 폭 안에서 두 줄로 흘러간다 */}
-                    <th className="comparison-th-corner" rowSpan={2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '11%', minWidth: '140px', borderBottom: '1px solid #ad885c', textAlign: 'center' }}>비고</th>
+                    <th className="comparison-th-corner" rowSpan={hasCompanyRow ? 3 : 2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '11%', minWidth: '140px', borderBottom: '1px solid #ad885c', textAlign: 'center' }}>비고</th>
                   </tr>
+                  {/* 회사명: 1안/2안 바로 위 줄 */}
+                  {hasCompanyRow && (
+                    <tr style={{ background: '#111e38', color: '#fff' }}>
+                      {displaySelectedOptions.map(({ opt }, idx) => (
+                        <th
+                          key={idx}
+                          className="comparison-th-company"
+                          style={{
+                            background: '#111e38',
+                            borderBottom: '1px solid #ad885c',
+                            borderRight: '1px solid #ad885c',
+                            padding: '0.5rem',
+                            fontSize: '11pt',
+                            fontWeight: '800',
+                            color: '#fff',
+                            textAlign: 'center'
+                          }}
+                        >
+                          {opt.companyName?.trim() || OWN_COMPANY_NAME}
+                        </th>
+                      ))}
+                    </tr>
+                  )}
                   {/* Row 2: Options descriptions */}
                   <tr style={{ background: '#111e38', color: '#fff' }}>
                     {displaySelectedOptions.map(({ opt }, idx) => {
@@ -4216,42 +4154,6 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                       <td key={idx} style={getCellStyles(idx, false)}>{toCommaString(calc.takeoverPrice - calc.deposit)}</td>
                     ))}
                     <td style={{ background: '#ffffff', textAlign: 'center', color: '#94a3b8' }}>-</td>
-                  </tr>
-                  {/* 예상보험료 - 입력값은 1년치라 계약기간 전체로 환산해 보여주고,
-                      1년 기준 금액은 비고에 적는다. 렌트는 월대여료에 포함되어 표기하지 않는다 */}
-                  <tr>
-                    <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>예상보험료</td>
-                    {displaySelectedOptions.map(({ opt }, idx) => {
-                      const annualFee = opt.contractType === '리스' ? Number(opt.estimatedInsuranceFee) || 0 : 0;
-                      const totalFee = Math.round(annualFee * (Number(opt.termYears) || 0));
-                      return totalFee > 0 ? (
-                        <td key={idx} style={getCellStyles(idx, true)}>{toCommaString(totalFee)}</td>
-                      ) : (
-                        <td key={idx} style={getCellStyles(idx, true, { color: '#94a3b8', textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>-</td>
-                      );
-                    })}
-                    {renderNoteCell(true, buildNoteText('1년 예상 보험료', displaySelectedOptions.map(({ opt }) => ({
-                      name: opt.name,
-                      value: opt.contractType === '리스' ? Number(opt.estimatedInsuranceFee) || 0 : 0
-                    }))))}
-                  </tr>
-                  {/* 자동차세 - 계약기간 총액으로 보여주고 1년치는 비고에 적는다.
-                      리스만 표기한다. 렌터카는 영업용이라 요율이 다르고 월대여료에 이미 포함된다 */}
-                  <tr>
-                    <td className="row-header" style={{ background: '#ffffff', borderRight: '1px solid #ad885c' }}>자동차세</td>
-                    {displaySelectedOptions.map(({ veh, opt }, idx) => {
-                      const annualTax = opt.contractType === '리스' ? calculateLeaseCarTax(veh) : null;
-                      const totalTax = annualTax ? Math.round(annualTax * (Number(opt.termYears) || 0)) : 0;
-                      return totalTax > 0 ? (
-                        <td key={idx} style={getCellStyles(idx, false)}>{toCommaString(totalTax)}</td>
-                      ) : (
-                        <td key={idx} style={getCellStyles(idx, false, { color: '#94a3b8', textAlign: 'center', paddingLeft: '16px', paddingRight: '16px' })}>-</td>
-                      );
-                    })}
-                    {renderNoteCell(false, buildNoteText('1년 평균 자동차세', displaySelectedOptions.map(({ veh, opt }) => ({
-                      name: opt.name,
-                      value: opt.contractType === '리스' ? (calculateLeaseCarTax(veh) || 0) : 0
-                    }))))}
                   </tr>
                   {/* 총구입가 */}
                   <tr style={{ borderTop: '2px solid #ad885c', borderBottom: '2px solid #ad885c' }}>

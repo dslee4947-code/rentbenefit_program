@@ -151,7 +151,7 @@ export const calculateVehicleProfit = (vehicle, termMonths, overrides = {}) => {
       ? (vehicle.maintenance?.tireType === 'premium' ? rates.grades[grade].tire.premium : rates.grades[grade].tire.standard)
       : defaults.tireUnitCost;
     const plan = getMaintenanceBreakdown(
-      { termYears: years, mileage: annualMileage, tireUnitCost, tireAlignmentCost: grade ? rates.grades[grade].tire.alignment : 0, maintenanceItems: items },
+      { termYears: years, mileage: annualMileage, tireCountOverride: vehicle.maintenance?.tireCountOverride, tireUnitCost, tireAlignmentCost: grade ? rates.grades[grade].tire.alignment : 0, maintenanceItems: items },
       {}
     );
     tireCostTotal = plan.tireCost;

@@ -110,7 +110,8 @@ const QuoteSchema = new Schema({
   maintenance: {
     enabled: Boolean,
     tireType: String,
-    mileage: Number
+    mileage: Number,
+    tireCountOverride: Number // 견적에서 직접 정한 타이어 본수. 없으면 주행거리로 자동 계산
   },
   status: { type: String, enum: ['진행중', '계약전환', '보류'], default: '진행중' },
   createdBy: String,

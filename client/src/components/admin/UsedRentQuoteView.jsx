@@ -545,6 +545,10 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
                   <input type="checkbox" checked={o.maintenance} onChange={(e) => setOpt(i, { maintenance: e.target.checked })} /> 가입
                 </label>
               ))}
+              {inputRow('타이어 본수 (비우면 자동)', (o, i) => (
+                <input type="text" inputMode="numeric" value={o.tireCountOverride ?? ''} disabled={!o.maintenance} placeholder="자동"
+                  onChange={(e) => { const digits = e.target.value.replace(/[^0-9]/g, ''); setOpt(i, { tireCountOverride: digits === '' ? null : Number(digits) }); }} style={optInput} />
+              ))}
               {inputRow('계산 방식', (o, i) => (
                 <select value={o.calcMode} onChange={(e) => setOpt(i, { calcMode: e.target.value })} style={optInput}>
                   <option value="auto">목표 이익 → 렌트료</option>

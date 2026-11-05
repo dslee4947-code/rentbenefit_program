@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom';
 import {
   FUNDING_REPAYMENT_MODES, DEFAULT_FUNDING_REPAYMENT_MODE, LEGACY_FUNDING_REPAYMENT_MODE,
   DEFAULT_HIGH_RESIDUAL_FEE_RATE_PER_POINT, defaultMaintenanceItems, getCalculatedMaintenanceFee, calculateQuoteOption,
-  getTireCount, getMaintenanceBreakdown, maintenanceTimes
+  getTireCount, getMaintenanceBreakdown, maintenanceTimes, tireReplacementsOf
 } from '../../../../shared/quoteCalc.js';
 import useBackClose from '../../utils/useBackClose.js';
 import UsedRentQuoteView from './UsedRentQuoteView.jsx';
@@ -804,7 +804,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
           deliveryPeriod: spec.deliveryPeriod,
           vehiclePrice: quote.totalPrice,
           insurance: quote.insurance ? { type: quote.insurance.type } : undefined,
-          maintenance: quote.maintenance ? { enabled: quote.maintenance.enabled, mileage: quote.maintenance.mileage } : undefined
+          maintenance: quote.maintenance ? { enabled: quote.maintenance.enabled, mileage: quote.maintenance.mileage, tireCountOverride: quote.maintenance.tireCountOverride } : undefined
         }
       };
 
@@ -1116,7 +1116,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
         maintenance: {
           enabled: selectedOpt.isMaintenanceEnabled !== false,
           tireType: selectedOpt.tireType,
-          mileage: selectedOpt.mileage
+          mileage: selectedOpt.mileage,
+          tireCountOverride: selectedOpt.tireCountOverride ?? null
         },
         createdBy
       };
@@ -1262,7 +1263,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             deliveryPeriod: cleanSpecValue(activeVehicle.deliveryPeriod),
             vehiclePrice: calculated.totalCarPrice,
             insurance: { type: selectedOpt.insuranceType === 'premium' ? 'premium' : 'standard' },
-            maintenance: { enabled: selectedOpt.isMaintenanceEnabled !== false, mileage: selectedOpt.mileage, tireType: selectedOpt.tireType }
+            maintenance: { enabled: selectedOpt.isMaintenanceEnabled !== false, mileage: selectedOpt.mileage, tireType: selectedOpt.tireType, tireCountOverride: selectedOpt.tireCountOverride ?? null }
           },
           terms: {
             earlyTerminationRate: Number(earlyTerminationRate) || 35,
@@ -1416,11 +1417,28 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
   const compFit = phoneFitStyles(compFitRaw, COMPARISON_PHONE_WIDTH);
 
 
+  // 타이어 본수 칸. 비워 두면 주행거리로 자동 계산한 본수를 쓴다
+  const tireCountInput = (opt, style) => (
+    <input
+      type="text"
+      inputMode="numeric"
+      data-tire-count={opt?.id}
+      value={opt?.tireCountOverride ?? ''}
+      placeholder={`자동 ${getTireCount({ ...opt, tireCountOverride: null })}본`}
+      disabled={opt?.isMaintenanceEnabled === false}
+      onChange={(e) => {
+        const digits = e.target.value.replace(/[^0-9]/g, '');
+        updateActiveVehicleOption(opt.id, { tireCountOverride: digits === '' ? null : Number(digits) });
+      }}
+      style={style}
+    />
+  );
+
   const renderMaintenancePage = () => {
     // Determine dynamic tire count and cost for selected option
     const computedTireCount = getTireCount(selectedOpt);
     // 타이어를 바꿀 때마다(4본씩) 얼라이먼트 1회를 같이 한다
-    const computedAlignment = (computedTireCount / 4) * (Number(selectedOpt?.tireAlignmentCost) || 0);
+    const computedAlignment = tireReplacementsOf(computedTireCount) * (Number(selectedOpt?.tireAlignmentCost) || 0);
     const computedTireCost = computedTireCount * (selectedOpt?.tireUnitCost || 150000) + computedAlignment;
 
     const rawItems = tempMaintenanceItems.length > 0 ? tempMaintenanceItems : defaultMaintenanceItems;
@@ -2749,12 +2767,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             </div>
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>제공 타이어 본수 (본)</label>
-              <input 
-                type="text" 
-                value={toCommaString(getTireCount(selectedOpt)) + ' 본 (자동 계산)'}
-                disabled 
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', background: '#f5f5f5', color: '#666', fontWeight: '600' }} 
-              />
+              {tireCountInput(selectedOpt, { width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' })}
             </div>
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', marginBottom: '0.2rem' }}>타이어 본당 비용 (원)</label>
@@ -3151,6 +3164,10 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                         onKeyDown={handleKeyDown}
                         style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px' }} 
                       />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>타이어 본수 (비우면 자동)</label>
+                      {tireCountInput(opt, { width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px' })}
                     </div>
                     <div>
                       <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>보험 등급</label>

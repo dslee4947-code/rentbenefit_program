@@ -492,3 +492,36 @@ test('단기렌트 요금표 색상 약자: 외장/내장, 이름에서 가장 �
   assert.equal(colorCode('마칼루 그레이', '에크루 카멜 모노톤'), 'gr/be');
   assert.equal(colorCode('', ''), '');
 });
+
+test('타이어 본수를 직접 정하면 그 값으로 원가·월 정비비·문구가 바뀐다', () => {
+  const veh = baseVehicle();
+  const auto = baseOption({ termYears: 5, mileage: 30000 });
+  assert.equal(getTireCount(auto), 12);
+  assert.equal(getTireCount({ ...auto, tireCountOverride: '' }), 12); // 비우면 자동
+  assert.equal(getTireCount({ ...auto, tireCountOverride: null }), 12);
+  assert.equal(getTireCount({ ...auto, tireCountOverride: 8 }), 8);
+  assert.equal(getTireCount({ ...auto, tireCountOverride: 0 }), 0); // 0본도 지정한 값이다
+
+  const base = getMaintenanceBreakdown(auto, veh);
+  const eight = getMaintenanceBreakdown({ ...auto, tireCountOverride: 8 }, veh);
+  assert.equal(eight.tireCount, 8);
+  assert.equal(base.tireCost - eight.tireCost, 4 * auto.tireUnitCost);
+  assert.ok(eight.monthlyFee < base.monthlyFee);
+
+  const cost = (o) => calculateQuoteOption(o, veh);
+  assert.equal(cost({ ...auto, tireCountOverride: 8 }).tireCount, 8);
+  assert.ok(cost({ ...auto, tireCountOverride: 8 }).totalCost < cost(auto).totalCost);
+
+  assert.equal(describeTireProvision(60, 30000, 8), '계약 기간 동안 8본 제공');
+  assert.equal(describeTireProvision(60, 30000, 0), '제공 없음');
+  assert.equal(describeTireProvision(60, 30000), '계약 기간 동안 12본 제공');
+  assert.equal(describeTireProvision(0, 0, 4), '계약 기간 동안 4본 제공');
+});
+
+test('타이어 2본처럼 4본이 안 돼도 얼라이먼트는 바꿀 때 1회', () => {
+  const b = getMaintenanceBreakdown(baseOption({ termYears: 5, mileage: 30000, tireCountOverride: 2, tireAlignmentCost: 50000 }), baseVehicle());
+  assert.equal(b.tireReplacements, 1);
+  assert.equal(b.alignmentCost, 50000);
+  const twelve = getMaintenanceBreakdown(baseOption({ termYears: 5, mileage: 30000, tireAlignmentCost: 50000 }), baseVehicle());
+  assert.equal(twelve.tireReplacements, 3); // 자동 12본은 예전과 같다
+});

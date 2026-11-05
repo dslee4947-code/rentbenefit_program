@@ -367,7 +367,8 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     setMaintenance(prev => ({
       ...(MAINTENANCE_PRESETS[preset] || MAINTENANCE_PRESETS['미포함']),
       mileage: prev.mileage,
-      tireType: prev.tireType
+      tireType: prev.tireType,
+      tireCountOverride: prev.tireCountOverride
     }));
   };
 
@@ -689,6 +690,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
       // 견적서에서 정해진 값
       mileage: veh.maintenance?.mileage ?? '',
       tireType: toTireGradeLabel(veh.maintenance?.tireType),
+      tireCountOverride: veh.maintenance?.tireCountOverride,
       consumables: veh.maintenance?.consumables || maintenanceDefaults.consumables,
       // 타이어 교체는 '계약 기간 동안 4본 제공' 같은 설명이고, 타이어 등급(tireType)과는 다른 항목이다.
       // 예전에는 여기에 tireType을 넣어 등급이 설명 자리로 새고 차량 DB에는 아무것도 안 남았다.
@@ -799,6 +801,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
             const preset = prefilledQuoteData.maintenance.enabled ? '포함' : '미포함';
             setMaintenancePreset(preset);
             applyMaintenancePreset(preset);
+            setMaintenance((prev) => ({ ...prev, tireCountOverride: prefilledQuoteData.maintenance.tireCountOverride }));
             if (prefilledQuoteData.maintenance.mileage) {
               setMileage(String(prefilledQuoteData.maintenance.mileage));
             }
@@ -2569,7 +2572,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                   {renderInput('일반정비', 'text', maintenance.generalMaintenance, () => {}, '', false, true)}
                   {renderInput('소모품 교환', 'text', maintenance.consumables, () => {}, '', false, true)}
                   {/* 타이어는 렌트 기간 × 연간 주행거리 5만km마다 4본. 예전에는 '4본 제공'이 고정 문구였다. */}
-                  {renderInput('타이어 교체', 'text', maintenancePreset === '포함' ? describeTireProvision(termMonths, maintenance.mileage) : maintenance.tireCount, () => {}, '', false, true)}
+                  {renderInput('타이어 교체', 'text', maintenancePreset === '포함' ? describeTireProvision(termMonths, maintenance.mileage, maintenance.tireCountOverride) : maintenance.tireCount, () => {}, '', false, true)}
                   {renderInput('타이어 등급', 'text', maintenance.tireType, () => {}, '견적서에서 선택', false, true)}
                   {renderInput('연간 주행거리 (km)', 'text', maintenance.mileage ? Number(maintenance.mileage).toLocaleString() : '', () => {}, '견적서에서 선택', false, true)}
                 </div>

@@ -10,7 +10,7 @@
  *   - 판관비·수수료는 중고차 가격 기준, 정비는 월 정기점검비 × 개월 + 타이어.
  * 엑셀과 숫자가 같아야 렌트팀이 두 곳을 오가며 검산할 수 있다(tests/usedQuoteCalc.test.js에 GLE450 실견적으로 맞춰 둠).
  */
-import { PMT, addedRateForTerm, annualCarTax, ownCarInsuranceRate, TIRES_PER_REPLACEMENT, TIRE_REPLACE_INTERVAL_KM } from './quoteCalc.js';
+import { PMT, addedRateForTerm, annualCarTax, ownCarInsuranceRate, TIRES_PER_REPLACEMENT, TIRE_REPLACE_INTERVAL_KM, tireCountOverrideOf } from './quoteCalc.js';
 
 // 엑셀 기본값. 견적 화면의 '공통 조건'에서 고칠 수 있다.
 export const USED_QUOTE_DEFAULTS = {
@@ -81,7 +81,9 @@ export const calculateUsedQuoteOption = (opt = {}, car = {}) => {
   // 엑셀은 6만km로 남아 있다.
   const maintenance = opt.maintenance === true;
   const inspectionCost = maintenance ? num(c.inspectionMonthly) * months : 0;
-  const tireCount = maintenance ? Math.floor((num(opt.mileage) * years) / TIRE_REPLACE_INTERVAL_KM) * TIRES_PER_REPLACEMENT : 0;
+  const tireCount = maintenance
+    ? (tireCountOverrideOf(opt.tireCountOverride) ?? Math.floor((num(opt.mileage) * years) / TIRE_REPLACE_INTERVAL_KM) * TIRES_PER_REPLACEMENT)
+    : 0;
   const tireCost = tireCount * num(c.tireUnitCost);
 
   // E32 총구입가(원가)

@@ -123,7 +123,7 @@ export const buildDeliveryDocs = async (contractId) => {
       regularCheck: maint.regularCheck || '',
       generalMaintenance: maint.generalMaintenance || '',
       consumables: joined ? (maint.consumables || '가입') : '브랜드보증 외 사용자 부담',
-      tireText: joined ? describeTireProvision(termMonths, mileage) : '브랜드보증 외 사용자 부담',
+      tireText: joined ? describeTireProvision(termMonths, mileage, maint.tireCountOverride) : '브랜드보증 외 사용자 부담',
       accidentRepair: overrides.accidentRepair || ins.accidentRepair || '',
       // 화면에서 입력 칸을 비우면 들어갈 렌트차량 DB 값
       db: { driverRange: ins.driverRange || '', accidentRepair: ins.accidentRepair || '' },

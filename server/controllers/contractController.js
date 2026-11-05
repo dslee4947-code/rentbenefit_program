@@ -147,6 +147,7 @@ const buildVehicleFields = (vehicleInfo, pricing, status, bank, terms) => ({
   maintenance: normalizeMaintenance({
     tireType: vehicleInfo.maintenance?.tireType || '',
     mileage: vehicleInfo.maintenance?.mileage || vehicleInfo.mileage || 0,
+    tireCountOverride: vehicleInfo.maintenance?.tireCountOverride ?? undefined,
     generalMaintenance: vehicleInfo.maintenance?.generalMaintenance || '미가입'
   }),
 
@@ -775,6 +776,7 @@ export const updateContract = async (req, res) => {
           enabled: vInfo.maintenance.enabled,
           tireType: vInfo.maintenance.tireType,
           mileage: vInfo.maintenance.mileage,
+          tireCountOverride: vInfo.maintenance.tireCountOverride ?? undefined,
           regularCheck: vInfo.maintenance.regularCheck,
           consumables: vInfo.maintenance.consumables,
           generalMaintenance: vInfo.maintenance.generalMaintenance

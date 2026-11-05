@@ -126,11 +126,21 @@ export const depositInterestFor = ({ deposit, annualRate, months }) => (Number(d
 // 타이어는 계약 기간에 달리는 거리(연 약정거리 × 연수)가 5만km를 넘을 때마다 4본을 준다(2026-10-04 대표님 결정, 이전 6만km).
 export const TIRE_REPLACE_INTERVAL_KM = 50000;
 export const TIRES_PER_REPLACEMENT = 4;
-export const getTireCount = (opt) =>
-  Math.floor(((opt?.termYears || 4) * (opt?.mileage || 20000)) / TIRE_REPLACE_INTERVAL_KM) * TIRES_PER_REPLACEMENT;
+// 견적에서 타이어 본수를 직접 정했으면 그 값(0본 포함), 비워 두면 null(자동 계산). 2026-11-05 대표님 요청
+export const tireCountOverrideOf = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+};
+export const getTireCount = (opt) => tireCountOverrideOf(opt?.tireCountOverride)
+  ?? Math.floor(((opt?.termYears || 4) * (opt?.mileage || 20000)) / TIRE_REPLACE_INTERVAL_KM) * TIRES_PER_REPLACEMENT;
+// 바꾸는 횟수. 얼라이먼트를 바꿀 때마다 1회 하므로 4본이 안 돼도(2본) 1회다
+export const tireReplacementsOf = (count) => Math.ceil(count / TIRES_PER_REPLACEMENT);
 
 // 견적서·계약서에 적는 타이어 제공 문구. 기간·주행거리를 모르면 본수를 지어내지 않는다.
-export const describeTireProvision = (termMonths, annualMileage) => {
+export const describeTireProvision = (termMonths, annualMileage, override) => {
+  const fixed = tireCountOverrideOf(override);
+  if (fixed !== null) return fixed > 0 ? `계약 기간 동안 ${fixed}본 제공` : '제공 없음';
   const months = Number(termMonths) || 0;
   const mileage = Number(annualMileage) || 0;
   if (!months || !mileage) return '계약 기간 주행거리에 따라 제공';
@@ -171,7 +181,7 @@ export const getMaintenanceBreakdown = (opt, vehicle) => {
   const tireCount = tireIncluded ? getTireCount(opt) : 0;
   const tireUnit = opt.tireUnitCost || 150000;
   // 타이어를 바꿀 때마다(4본씩) 얼라이먼트 1회. 예전 견적에는 이 값이 없어 0원으로 둔다(지난 견적 숫자 유지).
-  const tireReplacements = tireCount / TIRES_PER_REPLACEMENT;
+  const tireReplacements = tireReplacementsOf(tireCount);
   const alignmentUnit = Number(opt.tireAlignmentCost) || 0;
   const alignmentCost = tireReplacements * alignmentUnit;
   const tireCost = tireCount * tireUnit + alignmentCost;

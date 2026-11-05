@@ -80,6 +80,7 @@ const VehicleSchema = new Schema({
     enabled: Boolean,
     tireType: String,
     mileage: Number, // 약정 주행거리
+    tireCountOverride: Number, // 견적에서 직접 정한 타이어 본수. 없으면 주행거리로 자동 계산
     regularCheck: String,
     consumables: String,
     generalMaintenance: String

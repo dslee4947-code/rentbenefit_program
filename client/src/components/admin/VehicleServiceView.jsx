@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, X, ExternalLink, Trash2, Pencil, Search } from 'lucide-react';
 import VehicleServiceForm from './VehicleServiceForm.jsx';
+import ServiceDocUpload from './ServiceDocUpload.jsx';
+import { DOC_LABEL, attachServiceFiles, fieldsFromDoc, openServiceFile, readServiceDoc } from './serviceDocs.js';
 import CarDamageMap from './CarDamageMap.jsx';
 import CalendarInboxPanel from './CalendarInboxPanel.jsx';
 import MoneyInput from './MoneyInput.jsx';
@@ -385,6 +387,7 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
   const [forms, setForms] = useState(null);
   const [saving, setSaving] = useState(false);
   const [showText, setShowText] = useState(true);
+  const [docs, setDocs] = useState({}); // 칸마다 올린 서류 { key: { files: [], reading, note, warnings } }
 
   // 칸 목록. 검사+점검은 두 칸으로 편다
   const sections = list.flatMap((e) => {
@@ -432,9 +435,44 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
       const vat = Number(rec.costs.vat) || 0;
       body.costs = { repair: Math.max(0, (Number(String(f.amount).replace(/,/g, '')) || 0) - vat), vat, insurancePaid: rec.costs.insurancePaid };
     }
-    return body;
+    // 서류에서 읽은 작업 줄·합계·판정. 수리비·부가세도 내역서를 따른다
+    return { ...body, ...(f.extra || {}) };
   };
   const patch = (id, body) => fetch(`${API_HOST}/api/vehicle-services/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((res) => res.json());
+
+  /**
+   * 일정에 서류를 올린다. 글자를 읽어 이 칸을 채우고, 파일은 저장할 때 기록에 붙는다.
+   * 금액·날짜·상태는 서류를 따르고, 정비소·주행거리·작업 내용은 사람이 적어 둔 값이 있으면 그대로 둔다.
+   */
+  const uploadDoc = async (sec, file) => {
+    setDocs((d) => ({ ...d, [sec.key]: { ...d[sec.key], files: [...(d[sec.key]?.files || []), file], reading: true } }));
+    let note = '';
+    let warnings = [];
+    try {
+      const data = await readServiceDoc(file, r.vehicleId);
+      const got = fieldsFromDoc(data);
+      const { parsed } = data;
+      warnings = [...(parsed.warnings || [])];
+      if (parsed.plateNo && parsed.plateNo !== String(r.plateNo || '').replace(/\s/g, '')) warnings.unshift(`서류 차량번호는 ${parsed.plateNo}인데 이 차는 ${r.plateNo}입니다. 다른 차 서류가 아닌지 확인해 주세요.`);
+      if ((parsed.docType === 'inspection') !== (sec.kind === '자동차검사')) warnings.unshift(`${DOC_LABEL[parsed.docType]}인데 이 칸은 ${sec.kind}입니다.`);
+      const cur = forms[sec.key];
+      setF(sec.key, {
+        date: got.date || cur.date,
+        status: got.status,
+        amount: got.amount || cur.amount,
+        shop: cur.shop || got.shop,
+        mileage: cur.mileage || got.mileage,
+        description: cur.description || got.description,
+        extra: got.extra
+      });
+      note = `${DOC_LABEL[parsed.docType]}를 읽어 칸을 채웠습니다.${parsed.nextDate ? ` 다음 검사 ${parsed.nextDate}` : ''} 확인 후 저장하세요.`;
+    } catch (err) {
+      setF(sec.key, {}); // 못 읽어도 파일은 붙일 수 있다
+      note = `${err.message} 파일은 저장할 때 붙습니다. 칸은 직접 적어 주세요.`;
+    }
+    setDocs((d) => ({ ...d, [sec.key]: { ...d[sec.key], reading: false, note, warnings } }));
+  };
+  const filesOf = (sec) => docs[sec.key]?.files || [];
 
   const saveAll = async () => {
     setSaving(true);
@@ -450,7 +488,11 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
         if (!res.ok || !data.success) { showToast?.(data.message || '기록으로 옮기지 못했습니다.', 'error'); return; }
         for (const made of data.records || []) {
           const sec = sections.find((x) => x.e.inboxId && x.kind === made.kind);
-          if (sec) await patch(made.id, bodyOfForm(forms[sec.key]));
+          if (sec) {
+            await patch(made.id, bodyOfForm(forms[sec.key]));
+            const warn = await attachServiceFiles(made.id, filesOf(sec));
+            if (warn) showToast?.(warn, 'error');
+          }
           count += 1;
         }
       }
@@ -461,12 +503,15 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
           const rec = records.find((x) => String(x._id) === String(sec.e.recordId));
           const data = await patch(sec.e.recordId, bodyOfForm(f, rec));
           if (!data.success) { showToast?.(data.message || `${sec.kind}을 저장하지 못했습니다.`, 'error'); return; }
+          const warn = await attachServiceFiles(sec.e.recordId, filesOf(sec));
+          if (warn) showToast?.(warn, 'error');
         } else {
           // 자동 계산한 일을 고치면 그 날짜로 예약이 생긴다
           const fd = new FormData();
           fd.append('vehicleId', r.vehicleId);
           fd.append('kind', sec.kind);
           fd.append('data', JSON.stringify({ ...bodyOfForm(f), inAt: `${f.date}T10:00` }));
+          filesOf(sec).forEach((x) => fd.append('files', x));
           const data = await fetch(`${API_HOST}/api/vehicle-services`, { method: 'POST', body: fd }).then((res) => res.json());
           if (!data.success) { showToast?.(data.message || `${sec.kind}을 저장하지 못했습니다.`, 'error'); return; }
         }
@@ -540,6 +585,9 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
             );
           }
           const st = STATE[sec.e.state];
+          const saved = sec.e.recordId ? records?.find((x) => String(x._id) === String(sec.e.recordId)) : null;
+          const savedFiles = saved?.attachments?.length ? saved.attachments : (saved?.savedPath ? [{ fileName: saved.fileName }] : []);
+          const doc = docs[sec.key];
           return (
             <div key={sec.key} style={{ marginTop: '0.6rem', border: '1px solid var(--border-color)', borderLeft: `4px solid ${k.color}`, borderRadius: '8px', padding: '0.5rem 0.6rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.35rem', flexWrap: 'wrap' }}>
@@ -567,6 +615,27 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
                 <textarea style={{ ...input, minHeight: '52px', resize: 'vertical' }} disabled={!canWrite} value={f.description} onChange={(ev) => setF(sec.key, { description: ev.target.value })} placeholder={sec.kind === '사고수리' ? '예: 조수석 뒷문짝 판금·도색' : '실제로 한 작업'} /></div>
               <div style={{ marginTop: '0.35rem' }}><div style={lab}>메모</div>
                 <input style={input} disabled={!canWrite} value={f.memo} onChange={(ev) => setF(sec.key, { memo: ev.target.value })} /></div>
+              {/* 서류: 올리면 글자를 읽어 위 칸을 채운다 */}
+              <div style={{ marginTop: '0.45rem', background: 'var(--bg-main)', borderRadius: '6px', padding: '0.4rem 0.5rem', fontSize: '0.74rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                  {canWrite && (
+                    <label style={{ border: 'none', background: k.color, color: '#fff', borderRadius: '6px', padding: '0.25rem 0.6rem', fontWeight: 800, cursor: doc?.reading ? 'wait' : 'pointer' }}>
+                      {doc?.reading ? '읽는 중…' : (sec.kind === '자동차검사' ? '📄 검사 기록지 올리기' : '📄 수리 내역서 올리기')}
+                      <input type="file" accept=".pdf,.xlsx,.xls,image/*" style={{ display: 'none' }} disabled={doc?.reading}
+                        onChange={(ev) => { const file = ev.target.files?.[0]; ev.target.value = ''; if (file) uploadDoc(sec, file); }} />
+                    </label>
+                  )}
+                  {savedFiles.map((a, i) => (
+                    <button key={a.savedPath || a.fileName || i} type="button" onClick={() => openServiceFile(saved._id, saved.attachments?.length ? i : undefined, showToast)} title={a.fileName} style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 0, fontWeight: 700, fontSize: '0.72rem' }}>
+                      📎 {a.label || a.fileName || '파일'}
+                    </button>
+                  ))}
+                  {(doc?.files || []).map((x) => <span key={`${x.name}-${x.size}`} style={{ color: 'var(--text-muted)' }}>📎 {x.name} (저장할 때 붙음)</span>)}
+                  {!canWrite && !savedFiles.length && <span style={{ color: 'var(--text-muted)' }}>올린 서류가 없습니다.</span>}
+                </div>
+                {doc?.note && <div style={{ color: 'var(--text-bright)', marginTop: '0.2rem' }}>{doc.note}</div>}
+                {(doc?.warnings || []).map((w) => <div key={w} style={{ color: '#b45309', marginTop: '0.15rem' }}>⚠ {w}</div>)}
+              </div>
               {canWrite && (
                 <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.35rem', fontSize: '0.72rem' }}>
                   {sec.e.recordId && <button type="button" onClick={() => onOpenFull(r.vehicleId, sec.e.recordId)} style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 0, fontWeight: 700 }}>상세 양식(내역서·보험·탁송) ›</button>}
@@ -895,6 +964,7 @@ function VehicleServiceView({ showToast, currentUser }) {
   const [detail, setDetail] = useState(null); // { row, records }
   // 상세 입력 양식(테스트판). { record: null }이면 새 기록, record가 있으면 고치기
   const [formOpen, setFormOpen] = useState(null);
+  const [docUploadOpen, setDocUploadOpen] = useState(false);
   const [transportRates, setTransportRates] = useState([]);
 
   const canWrite = currentUser?.role !== 'viewer';
@@ -975,25 +1045,8 @@ function VehicleServiceView({ showToast, currentUser }) {
     load();
   };
 
-  // 창을 먼저 열어 두지 않으면 팝업 차단에 걸린다
   // i: 상세 양식의 첨부 여러 장 중 몇 번째인지. 없으면 예전 영수증 한 장
-  const openFile = async (r, i) => {
-    const win = window.open('', '_blank');
-    try {
-      const res = await fetch(`${API_HOST}/api/vehicle-services/${r._id}/file${i !== undefined ? `?i=${i}` : ''}`);
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        win?.close();
-        showToast?.(data.message || '파일을 열지 못했습니다.', 'error');
-        return;
-      }
-      const url = URL.createObjectURL(await res.blob());
-      if (win) win.location.href = url; else window.location.assign(url);
-    } catch {
-      win?.close();
-      showToast?.('서버 통신 오류가 발생했습니다.', 'error');
-    }
-  };
+  const openFile = (r, i) => openServiceFile(r._id, i, showToast);
 
   const q = query.trim().replace(/\s+/g, '').toLowerCase();
   const activeFilter = FILTERS.find((f) => f.id === filter);
@@ -1024,7 +1077,20 @@ function VehicleServiceView({ showToast, currentUser }) {
             {label}
           </button>
         ))}
+        {canWrite && (
+          <button type="button" onClick={() => setDocUploadOpen(true)} style={{ marginLeft: 'auto', border: 'none', background: 'var(--primary)', color: '#fff', borderRadius: '7px', padding: '0.35rem 0.9rem', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer' }}>
+            📄 서류 올리기 (수리 내역서·검사 기록지)
+          </button>
+        )}
       </div>
+      {docUploadOpen && (
+        <ServiceDocUpload
+          rows={rows}
+          showToast={showToast}
+          onClose={() => setDocUploadOpen(false)}
+          onSaved={() => { load(); if (selectedId) loadDetail(selectedId); }}
+        />
+      )}
       {view === 'calendar' && (
         <ServiceCalendar
           rows={rows}

@@ -6,6 +6,7 @@ import { mimeTypeOf } from '../utils/oneDriveStorage.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
 import { vehicleEndOf, lastDayOf } from '../utils/contractTerm.js';
 import { readInvoiceText, parseRepairInvoice } from '../utils/repairInvoice.js';
+import { parseServiceDocument, pickServiceTarget } from '../utils/serviceDocument.js';
 import { planVehicle, kstYmd, addMonths, SERVICE_KINDS, REPAIR_KINDS, INSPECTION_RULE, MAINTENANCE_RULE, CAR_AGE_RULE } from '../utils/vehicleServicePlan.js';
 import { SERVICE_ACTIVE_STATUSES, partyNameOf, syncVehicleServiceSchedules, loadServiceRecords } from '../utils/vehicleServiceScheduleJob.js';
 
@@ -182,6 +183,7 @@ const applyDetail = (record, b) => {
     record.lines = b.lines.filter((l) => String(l?.name || '').trim())
       .map((l) => ({ name: String(l.name).trim(), ...Object.fromEntries(['qty', 'unitPrice', 'parts', 'labor', 'amount'].map((k) => [k, numberOrUndefined(l[k])])) }));
   }
+  if (b.inspection) record.inspection = { result: String(b.inspection.result || ''), nextDate: String(b.inspection.nextDate || '') };
   if (b.invoice) {
     const inv = b.invoice;
     record.invoice = {
@@ -260,6 +262,67 @@ export const readRepairInvoiceFile = async (req, res) => {
     const parsed = parseRepairInvoice(text);
     console.log(`[수리 내역서] ${source} ${text.length}자 · 줄 ${parsed.lines.length} · 합계 ${parsed.total}`);
     res.json({ success: true, source, text, parsed });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** 화면에 보낼 '넣을 일정' 한 건 */
+const targetView = (r) => (r ? {
+  recordId: r._id, kind: r.kind, date: kstYmd(r.date), status: r.status || '완료', shop: r.shop || '', hasDescription: Boolean(r.description)
+} : null);
+
+/** 차량번호로 차를 찾는다. 번호판이 바뀐 차도 찾고, 같은 번호면 운행 중인 차를 먼저 */
+const findVehicleByPlate = async (plateNo) => {
+  const plate = String(plateNo || '').replace(/\s+/g, '');
+  if (!plate) return null;
+  const list = await Vehicle.find({ $or: [{ plateNo: plate }, { 'plateHistory.plateNo': plate }] })
+    .select(VEHICLE_FIELDS).populate('contract', CONTRACT_FIELDS).populate('company', 'name').lean();
+  return list.find((v) => SERVICE_ACTIVE_STATUSES.includes(v.status)) || list[0] || null;
+};
+
+const targetOf = async (vehicle, kind, date) => {
+  const records = (await loadServiceRecords([vehicle])).get(String(vehicle._id)) || [];
+  return targetView(pickServiceTarget(records, { kind, date }));
+};
+
+/**
+ * 자동차검사 서류나 수리 내역서를 읽어 차와 일정을 찾아 준다. 저장하지 않는다.
+ * vehicleId를 주면(일정 창에서 올릴 때) 그 차로 보고, 없으면 서류의 차량번호로 찾는다.
+ *
+ * @route POST /api/vehicle-services/read-document  (file, vehicleId?)
+ */
+export const readServiceDocument = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: '올린 파일이 없습니다.' });
+    const name = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+    const { text, source } = await readInvoiceText(req.file.buffer, req.file.mimetype, name);
+    if (!text.trim()) return res.status(400).json({ success: false, message: '글자를 읽지 못했습니다. 사진이 선명한지 확인해 주세요.' });
+    const parsed = parseServiceDocument(text);
+    const vehicle = req.body?.vehicleId ? await loadVehicle({ _id: req.body.vehicleId }) : await findVehicleByPlate(parsed.plateNo);
+    const kind = parsed.kindGuess || '고장수리';
+    console.log(`[AS 서류] ${source} ${parsed.docType} ${text.length}자 · 차 ${parsed.plateNo || '-'} · ${parsed.date || '-'}`);
+    const target = vehicle ? await targetOf(vehicle, kind, parsed.date) : null;
+    res.json({
+      // 찾은 일정이 있으면 그 종류를 따른다. 정기점검 일정에 내역서를 올렸다고 고장수리로 바뀌면 점검 주기가 틀어진다
+      success: true, source, text, parsed, kind: target?.kind || kind, target,
+      vehicle: vehicle ? { vehicleId: vehicle._id, plateNo: vehicle.plateNo || '', carModel: vehicle.carModel || '', partyName: partyNameOf(vehicle) } : null
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 차·종류·날짜를 사람이 고쳤을 때 넣을 일정을 다시 찾는다.
+ *
+ * @route GET /api/vehicle-services/match?vehicleId=&kind=&date=
+ */
+export const matchServiceTarget = async (req, res) => {
+  try {
+    const vehicle = await loadVehicle({ _id: req.query.vehicleId });
+    if (!vehicle) return res.status(404).json({ success: false, message: '차량을 찾을 수 없습니다.' });
+    res.json({ success: true, target: await targetOf(vehicle, String(req.query.kind || ''), String(req.query.date || '')) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

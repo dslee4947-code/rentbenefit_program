@@ -8,6 +8,8 @@ import {
   deleteVehicleService,
   getVehicleServiceFile,
   readRepairInvoiceFile,
+  readServiceDocument,
+  matchServiceTarget,
   addVehicleServiceFiles,
   moveVehicleServices
 } from '../controllers/vehicleServiceController.js';
@@ -24,6 +26,7 @@ const router = express.Router();
 
 // 차량 정비·검사 관리: 다음 자동차검사·정기점검 계획과 차량별 정비·수리 이력
 router.get('/plan', getServicePlan);
+router.get('/match', matchServiceTarget);
 router.get('/vehicle/:vehicleId', getVehicleServices);
 // 구글 업무캘린더에서 읽어 온 정비 일정 '확인 대기' → 정비 기록으로 옮기기
 router.get('/calendar-inbox', getCalendarInbox);
@@ -36,6 +39,7 @@ router.post('/', checkWritePermission, upload.fields([{ name: 'file', maxCount: 
 // 달력에서 일정 옮기기 (끌어 놓기·날짜 바꾸기)
 router.post('/move', checkWritePermission, moveVehicleServices);
 router.post('/read-invoice', checkWritePermission, upload.single('file'), readRepairInvoiceFile);
+router.post('/read-document', checkWritePermission, upload.single('file'), readServiceDocument);
 router.get('/:id/file', getVehicleServiceFile);
 router.post('/:id/files', checkWritePermission, upload.array('files', 10), addVehicleServiceFiles);
 router.patch('/:id', checkWritePermission, updateVehicleService);

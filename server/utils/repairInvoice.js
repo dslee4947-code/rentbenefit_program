@@ -78,7 +78,8 @@ export const readInvoiceText = async (buffer, mimeType, originalName = '') => {
   if (isXlsx) return { text: xlsxText(buffer), source: 'xlsx' };
   if (mimeType === 'application/pdf') {
     const text = await pdfText(buffer);
-    if (text.replace(/\s/g, '').length > 30) return { text, source: 'pdf-text' };
+    // 스캔 PDF는 글자층에 쪽 표시('-- 1 of 6 --')만 있다. 그것만으로는 글자가 있다고 보지 않는다
+    if (text.replace(/--\s*\d+\s*of\s*\d+\s*--/g, '').replace(/\s/g, '').length > 30) return { text, source: 'pdf-text' };
   }
   return { text: await clovaText(buffer, mimeType, originalName), source: 'clova' };
 };
@@ -86,9 +87,9 @@ export const readInvoiceText = async (buffer, mimeType, originalName = '') => {
 // ── 글자 정리 ──────────────────────────────────────────────────────────
 
 /** 라벨 글자 사이 공백 허용 ('공 급 가 액') */
-const spaced = (label) => label.split('').join('\\s*');
+export const spaced = (label) => label.split('').join('\\s*');
 const NUM = '([0-9][0-9,]*)';
-const toNum = (s) => Number(String(s || '').replace(/[,\s]/g, '')) || 0;
+export const toNum = (s) => Number(String(s || '').replace(/[,\s]/g, '')) || 0;
 
 // 합계 줄 라벨. 앞에 있을수록 먼저 본다. 이 말이 든 줄은 작업 내역으로 세지 않는다.
 const TOTAL_LABELS = {
@@ -102,7 +103,7 @@ const TOTAL_LABELS = {
 const SUMMARY_WORD = /(합\s*계|소\s*계|공급\s*가|부가\s*가치\s*세|부가세|세\s*액|총\s*액|총\s*금액|청구\s*금액|결제\s*금액|할\s*인|부품\s*계|공임\s*계|부품비\s*합계|공임비\s*합계|견적\s*금액|잔\s*액|입금|계좌|은행|사업자|등록번호|전화|TEL|FAX|대표|주소|주행\s*거리|차량\s*번호|차\s*대\s*번호|입고|출고|일\s*자|일\s*시)/i;
 
 /** '부가세 18,000' 처럼 라벨 바로 뒤 금액. 같은 라벨이 여럿이면 마지막(대개 맨 아래 합계)을 쓴다 */
-const labeledAmount = (flat, labels) => {
+export const labeledAmount = (flat, labels) => {
   for (const label of labels) {
     const re = new RegExp(`${spaced(label)}\\s*(?:\\(\\s*[^)]{0,8}\\))?\\s*[:：]?\\s*₩?\\s*${NUM}\\s*원?`, 'g');
     let last = 0;
@@ -130,10 +131,20 @@ const labeledText = (lines, labels) => {
       if (!m) continue;
       const rest = line.slice(m.index + m[0].length);
       const value = rest.split(NEXT_LABEL)[0].trim().slice(0, 30);
-      if (value && !SUMMARY_WORD.test(value)) return value;
+      // '업체명 및 대표자'처럼 라벨이 이어지는 줄은 값이 아니다
+      // '공급자의 직인이 없는 것은 무효'처럼 안내문 속 낱말도 값이 아니다
+      if (value.length >= 2 && !/^(및|의\s)|대표자|합니다/.test(value) && !SUMMARY_WORD.test(value)) return value.replace(/\(주$/, '(주)');
     }
   }
   return '';
+};
+
+/** 법정 양식은 '업체명 및 대표자' 다음 줄에 상호가 온다. 번호·라벨 줄은 건너뛴다 */
+const shopBelowLabel = (lines) => {
+  const at = lines.findIndex((l) => /^업\s*체\s*명/.test(l));
+  if (at < 0) return '';
+  const value = lines.slice(at + 1, at + 6).find((l) => /[가-힣]{2}/.test(l) && !/대\s*표\s*자|주\s*소|사업자|등록번호|전화|\d{3}\s*-\s*\d{2}/.test(l));
+  return value ? value.replace(/\s*\(서명.*$/, '').trim().slice(0, 30) : '';
 };
 
 const INSURERS = ['삼성화재', '현대해상', 'DB손해보험', 'DB손보', 'KB손해보험', 'KB손보', '메리츠화재', '한화손해보험', '롯데손해보험', '흥국화재',
@@ -182,6 +193,83 @@ const lineItemOf = (line) => {
 };
 
 /**
+ * 주행거리. 라벨과 값 사이에 다른 칸이 끼는 서식이 많아(OCR이 칸마다 줄을 나눈다) 라벨 뒤에서 찾는다.
+ * km가 붙은 수나 콤마가 있는 수만 본다. 그래야 '주행거리 2022년 05월 19일 72,019 km'에서 연도를 집지 않는다.
+ */
+export const mileageOf = (flat) => {
+  const pick = (s) => {
+    const direct = /^\s*[:：]?\s*(\d{3,7})(?!\s*(?:년|-|\.|\d))/.exec(s);
+    const km = /(?<![\d.,])(\d{1,3}(?:,\d{3})+|\d{3,7})\s*(?:km|㎞)(?!\s*\/)/i.exec(s);
+    const comma = /(?<![\d,.-])(\d{1,3}(?:,\d{3})+)(?![\d,])/.exec(s);
+    return toNum((km || direct || comma || [])[1]);
+  };
+  for (const label of ['주행거리', '적산거리', '주행']) {
+    const m = new RegExp(`${spaced(label)}(.{0,120})`).exec(flat);
+    const found = m ? pick(m[1]) : 0;
+    if (found) return found;
+  }
+  return 0;
+};
+
+/** 'YYYY년 MM월 DD일'의 마지막 값. 법정 양식은 맨 아래 발급일이 이 모양이다 */
+export const lastKoreanDate = (flat) => {
+  const all = [...flat.matchAll(/(20\d{2})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/g)];
+  const m = all[all.length - 1];
+  return m ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : '';
+};
+
+/**
+ * 법정 양식(별지 제89호의2·3)의 표. OCR이 칸마다 줄을 나눠 '이름 / 코드 / 수량 / 단가 / 계 / 기술료 / 합계'가 한 칸씩 온다.
+ * 이름 줄을 만나면 뒤따르는 숫자 줄을 그 작업의 값으로 모은다. 금액이 없는 줄(점검 내용)도 작업으로 남긴다.
+ */
+// '점검·정비내역'은 표 위 요약 칸에도 있어 표 머리로 보지 않는다
+const TABLE_HEAD = /^(작업\s*내용|견적\s*내용|정비\s*내용)$/;
+const TABLE_CELL = /^(부품\s*내역|부품|단가|공임|기술료|합계|계|코드|구분|수량|금액|아래와 같이 견적합니다\.?)$/;
+const TABLE_END = /^(구분\s*\(|부\s*품$|소\s*계$|합\s*계\s*금액|.*시행규칙.*발급|「자동차관리법」|작성자)/;
+const columnItems = (lines) => {
+  const start = lines.findIndex((l) => TABLE_HEAD.test(l));
+  if (start < 0) return [];
+  const rows = [];
+  let cur = null;
+  let seenRow = false;
+  for (const line of lines.slice(start + 1)) {
+    if (seenRow && TABLE_END.test(line)) break;
+    if (TABLE_CELL.test(line) || /^[A-F]$/.test(line)) continue;
+    if (/^\d[\d,]*$/.test(line)) {
+      if (cur) cur.nums.push(toNum(line));
+      continue;
+    }
+    // 부품번호·작업 코드(TTT, L_OPT)는 작업 이름이 아니다
+    if (!/[가-힣]{2}|[A-Za-z]{4}/.test(line) || /이력\s*:/.test(line)) continue;
+    cur = { name: line.replace(/\s+[A-F]$/, '').trim(), nums: [] };
+    rows.push(cur);
+    seenRow = true;
+  }
+  return rows.map(({ name, nums }) => {
+    const item = { name, qty: 1, unitPrice: 0, parts: 0, labor: 0, amount: 0 };
+    if (!nums.length) return item;
+    const rest = [...nums];
+    // 수량만 읽힌 줄(금액 칸을 못 읽은 표)은 금액이 없다
+    if (rest[0] <= 100) item.qty = rest.shift();
+    if (!rest.length) return item;
+    item.amount = rest[rest.length - 1];
+    if (rest.length >= 2) item.unitPrice = rest[0];
+    item.parts = rest.length >= 3 ? rest[1] : item.amount;
+    item.labor = Math.max(0, item.amount - item.parts);
+    return item;
+  });
+};
+
+/** 합계 표: 라벨 다섯 칸 뒤에 값 다섯 칸. 부품 + 기술료 = 계, 계 + 부가세 = 총액이 맞을 때만 믿는다 */
+const summaryRow = (flat) => {
+  const n = '([0-9][0-9,]*)';
+  const m = new RegExp(`${spaced('부품')}\\s+(?:${spaced('기술료')}|${spaced('공임')})\\s+(?:${spaced('소계')}|계)\\s+(?:${spaced('부가가치세')}|${spaced('부가세')})\\s+(?:${spaced('총액')}|${spaced('총계')}|${spaced('합계')})\\s+(?:일반\\s+|보험\\s+)?${n}\\s+${n}\\s+${n}\\s+${n}\\s+${n}`).exec(flat);
+  if (!m) return null;
+  const [parts, labor, supply, vat, total] = m.slice(1, 6).map(toNum);
+  return parts + labor === supply && supply + vat === total ? { parts, labor, supply, vat, total } : null;
+};
+
+/**
  * 내역서 글자를 정비 기록 양식 값으로 정리한다.
  *
  * @param {string} text 내역서 전체 글자 (줄바꿈 유지)
@@ -198,16 +286,17 @@ export const parseRepairInvoice = (text) => {
 
   const plateNo = findPlateNumbers(raw)[0] || '';
   const bizNo = (flat.match(/(?<!\d)(\d{3})\s*-\s*(\d{2})\s*-\s*(\d{5})(?!\d)/) || []).slice(1).join('-');
-  const shop = labeledText(lines, ['상호명', '상호', '업체명', '정비업체', '정비소', '공급자상호', '공급자', '업소명']);
+  const shop = labeledText(lines, ['상호명', '상호', '업체명', '정비업체', '정비소', '공급자상호', '공급자', '업소명']) || shopBelowLabel(lines);
   const inDate = findLabeledDate(flat, ['입고일자', '입고일시', '입고일', '입고'])?.date || '';
   const outDate = findLabeledDate(flat, ['출고일자', '출고일시', '출고일', '출고', '완료일자', '완료일', '정비일자', '작업일자', '정비일'])?.date || '';
-  const issuedDate = findLabeledDate(flat, ['발행일자', '발행일', '작성일자', '작성일', '견적일자', '견적일', '거래일자'])?.date || '';
-  const mileageMatch = new RegExp(`(?:${spaced('주행거리')}|${spaced('적산거리')}|${spaced('주행')})\\s*[:：]?\\s*${NUM}\\s*(?:km|KM|㎞)?`).exec(flat);
-  const mileage = mileageMatch ? toNum(mileageMatch[1]) : 0;
+  const issuedDate = findLabeledDate(flat, ['발행일자', '발행일', '작성일자', '작성일', '견적일자', '견적일', '거래일자'])?.date || lastKoreanDate(flat);
+  const mileage = mileageOf(flat);
   const insurer = INSURERS.find((name) => flat.replace(/\s/g, '').includes(name)) || '';
   const claimNo = (new RegExp(`(?:${spaced('사고접수번호')}|${spaced('접수번호')}|${spaced('보상접수')})\\s*[:：]?\\s*([0-9A-Za-z][0-9A-Za-z\\-]{4,24})`).exec(flat) || [])[1] || '';
 
-  const items = lines.map(lineItemOf).filter(Boolean);
+  const inline = lines.map(lineItemOf).filter(Boolean);
+  const columns = columnItems(lines);
+  const items = columns.length > inline.length ? columns : inline;
 
   let partsTotal = labeledAmount(flat, TOTAL_LABELS.parts);
   let laborTotal = labeledAmount(flat, TOTAL_LABELS.labor);
@@ -215,6 +304,8 @@ export const parseRepairInvoice = (text) => {
   let vat = labeledAmount(flat, TOTAL_LABELS.vat);
   const discount = labeledAmount(flat, TOTAL_LABELS.discount);
   let total = labeledAmount(flat, TOTAL_LABELS.total);
+  const row = summaryRow(flat);
+  if (row) ({ parts: partsTotal, labor: laborTotal, supply, vat, total } = row);
 
   // 빈 합계는 아는 값으로 채운다. 내역서마다 적힌 칸이 달라서다.
   const sumParts = items.reduce((s, i) => s + i.parts, 0);
@@ -229,7 +320,8 @@ export const parseRepairInvoice = (text) => {
   if (total && supply && vat && total === supply) total = supply + vat;
 
   const itemSum = items.reduce((s, i) => s + i.amount, 0);
-  if (items.length && supply && Math.abs(itemSum - (supply + discount)) > Math.max(100, supply * 0.01)) {
+  // 표의 금액 칸을 못 읽어 이름만 있으면(itemSum 0) 어긋났다고 하지 않는다. 합계 칸은 따로 읽었다
+  if (itemSum && supply && Math.abs(itemSum - (supply + discount)) > Math.max(100, supply * 0.01)) {
     warnings.push(`작업 내역 합(${itemSum.toLocaleString()}원)과 공급가액(${supply.toLocaleString()}원)이 다릅니다. 줄을 확인해 주세요.`);
   }
   if (!items.length) warnings.push('작업 내역 줄을 찾지 못했습니다. 글자를 고쳐 다시 정리하거나 직접 적어 주세요.');
@@ -238,7 +330,11 @@ export const parseRepairInvoice = (text) => {
     warnings.push(`부가세(${vat.toLocaleString()}원)가 공급가액의 10%와 다릅니다.`);
   }
 
-  const kindGuess = insurer || /사고|보험\s*수리|판금|도장|도색/.test(flat) ? '사고수리'
+  // 부가세만 있고 공급가·합계가 없으면 다른 칸을 잘못 읽은 것이다
+  if (!supply && !total) vat = 0;
+
+  // 법정 양식 안내문의 '교통사고 등의 처리를 목적으로'와 차 정보의 '도장칼라'에 걸리지 않게 한다
+  const kindGuess = insurer || /사고\s*(수리|접수)|보험\s*수리|판금|도장(?!\s*칼라)|도색/.test(flat) ? '사고수리'
     : /정기\s*점검/.test(flat) ? '정기점검'
       : items.length ? '고장수리' : '';
 

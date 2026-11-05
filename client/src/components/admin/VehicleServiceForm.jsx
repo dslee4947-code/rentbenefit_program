@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import MoneyInput from './MoneyInput.jsx';
 import CarDamageMap from './CarDamageMap.jsx';
 import { ACTIONS, ACTION_COLOR } from './carDamageZones.js';
+import { READ_SOURCE, consumablesOf } from './serviceDocs.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -14,20 +15,6 @@ const PAYERS = ['자차 보험', '상대방 보험', '보증·리콜(무상)', '
 const FUELS = ['', '바닥', '1/4', '1/2', '3/4', '가득'];
 const CONSUMABLES = ['엔진오일·오일필터', '에어필터', '에어컨 필터', '브레이크 패드(앞)', '브레이크 패드(뒤)', '브레이크 오일', '타이어', '와이퍼', '배터리', '냉각수'];
 
-// 내역서 작업 줄 이름으로 바꾼 소모품을 짚는다. 에어컨 필터를 에어필터보다 먼저 본다.
-const CONSUMABLE_WORDS = [
-  ['엔진오일·오일필터', /엔진\s*오일|오일\s*필터/],
-  ['에어컨 필터', /에어컨\s*필터|항균\s*필터|캐빈\s*필터/],
-  ['에어필터', /에어\s*(필터|클리너|크리너)|공기\s*필터/],
-  ['브레이크 패드(앞)', /(앞|프론트|FR).{0,6}패드|패드.{0,4}(앞|프론트|FR)/i],
-  ['브레이크 패드(뒤)', /(뒤|리어|RR).{0,6}패드|패드.{0,4}(뒤|리어|RR)/i],
-  ['브레이크 오일', /브레이크\s*(오일|액)/],
-  ['타이어', /타이어/],
-  ['와이퍼', /와이퍼/],
-  ['배터리', /배터리|밧데리/],
-  ['냉각수', /냉각수|부동액/]
-];
-const READ_SOURCE = { 'pdf-text': 'PDF 글자', xlsx: '엑셀', clova: '사진·스캔 글자 인식(OCR)', text: '고친 글자' };
 const emptyLine = () => ({ name: '', qty: 1, unitPrice: '', parts: '', labor: '', amount: '' });
 
 const num = (v) => Number(String(v ?? '').replace(/,/g, '')) || 0;
@@ -132,8 +119,7 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
     if (!f.description && p.lines.length) { next.description = p.lines.map((l) => l.name).join(', '); filled.push('작업 내용'); }
     if (!f.insurer && p.insurer) { next.insurer = p.insurer; filled.push('보험사'); }
     if (!f.claimNo && p.claimNo) { next.claimNo = p.claimNo; filled.push('접수번호'); }
-    const found = CONSUMABLE_WORDS.filter(([, re]) => p.lines.some((l) => re.test(l.name))).map(([c]) => c);
-    const added = found.filter((c) => !f.consumables.includes(c));
+    const added = consumablesOf(p.lines).filter((c) => !f.consumables.includes(c));
     if (added.length) { next.consumables = [...f.consumables, ...added]; filled.push(`소모품 ${added.length}개`); }
     setForm(next);
     return filled;

@@ -3013,17 +3013,6 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                 <div onClick={(e) => e.stopPropagation()} style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.8rem', flex: 1 }}>
                   {/* Settings Input Grid */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', fontSize: '0.8rem' }}>
-                    {/* 타사 견적이면 회사명을 적는다. 비교표 안 이름 위 줄에 찍힌다 */}
-                    <div style={{ gridColumn: '1 / -1' }}>
-                      <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>타사명 (타사 견적일 때만)</label>
-                      <input
-                        type="text"
-                        value={opt.companyName || ''}
-                        placeholder={`비워 두면 ${OWN_COMPANY_NAME}`}
-                        onChange={(e) => updateActiveVehicleOption(opt.id, { companyName: e.target.value })}
-                        style={{ width: '100%', padding: '0.2rem', border: '1px solid #ccc', borderRadius: '4px' }}
-                      />
-                    </div>
                     <div>
                       <label style={{ display: 'block', color: '#666', marginBottom: '0.15rem' }}>연간 주행거리 (km)</label>
                       <select 
@@ -3556,6 +3545,61 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
         }}>
           {printFormType === 'comparison' ? (
             <>
+              {displaySelectedOptions.length > 0 && (
+                <div style={{ marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border-color)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.7rem', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--text-bright)' }}>회사명</span>
+                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                      타사 견적이면 회사명을 적으세요. 비교 견적서 안 이름 위 줄에 표시되고, 비워 둔 안은 {OWN_COMPANY_NAME}으로 나옵니다
+                    </span>
+                  </div>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${Math.min(displaySelectedOptions.length, 4)}, 1fr)`,
+                    gap: '0.7rem'
+                  }}>
+                    {displaySelectedOptions.map(({ veh, opt }, idx) => (
+                      <div key={idx}>
+                        <label style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.3rem',
+                          fontSize: '0.76rem',
+                          fontWeight: '700',
+                          color: 'var(--text-muted)',
+                          marginBottom: '0.25rem'
+                        }}>
+                          <span style={{
+                            backgroundColor: getContractTypeColors(opt.contractType).solid,
+                            color: '#fff',
+                            padding: '0.05rem 0.35rem',
+                            borderRadius: '3px',
+                            fontSize: '0.7rem',
+                            fontWeight: '800'
+                          }}>{opt.contractType || '렌트'}</span>
+                          <span>{veh.carModel ? `${veh.carModel.split(' ')[0]} ` : ''}{opt.name}</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={opt.companyName || ''}
+                          placeholder={OWN_COMPANY_NAME}
+                          onChange={(e) => updateVehicleOption(veh.id, opt.id, { companyName: e.target.value })}
+                          style={{
+                            width: '100%',
+                            padding: '0.5rem 0.6rem',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border-color)',
+                            background: 'var(--bg-main)',
+                            color: 'var(--text-bright)',
+                            fontSize: '0.82rem',
+                            fontFamily: 'inherit'
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.7rem', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--text-bright)' }}>특이사항</span>
                 <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>

@@ -83,6 +83,7 @@ const blob = await makeFittedPdf(element, { orientation: 'portrait', marginMm: 8
 - ❌ 인쇄 때 문서에 `width: 100%`를 주기 → A4 폭에 욱여넣어져 표가 잘린다. 폭은 printFit이 화면 폭으로 맞춘다.
 - ❌ `html2pdf()`를 직접 부르기 → 넓은 문서의 오른쪽이 잘린다. `makeFittedPdf`를 쓴다.
 - ❌ 인쇄할 문서를 `display: none`으로 숨겨 두고 PDF 만들기 → 폭이 0으로 잡힌다. 화면 밖에 두려면 `position: fixed; left: -10000px`로 둔다.
+- ❌ `printFitted`만 부르고 그 화면의 인쇄 CSS를 빠뜨리기 → 메뉴와 입력칸이 함께 찍혀 2장이 된다. 배율만으로는 해결되지 않는다. 견적서는 `QuoteInputView.jsx`의 공통 규칙을 쓰고, 문서를 `comparison-sheet-section`으로 감싼다. (2026-11-05: 연장·중고 견적서가 2장으로 나왔다)
 - ❌ 인쇄용과 화면용 양식을 따로 두 벌 만들기 → 한쪽만 고쳐져 달라진다. 한 양식을 화면·인쇄·PDF가 함께 쓴다.
 - ❌ 화면에 고정(`position: fixed`)된 알림·팝업을 인쇄 때 그대로 두기 → 종이에 같이 찍힌다. 알림(`.toast-container`)은 `index.css`에서 이미 숨긴다. 새로 만든 고정 요소는 `no-print` class를 달아 숨긴다. (2026-10-07: 견적서 저장 직후 인쇄하면 "견적서가 저장되었습니다" 알림이 로고 위에 찍혔다)
 
@@ -92,6 +93,7 @@ const blob = await makeFittedPdf(element, { orientation: 'portrait', marginMm: 8
 |---|---|---|---|---|
 | 비교견적서 (차량 조건비교표) | `QuoteInputView.jsx` | `printFitted` (5안 이상 가로) | `makeFittedPdf` (계약자 폴더 보관) | ✅ 적용 |
 | 장기렌터카 견적서 | `QuoteInputView.jsx` | `printFitted` (여백 0) | `makeFittedPdf` (여백 0) | ✅ 적용 |
+| 중고렌트 견적서 · 계약 연장 견적서 | `UsedRentQuoteView.jsx` (인쇄 규칙은 `QuoteInputView.jsx`와 공통) | `printFitted` (여백 0) | `makeFittedPdf` (여백 0) | ✅ 적용 (2026-11-05) |
 | 청구서 | `InvoiceSheet.jsx` (`makeInvoicePdf`) → 월 청구, 청구서 보관함 | - | `makeFittedPdf` (png, 여백 5mm) | ✅ 적용 |
 | 차량 손익 원장 | `LedgerView.jsx` 인쇄 버튼 | `window.print()`로 화면 전체를 찍음 | - | ⏳ 다음 대상: 원장 문서 부분에 `print-fit`을 달고 나머지는 숨긴다 |
 | 업무 매뉴얼 | `HandbookView.jsx` 인쇄 버튼 | `window.print()`로 화면 전체를 찍음 | - | ⏳ 긴 글이라 `onePage: false`로 적용 |

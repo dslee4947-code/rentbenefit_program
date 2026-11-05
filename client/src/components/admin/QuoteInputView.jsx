@@ -1695,6 +1695,69 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
   // 실제로 보이는 구간이 좁아진다.
   return (
     <div className="quote-input-container fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', background: '#fff', padding: '2rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-premium)', width: '100%', boxSizing: 'border-box' }}>
+      <style dangerouslySetInnerHTML={{ __html: `
+          /* Print Overrides
+             인쇄는 화면 모양 그대로 A4에 맞춰 배율만 줄인다(utils/printFit.js, docs/print-a4-guide.md).
+             여기서는 대시보드 화면 요소를 숨기고 문서를 종이 왼쪽 위에 놓는 일만 한다.
+             글자·여백·칸 크기를 인쇄 때만 따로 바꾸지 않는다. 바꾸면 화면과 종이가 달라지고,
+             그래도 A4 폭에 안 들어가면 표 오른쪽이 잘린다(2026-10-07 비교견적서).
+             신차·중고렌트·계약 연장 견적서가 이 규칙 하나를 같이 쓴다. 문서를 감싼 곳에 comparison-sheet-section을 단다.
+             (2026-11-05 이 규칙이 신차 화면 안에만 있어 연장·중고 견적서를 인쇄하면 메뉴까지 찍혀 2장이 됐다) */
+          @media print {
+            @page {
+              size: A4 ${quoteKind === '신차' && printFormType === 'comparison' && isComparisonLandscape ? 'landscape' : 'portrait'};
+              margin: 0 !important; /* 브라우저 기본 머리글·바닥글(주소, 날짜)을 없앤다. 종이 여백은 printFit이 둔다 */
+            }
+            body {
+              background: #fff !important;
+              color: #000 !important;
+              margin: 0 !important;
+              padding: 0 !important;
+            }
+            /* Hide dashboard components during print */
+            aside, header, nav, footer, button, .no-print,
+            body .desktop-sidebar, body .mobile-header {
+              display: none !important;
+            }
+            .quote-input-container > :not(.comparison-sheet-section):not(.used-quote-view),
+            .used-quote-view > :not(.comparison-sheet-section) {
+              display: none !important;
+            }
+            main, body .main-content, body .admin-container {
+              padding: 0 !important;
+              margin: 0 !important;
+              overflow: visible !important;
+              /* 화면 배경색(회색)이 종이 가장자리와 문서 아래에 비치지 않게 한다 */
+              background: #fff !important;
+            }
+            /* 문서를 감싼 카드는 종이 왼쪽 위에 붙인다. 문서의 위치·여백은 printFit이 정한다 */
+            .comparison-sheet-section {
+              position: absolute !important;
+              left: 0 !important;
+              top: 0 !important;
+              width: 100% !important;
+              border: none !important;
+              border-radius: 0 !important;
+              box-shadow: none !important;
+              padding: 0 !important;
+              margin: 0 !important;
+              background: #fff !important;
+              box-sizing: border-box !important;
+            }
+            .rental-sheet-scroll {
+              padding: 0 !important;
+            }
+            /* 머리글 아래 금색 선은 화면에서 inset 그림자로 그린다. 인쇄에서는 그림자가 칸 전체를 칠하기도 해서 끈다 */
+            .comparison-table-modern thead th {
+              box-shadow: none !important;
+            }
+            .comparison-table-wrapper,
+            .comparison-table-modern {
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+            }
+          }
+        `}} />
       
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.8rem' }}>
@@ -3875,64 +3938,6 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             }
           }
 
-          /* Print Overrides
-             인쇄는 화면 모양 그대로 A4에 맞춰 배율만 줄인다(utils/printFit.js, docs/print-a4-guide.md).
-             여기서는 대시보드 화면 요소를 숨기고 문서를 종이 왼쪽 위에 놓는 일만 한다.
-             글자·여백·칸 크기를 인쇄 때만 따로 바꾸지 않는다. 바꾸면 화면과 종이가 달라지고,
-             그래도 A4 폭에 안 들어가면 표 오른쪽이 잘린다(2026-10-07 비교견적서). */
-          @media print {
-            @page {
-              size: A4 ${printFormType === 'comparison' && isComparisonLandscape ? 'landscape' : 'portrait'};
-              margin: 0 !important; /* 브라우저 기본 머리글·바닥글(주소, 날짜)을 없앤다. 종이 여백은 printFit이 둔다 */
-            }
-            body {
-              background: #fff !important;
-              color: #000 !important;
-              margin: 0 !important;
-              padding: 0 !important;
-            }
-            /* Hide dashboard components during print */
-            aside, header, nav, footer, button, .no-print,
-            body .desktop-sidebar, body .mobile-header {
-              display: none !important;
-            }
-            .quote-input-container > :not(.comparison-sheet-section) {
-              display: none !important;
-            }
-            main, body .main-content, body .admin-container {
-              padding: 0 !important;
-              margin: 0 !important;
-              overflow: visible !important;
-              /* 화면 배경색(회색)이 종이 가장자리와 문서 아래에 비치지 않게 한다 */
-              background: #fff !important;
-            }
-            /* 문서를 감싼 카드는 종이 왼쪽 위에 붙인다. 문서의 위치·여백은 printFit이 정한다 */
-            .comparison-sheet-section {
-              position: absolute !important;
-              left: 0 !important;
-              top: 0 !important;
-              width: 100% !important;
-              border: none !important;
-              border-radius: 0 !important;
-              box-shadow: none !important;
-              padding: 0 !important;
-              margin: 0 !important;
-              background: #fff !important;
-              box-sizing: border-box !important;
-            }
-            .rental-sheet-scroll {
-              padding: 0 !important;
-            }
-            /* 머리글 아래 금색 선은 화면에서 inset 그림자로 그린다. 인쇄에서는 그림자가 칸 전체를 칠하기도 해서 끈다 */
-            .comparison-table-modern thead th {
-              box-shadow: none !important;
-            }
-            .comparison-table-wrapper,
-            .comparison-table-modern {
-              page-break-inside: avoid !important;
-              break-inside: avoid !important;
-            }
-          }
         `}} />
 
         {/* PDF Layout Content */}

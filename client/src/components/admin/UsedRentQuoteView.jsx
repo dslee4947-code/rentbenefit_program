@@ -424,7 +424,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+    <div className="used-quote-view" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       {/* 1. 차 고르기 */}
       <div style={card} className="no-print">
         <div style={cardTitle}><Car size={17} style={{ color: 'var(--primary)' }} /> 차 고르기 (렌트차량 DB)</div>
@@ -654,11 +654,14 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
       )}
 
       {/* 7. 고객용 견적서 (A4 한 장) */}
+      {/* comparison-sheet-section: 인쇄 때 이것만 남기는 견적서 공통 틀(QuoteInputView의 인쇄 규칙) */}
+      <div className="comparison-sheet-section">
       <div className="print-fit-scroll m-fit-outer" ref={sheetOuterRef} style={{ overflowX: 'auto', ...fit.outer }}>
         <div ref={sheetRef} className={`used-rent-print-area print-fit m-doc${fit.outer ? ' m-fitted' : ''}`}
           style={{ width: `${SHEET_WIDTH_PX}px`, height: `${SHEET_HEIGHT_PX}px`, margin: '0 auto', background: '#fff', padding: `${SHEET_MARGIN_PX}px`, color: '#000', fontFamily: "'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif", fontSize: '0.76rem', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden', boxShadow: '0 0 0 1px var(--border-color)', ...fit.inner }}>
           <UsedRentSheet kind={kind} car={car} rows={sheetRows} ageLimit={ageLimit} remark={remark} createdBy={createdBy} />
         </div>
+      </div>
       </div>
 
       {extendWith && (

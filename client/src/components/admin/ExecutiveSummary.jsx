@@ -38,7 +38,7 @@ function Kpi({ icon, label, value, sub, onClick }) {
   return (
     <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: '0.45rem', cursor: onClick ? 'pointer' : 'default' }} onClick={onClick} title={onClick ? '눌러서 이 숫자가 나온 근거 보기' : undefined}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', fontWeight: 600 }}>
-        <span>{label} {onClick && <span style={{ color: 'var(--primary)', fontSize: '0.74rem', marginLeft: '0.3rem' }}>근거 보기 ›</span>}</span> {icon}
+        <span>{label} {onClick && <span style={{ color: 'var(--primary)', fontSize: '0.75rem', marginLeft: '0.3rem' }}>근거 보기 ›</span>}</span> {icon}
       </div>
       <div style={{ fontSize: '1.7rem', fontWeight: 800, color: 'var(--text-bright)', lineHeight: 1.15 }}>{value}</div>
       <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>{sub}</div>
@@ -193,7 +193,7 @@ function ShortTermTargets({ st, onOpen }) {
                 <td style={{ padding: '0.45rem' }}>
                   <span style={{ fontWeight: 600 }}>{r.carModel}</span>{' '}
                   <span style={{ color: 'var(--text-muted)' }}>{r.plateNo || r.ledgerNo}</span>
-                  {r.startSource === 'afterLongTerm' && <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}> · 장기렌트 후 {ymd(r.startDate).slice(0, 7)}부터</span>}
+                  {r.startSource === 'afterLongTerm' && <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}> · 장기렌트 후 {ymd(r.startDate).slice(0, 7)}부터</span>}
                 </td>
                 {r.reason ? (
                   <td colSpan={5} style={{ padding: '0.45rem', color: '#b45309' }}>{r.reason}</td>
@@ -201,7 +201,7 @@ function ShortTermTargets({ st, onOpen }) {
                   <>
                     <td style={{ padding: '0.45rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
                       {krw(r.monthlyTarget)}{r.targetSource === 'manual' ? ' *' : ''}
-                      {r.ageYear && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.ageYear}년차 ×{r.ageFactor}</div>}
+                      {r.ageYear && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{r.ageYear}년차 ×{r.ageFactor}</div>}
                     </td>
                     <td style={{ padding: '0.45rem', textAlign: 'right', whiteSpace: 'nowrap', color: rateColor(r.lastMonth?.rate), fontWeight: 700 }}>
                       {r.lastMonth ? `${krw(r.lastMonth.actual)} (${pct(r.lastMonth.rate)})` : '-'}
@@ -220,7 +220,7 @@ function ShortTermTargets({ st, onOpen }) {
           </tbody>
         </table>
       </div>
-      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.5rem', lineHeight: 1.5 }}>
+      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem', lineHeight: 1.5 }}>
         월 목표는 차령에 따라 1년차 ×1.1 · 2년차 ×1.0 · 3년차 ×0.9 · 4년차 ×0.8 · 5년차 이후 ×0.7로 가감합니다(새 차일수록 더 받음, 3년 합계는 같음). 시작 달과 이번 달은 날짜만큼 나눠 목표를 잡습니다. * 표시는 원장에서 목표를 직접 정한 차입니다. 차마다 달별 내역은 손익 원장 해당 차의 '단기렌트 월 목표'에서 봅니다.
       </div>
     </div>

@@ -10,7 +10,7 @@ const partyOf = (doc) => doc?.contract?.companyId?.name || doc?.contract?.custom
 // 반영 전 연장 계약서는 contract가 이전 계약이라, 계약번호는 계약서 칸(새 번호)을 먼저 본다
 const contractNoOf = (doc) => (doc?.extensionPending ? doc.values?.contractNo : '') || doc?.contract?.contractNo || '';
 const ExtensionTag = ({ doc }) => (doc?.extensionOf ? (
-  <span title={doc.extensionTerms?.note || ''} style={{ fontSize: '0.7rem', fontWeight: 800, padding: '0.1rem 0.45rem', borderRadius: 999, background: '#e0e7ff', color: '#3730a3', marginLeft: '0.3rem' }}>
+  <span title={doc.extensionTerms?.note || ''} style={{ fontSize: '0.75rem', fontWeight: 800, padding: '0.1rem 0.45rem', borderRadius: 999, background: '#e0e7ff', color: '#3730a3', marginLeft: '0.3rem' }}>
     {doc.extensionPending ? '연장 · 반영 전' : '연장'}
   </span>
 ) : null);
@@ -36,7 +36,7 @@ const tabBtn = (on) => ({
   border: 'none', borderBottom: `3px solid ${on ? 'var(--primary)' : 'transparent'}`, background: 'none',
   padding: '0.55rem 0.9rem', fontWeight: 800, fontSize: '0.88rem', color: on ? 'var(--primary)' : 'var(--text-muted)', cursor: 'pointer'
 });
-const small = { fontSize: '0.72rem', color: 'var(--text-muted)' };
+const small = { fontSize: '0.75rem', color: 'var(--text-muted)' };
 const input = { width: '100%', padding: '0.35rem 0.45rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-bright)', fontSize: '0.8rem', boxSizing: 'border-box' };
 
 // 계약서 체크 칸(엑셀 입력 칸 밖). 서버 utils/contractPdf.js가 이 값으로 V를 찍는다.
@@ -193,7 +193,7 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
         <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-bright)' }}>
           {partyOf(doc)} · {contractNoOf(doc)}<ExtensionTag doc={doc} />
         </div>
-        <span style={{ fontSize: '0.72rem', fontWeight: 800, padding: '0.15rem 0.5rem', borderRadius: 999, background: doc.status === '확정' ? '#dcfce7' : '#fef9c3', color: doc.status === '확정' ? '#15803d' : '#a16207' }}>{doc.status}</span>
+        <span style={{ fontSize: '0.75rem', fontWeight: 800, padding: '0.15rem 0.5rem', borderRadius: 999, background: doc.status === '확정' ? '#dcfce7' : '#fef9c3', color: doc.status === '확정' ? '#15803d' : '#a16207' }}>{doc.status}</span>
         <span style={small}>양식 {doc.templateName} (버전 {doc.templateVersion}) · 빈칸 {emptyCount}개</span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
           {!locked && <button type="button" disabled={busy} onClick={refresh} style={btn()} title="계약·견적·고객·차량 정보를 다시 읽어 칸을 채웁니다. 직접 고친 칸은 그대로 둡니다."><RefreshCw size={13} /> 계약 정보 다시 불러오기</button>}
@@ -372,7 +372,7 @@ function TemplatesPanel({ showToast, isAdmin, onOpenTerms }) {
               <tr key={t._id} style={{ borderTop: '1px solid var(--border-color)' }}>
                 <td style={{ padding: '0.5rem 0.6rem', whiteSpace: 'nowrap' }}>
                   <b>v{t.version}</b>{' '}
-                  {t.active && <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#15803d', background: '#dcfce7', borderRadius: 999, padding: '0.1rem 0.45rem' }}>사용 중</span>}
+                  {t.active && <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#15803d', background: '#dcfce7', borderRadius: 999, padding: '0.1rem 0.45rem' }}>사용 중</span>}
                 </td>
                 <td style={{ padding: '0.5rem 0.6rem' }}>{t.name}</td>
                 <td style={{ padding: '0.5rem 0.6rem', ...small }}>{t.fileName}</td>
@@ -514,7 +514,7 @@ function TermsPanel({ templateId, showToast }) {
             {q && <div style={{ ...small, marginBottom: '0.4rem' }}>{shown.length}개 조항에 있음</div>}
             {parts.map((part) => (
               <div key={part} style={{ marginBottom: '0.6rem' }}>
-                <div style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)', margin: '0.2rem 0 0.25rem' }}>{part}</div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', margin: '0.2rem 0 0.25rem' }}>{part}</div>
                 {clauses.filter((c) => c.part === part).map((c) => {
                   const on = shown.includes(c);
                   return (
@@ -657,7 +657,7 @@ function DocumentsPanel({ showToast, canWrite, onOpen }) {
                 <td style={{ padding: '0.5rem 0.6rem', fontWeight: 700 }}>{contractNoOf(d)}<ExtensionTag doc={d} /></td>
                 <td style={{ padding: '0.5rem 0.6rem' }}>{partyOf(d)}</td>
                 <td style={{ padding: '0.5rem 0.6rem' }}>
-                  <span style={{ fontSize: '0.72rem', fontWeight: 800, padding: '0.1rem 0.45rem', borderRadius: 999, background: d.status === '확정' ? '#dcfce7' : '#fef9c3', color: d.status === '확정' ? '#15803d' : '#a16207' }}>{d.status}</span>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 800, padding: '0.1rem 0.45rem', borderRadius: 999, background: d.status === '확정' ? '#dcfce7' : '#fef9c3', color: d.status === '확정' ? '#15803d' : '#a16207' }}>{d.status}</span>
                 </td>
                 <td style={{ padding: '0.5rem 0.6rem', ...small }}>{d.templateName} v{d.templateVersion}</td>
                 <td style={{ padding: '0.5rem 0.6rem', ...small }}>{ymd(d.updatedAt)} {d.updatedBy || d.createdBy}</td>

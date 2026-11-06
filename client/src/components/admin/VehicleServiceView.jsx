@@ -241,7 +241,7 @@ function GroupChip({ g, active, onClick, onDouble, onDragStart }) {
       draggable={Boolean(onDragStart)}
       onDragStart={onDragStart ? (ev) => { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', g.key); onDragStart(g); } : undefined}
       title={`${STATE[g.state] ? `${STATE[g.state].label} · ` : ''}${g.kinds.join('·')} · ${name}\n${g.list.map((e) => `${e.r.plateNo} ${e.note || ''}`).join('\n')}`}
-      style={{ display: 'block', width: '100%', textAlign: 'left', border: pending ? `1px dashed ${k.color}` : k.record || active ? `1px solid ${k.color}` : '1px solid transparent', ...(k.record && !pending ? { borderLeft: `3px solid ${k.color}` } : {}), background: active && k.record ? '#fef3c7' : k.bg, color: k.color, ...(g.kinds.length > 1 ? { border: `1px ${pending ? 'dashed' : 'solid'} #cbd5e1` } : {}), borderRadius: '4px', padding: '0.05rem 0.25rem', fontSize: '0.68rem', fontWeight: 700, cursor: onDragStart ? 'grab' : 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}
+      style={{ display: 'block', width: '100%', textAlign: 'left', border: pending ? `1px dashed ${k.color}` : k.record || active ? `1px solid ${k.color}` : '1px solid transparent', ...(k.record && !pending ? { borderLeft: `3px solid ${k.color}` } : {}), background: active && k.record ? '#fef3c7' : k.bg, color: k.color, ...(g.kinds.length > 1 ? { border: `1px ${pending ? 'dashed' : 'solid'} #cbd5e1` } : {}), borderRadius: '4px', padding: '0.05rem 0.25rem', fontSize: '0.75rem', fontWeight: 700, cursor: onDragStart ? 'grab' : 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}
     >
       {STATE[g.state]?.icon || ''}{g.kinds.map((x, i) => (
         <span key={x}>{i > 0 ? '·' : ''}<b style={{ fontWeight: 900, color: KIND[x]?.color, ...(g.kinds.length > 1 ? { background: KIND[x]?.bg, borderRadius: '3px', padding: '0 1px' } : {}) }}>{KIND[x]?.short}</b></span>
@@ -288,7 +288,7 @@ function MonthSummary({ events, onOpen }) {
                         type="button"
                         onClick={() => onOpen(e.r.vehicleId)}
                         title={`${e.r.carModel}\n${e.note || ''}`}
-                        style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '4px', padding: '0 0.3rem', fontSize: '0.72rem', cursor: 'pointer', color: 'var(--text-bright)' }}
+                        style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '4px', padding: '0 0.3rem', fontSize: '0.75rem', cursor: 'pointer', color: 'var(--text-bright)' }}
                       >
                         {e.r.plateNo || '-'} <span style={{ color: 'var(--text-muted)' }}>{shortDate(e.date)}</span>
                         {e.kind === '검사+점검' && <b style={{ color: KIND['검사+점검'].color }}> 함께</b>}
@@ -332,7 +332,7 @@ function DayPicker({ date, rows, onPick, onClose }) {
         <div style={{ display: 'flex', alignItems: 'center', padding: '0.8rem 1rem', borderBottom: '1px solid var(--border-color)' }}>
           <div>
             <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-bright)' }}>{date} 일정·기록 넣기</div>
-            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{date > today ? '앞날이라 "예정"으로 저장합니다. 받고 나서 "완료"로 바꾸세요.' : '지난 날·오늘이라 "완료" 기록으로 저장합니다.'}</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{date > today ? '앞날이라 "예정"으로 저장합니다. 받고 나서 "완료"로 바꾸세요.' : '지난 날·오늘이라 "완료" 기록으로 저장합니다.'}</div>
           </div>
           <button type="button" onClick={onClose} style={{ marginLeft: 'auto', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={18} /></button>
         </div>
@@ -343,7 +343,7 @@ function DayPicker({ date, rows, onPick, onClose }) {
             ))}
           </div>
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="차량번호·계약사·차종으로 찾기" style={{ padding: '0.45rem 0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.85rem' }} />
-          {kind === '정기점검' && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>정기점검은 일반정비 가입 차와 단기렌트 차만 나옵니다.</div>}
+          {kind === '정기점검' && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>정기점검은 일반정비 가입 차와 단기렌트 차만 나옵니다.</div>}
         </div>
         <div style={{ overflowY: 'auto', padding: '0 1rem 1rem' }}>
           {list.length === 0 && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '0.5rem 0' }}>해당하는 차가 없습니다.</div>}
@@ -356,7 +356,7 @@ function DayPicker({ date, rows, onPick, onClose }) {
             >
               <b style={{ minWidth: '6.5rem', color: 'var(--text-bright)' }}>{r.plateNo || '-'}</b>
               <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isLong(r) ? r.partyName : '단기'} · {r.carModel}</span>
-              <span style={{ fontSize: '0.72rem', color: inWindow(r) ? KIND['자동차검사'].color : 'var(--text-muted)', fontWeight: inWindow(r) ? 800 : 400, whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: '0.75rem', color: inWindow(r) ? KIND['자동차검사'].color : 'var(--text-muted)', fontWeight: inWindow(r) ? 800 : 400, whiteSpace: 'nowrap' }}>
                 {kind === '자동차검사' && r.inspection ? `검사일 ${shortDate(r.inspection.date)}${inWindow(r) ? ' · 기간 안' : ''}` : ''}
                 {kind === '정기점검' && r.maintenance ? `점검일 ${shortDate(r.maintenance.date)}` : ''}
               </span>
@@ -535,7 +535,7 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
   };
 
   const input = { width: '100%', padding: '0.3rem 0.4rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.8rem', boxSizing: 'border-box', background: '#fff', color: 'var(--text-bright)', fontFamily: 'inherit' };
-  const lab = { fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.1rem' };
+  const lab = { fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.1rem' };
   const pendingRow = pendingOf ? (r.pending || []).find((w) => String(w.id) === String(pendingOf.inboxId)) : null;
   const dirtyCount = forms ? sections.filter((x) => forms[x.key]?.dirty).length : 0;
 
@@ -557,18 +557,18 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
               {date} · {r.plateNo}{pendingRow ? ` · ⏳ 구글 캘린더 확인 대기` : ''}
             </div>
           </div>
-          <button type="button" onClick={() => onOpenFull(r.vehicleId)} title="차 상세" style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.2rem 0.5rem', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>차 상세</button>
+          <button type="button" onClick={() => onOpenFull(r.vehicleId)} title="차 상세" style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.2rem 0.5rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>차 상세</button>
           <button type="button" onClick={onClose} title="닫기" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={16} /></button>
         </div>
 
         {pendingRow && (
           <div style={{ marginTop: '0.5rem', background: 'var(--bg-main)', borderRadius: '8px', padding: '0.45rem 0.6rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', fontSize: '0.74rem', fontWeight: 800, color: 'var(--text-bright)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-bright)' }}>
               📅 구글 일정: {pendingRow.title}
-              <button type="button" onClick={() => setShowText((v) => !v)} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700 }}>{showText ? '접기' : '본문 보기'}</button>
-              {pendingRow.link && <a href={pendingRow.link} target="_blank" rel="noreferrer" style={{ fontSize: '0.72rem', marginLeft: '0.4rem' }}>구글에서 열기</a>}
+              <button type="button" onClick={() => setShowText((v) => !v)} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700 }}>{showText ? '접기' : '본문 보기'}</button>
+              {pendingRow.link && <a href={pendingRow.link} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', marginLeft: '0.4rem' }}>구글에서 열기</a>}
             </div>
-            {showText && <div style={{ whiteSpace: 'pre-wrap', fontSize: '0.74rem', color: 'var(--text-bright)', lineHeight: 1.5, marginTop: '0.25rem', maxHeight: '180px', overflowY: 'auto' }}>{pendingRow.description || '(본문 없음)'}</div>}
+            {showText && <div style={{ whiteSpace: 'pre-wrap', fontSize: '0.75rem', color: 'var(--text-bright)', lineHeight: 1.5, marginTop: '0.25rem', maxHeight: '180px', overflowY: 'auto' }}>{pendingRow.description || '(본문 없음)'}</div>}
           </div>
         )}
 
@@ -592,11 +592,11 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
             <div key={sec.key} style={{ marginTop: '0.6rem', border: '1px solid var(--border-color)', borderLeft: `4px solid ${k.color}`, borderRadius: '8px', padding: '0.5rem 0.6rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.35rem', flexWrap: 'wrap' }}>
                 <b style={{ color: k.color, fontSize: '0.88rem' }}>{st ? `${st.icon} ` : ''}{sec.kind}</b>
-                {st && <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{st.label}{sec.e.state === 'plan' ? ' — 고쳐서 저장하면 예약이 됩니다' : ''}</span>}
+                {st && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{st.label}{sec.e.state === 'plan' ? ' — 고쳐서 저장하면 예약이 됩니다' : ''}</span>}
                 <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.25rem' }}>
                   {DAY_STATUSES.map((x) => (
                     <button key={x} type="button" disabled={!canWrite} onClick={() => setF(sec.key, { status: x })}
-                      style={{ border: `1px solid ${f.status === x ? k.color : 'var(--border-color)'}`, background: f.status === x ? k.color : '#fff', color: f.status === x ? '#fff' : 'var(--text-muted)', borderRadius: '999px', padding: '0.05rem 0.5rem', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}>
+                      style={{ border: `1px solid ${f.status === x ? k.color : 'var(--border-color)'}`, background: f.status === x ? k.color : '#fff', color: f.status === x ? '#fff' : 'var(--text-muted)', borderRadius: '999px', padding: '0.05rem 0.5rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>
                       {x}
                     </button>
                   ))}
@@ -616,7 +616,7 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
               <div style={{ marginTop: '0.35rem' }}><div style={lab}>메모</div>
                 <input style={input} disabled={!canWrite} value={f.memo} onChange={(ev) => setF(sec.key, { memo: ev.target.value })} /></div>
               {/* 서류: 올리면 글자를 읽어 위 칸을 채운다 */}
-              <div style={{ marginTop: '0.45rem', background: 'var(--bg-main)', borderRadius: '6px', padding: '0.4rem 0.5rem', fontSize: '0.74rem' }}>
+              <div style={{ marginTop: '0.45rem', background: 'var(--bg-main)', borderRadius: '6px', padding: '0.4rem 0.5rem', fontSize: '0.75rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
                   {canWrite && (
                     <label style={{ border: 'none', background: k.color, color: '#fff', borderRadius: '6px', padding: '0.25rem 0.6rem', fontWeight: 800, cursor: doc?.reading ? 'wait' : 'pointer' }}>
@@ -626,7 +626,7 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
                     </label>
                   )}
                   {savedFiles.map((a, i) => (
-                    <button key={a.savedPath || a.fileName || i} type="button" onClick={() => openServiceFile(saved._id, saved.attachments?.length ? i : undefined, showToast)} title={a.fileName} style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 0, fontWeight: 700, fontSize: '0.72rem' }}>
+                    <button key={a.savedPath || a.fileName || i} type="button" onClick={() => openServiceFile(saved._id, saved.attachments?.length ? i : undefined, showToast)} title={a.fileName} style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 0, fontWeight: 700, fontSize: '0.75rem' }}>
                       📎 {a.label || a.fileName || '파일'}
                     </button>
                   ))}
@@ -637,7 +637,7 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
                 {(doc?.warnings || []).map((w) => <div key={w} style={{ color: '#b45309', marginTop: '0.15rem' }}>⚠ {w}</div>)}
               </div>
               {canWrite && (
-                <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.35rem', fontSize: '0.72rem' }}>
+                <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.35rem', fontSize: '0.75rem' }}>
                   {sec.e.recordId && <button type="button" onClick={() => onOpenFull(r.vehicleId, sec.e.recordId)} style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 0, fontWeight: 700 }}>상세 양식(내역서·보험·탁송) ›</button>}
                   {sec.e.recordId && <button type="button" onClick={() => remove(sec)} style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer', padding: 0, marginLeft: 'auto' }}>기록 지우기</button>}
                 </div>
@@ -648,7 +648,7 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
 
         {canWrite && forms && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.7rem', position: 'sticky', bottom: '-0.8rem', background: '#fff', padding: '0.5rem 0' }}>
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
               {pendingOf ? `저장하면 ${sections.filter((x) => x.e.inboxId).length}건이 기록으로 만들어지고 확인 대기가 끝납니다.` : dirtyCount ? `${dirtyCount}칸을 고쳤습니다.` : '칸을 고친 뒤 저장하세요.'}
             </span>
             <button type="button" onClick={onClose} style={{ marginLeft: 'auto', border: '1px solid var(--border-color)', background: '#fff', borderRadius: '7px', padding: '0.4rem 0.9rem', fontWeight: 700, cursor: 'pointer' }}>닫기</button>
@@ -757,19 +757,19 @@ function ServiceCalendar({ rows, onOpen, onAdd, onEdit, onMoved, canWrite, showT
         <strong style={{ fontSize: '1rem', color: 'var(--text-bright)', minWidth: '7rem', textAlign: 'center' }}>{month.slice(0, 4)}년 {Number(month.slice(5, 7))}월</strong>
         <button type="button" style={navBtn} onClick={() => go(1)}>›</button>
         <button type="button" style={navBtn} onClick={() => go(0)}>오늘</button>
-        <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
           {Object.values(STATE).map((x) => <span key={x.icon}>{x.icon} {x.label}</span>)}
         </span>
         <span style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', width: '100%', justifyContent: 'flex-end' }}>
           {Object.entries(KIND).filter(([name]) => name !== '검사+점검').map(([name, k]) => (
-            <span key={name} style={{ fontSize: '0.7rem', fontWeight: 800, color: k.color, background: k.bg, border: k.record ? `1px solid ${k.color}` : 'none', borderRadius: '4px', padding: '0 0.3rem' }}><b style={{ fontWeight: 900 }}>{k.short}</b> {name}</span>
+            <span key={name} style={{ fontSize: '0.75rem', fontWeight: 800, color: k.color, background: k.bg, border: k.record ? `1px solid ${k.color}` : 'none', borderRadius: '4px', padding: '0 0.3rem' }}><b style={{ fontWeight: 900 }}>{k.short}</b> {name}</span>
           ))}
         </span>
       </div>
 
       <div onDragEnd={() => { setDragging(null); setDropDay(''); }} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', borderTop: '1px solid var(--border-color)', borderLeft: '1px solid var(--border-color)', opacity: moving ? 0.6 : 1 }}>
         {WEEK.map((w, i) => (
-          <div key={w} style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 800, padding: '0.2rem', color: i === 0 ? '#dc2626' : i === 6 ? '#2563eb' : 'var(--text-muted)', borderRight: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-main)' }}>{w}</div>
+          <div key={w} style={{ textAlign: 'center', fontSize: '0.75rem', fontWeight: 800, padding: '0.2rem', color: i === 0 ? '#dc2626' : i === 6 ? '#2563eb' : 'var(--text-muted)', borderRight: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-main)' }}>{w}</div>
         ))}
         {weeks.flat().map((d) => {
           const thisMonth = monthKey(d) === month;
@@ -785,14 +785,14 @@ function ServiceCalendar({ rows, onOpen, onAdd, onEdit, onMoved, canWrite, showT
               title={canWrite ? '빈 곳을 누르면 이 날짜로 자동차검사·정기점검·고장수리·사고수리를 넣습니다. 일정 칸은 끌어다 다른 날에 놓으면 옮겨집니다' : undefined}
               style={{ minHeight: '150px', padding: '0.2rem', borderRight: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', background: dropDay === d ? '#dbeafe' : thisMonth ? '#fff' : '#fafafa', outline: dropDay === d ? '2px dashed var(--primary)' : 'none', outlineOffset: '-2px', minWidth: 0, cursor: canWrite ? 'pointer' : 'default' }}
             >
-              <div style={{ fontSize: '0.72rem', fontWeight: 800, color: isToday ? '#fff' : thisMonth ? 'var(--text-bright)' : 'var(--text-muted)', background: isToday ? 'var(--primary)' : 'none', borderRadius: '999px', width: '1.4rem', height: '1.4rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 800, color: isToday ? '#fff' : thisMonth ? 'var(--text-bright)' : 'var(--text-muted)', background: isToday ? 'var(--primary)' : 'none', borderRadius: '999px', width: '1.4rem', height: '1.4rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {Number(d.slice(8, 10))}
               </div>
               {groups.slice(0, MAX_CHIPS).map((g) => (
                 <GroupChip key={g.key} g={g} active={picked?.title === `${d} ${g.key}`} onClick={(rect) => pick(`${d} ${g.key}`, g.list, rect)} onDouble={() => openOne(g.list)} onDragStart={canDrag(g) ? startDrag : undefined} />
               ))}
               {groups.length > MAX_CHIPS && (
-                <button type="button" onClick={(ev) => { ev.stopPropagation(); pick(`${d} 전체`, byDay.get(d), ev.currentTarget.getBoundingClientRect()); }} style={{ border: 'none', background: 'none', fontSize: '0.68rem', color: 'var(--text-muted)', cursor: 'pointer', padding: 0 }}>
+                <button type="button" onClick={(ev) => { ev.stopPropagation(); pick(`${d} 전체`, byDay.get(d), ev.currentTarget.getBoundingClientRect()); }} style={{ border: 'none', background: 'none', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', padding: 0 }}>
                   +{groups.length - MAX_CHIPS}개 더
                 </button>
               )}
@@ -831,10 +831,10 @@ function ServiceCalendar({ rows, onOpen, onAdd, onEdit, onMoved, canWrite, showT
           <div style={{ display: 'flex', alignItems: 'center', fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-bright)', marginBottom: '0.3rem' }}>
             {picked.title.split('|').map((x) => STATE[x]?.label || x).join(' · ')} ({new Set(picked.list.map((e) => e.r.vehicleId)).size}대)
             {canWrite && movesOf(picked.list).length > 0 && (
-              <label style={{ marginLeft: '0.5rem', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <label style={{ marginLeft: '0.5rem', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                 {picked.list.length > 1 ? '모두' : ''} 날짜 바꾸기
                 <input type="date" disabled={moving} value={picked.list[0].date} onChange={(ev) => moveTo(picked.list, ev.target.value)}
-                  style={{ fontSize: '0.74rem', padding: '0.05rem 0.2rem', border: '1px solid var(--border-color)', borderRadius: '5px' }} />
+                  style={{ fontSize: '0.75rem', padding: '0.05rem 0.2rem', border: '1px solid var(--border-color)', borderRadius: '5px' }} />
               </label>
             )}
             <button type="button" onClick={() => setPicked(null)} style={{ marginLeft: 'auto', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={14} /></button>
@@ -849,9 +849,9 @@ function ServiceCalendar({ rows, onOpen, onAdd, onEdit, onMoved, canWrite, showT
                 style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.25rem 0.45rem', fontSize: '0.76rem', cursor: 'pointer', textAlign: 'left' }}
               >
                 <b style={{ color: KIND[e.kind].color }}>{STATE[e.state] ? `${STATE[e.state].icon} ` : ''}{e.label || e.kind}</b> <b>{e.r.plateNo || '-'}</b>{' '}
-                {STATE[e.state] && <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)' }}>[{STATE[e.state].label}]</span>}{' '}
+                {STATE[e.state] && <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>[{STATE[e.state].label}]</span>}{' '}
                 <span style={{ color: 'var(--text-muted)' }}>{isLong(e.r) ? `${e.r.partyName} · ` : ''}{e.r.carModel} · {e.date}</span>
-                {e.note && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{e.note}</div>}
+                {e.note && <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{e.note}</div>}
                 {e.age && <b style={{ color: '#c2410c' }}> · 차령 연장 함께 신청</b>}
                 {canWrite && (e.recordId || e.state === 'plan' || e.inboxId) && (
                   <span
@@ -864,16 +864,16 @@ function ServiceCalendar({ rows, onOpen, onAdd, onEdit, onMoved, canWrite, showT
                       // 계산한 일정은 그날로 새 예약을 적는다. 검사+점검은 자동차검사로 연다
                       onEdit(e.r.vehicleId, e.recordId, e.recordId ? null : { kind: e.kind === '검사+점검' ? '자동차검사' : e.kind, date: e.date });
                     }}
-                    style={{ display: 'inline-block', marginLeft: '0.4rem', border: '1px solid var(--primary)', color: 'var(--primary)', background: '#fff', borderRadius: '5px', padding: '0 0.4rem', fontSize: '0.7rem', fontWeight: 800 }}
+                    style={{ display: 'inline-block', marginLeft: '0.4rem', border: '1px solid var(--primary)', color: 'var(--primary)', background: '#fff', borderRadius: '5px', padding: '0 0.4rem', fontSize: '0.75rem', fontWeight: 800 }}
                   >
                     {e.inboxId ? '기록으로 옮기기' : e.recordId ? '✏️ 수정' : '📌 예약 잡기'}
                   </span>
                 )}
                 {canWrite && picked.list.length > 1 && movesOf([e]).length > 0 && (
-                  <span onClick={(ev) => ev.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', marginLeft: '0.4rem', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                  <span onClick={(ev) => ev.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', marginLeft: '0.4rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                     이 차만
                     <input type="date" disabled={moving} value={e.date} onChange={(ev) => moveTo([e], ev.target.value)}
-                      style={{ fontSize: '0.7rem', padding: 0, border: '1px solid var(--border-color)', borderRadius: '4px' }} />
+                      style={{ fontSize: '0.75rem', padding: 0, border: '1px solid var(--border-color)', borderRadius: '4px' }} />
                   </span>
                 )}
               </button>
@@ -885,7 +885,7 @@ function ServiceCalendar({ rows, onOpen, onAdd, onEdit, onMoved, canWrite, showT
       })()}
 
       <MonthSummary events={inMonth} onOpen={onOpen} />
-      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.4rem', lineHeight: 1.6 }}>
+      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.4rem', lineHeight: 1.6 }}>
         자동차검사는 검사일 2개월 전부터 1개월 뒤까지 받을 수 있습니다. 정기점검일이 그 안(검사일 2개월 뒤까지)에 있으면 이른 날에 한 번 입고해 같이 처리하도록 한 칸(<b>정·검</b>)으로 묶었습니다. 한 차가 같은 날 여러 일을 하면 정·검·사처럼 한 칸에 앞글자를 늘어놓습니다. 일정 칸은 끌어다 다른 날에 놓거나, 눌러서 [날짜 바꾸기]로 옮깁니다(계산한 검사·점검을 옮기면 그날로 예정이 잡힙니다).
         검=자동차검사 · 정=정기점검 · 고=고장수리 · 사=사고수리. 고·사(테두리 칸)는 일이 생긴 뒤 남긴 기록입니다. 칸 앞 아이콘: 🗓️ 진행 예정(자동 계산) · 📌 고객과 잡은 예약 · ⏳ 구글 캘린더 확인 대기 · 🔧 진행 중 · ✅ 완료.
         {canWrite ? ' 날짜 칸의 빈 곳을 누르면 그날로 일정·기록을 넣을 수 있습니다.' : ''}
@@ -1061,7 +1061,7 @@ function VehicleServiceView({ showToast, currentUser }) {
   const cell = { padding: '0.45rem 0.6rem', verticalAlign: 'middle', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' };
   const clip = { overflow: 'hidden', textOverflow: 'ellipsis' };
   const input = { width: '100%', padding: '0.35rem 0.45rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-bright)', fontSize: '0.8rem', boxSizing: 'border-box' };
-  const small = { fontSize: '0.72rem', color: 'var(--text-muted)' };
+  const small = { fontSize: '0.75rem', color: 'var(--text-muted)' };
 
   const selectedRow = detail?.row || rows.find((r) => r.vehicleId === selectedId);
   // 지금까지 고친 부위를 부위마다 센다(차량 그림에 겹쳐 보여 준다)
@@ -1172,7 +1172,7 @@ function VehicleServiceView({ showToast, currentUser }) {
                         {inspUrgent && <b style={{ color: inspUrgent.fg }}>{ddayText(insp.dday)} {inspUrgent.label}</b>}
                         {/* 검사를 받은 차는 다음 검사일이 내년으로 넘어가 음영이 없어진다. 따로 '완료' 표시는 두지 않는다 */}
                         {level === 'grace' && <span style={small}>(마감 {insp.windowEnd})</span>}
-                        {insp.unverified && <span title="검사 기록이 없어 지난 검사는 받은 것으로 보고 이번 차례를 보여 줍니다. 사이버검사소에서 확인 후 차를 눌러 검사 기록을 남겨 주세요." style={{ fontSize: '0.7rem', fontWeight: 700, color: '#6d28d9' }}>기록 없음</span>}
+                        {insp.unverified && <span title="검사 기록이 없어 지난 검사는 받은 것으로 보고 이번 차례를 보여 줍니다. 사이버검사소에서 확인 후 차를 눌러 검사 기록을 남겨 주세요." style={{ fontSize: '0.75rem', fontWeight: 700, color: '#6d28d9' }}>기록 없음</span>}
                       </span>
                     ) : <span style={small}>등록일 없음</span>}
                   </td>
@@ -1182,7 +1182,7 @@ function VehicleServiceView({ showToast, currentUser }) {
                         <span>{r.carAge.limit}</span>
                         <span style={small}>{r.carAge.years}년{r.carAge.extendedOn?.length ? ` · 연장 ${r.carAge.extendedOn.length}회 완료` : ''}</span>
                         {age && <b style={{ color: age.fg }}>{ddayText(r.carAge.dday)} {age.label}</b>}
-                        {!age && needsExtensionForContract(r) && <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#a16207' }}>계약 중 만료</span>}
+                        {!age && needsExtensionForContract(r) && <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#a16207' }}>계약 중 만료</span>}
                       </span>
                     ) : <span style={small}>-</span>}
                   </td>
@@ -1202,7 +1202,7 @@ function VehicleServiceView({ showToast, currentUser }) {
         </table>
       </div>
 
-      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
         {Object.values(INSPECTION_LEVEL).map((l) => (
           <span key={l.label} style={{ background: l.bg, color: l.fg, fontWeight: 800, padding: '0 0.35rem', borderRadius: '4px', marginRight: '0.3rem' }}>{l.label}</span>
         ))}
@@ -1329,7 +1329,7 @@ function VehicleServiceView({ showToast, currentUser }) {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem' }}>
                         <strong style={{ color: 'var(--text-bright)' }}>{ymd(r.date)}</strong>
                         <span style={{ fontWeight: 700 }}>{r.kind}{r.checkRound ? ` ${r.checkRound}회차` : ''}</span>
-                        {r.status && r.status !== '완료' && <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#d97706' }}>{r.status}</span>}
+                        {r.status && r.status !== '완료' && <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#d97706' }}>{r.status}</span>}
                         {r.amount > 0 && <span style={{ color: 'var(--text-muted)' }}>{won(r.amount)}</span>}
                         <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.2rem' }}>
                           {r.fileName && (
@@ -1368,7 +1368,7 @@ function VehicleServiceView({ showToast, currentUser }) {
                       {(r.attachments || []).length > 1 && (
                         <div style={{ ...small, display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                           {r.attachments.map((a, i) => (
-                            <button key={a.savedPath || i} type="button" onClick={() => openFile(r, i)} style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 0, fontSize: '0.72rem' }}>
+                            <button key={a.savedPath || i} type="button" onClick={() => openFile(r, i)} style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 0, fontSize: '0.75rem' }}>
                               📎 {a.label || a.fileName}
                             </button>
                           ))}

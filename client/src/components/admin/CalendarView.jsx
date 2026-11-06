@@ -326,7 +326,7 @@ function CalendarView({ showToast, currentUser }) {
                             color: typeColor,
                             padding: '0.2rem 0.4rem',
                             borderRadius: '4px',
-                            fontSize: '0.7rem',
+                            fontSize: '0.75rem',
                             fontWeight: '700',
                             whiteSpace: 'nowrap',
                             overflow: 'hidden',
@@ -410,7 +410,7 @@ function CalendarView({ showToast, currentUser }) {
                       <td style={{ padding: '0.5rem 0.8rem', fontWeight: '700' }}>
                         {x.targetContract?.leaseCompany || x.targetContract?.customer?.name || x.title || '-'}
                         {x.invoice?.movedForHoliday && (
-                          <div style={{ fontSize: '0.72rem', color: '#d97706', fontWeight: '700' }}>
+                          <div style={{ fontSize: '0.75rem', color: '#d97706', fontWeight: '700' }}>
                             원래 {ymd(x.invoice.originalSendDate)} · 휴일이라 앞당김
                           </div>
                         )}

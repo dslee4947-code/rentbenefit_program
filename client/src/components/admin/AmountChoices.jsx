@@ -25,7 +25,7 @@ export default function AmountChoices({ candidates = [], value, onPick, surcharg
             onClick={() => onPick(c.amount)}
             title={isSurcharge ? '부가통행료는 청구하지 않습니다 (원금만 청구)' : `${c.label} 금액으로 바꿉니다`}
             style={{
-              padding: '0.1rem 0.45rem', borderRadius: '999px', fontSize: '0.7rem', fontWeight: 700,
+              padding: '0.1rem 0.45rem', borderRadius: '999px', fontSize: '0.75rem', fontWeight: 700,
               border: `1px solid ${active ? 'var(--primary)' : 'var(--border-color)'}`,
               background: active ? 'var(--primary)' : '#fff',
               color: active ? '#fff' : (isSurcharge ? 'var(--text-muted)' : 'var(--text-main)'),
@@ -38,7 +38,7 @@ export default function AmountChoices({ candidates = [], value, onPick, surcharg
         );
       })}
       {surcharge > 0 && (
-        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>부가통행료 {won(surcharge)}는 청구하지 않습니다</span>
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>부가통행료 {won(surcharge)}는 청구하지 않습니다</span>
       )}
     </div>
   );

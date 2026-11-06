@@ -92,12 +92,12 @@ export default function DriverChangeList({ items, loading, currentUser, showToas
               <tr key={`${x.scheduleId}-${x.roundNo}-${x.index}`} style={{ borderBottom: '1px solid var(--border-color)' }}>
                 <td style={{ ...td, fontWeight: 700 }}>
                   {x.partyName || '-'}
-                  <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', fontWeight: 600 }}>{x.contractNo}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>{x.contractNo}</div>
                 </td>
                 <td style={{ ...td, fontWeight: 700, color: 'var(--primary)', whiteSpace: 'nowrap' }}>{x.plateNo || '-'}</td>
                 <td style={td}>
                   {x.kind || '-'}
-                  <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)' }}>{x.noticeNo || ''}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{x.noticeNo || ''}</div>
                 </td>
                 <td style={{ ...td, whiteSpace: 'nowrap' }}>{ymd(x.occurredAt)}</td>
                 <td style={{ ...td, whiteSpace: 'nowrap' }}>{ymd(x.noticeDueDate)}</td>
@@ -106,8 +106,8 @@ export default function DriverChangeList({ items, loading, currentUser, showToas
                   {x.driverName
                     ? (<>
                       <b>{x.driverName}</b>
-                      {x.driverPhone && <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{x.driverPhone}</div>}
-                      {x.driverAddress && <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', maxWidth: '200px' }}>{x.driverAddress}</div>}
+                      {x.driverPhone && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{x.driverPhone}</div>}
+                      {x.driverAddress && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', maxWidth: '200px' }}>{x.driverAddress}</div>}
                     </>)
                     : <span style={{ color: '#dc2626', fontWeight: 700 }}>아직 없음</span>}
                 </td>
@@ -151,7 +151,7 @@ export default function DriverChangeList({ items, loading, currentUser, showToas
                 <input value={editing[k]} onChange={(e) => setEditing((f) => ({ ...f, [k]: e.target.value }))} style={input} />
               </label>
             ))}
-            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
               관공서 양식에 더 적을 칸(생년월일·면허번호 등)이 있으면 양식을 받은 뒤 여기에 늘립니다.
             </div>
             <div style={{ display: 'flex', gap: '0.4rem' }}>

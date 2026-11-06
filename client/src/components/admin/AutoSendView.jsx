@@ -481,7 +481,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
     cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1, whiteSpace: 'nowrap',
     display: 'inline-flex', alignItems: 'center', gap: '0.25rem'
   });
-  const chip = (color, bg) => ({ padding: '0.15rem 0.55rem', borderRadius: '999px', background: bg, color, fontWeight: 800, fontSize: '0.74rem', whiteSpace: 'nowrap' });
+  const chip = (color, bg) => ({ padding: '0.15rem 0.55rem', borderRadius: '999px', background: bg, color, fontWeight: 800, fontSize: '0.75rem', whiteSpace: 'nowrap' });
   const box = { background: '#fff', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '0.9rem 1rem' };
   const toField = (it) => (
     <input
@@ -520,7 +520,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
               {c.alert && <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#dc2626', marginLeft: 'auto' }} />}
             </div>
             <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-bright)', marginTop: '0.2rem' }}>{loading ? '…' : `${c.value}건`}</div>
-            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{c.sub}</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{c.sub}</div>
           </button>
         ))}
       </div>
@@ -570,7 +570,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
                   <span key={keyOf(it)} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', marginRight: '0.8rem' }}>
                     {nameOf(it)} {it.round.no}회차 ({ymd(it.round.dueDate)} 출금)
                     {canWrite && (
-                      <button type="button" style={{ ...btn(), padding: '0.05rem 0.4rem', fontSize: '0.7rem' }} disabled={Boolean(busy)} onClick={() => openReview([it])} title="아직 안 보냈으면 확인하고 승인합니다">
+                      <button type="button" style={{ ...btn(), padding: '0.05rem 0.4rem', fontSize: '0.75rem' }} disabled={Boolean(busy)} onClick={() => openReview([it])} title="아직 안 보냈으면 확인하고 승인합니다">
                         아직 안 보냄
                       </button>
                     )}
@@ -602,7 +602,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
                     {changed.map((it, i) => (
                       <tr key={keyOf(it)} style={{ boxShadow: paymentDayStripe(it.round.dueDate) }}>
                         <td style={{ ...cell, whiteSpace: 'nowrap', fontWeight: 700, color: it.sendDday <= 1 ? '#d97706' : 'var(--text-muted)' }}>{sendDayLabel(it.sendDday)}</td>
-                        <td style={cell}><strong>{nameOf(it)}</strong><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{it.carSummary || it.contract?.contractNo}<ExtensionTag contract={it.contract} /></div></td>
+                        <td style={cell}><strong>{nameOf(it)}</strong><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{it.carSummary || it.contract?.contractNo}<ExtensionTag contract={it.contract} /></div></td>
                         <td style={{ ...cell, whiteSpace: 'nowrap' }}><PaymentDayBadge date={it.round.dueDate} /> {it.round.no}/{it.totalRounds}</td>
                         <td style={{ ...cell, fontWeight: 800, whiteSpace: 'nowrap' }}>{won(it.expectedTotal)}</td>
                         <td style={cell}>
@@ -615,7 +615,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
                               <span key={c.key} style={chip('#92400e', '#fef3c7')}>{c.label}{c.amount ? ` ${signedWon(c.amount)}` : ''}</span>
                             ))}
                           </div>
-                          {it.round.autoSend?.message && <div style={{ fontSize: '0.72rem', color: 'var(--error)', marginTop: '0.2rem' }}>{it.round.autoSend.message}</div>}
+                          {it.round.autoSend?.message && <div style={{ fontSize: '0.75rem', color: 'var(--error)', marginTop: '0.2rem' }}>{it.round.autoSend.message}</div>}
                         </td>
                         <td style={cell}>{toField(it)}</td>
                         <td style={cell}>
@@ -683,7 +683,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
                             />
                           </td>
                           <td style={{ ...cell, whiteSpace: 'nowrap', fontWeight: 700, color: it.sendDday <= 1 ? '#d97706' : 'var(--text-muted)' }}>{sendDayLabel(it.sendDday)}</td>
-                          <td style={cell}><strong>{nameOf(it)}</strong> <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{it.carSummary || it.contract?.contractNo}</span><ExtensionTag contract={it.contract} /></td>
+                          <td style={cell}><strong>{nameOf(it)}</strong> <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{it.carSummary || it.contract?.contractNo}</span><ExtensionTag contract={it.contract} /></td>
                           <td style={{ ...cell, whiteSpace: 'nowrap' }}><PaymentDayBadge date={it.round.dueDate} /> {it.round.no}/{it.totalRounds} · {ymd(it.round.dueDate)}</td>
                           <td style={{ ...cell, fontWeight: 700, whiteSpace: 'nowrap' }}>{won(it.expectedTotal)}</td>
                           <td style={cell}>{toField(it)}</td>
@@ -740,12 +740,12 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
                         </tr>
                         {g.items.map((it) => (
                       <tr key={keyOf(it)} style={{ boxShadow: paymentDayStripe(it.round.dueDate) }}>
-                        <td style={{ ...cell, whiteSpace: 'nowrap', fontWeight: 700 }}>{sendDayLabel(it.sendDday)}<div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{ymd(it.sendDate)}</div></td>
+                        <td style={{ ...cell, whiteSpace: 'nowrap', fontWeight: 700 }}>{sendDayLabel(it.sendDday)}<div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 400 }}>{ymd(it.sendDate)}</div></td>
                         <td style={cell}><strong>{nameOf(it)}</strong></td>
                         <td style={{ ...cell, whiteSpace: 'nowrap' }}><PaymentDayBadge date={it.round.dueDate} /> {it.round.no}/{it.totalRounds} · {ymd(it.round.dueDate)}</td>
                         <td style={{ ...cell, fontWeight: 700, whiteSpace: 'nowrap' }}>{won(it.round.total)}</td>
                         <td style={cell}>{it.round.autoSend?.to}</td>
-                        <td style={{ ...cell, fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{it.round.autoSend?.approvedBy}<br />{mdhm(it.round.autoSend?.approvedAt)}</td>
+                        <td style={{ ...cell, fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{it.round.autoSend?.approvedBy}<br />{mdhm(it.round.autoSend?.approvedAt)}</td>
                         <td style={{ ...cell, whiteSpace: 'nowrap' }}>
                           <span style={{ display: 'inline-flex', gap: '0.3rem' }}>
                             <button type="button" style={btn()} onClick={() => openFile(roundUrl(it.scheduleId, it.round.no, 'auto-send/file'))}><FileText size={12} /> PDF</button>
@@ -810,9 +810,9 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
                       <tr key={k} style={{ boxShadow: paymentDayStripe(h.dueDate) }}>
                         <td style={cell}>
                           <span style={chip(st.color, st.bg)}>{h.result || '-'}</span>
-                          {h.message && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem', maxWidth: '220px' }}>{h.message}</div>}
+                          {h.message && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem', maxWidth: '220px' }}>{h.message}</div>}
                         </td>
-                        <td style={cell}><strong>{h.partyName}</strong> <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{h.contractNo}</span></td>
+                        <td style={cell}><strong>{h.partyName}</strong> <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{h.contractNo}</span></td>
                         <td style={{ ...cell, whiteSpace: 'nowrap' }}><PaymentDayBadge date={h.dueDate} /> {h.roundNo}/{h.totalRounds} · {ymd(h.dueDate)}</td>
                         <td style={{ ...cell, fontWeight: 700, whiteSpace: 'nowrap' }}>{won(h.total)}</td>
                         <td style={cell}>
@@ -826,7 +826,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
                             )
                             : h.to}
                         </td>
-                        <td style={{ ...cell, fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{mdhm(h.issuedAt)}<br />{h.sentAt ? `메일 ${mdhm(h.sentAt)}` : '메일 기록 없음'}</td>
+                        <td style={{ ...cell, fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{mdhm(h.issuedAt)}<br />{h.sentAt ? `메일 ${mdhm(h.sentAt)}` : '메일 기록 없음'}</td>
                         <td style={{ ...cell, whiteSpace: 'nowrap' }}>{h.via}</td>
                         <td style={{ ...cell, whiteSpace: 'nowrap' }}>
                           <span style={{ display: 'inline-flex', gap: '0.3rem' }}>
@@ -851,7 +851,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
                                 <button type="button" style={btn('warn')} disabled={Boolean(busy)} onClick={() => act(k, roundUrl(h.scheduleId, h.roundNo, 'auto-send/resolve'), json('POST', { received: false }), '고객이 받지 못했나요? 다시 보낼 수 있게 풉니다.')}>못 받음</button>
                               </>
                             )}
-                            {h.result === '보류' && <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>① 확인·승인에서 다시 승인</span>}
+                            {h.result === '보류' && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>① 확인·승인에서 다시 승인</span>}
                           </span>
                         </td>
                       </tr>
@@ -916,10 +916,10 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
                             onChange={() => setPayPicked((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; })}
                           />
                         </td>
-                        <td style={cell}><strong>{p.partyName}</strong> <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{p.contractNo}</span></td>
+                        <td style={cell}><strong>{p.partyName}</strong> <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{p.contractNo}</span></td>
                         <td style={cell}>{p.roundNo}회차</td>
                         <td style={{ ...cell, whiteSpace: 'nowrap' }}>
-                          <PaymentDayBadge date={p.dueDate} /> {ymd(p.dueDate)} <span style={{ color: p.inGrace ? 'var(--text-muted)' : 'var(--error)', fontSize: '0.74rem' }}>({p.daysPast}일 지남)</span>
+                          <PaymentDayBadge date={p.dueDate} /> {ymd(p.dueDate)} <span style={{ color: p.inGrace ? 'var(--text-muted)' : 'var(--error)', fontSize: '0.75rem' }}>({p.daysPast}일 지남)</span>
                           {p.inGrace && <span style={{ ...chip('#0284c7', '#e0f2fe'), marginLeft: '0.3rem' }}>15일 안 · 연체 아님</span>}
                         </td>
                         <td style={{ ...cell, fontWeight: 700 }}>{won(p.total)}</td>
@@ -1014,7 +1014,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
                             <button type="button" style={{ ...btn('warn'), justifyContent: 'center' }} disabled={Boolean(busy)} onClick={reviewOutside}>밖에서 이미 보냄으로 표시</button>
                           )}
                           <div style={{ borderTop: '1px dashed var(--border-color)', paddingTop: '0.5rem', marginTop: '0.2rem' }}>
-                            <div style={{ fontSize: '0.74rem', fontWeight: 700, marginBottom: '0.25rem' }}>시험 메일 (고객에게는 안 나감)</div>
+                            <div style={{ fontSize: '0.75rem', fontWeight: 700, marginBottom: '0.25rem' }}>시험 메일 (고객에게는 안 나감)</div>
                             <div style={{ display: 'flex', gap: '0.3rem' }}>
                               <input
                                 value={testMail}
@@ -1025,9 +1025,9 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
                                 <Send size={12} /> {busy === 'test' ? '보내는 중…' : '시험 메일'}
                               </button>
                             </div>
-                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>이 청구서를 시험 주소로만 보냅니다. 회차 상태와 승인은 그대로입니다.</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>이 청구서를 시험 주소로만 보냅니다. 회차 상태와 승인은 그대로입니다.</div>
                           </div>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                             금액을 고쳐야 하면 [장기렌트 청구서 › 청구 대상]에서 이 회차를 열어 고친 뒤 다시 오세요.
                           </div>
                         </div>

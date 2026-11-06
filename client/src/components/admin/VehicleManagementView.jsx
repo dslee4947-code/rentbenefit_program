@@ -907,7 +907,7 @@ function VehicleManagementView({ showToast, currentUser }) {
           </button>
           {/* 반납받은 차는 새 고객에게 재렌트한다. 차는 새로 만들지 않고 같은 원장에 이어 붙인다 */}
           {(v.status === '재고' || v.status === '단기렌트') && (
-            <button onClick={() => setRerentTarget(v)} title="새 고객에게 중고 장기렌트(재렌트)" style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', border: '1px solid var(--primary)', background: '#fff', color: 'var(--primary)', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '700', padding: '0.15rem 0.4rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <button onClick={() => setRerentTarget(v)} title="새 고객에게 중고 장기렌트(재렌트)" style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', border: '1px solid var(--primary)', background: '#fff', color: 'var(--primary)', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700', padding: '0.15rem 0.4rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
               <Repeat size={12} /> 재렌트
             </button>
           )}
@@ -1363,7 +1363,7 @@ function VehicleManagementView({ showToast, currentUser }) {
                       readOnly
                       style={{ ...inputStyle, background: 'var(--bg-main)', color: 'var(--text-muted)' }}
                     />
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
                       차량가 + 옵션가 + 탁송료 - 할인금액
                     </div>
                   </div>
@@ -1402,7 +1402,7 @@ function VehicleManagementView({ showToast, currentUser }) {
                   <div>
                     <label style={labelStyle}>면세금액 (원)</label>
                     <MoneyInput value={formData.taxExemptionAmount} onChange={(e) => setFormData({ ...formData, taxExemptionAmount: e.target.value })} style={inputStyle} />
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
                       국산차 렌터카 면세분. 장기렌트면 환입 대상입니다.
                     </div>
                   </div>
@@ -1570,7 +1570,7 @@ function VehicleManagementView({ showToast, currentUser }) {
                       readOnly
                       style={{ ...inputStyle, background: 'var(--bg-main)', color: 'var(--text-muted)' }}
                     />
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
                       이익금 ÷ 차량가 (저장하면 다시 계산됩니다)
                     </div>
                   </div>

@@ -74,13 +74,13 @@ export default function CalendarInboxPanel({ vehicles, onImported, showToast }) 
 
   const btn = (bg, fg) => ({ border: `1px solid ${bg === '#fff' ? 'var(--border-color)' : bg}`, background: bg, color: fg, padding: '0.3rem 0.6rem', borderRadius: '6px', fontSize: '0.76rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' });
   const input = { padding: '0.25rem 0.4rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.78rem', width: '90px', boxSizing: 'border-box' };
-  const small = { fontSize: '0.72rem', color: 'var(--text-muted)' };
+  const small = { fontSize: '0.75rem', color: 'var(--text-muted)' };
 
   return (
     <div style={{ border: `1px solid ${count ? '#93c5fd' : 'var(--border-color)'}`, borderRadius: '8px', background: count ? '#eff6ff' : '#fff' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.55rem 0.8rem', cursor: 'pointer' }} onClick={() => setOpen(!open)}>
         <b style={{ color: '#1e3a8a', fontSize: '0.86rem' }}>구글 캘린더 확인 대기 {waiting.length}건</b>
-        {flagged.length > 0 && <span style={{ fontSize: '0.74rem', fontWeight: 800, color: '#c2410c' }}>· 옮긴 뒤 바뀐 일정 {flagged.length}건</span>}
+        {flagged.length > 0 && <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#c2410c' }}>· 옮긴 뒤 바뀐 일정 {flagged.length}건</span>}
         <span style={small}>
           {data.configured ? `마지막으로 읽은 때 ${data.lastSyncAt ? `${ymd(data.lastSyncAt)} ${hm(data.lastSyncAt)}` : '-'} · 10분마다 읽음` : '캘린더 열쇠가 설정되지 않은 서버입니다'}
         </span>
@@ -106,8 +106,8 @@ export default function CalendarInboxPanel({ vehicles, onImported, showToast }) 
                   <b style={{ fontSize: '0.82rem' }}>{ymd(it.start)}</b>
                   <span style={{ fontSize: '0.82rem', color: 'var(--text-bright)' }}>{it.title}</span>
                   {it.htmlLink && <a href={it.htmlLink} target="_blank" rel="noreferrer" style={{ ...small, display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}>캘린더 <ExternalLink size={11} /></a>}
-                  {it.status === '번호없음' && <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#6d28d9' }}>차량번호 확인 필요</span>}
-                  {after && <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#c2410c' }}>{it.eventDeleted ? '옮긴 뒤 캘린더에서 지움' : '옮긴 뒤 캘린더에서 고침'} · 정비 기록을 확인해 주세요</span>}
+                  {it.status === '번호없음' && <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#6d28d9' }}>차량번호 확인 필요</span>}
+                  {after && <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#c2410c' }}>{it.eventDeleted ? '옮긴 뒤 캘린더에서 지움' : '옮긴 뒤 캘린더에서 고침'} · 정비 기록을 확인해 주세요</span>}
                 </div>
                 <div style={{ ...small, lineHeight: 1.5 }}>
                   {[p.carModel && `${p.carModel}`, p.shop && `입고 ${p.shop}`, p.staff && `담당 ${p.staff}`].filter(Boolean).join(' · ')}
@@ -128,7 +128,7 @@ export default function CalendarInboxPanel({ vehicles, onImported, showToast }) 
                       const on = e.kinds.includes(k);
                       return (
                         <button key={k} type="button" onClick={() => setEdit(it._id, { kinds: on ? e.kinds.filter((x) => x !== k) : [...e.kinds, k] })}
-                          style={{ ...btn(on ? '#1e3a8a' : '#fff', on ? '#fff' : 'var(--text-muted)'), padding: '0.2rem 0.45rem', fontSize: '0.72rem' }}>
+                          style={{ ...btn(on ? '#1e3a8a' : '#fff', on ? '#fff' : 'var(--text-muted)'), padding: '0.2rem 0.45rem', fontSize: '0.75rem' }}>
                           {k}
                         </button>
                       );

@@ -254,7 +254,7 @@ function UpcomingDocUpload({ onClose, onDone, showToast, currentUser }) {
                 <div style={{ fontSize: '0.76rem', color: 'var(--primary)', fontWeight: '700' }}>
                   {plateLabel(x)}
                 </div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                   {x.contractNo}
                   {x.upcoming ? ` · 다음 ${x.upcoming.no}회차` : ' · 남은 회차 없음'}
                 </div>
@@ -322,7 +322,7 @@ function UpcomingDocUpload({ onClose, onDone, showToast, currentUser }) {
             )}
           </div>
           {vehicles.length > 1 && (
-            <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '-0.2rem' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '-0.2rem' }}>
               차량 {vehicles.length}대 계약입니다. 해당 차량을 고르세요.
               {customPlate && (
                 <button
@@ -429,7 +429,7 @@ function UpcomingDocUpload({ onClose, onDone, showToast, currentUser }) {
                                 const target = list.find((x) => String(x.contractId) === String(c.contractId));
                                 if (target) pickContract(target);
                               }}
-                              style={{ marginLeft: '0.35rem', border: '1px dashed var(--primary)', background: '#fff', color: 'var(--primary)', padding: '0.05rem 0.4rem', borderRadius: '4px', fontSize: '0.73rem', fontWeight: '700', cursor: 'pointer' }}
+                              style={{ marginLeft: '0.35rem', border: '1px dashed var(--primary)', background: '#fff', color: 'var(--primary)', padding: '0.05rem 0.4rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer' }}
                             >
                               이 계약으로
                             </button>
@@ -452,7 +452,7 @@ function UpcomingDocUpload({ onClose, onDone, showToast, currentUser }) {
                           key={i}
                           type="button"
                           onClick={() => setAmount(c.amount)}
-                          style={{ marginLeft: '0.3rem', border: '1px dashed var(--border-color)', background: '#fff', color: 'var(--primary)', padding: '0.1rem 0.4rem', borderRadius: '4px', fontSize: '0.73rem', fontWeight: '700', cursor: 'pointer' }}
+                          style={{ marginLeft: '0.3rem', border: '1px dashed var(--border-color)', background: '#fff', color: 'var(--primary)', padding: '0.1rem 0.4rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer' }}
                         >
                           {Number(c.amount).toLocaleString()}
                         </button>
@@ -478,7 +478,7 @@ function UpcomingDocUpload({ onClose, onDone, showToast, currentUser }) {
             </button>
           )}
 
-          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
             {picked?.upcoming
               ? `올리면 ${picked.upcoming.no}회차 청구서에 붙고, 적어 둔 금액이 그 회차 청구액에 더해집니다.`
               : '파일을 고르면 차량번호로 계약을 찾아 줍니다. 못 찾으면 왼쪽에서 직접 고르세요.'}
@@ -498,7 +498,7 @@ function UpcomingDocUpload({ onClose, onDone, showToast, currentUser }) {
               <button
                 type="button"
                 onClick={() => setShowAllRounds((v) => !v)}
-                style={{ marginLeft: 'auto', border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-muted)', padding: '0.25rem 0.6rem', borderRadius: '5px', fontSize: '0.74rem', fontWeight: '700', cursor: 'pointer' }}
+                style={{ marginLeft: 'auto', border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-muted)', padding: '0.25rem 0.6rem', borderRadius: '5px', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer' }}
               >
                 {showAllRounds ? '지나온 회차만 보기' : `전체 ${rounds.length}회차 보기`}
               </button>
@@ -513,7 +513,7 @@ function UpcomingDocUpload({ onClose, onDone, showToast, currentUser }) {
               ['범칙금·과태료 누계', won(fineTotalAll)]
             ].map(([label, value]) => (
               <div key={label} style={{ background: 'var(--bg-main)', borderRadius: '6px', padding: '0.4rem 0.7rem', minWidth: '110px' }}>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: '600' }}>{label}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600' }}>{label}</div>
                 <div style={{ fontSize: '0.9rem', fontWeight: '800', color: 'var(--text-bright)', marginTop: '0.1rem' }}>{value}</div>
               </div>
             ))}
@@ -549,25 +549,25 @@ function UpcomingDocUpload({ onClose, onDone, showToast, currentUser }) {
                       <td style={{ padding: '0.35rem 0.5rem', textAlign: 'right' }}>
                         {r.fine ? <strong style={{ color: 'var(--error)' }}>{won(r.fine)}</strong> : (docs.length ? <span style={{ color: 'var(--text-muted)' }}>0원</span> : '-')}
                         {docs.length > 0 && (
-                          <div style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: '700' }}>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: '700' }}>
                             서류 {docs.length}건
                             {docs.some((a) => !Number(a.amount)) && <span style={{ color: '#d97706' }}> · 금액 미입력</span>}
                           </div>
                         )}
                         {docs.length > 0 && (
-                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                             {docs.map((a) => `${a.kind}${a.plateNo ? ` ${a.plateNo}` : ''}`).join(', ')}
                           </div>
                         )}
                       </td>
                       <td style={{ padding: '0.35rem 0.5rem', textAlign: 'right', fontWeight: '700' }}>{won(r.total)}</td>
                       <td style={{ padding: '0.35rem 0.5rem', textAlign: 'center' }}>
-                        <span style={{ background: st.bg, color: st.color, padding: '0.1rem 0.45rem', borderRadius: '20px', fontSize: '0.7rem', fontWeight: '700' }}>
+                        <span style={{ background: st.bg, color: st.color, padding: '0.1rem 0.45rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '700' }}>
                           {r.status}
                         </span>
-                        {r.paidAt && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{ymd(r.paidAt)}</div>}
+                        {r.paidAt && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{ymd(r.paidAt)}</div>}
                       </td>
-                      <td style={{ padding: '0.35rem 0.5rem', textAlign: 'center', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      <td style={{ padding: '0.35rem 0.5rem', textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                         {r.sentAt ? ymd(r.sentAt) : (r.issuedAt ? '저장만' : '-')}
                       </td>
                     </tr>
@@ -577,7 +577,7 @@ function UpcomingDocUpload({ onClose, onDone, showToast, currentUser }) {
             </table>
           </div>
 
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
             이 프로그램으로 발행한 건만 남습니다. 엑셀로 보내시던 지난 청구서는 여기에 없습니다.
           </div>
         </div>

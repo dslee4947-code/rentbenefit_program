@@ -9,7 +9,7 @@ function ExtensionTag({ contract }) {
   // 단기렌트 월 청구(자금팀 > 단기렌트 월 청구에서 등록한 건)
   if (contract?.rentalKind === '단기렌트') {
     return (
-      <span title="단기렌트 월 청구" style={{ marginLeft: '0.3rem', fontSize: '0.68rem', fontWeight: 800, color: '#b45309', border: '1px solid #fcd34d', background: '#fffbeb', borderRadius: '4px', padding: '0 0.3rem', whiteSpace: 'nowrap' }}>
+      <span title="단기렌트 월 청구" style={{ marginLeft: '0.3rem', fontSize: '0.75rem', fontWeight: 800, color: '#b45309', border: '1px solid #fcd34d', background: '#fffbeb', borderRadius: '4px', padding: '0 0.3rem', whiteSpace: 'nowrap' }}>
         단기
       </span>
     );
@@ -19,7 +19,7 @@ function ExtensionTag({ contract }) {
   return (
     <span
       title={prev ? `연장 계약 · 이전 계약 ${prev}${contract.extensionInfo?.previousLastRound ? ` ${contract.extensionInfo.previousLastRound}회 다음` : ''}` : '연장 계약'}
-      style={{ marginLeft: '0.3rem', fontSize: '0.68rem', fontWeight: 800, color: '#7c3aed', border: '1px solid #c4b5fd', background: '#f5f3ff', borderRadius: '4px', padding: '0 0.3rem', whiteSpace: 'nowrap' }}
+      style={{ marginLeft: '0.3rem', fontSize: '0.75rem', fontWeight: 800, color: '#7c3aed', border: '1px solid #c4b5fd', background: '#f5f3ff', borderRadius: '4px', padding: '0 0.3rem', whiteSpace: 'nowrap' }}
     >
       연장
     </span>

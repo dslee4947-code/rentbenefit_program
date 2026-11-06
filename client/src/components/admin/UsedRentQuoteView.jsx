@@ -427,7 +427,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
                   <b style={{ minWidth: '90px' }}>{v.plateNo || '-'}</b>
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.carModel}</span>
                   <span style={{ color: 'var(--text-muted)' }}>{party}</span>
-                  <span style={{ fontSize: '0.72rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: 'var(--bg-main)' }}>{v.status || '-'}</span>
+                  <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: 'var(--bg-main)' }}>{v.status || '-'}</span>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>인수가 {won(v.takeoverPrice)}</span>
                 </button>
               );
@@ -438,7 +438,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
 
       {/* 2. 차량 정보 */}
       <div style={card} className="no-print">
-        <div style={cardTitle}>■ 차량 정보 {quoteId && <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>(저장된 견적을 고치는 중)</span>}</div>
+        <div style={cardTitle}>■ 차량 정보 {quoteId && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>(저장된 견적을 고치는 중)</span>}</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.7rem' }}>
           {field('고객명(계약사)', <input value={car.partyName} onChange={(e) => setCarField({ partyName: e.target.value })} style={input} />)}
           {field('구분', (
@@ -488,7 +488,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
 
       {/* 3. 공통 조건 */}
       <div style={card} className="no-print">
-        <div style={cardTitle}>■ 공통 조건 <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>엑셀 '견적서 보고용' 기본값</span></div>
+        <div style={cardTitle}>■ 공통 조건 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>엑셀 '견적서 보고용' 기본값</span></div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.7rem' }}>
           {field('이자율 (연 %)', <input type="number" step="0.01" value={settings.baseInterestRate} onChange={(e) => setSettings((p) => ({ ...p, baseInterestRate: e.target.value }))} style={input} />)}
           {field('보험 (연)', <MoneyInput value={settings.insuranceFee} onChange={(e) => setSettings((p) => ({ ...p, insuranceFee: e.target.value }))} style={input} />)}
@@ -498,7 +498,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
           {field('정기점검 (월)', <MoneyInput value={settings.inspectionMonthly} onChange={(e) => setSettings((p) => ({ ...p, inspectionMonthly: e.target.value }))} style={input} />)}
           {field('타이어 1본', <MoneyInput value={settings.tireUnitCost} onChange={(e) => setSettings((p) => ({ ...p, tireUnitCost: e.target.value }))} style={input} />)}
         </div>
-        <div style={{ marginTop: '0.5rem', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+        <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
           자차 보험비 = 신차가격(천만 원 단위 올림) × 자차 보험율 · 자동차세는 배기량 기준(영업용) · 판관비 = 중고차 가격 × 3% · 이자율은 기간별로 0.10~0.31%p 더해집니다.
         </div>
       </div>
@@ -531,7 +531,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
               {inputRow('기간 (개월)', (o, i, r) => (
                 <div>
                   <input type="number" min="1" value={o.termMonths} onChange={(e) => setOpt(i, { termMonths: e.target.value })} style={{ ...optInput, borderColor: r.overAge ? '#dc2626' : undefined }} />
-                  {r.overAge && <div style={{ fontSize: '0.7rem', color: '#dc2626', marginTop: '0.15rem' }}>차령 한도 {ageLimit.maxMonths}개월 초과</div>}
+                  {r.overAge && <div style={{ fontSize: '0.75rem', color: '#dc2626', marginTop: '0.15rem' }}>차령 한도 {ageLimit.maxMonths}개월 초과</div>}
                 </div>
               ))}
               {inputRow('약정거리 (km/년)', (o, i) => <MoneyInput value={o.mileage} onChange={(e) => setOpt(i, { mileage: e.target.value })} style={optInput} />)}
@@ -608,7 +608,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
                   <div style={{ flex: '1 1 260px', fontSize: '0.86rem' }}>
                     <b style={{ fontSize: '0.95rem' }}>{i + 1}안</b>
                     <span style={{ marginLeft: '0.6rem' }}>{r.calc.months || '-'}개월 · 월 <b>{won(r.calc.monthlyFee)}원</b> · 인수가 {won(r.calc.takeoverPrice)}원{r.opt.maintenance ? ' · 정비 포함' : ''}</span>
-                    {why && <div style={{ fontSize: '0.74rem', color: '#b45309', marginTop: '0.15rem' }}>{why}</div>}
+                    {why && <div style={{ fontSize: '0.75rem', color: '#b45309', marginTop: '0.15rem' }}>{why}</div>}
                   </div>
                   <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                     {canWrite && (
@@ -632,7 +632,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
             <li>모두싸인으로 서명을 받습니다.</li>
             <li>서명 완료본을 <b>[연장 반영]</b>에 올리면 새 계약번호로 연장되고 청구·원장에 반영됩니다. 작성한 계약서는 새 계약의 전자계약서가 됩니다.</li>
           </ol>
-          <div style={{ marginTop: '0.3rem', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+          <div style={{ marginTop: '0.3rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
             연장 계약서는 약관 제2조③에 따라 신차와 같은 전체 계약서입니다(개인정보·신용조회 동의서는 갱신에도 유효해 다시 받지 않아도 됩니다).
           </div>
         </div>
@@ -643,7 +643,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
       <div className="comparison-sheet-section">
       <div className="print-fit-scroll m-fit-outer" ref={sheetOuterRef} style={{ overflowX: 'auto', ...fit.outer }}>
         <div ref={sheetRef} className={`used-rent-print-area print-fit m-doc${fit.outer ? ' m-fitted' : ''}`}
-          style={{ width: `${SHEET_WIDTH_PX}px`, height: `${SHEET_HEIGHT_PX}px`, margin: '0 auto', background: '#fff', padding: `${SHEET_MARGIN_PX}px`, color: '#000', fontFamily: "'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif", fontSize: '0.76rem', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden', boxShadow: '0 0 0 1px var(--border-color)', ...fit.inner }}>
+          style={{ width: `${SHEET_WIDTH_PX}px`, height: `${SHEET_HEIGHT_PX}px`, margin: '0 auto', background: '#fff', padding: `${SHEET_MARGIN_PX}px`, color: '#000', fontFamily: "'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif", fontSize: '12.16px', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden', boxShadow: '0 0 0 1px var(--border-color)', ...fit.inner }}>
           <UsedRentSheet kind={kind} car={car} rows={sheetRows} ageLimit={ageLimit} remark={remark} createdBy={createdBy} />
         </div>
       </div>
@@ -656,17 +656,17 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
       )}
 
       {listOpen && (
-        <div onClick={() => setListOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 1rem' }}>
+        <div onClick={() => setListOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 16px' }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', width: 'min(720px, 100%)', maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.9rem 1.1rem', borderBottom: '1px solid var(--border-color)', fontWeight: 800 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14.4px 17.6px', borderBottom: '1px solid var(--border-color)', fontWeight: 800 }}>
               저장한 {K.saved}
               <button type="button" onClick={() => setListOpen(false)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}><X size={18} /></button>
             </div>
             {!list.length ? (
-              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>저장한 {K.saved}이 없습니다.</div>
+              <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>저장한 {K.saved}이 없습니다.</div>
             ) : list.map((q) => (
               <button key={q._id} type="button" onClick={() => loadQuote(q)}
-                style={{ display: 'flex', width: '100%', gap: '0.7rem', padding: '0.6rem 1.1rem', border: 'none', borderBottom: '1px solid var(--border-color)', background: '#fff', cursor: 'pointer', textAlign: 'left', fontSize: '0.85rem' }}>
+                style={{ display: 'flex', width: '100%', gap: '11.2px', padding: '9.6px 17.6px', border: 'none', borderBottom: '1px solid var(--border-color)', background: '#fff', cursor: 'pointer', textAlign: 'left', fontSize: '13.6px' }}>
                 <span style={{ color: 'var(--text-muted)', minWidth: '84px' }}>{kstYmd(q.createdAt)}</span>
                 <b style={{ minWidth: '120px' }}>{q.customerName || '-'}</b>
                 <span style={{ flex: 1 }}>{q.vehicleModel} {q.vehicleSpec || ''}</span>
@@ -698,25 +698,25 @@ function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', borderBottom: '2.5px double #000', paddingBottom: '0.6rem' }}>
-        <div style={{ width: '150px' }}><span style={{ fontSize: '1.1rem', fontWeight: '800', color: '#111e38' }}>(주)렌트베네핏</span></div>
-        <h2 style={{ fontSize: '1.8rem', fontWeight: '800', color: '#111e38', margin: 0, letterSpacing: '2px', flex: 1, textAlign: 'center' }}>{K.title}</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6.4px', borderBottom: '2.5px double #000', paddingBottom: '9.6px' }}>
+        <div style={{ width: '150px' }}><span style={{ fontSize: '17.6px', fontWeight: '800', color: '#111e38' }}>(주)렌트베네핏</span></div>
+        <h2 style={{ fontSize: '28.8px', fontWeight: '800', color: '#111e38', margin: 0, letterSpacing: '2px', flex: 1, textAlign: 'center' }}>{K.title}</h2>
         <div style={{ display: 'flex', justifyContent: 'flex-end', width: '150px' }}><img src="/logo.png" alt="RENT BENefit" style={{ maxWidth: '120px', height: 'auto' }} /></div>
       </div>
 
-      <div style={{ display: 'flex', gap: '1.0rem', marginBottom: '0.3rem' }}>
-        <table style={{ width: '50%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.74rem' }}>
+      <div style={{ display: 'flex', gap: '16px', marginBottom: '4.8px' }}>
+        <table style={{ width: '50%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '11.84px' }}>
           <tbody>
-            <tr><td style={{ ...cellHead, width: '25%' }}>고객명</td><td style={{ ...cell, fontWeight: '700', fontSize: '0.78rem' }}>{car.partyName || '-'} 귀하</td></tr>
-            <tr><td style={cellHead}>차종</td><td style={{ ...cell, fontWeight: '600', fontSize: '0.72rem' }}>{car.carModel || '차종 미입력'}</td></tr>
-            <tr><td style={cellHead}>차량번호</td><td style={{ ...cell, fontWeight: '700' }}>{car.plateNo || '-'}{car.registrationDate ? <span style={{ fontWeight: 500, fontSize: '0.7rem' }}> (최초등록 {car.registrationDate})</span> : null}</td></tr>
+            <tr><td style={{ ...cellHead, width: '25%' }}>고객명</td><td style={{ ...cell, fontWeight: '700', fontSize: '12.48px' }}>{car.partyName || '-'} 귀하</td></tr>
+            <tr><td style={cellHead}>차종</td><td style={{ ...cell, fontWeight: '600', fontSize: '11.52px' }}>{car.carModel || '차종 미입력'}</td></tr>
+            <tr><td style={cellHead}>차량번호</td><td style={{ ...cell, fontWeight: '700' }}>{car.plateNo || '-'}{car.registrationDate ? <span style={{ fontWeight: 500, fontSize: '11.2px' }}> (최초등록 {car.registrationDate})</span> : null}</td></tr>
             {/* 연장 견적서에는 계약 가능 기간(차령 한도)을 넣지 않는다(대표님 2026-11-02). 한도는 화면에서만 본다 */}
             {isExt ? (
               <tr><td style={cellHead}>연장 시작일</td><td style={{ ...cell, fontWeight: '700' }}>{car.startDate || '-'}</td></tr>
             ) : (
               <tr>
                 <td style={cellHead}>계약 가능 기간</td>
-                <td style={{ ...cell, color: '#d9534f', fontWeight: '700', fontSize: '0.72rem' }}>
+                <td style={{ ...cell, color: '#d9534f', fontWeight: '700', fontSize: '11.52px' }}>
                   {ageLimit && ageLimit.maxMonths !== null ? `최대 ${monthsLabel(ageLimit.maxMonths)} (${ageLimit.lastDay}까지 반납)` : '-'}
                 </td>
               </tr>
@@ -724,16 +724,16 @@ function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
             {isExt ? (
               <tr>
                 <td style={cellHead}>현재 계약</td>
-                <td style={{ ...cell, fontSize: '0.70rem' }}>
+                <td style={{ ...cell, fontSize: '11.2px' }}>
                   {car.contractNo || '-'} · 만기 {car.contractEnd || '-'} · 월 {won(car.currentMonthlyFee)}원
                 </td>
               </tr>
             ) : (
-              <tr><td style={cellHead}>옵션</td><td style={{ ...cell, fontSize: '0.70rem', color: '#d9534f', fontWeight: '600' }}>{car.options || '-'}</td></tr>
+              <tr><td style={cellHead}>옵션</td><td style={{ ...cell, fontSize: '11.2px', color: '#d9534f', fontWeight: '600' }}>{car.options || '-'}</td></tr>
             )}
           </tbody>
         </table>
-        <table style={{ width: '50%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.74rem' }}>
+        <table style={{ width: '50%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '11.84px' }}>
           <tbody>
             <tr><td style={{ ...cellHead, width: '25%' }}>작성일</td><td style={{ ...cell, textAlign: 'center' }}>{today}</td></tr>
             <tr><td style={{ ...cellHead, whiteSpace: 'nowrap' }}>견적서 보관 기간</td><td style={{ ...cell, textAlign: 'center' }}>작성일로부터 10일 간 보관</td></tr>
@@ -741,7 +741,7 @@ function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
             <tr><td style={cellHead}>담당자</td><td style={{ ...cell, textAlign: 'center', fontWeight: '700' }}>{createdBy} 팀장</td></tr>
             <tr>
               <td style={cellHead}>연락처</td>
-              <td style={{ padding: '2px 6px', border: '1px solid #000', fontSize: '0.70rem' }}>
+              <td style={{ padding: '2px 6px', border: '1px solid #000', fontSize: '11.2px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>TEL</span><span>02-547-0303 / 010-9061-3000</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dotted #ccc', paddingTop: '1px', marginTop: '1px' }}><span>FAX</span><span>02-529-3303</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dotted #ccc', paddingTop: '1px', marginTop: '1px' }}><span>E-Mail</span><span style={{ color: '#0056b3', textDecoration: 'underline' }}>rent@sdibenefit.com</span></div>
@@ -751,13 +751,13 @@ function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
         </table>
       </div>
 
-      <div style={{ background: '#fafafa', border: '1px solid #adadad', padding: '4px 10px', fontSize: '0.68rem', color: '#333', marginBottom: '0.3rem', borderRadius: '4px', lineHeight: '1.3' }}>
+      <div style={{ background: '#fafafa', border: '1px solid #adadad', padding: '4px 10px', fontSize: '10.88px', color: '#333', marginBottom: '4.8px', borderRadius: '4px', lineHeight: '1.3' }}>
         <div style={{ fontWeight: '700', textAlign: 'center', marginBottom: '1px' }}>• 매출액 10억 이하인 경우 및 최근 2개년 재무제표 미제출시에 한함 •</div>
         <div>1. 기업의 신용도 판단 목적으로 대표자의 개인신용정보를 조회할 경우, 렌트베네핏은 해당 기업의 대표자에게 조회 사실 및 이유 등을 사전 고지하여야 합니다.</div>
         <div>2. 렌트베네핏에 장기 견적을 요청한 업무담당자께서는 귀사의 대표자에게 신용조회가 발생할 수 있음을 반드시 사전 보고해 주시기 바랍니다.</div>
       </div>
 
-      <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.74rem', marginBottom: '0.1rem' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '11.84px', marginBottom: '1.6px' }}>
         <thead>
           <tr style={{ background: '#dcdcdc', borderBottom: '1.5px solid #000' }}>
             {[['구분', '6%'], ['차종', '32%'], ['수량', '6%'], ['계약기간', '8%'], [K.sheetPriceHead, '12%'], ['보증금', '9%'], ['선수금', '9%'], ['인수가', '9%'], ['월대여료', '11%']].map(([t, w]) => (
@@ -771,11 +771,11 @@ function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
             if (!r) {
               return (
                 <React.Fragment key={index}>
-                  <tr style={{ height: '1.4rem' }}>
+                  <tr style={{ height: '22.4px' }}>
                     <td rowSpan={2} style={{ textAlign: 'center', border: '1px solid #000', fontWeight: '700', background: '#fafafa', color: '#ccc' }}>{index + 1}</td>
                     {Array.from({ length: 8 }).map((_, k) => <td key={k} style={{ border: '1px solid #000' }}></td>)}
                   </tr>
-                  <tr className="quote-sub-row" style={{ height: '1.1rem' }}>
+                  <tr className="quote-sub-row" style={{ height: '17.6px' }}>
                     <td style={{ border: '1px solid #000' }}></td><td colSpan={3} style={{ border: '1px solid #000' }}></td>
                     {Array.from({ length: 4 }).map((_, k) => <td key={k} style={{ border: '1px solid #000' }}></td>)}
                   </tr>
@@ -787,9 +787,9 @@ function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
             const sub = { textAlign: 'right', padding: '2px 4px', border: '1px solid #000', color: '#555', fontWeight: '600' };
             return (
               <React.Fragment key={index}>
-                <tr style={{ height: '1.5rem' }}>
+                <tr style={{ height: '24px' }}>
                   <td rowSpan={2} style={{ textAlign: 'center', padding: '4px 2px', border: '1px solid #000', fontWeight: '700', background: '#fafafa' }}>{index + 1}</td>
-                  <td style={{ padding: '4px 4px', border: '1px solid #000', fontWeight: '700', fontSize: '0.70rem' }}>{car.carModel}</td>
+                  <td style={{ padding: '4px 4px', border: '1px solid #000', fontWeight: '700', fontSize: '11.2px' }}>{car.carModel}</td>
                   <td style={{ textAlign: 'center', border: '1px solid #000' }}>1</td>
                   <td style={{ textAlign: 'center', border: '1px solid #000' }}>{calc.months}</td>
                   <td style={num}>{won(calc.usedPrice)}</td>
@@ -798,7 +798,7 @@ function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
                   <td style={num}>{won(calc.takeoverPrice)}</td>
                   <td style={{ ...num, fontWeight: '700', color: '#111e38' }}>{won(calc.monthlyFee)}</td>
                 </tr>
-                <tr className="quote-sub-row" style={{ fontSize: '0.66rem', height: '1.2rem' }}>
+                <tr className="quote-sub-row" style={{ fontSize: '10.56px', height: '19.2px' }}>
                   <td style={{ padding: '2px 4px', border: '1px solid #000', color: '#555' }}>정비 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <strong>{opt.maintenance ? '가입' : '미가입'}</strong></td>
                   <td colSpan={3} style={{ border: '1px solid #000' }}></td>
                   <td style={sub}>{rate(calc.deposit)}</td>
@@ -811,20 +811,20 @@ function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
           })}
         </tbody>
       </table>
-      <div style={{ textAlign: 'right', fontSize: '0.62rem', color: '#555', marginBottom: '0.2rem', fontWeight: '600' }}>
+      <div style={{ textAlign: 'right', fontSize: '9.92px', color: '#555', marginBottom: '3.2px', fontWeight: '600' }}>
         대당 / {isExt ? '현재 인수가 기준' : '차량가격: 중고차 가격'} / 월대여료 : VAT포함
       </div>
 
-      <div style={{ background: '#fdfbfa', border: '1px dashed #ad885c', padding: '4px 8px', fontSize: '0.66rem', color: '#555', marginBottom: '0.3rem', lineHeight: '1.35' }}>
+      <div style={{ background: '#fdfbfa', border: '1px dashed #ad885c', padding: '4px 8px', fontSize: '10.56px', color: '#555', marginBottom: '4.8px', lineHeight: '1.35' }}>
         <div>• 상기 견적 금액은 운용대수(계약대수/차량보유대수), 차량가 변동 또는 정부 시책에 따라 변동될 수 있습니다.</div>
         <div>• 선납금을 선택하신 경우, 상기 월대여료는 선납금을 계약기간으로 균등하게 나눈 금액을 <b>이미 차감한 실제 매월 납부 금액</b>입니다.</div>
         {!isExt && <div>• 렌터카는 법정 차령(차량 연식) 안에서만 운행할 수 있어, 계약 기간은 위 '계약 가능 기간'을 넘을 수 없습니다.</div>}
         {isExt && <div>• 연장 계약은 {car.startDate || '현재 계약 만기일'}부터 시작하며, 현재 계약의 보증금은 연장 계약으로 그대로 승계됩니다.</div>}
       </div>
 
-      <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.3rem' }}>
-        <div style={{ width: '50%', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.68rem' }}>
+      <div style={{ display: 'flex', gap: '9.6px', marginBottom: '4.8px' }}>
+        <div style={{ width: '50%', display: 'flex', flexDirection: 'column', gap: '6.4px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '10.88px' }}>
             <thead><tr style={{ background: '#dcdcdc', borderBottom: '1px solid #000' }}><th style={{ padding: '3px', fontWeight: '700' }}>월대여료 포함사항</th></tr></thead>
             <tbody>
               <tr>
@@ -836,7 +836,7 @@ function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
               </tr>
             </tbody>
           </table>
-          <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.66rem' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '10.56px' }}>
             <thead><tr style={{ background: '#dcdcdc', borderBottom: '1px solid #000' }}><th colSpan={4} style={{ padding: '3px', fontWeight: '700' }}>보험 가입 내용</th></tr></thead>
             <tbody>
               {[
@@ -859,8 +859,8 @@ function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
           </table>
         </div>
 
-        <div style={{ width: '50%', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.68rem' }}>
+        <div style={{ width: '50%', display: 'flex', flexDirection: 'column', gap: '3.2px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '10.88px' }}>
             <thead><tr style={{ background: '#dcdcdc', borderBottom: '1px solid #000' }}><th colSpan={2} style={{ padding: '3px', fontWeight: '700' }}>대여 조건</th></tr></thead>
             <tbody>
               <tr>
@@ -871,7 +871,7 @@ function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
               <tr><td style={{ background: '#fafafa', padding: '3px 6px', border: '1px solid #000', fontWeight: '700' }}>• 연체 이율</td><td style={{ padding: '3px 6px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>연 25%</td></tr>
             </tbody>
           </table>
-          <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.66rem' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '10.56px' }}>
             <thead><tr style={{ background: '#dcdcdc', borderBottom: '1px solid #000' }}><th colSpan={3} style={{ padding: '3px', fontWeight: '700' }}>차량 관리 서비스</th></tr></thead>
             <tbody>
               <tr>
@@ -900,13 +900,13 @@ function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
       </div>
 
       {/* 남은 세로 공간을 비고·특약사항이 가져간다 */}
-      <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.3rem', flex: 1, minHeight: '80px' }}>
-        <div style={{ width: '50%', display: 'flex', flexDirection: 'column', border: '1.5px solid #000', fontSize: '0.68rem' }}>
+      <div style={{ display: 'flex', gap: '9.6px', marginBottom: '4.8px', flex: 1, minHeight: '80px' }}>
+        <div style={{ width: '50%', display: 'flex', flexDirection: 'column', border: '1.5px solid #000', fontSize: '10.88px' }}>
           <div style={{ background: '#dcdcdc', borderBottom: '1px solid #000', padding: '3px', fontWeight: '700', textAlign: 'center' }}>비고</div>
           <div style={{ flex: 1, padding: '5px 8px', color: '#333', whiteSpace: 'pre-wrap', lineHeight: '1.4', overflow: 'hidden' }}>{remark}</div>
         </div>
-        <div style={{ width: '50%', display: 'flex', flexDirection: 'column', border: '1.5px solid #000', fontSize: '0.66rem' }}>
-          <div style={{ background: '#dcdcdc', borderBottom: '1px solid #000', padding: '3px', fontWeight: '700', textAlign: 'center', fontSize: '0.68rem' }}>특약사항</div>
+        <div style={{ width: '50%', display: 'flex', flexDirection: 'column', border: '1.5px solid #000', fontSize: '10.56px' }}>
+          <div style={{ background: '#dcdcdc', borderBottom: '1px solid #000', padding: '3px', fontWeight: '700', textAlign: 'center', fontSize: '10.88px' }}>특약사항</div>
           <div style={{ flex: 1, padding: '5px 8px', lineHeight: '1.4', color: '#333', overflow: 'hidden' }}>
             <div>• 계약 종료 후 인수하시는 경우 이전등록 비용(취득세 등)은 인수자 부담입니다.</div>
             <div style={{ marginTop: '2px' }}>• 전기차의 대차는 내연기관 차량으로 제공됩니다.</div>
@@ -914,17 +914,17 @@ function UsedRentSheet({ kind, car, rows, ageLimit, remark, createdBy }) {
         </div>
       </div>
 
-      <div style={{ border: '1px solid #000', padding: '4px 8px', fontSize: '0.68rem', marginBottom: '0.4rem', display: 'flex', gap: '0.4rem', lineHeight: '1.25' }}>
+      <div style={{ border: '1px solid #000', padding: '4px 8px', fontSize: '10.88px', marginBottom: '6.4px', display: 'flex', gap: '6.4px', lineHeight: '1.25' }}>
         <div style={{ fontWeight: '800', whiteSpace: 'nowrap' }}>계약시 필요서류</div>
         <div style={{ color: '#333' }}><strong>• 법인:</strong> 법인등기부등본(원본), 법인인감증명서(원본), 사업자등록증(사본), 사용인감사용시 사용인감계, 대리인 날인시 위임장, CMS통장사본</div>
       </div>
 
-      <div style={{ textAlign: 'center', marginTop: '0.2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.1rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'baseline', gap: '1.2rem' }}>
-          <span style={{ fontSize: '1.1rem', fontWeight: '800', letterSpacing: '2px', color: '#111e38' }}>주식회사 렌트베네핏</span>
-          <span style={{ fontSize: '1.0rem', fontWeight: '800', color: '#111e38' }}>대표이사 신 동 일</span>
+      <div style={{ textAlign: 'center', marginTop: '3.2px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.6px' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'baseline', gap: '19.2px' }}>
+          <span style={{ fontSize: '17.6px', fontWeight: '800', letterSpacing: '2px', color: '#111e38' }}>주식회사 렌트베네핏</span>
+          <span style={{ fontSize: '16px', fontWeight: '800', color: '#111e38' }}>대표이사 신 동 일</span>
         </div>
-        <div style={{ fontSize: '0.70rem', fontWeight: '800', letterSpacing: '3px', color: '#ad885c', marginTop: '0.2rem' }}>TOTAL CAR PREMIUM SOLUTION</div>
+        <div style={{ fontSize: '11.2px', fontWeight: '800', letterSpacing: '3px', color: '#ad885c', marginTop: '3.2px' }}>TOTAL CAR PREMIUM SOLUTION</div>
       </div>
     </>
   );

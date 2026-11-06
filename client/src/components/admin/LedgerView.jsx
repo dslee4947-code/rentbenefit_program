@@ -298,7 +298,7 @@ function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount,
               <tbody key={b.key}>
                 {b.heading && (
                   <tr>
-                    <td colSpan={hasDue ? 4 : 3} style={{ padding: '0.35rem 0.6rem', fontSize: '0.72rem', fontWeight: '800', background: 'var(--bg-main)', color: 'var(--text-muted)' }}>
+                    <td colSpan={hasDue ? 4 : 3} style={{ padding: '0.35rem 0.6rem', fontSize: '0.75rem', fontWeight: '800', background: 'var(--bg-main)', color: 'var(--text-muted)' }}>
                       {b.heading}
                     </td>
                   </tr>
@@ -309,7 +309,7 @@ function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount,
                   return (
                     <tr key={r.round} style={{ borderBottom: '1px solid var(--border-color)', background: r.paid ? '#fff' : (r.free ? '#f8fafc' : (r.overdue ? '#fef2f2' : '#fffdf7')) }}>
                       <td style={{ ...cellPad, fontSize: '0.78rem', fontWeight: '700' }}>{r.round}회</td>
-                      {hasDue && <td style={{ ...cellPad, fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{r.dueDate || '-'}</td>}
+                      {hasDue && <td style={{ ...cellPad, fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{r.dueDate || '-'}</td>}
                       <td style={{ ...cellPad, fontSize: '0.78rem', textAlign: 'right', whiteSpace: 'nowrap', color: r.paid ? 'inherit' : 'var(--text-muted)' }}>
                         {isFixing ? (
                           <MoneyInput
@@ -332,12 +332,12 @@ function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount,
                           : r.free && !r.paid ? <span style={{ color: 'var(--text-muted)' }}>0 · 쉼</span>
                           : (r.paid ? toCommaString(r.paidAmount) : ((r.expected ?? b.defaultAmount) ? toCommaString(r.expected ?? b.defaultAmount) : '-')))}
                         {r.note && !isPaying && (
-                          <div style={{ fontSize: '0.66rem', color: r.noteColor || 'var(--text-muted)', whiteSpace: 'normal' }} title={r.noteTitle || '자동이체 수수료를 떼고 들어온 회차입니다'}>{r.note}</div>
+                          <div style={{ fontSize: '0.75rem', color: r.noteColor || 'var(--text-muted)', whiteSpace: 'normal' }} title={r.noteTitle || '자동이체 수수료를 떼고 들어온 회차입니다'}>{r.note}</div>
                         )}
                       </td>
                       <td style={{ ...cellPad, whiteSpace: 'nowrap' }}>
                         {r.combinedInto ? (
-                          <span style={{ display: 'block', textAlign: 'center', fontSize: '0.72rem', fontWeight: 700, color: '#15803d' }} title="몰아서 들어온 돈입니다. 금액은 들어온 회차에 있습니다.">→ {r.combinedInto}회 때 함께 입금</span>
+                          <span style={{ display: 'block', textAlign: 'center', fontSize: '0.75rem', fontWeight: 700, color: '#15803d' }} title="몰아서 들어온 돈입니다. 금액은 들어온 회차에 있습니다.">→ {r.combinedInto}회 때 함께 입금</span>
                         ) : r.paid && isFixing ? (
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
                             <input
@@ -354,7 +354,7 @@ function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount,
                         ) : r.paid ? (
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', justifyContent: 'center' }}>
                             <Check size={13} color={accent} />
-                            <span style={{ fontSize: '0.74rem', color: accent, fontWeight: '700' }}>{r.paidDate || '날짜 없음'}</span>
+                            <span style={{ fontSize: '0.75rem', color: accent, fontWeight: '700' }}>{r.paidDate || '날짜 없음'}</span>
                             {canEdit && onEdit && (
                               <button type="button" onClick={() => startFix(b, r)} title={`${verb} 금액·날짜 수정`} style={iconBtn('var(--primary)')}>
                                 <Pencil size={13} />
@@ -381,20 +381,20 @@ function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount,
                             <button type="button" onClick={() => setPaying(null)} title="닫기" style={iconBtn('var(--text-muted)')}><X size={14} /></button>
                           </div>
                         ) : r.free ? (
-                          <span style={{ display: 'block', textAlign: 'center', fontSize: '0.72rem', color: 'var(--text-muted)' }} title="렌트료 표에서 0원인 달입니다. 이 계약은 11개월 받고 12개월째는 받지 않습니다.">청구 없음 (쉬는 달)</span>
+                          <span style={{ display: 'block', textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)' }} title="렌트료 표에서 0원인 달입니다. 이 계약은 11개월 받고 12개월째는 받지 않습니다.">청구 없음 (쉬는 달)</span>
                         ) : canEdit ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-                          {r.overdue && <span style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 800, color: '#dc2626' }}>미입금</span>}
+                          {r.overdue && <span style={{ textAlign: 'center', fontSize: '0.75rem', fontWeight: 800, color: '#dc2626' }}>미입금</span>}
                           <button
                             type="button"
                             onClick={() => startPay(b, r.round)}
-                            style={{ width: '100%', border: `1px solid ${accent}`, background: '#fff', color: accent, borderRadius: '6px', padding: '0.25rem 0', fontSize: '0.74rem', fontWeight: '700', cursor: 'pointer' }}
+                            style={{ width: '100%', border: `1px solid ${accent}`, background: '#fff', color: accent, borderRadius: '6px', padding: '0.25rem 0', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer' }}
                           >
                             {verb} 완료
                           </button>
                           </div>
                         ) : (
-                          <span style={{ fontSize: '0.74rem', color: r.overdue ? '#dc2626' : 'var(--text-muted)', fontWeight: r.overdue ? 800 : 400 }}>미{verb}</span>
+                          <span style={{ fontSize: '0.75rem', color: r.overdue ? '#dc2626' : 'var(--text-muted)', fontWeight: r.overdue ? 800 : 400 }}>미{verb}</span>
                         )}
                       </td>
                     </tr>
@@ -407,7 +407,7 @@ function RoundChecklist({ title, verb, accent, tint, blocks, canEdit, askAmount,
             <button
               type="button"
               onClick={onAddRound}
-              style={{ width: '100%', border: 'none', borderTop: '1px dashed var(--border-color)', background: '#fff', color: 'var(--text-muted)', padding: '0.4rem', fontSize: '0.74rem', fontWeight: '600', cursor: 'pointer' }}
+              style={{ width: '100%', border: 'none', borderTop: '1px dashed var(--border-color)', background: '#fff', color: 'var(--text-muted)', padding: '0.4rem', fontSize: '0.75rem', fontWeight: '600', cursor: 'pointer' }}
             >
               <Plus size={12} style={{ verticalAlign: '-2px' }} /> 회차 추가
             </button>
@@ -623,7 +623,7 @@ function RecoveryList({ matches }) {
   if (!matches.length) return null;
   const missing = matches.filter((m) => !m.via).length;
   return (
-    <details style={{ margin: '0.2rem 0 0.3rem', padding: '0.3rem 0.45rem', background: 'var(--bg-main)', borderRadius: '6px', fontSize: '0.7rem', lineHeight: 1.55 }}>
+    <details style={{ margin: '0.2rem 0 0.3rem', padding: '0.3rem 0.45rem', background: 'var(--bg-main)', borderRadius: '6px', fontSize: '0.75rem', lineHeight: 1.55 }}>
       <summary style={{ cursor: 'pointer', fontWeight: '700', color: missing ? '#d9534f' : 'var(--text-muted)' }}>
         건별로 보기 · {matches.length}건 중 돌려받은 곳 못 찾음 {missing}건
       </summary>
@@ -648,7 +648,7 @@ function Meter({ used, budget, limit = 100 }) {
       <div style={{ flex: 1, height: '6px', background: 'var(--bg-main)', borderRadius: '3px', overflow: 'hidden' }}>
         <div style={{ width: `${Math.min(p, 100)}%`, height: '100%', background: color }} />
       </div>
-      <span style={{ fontSize: '0.74rem', fontWeight: '800', color, minWidth: '3.2rem', textAlign: 'right' }}>{p}% 사용</span>
+      <span style={{ fontSize: '0.75rem', fontWeight: '800', color, minWidth: '3.2rem', textAlign: 'right' }}>{p}% 사용</span>
     </div>
   );
 }
@@ -712,10 +712,10 @@ function MaintenanceByItem({ plan, actual }) {
     }
   });
 
-  const cell = { padding: '0.22rem 0.3rem', borderBottom: '1px solid var(--border-color)', fontSize: '0.72rem' };
+  const cell = { padding: '0.22rem 0.3rem', borderBottom: '1px solid var(--border-color)', fontSize: '0.75rem' };
   return (
     <div style={{ marginTop: '0.6rem' }}>
-      <div style={{ fontSize: '0.74rem', fontWeight: '800', marginBottom: '0.25rem' }}>
+      <div style={{ fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.25rem' }}>
         항목별 견적 대 실제{plan.gradeLabel ? ` · 정비 단가표 ${plan.gradeLabel}` : ''}
       </div>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -737,7 +737,7 @@ function MaintenanceByItem({ plan, actual }) {
                 <td style={cell} title={r.unitText.join(' + ')}>
                   {r.name}
                   {r.notInQuote && <span style={{ color: '#d9534f' }}> (견적에 없음)</span>}
-                  {r.unitText.length > 0 && <div style={{ color: 'var(--text-muted)', fontSize: '0.66rem' }}>{r.unitText.join(' + ')}</div>}
+                  {r.unitText.length > 0 && <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{r.unitText.join(' + ')}</div>}
                 </td>
                 <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap' }}>{toCommaString(r.plan)}</td>
                 <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap' }}>{toCommaString(used.amount)}{used.count ? <span style={{ color: 'var(--text-muted)' }}> ({used.count}건)</span> : ''}</td>
@@ -747,7 +747,7 @@ function MaintenanceByItem({ plan, actual }) {
           })}
         </tbody>
       </table>
-      <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: '0.25rem', lineHeight: 1.5 }}>
+      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem', lineHeight: 1.5 }}>
         실제는 원장 출금 이름으로 항목을 맞춘 값입니다(예: '정기점검비-카랑' → 정기점검·엔진오일). 계약 중간이면 쓴 비율이 낮은 것이 정상입니다.
       </div>
     </div>
@@ -786,7 +786,7 @@ function EntryList({ list }) {
   if (!list?.length) return <div style={{ color: 'var(--text-muted)' }}>원장에 적힌 줄이 없습니다.</div>;
   return list.map((e, i) => (
     <div key={e._id || i} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', color: 'var(--text-muted)' }}>
-      <span>{e.date ? String(e.date).slice(0, 10) : '날짜 없음'} · {e.label || e.category} <span style={{ fontSize: '0.66rem' }}>({e.category})</span></span>
+      <span>{e.date ? String(e.date).slice(0, 10) : '날짜 없음'} · {e.label || e.category} <span style={{ fontSize: '0.75rem' }}>({e.category})</span></span>
       <span style={{ whiteSpace: 'nowrap' }}>{toCommaString(e.amount)}</span>
     </div>
   ));
@@ -1035,8 +1035,8 @@ function ProfitBoard({ plan, saved, source, sources, entries, actual, terms, per
         <tr style={{ cursor: expandable ? 'pointer' : 'default' }} onClick={() => expandable && setOpen(expanded ? null : r.key)}>
           <td style={cell}>
             <b>{expandable ? (expanded ? '▾ ' : '▸ ') : '· '}{r.name}</b>
-            {tagText && <span style={{ ...PLAN_SOURCE_COLOR(tagText), fontSize: '0.62rem', padding: '0 0.3rem', borderRadius: '4px', marginLeft: '0.3rem', whiteSpace: 'nowrap' }}>{tagText}</span>}
-            <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)' }}>{r.desc}</div>
+            {tagText && <span style={{ ...PLAN_SOURCE_COLOR(tagText), fontSize: '0.75rem', padding: '0 0.3rem', borderRadius: '4px', marginLeft: '0.3rem', whiteSpace: 'nowrap' }}>{tagText}</span>}
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{r.desc}</div>
           </td>
           <td style={num}>{r.plan ? toCommaString(Math.round(r.plan)) : '-'}</td>
           <td style={{ ...num, color: 'var(--text-muted)' }}>{r.used === null || r.used === undefined ? '-' : toCommaString(Math.round(r.used))}</td>
@@ -1045,7 +1045,7 @@ function ProfitBoard({ plan, saved, source, sources, entries, actual, terms, per
         </tr>
         {expanded && (
           <tr>
-            <td colSpan={5} style={{ ...cell, background: '#fafbfd', paddingLeft: '1.4rem', fontSize: '0.72rem', lineHeight: 1.55 }}>
+            <td colSpan={5} style={{ ...cell, background: '#fafbfd', paddingLeft: '1.4rem', fontSize: '0.75rem', lineHeight: 1.55 }}>
               {r.detail}
               {r.list && <EntryList list={r.list} />}
             </td>
@@ -1055,7 +1055,7 @@ function ProfitBoard({ plan, saved, source, sources, entries, actual, terms, per
     );
   };
   const groupRow = (label) => (
-    <tr><td colSpan={5} style={{ ...cell, background: 'var(--bg-main)', fontWeight: '800', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{label}</td></tr>
+    <tr><td colSpan={5} style={{ ...cell, background: 'var(--bg-main)', fontWeight: '800', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{label}</td></tr>
   );
 
   return (
@@ -1064,18 +1064,18 @@ function ProfitBoard({ plan, saved, source, sources, entries, actual, terms, per
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
         <span style={{ fontSize: '0.8rem', fontWeight: '800' }}>
           최초 계약 {plan.months}개월
-          <span style={{ ...PLAN_SOURCE_COLOR(source), fontSize: '0.68rem', padding: '0.05rem 0.4rem', borderRadius: '4px', marginLeft: '0.4rem' }}>
+          <span style={{ ...PLAN_SOURCE_COLOR(source), fontSize: '0.75rem', padding: '0.05rem 0.4rem', borderRadius: '4px', marginLeft: '0.4rem' }}>
             {source === '견적서' ? '견적서 기준' : '추정 (견적서 없음)'}
           </span>
         </span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
           {saved ? `기준 저장됨 · ${String(saved.savedAt || '').slice(0, 10)} ${saved.savedBy || ''}` : '기준 저장 전 · 지금 값으로 계산'}
           {canEdit && (!saved || isAdmin) && (
             <button
               type="button"
               onClick={onSave}
               disabled={saving}
-              style={{ padding: '0.25rem 0.6rem', fontSize: '0.74rem', fontWeight: '700', border: '1px solid #4a6fa5', borderRadius: '6px', background: saved ? '#fff' : '#4a6fa5', color: saved ? '#4a6fa5' : '#fff', cursor: 'pointer' }}
+              style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', fontWeight: '700', border: '1px solid #4a6fa5', borderRadius: '6px', background: saved ? '#fff' : '#4a6fa5', color: saved ? '#4a6fa5' : '#fff', cursor: 'pointer' }}
               title={saved ? '관리자만: 지금 값으로 다시 계산해 기준을 바꿉니다. 바꾸기 전 값은 기록에 남습니다.' : '지금 값을 이 차의 계약 기준으로 저장합니다. 저장하면 렌트차량 DB를 고쳐도 견적 칸이 바뀌지 않습니다.'}
             >
               {saving ? '저장 중…' : (saved ? '다시 계산' : '기준으로 저장')}
@@ -1105,23 +1105,23 @@ function ProfitBoard({ plan, saved, source, sources, entries, actual, terms, per
             ['차이', projProfit - planProfit, projProfit >= planProfit ? '계약 때보다 더 남음' : '계약 때보다 덜 남음']
           ].map(([label, value, note], i) => (
             <div key={label}>
-              <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)' }}>{label}</div>
+              <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)' }}>{label}</div>
               <div style={{ fontSize: '1.15rem', fontWeight: '800', color: i === 2 ? colorOf(value) : (value < 0 ? '#d9534f' : '#2f6f4e') }}>
                 {i === 2 ? signed(value) || '0' : toCommaString(Math.round(value))} 원
               </div>
-              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{note}</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{note}</div>
             </div>
           ))}
         </div>
         {reasons.length > 0 && (
-          <div style={{ fontSize: '0.74rem', marginTop: '0.45rem' }}>
+          <div style={{ fontSize: '0.75rem', marginTop: '0.45rem' }}>
             <b>차이가 큰 항목</b>{' '}
             {reasons.map(({ r, d }, i) => (
               <span key={r.key}>{i > 0 && ' · '}{r.name} <b style={{ color: colorOf(d) }}>{signed(d)}</b></span>
             ))}
           </div>
         )}
-        <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
           남는 돈 = 영업이익(베네핏 수수료까지 뺀 돈). 회사 몫 = 영업이익 + 베네핏 수수료.
         </div>
       </div>
@@ -1159,7 +1159,7 @@ function ProfitBoard({ plan, saved, source, sources, entries, actual, terms, per
             </tr>
           </tbody>
         </table>
-        <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: '0.35rem', lineHeight: 1.55 }}>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.35rem', lineHeight: 1.55 }}>
           만기 예상: 차량 구입은 실제, 보험료는 낸 속도로 채움, 수리비는 더 안 생긴다고 봄, 등록·정비·타이어·판관비는 견적과 실제 중 큰 값, 이자·베네핏 수수료는 견적 그대로.
           차이는 +면 견적보다 남는 돈이 늘어난 것입니다. 줄을 누르면 원장 줄과 세부가 펼쳐집니다(지난 기간 {Math.round(elapsed * 100)}%, 받은 렌트료 기준).
         </div>
@@ -1172,7 +1172,7 @@ function ProfitBoard({ plan, saved, source, sources, entries, actual, terms, per
             <div
               key={i}
               style={{
-                fontSize: '0.74rem', lineHeight: 1.55, padding: '0.4rem 0.55rem', borderRadius: '6px',
+                fontSize: '0.75rem', lineHeight: 1.55, padding: '0.4rem 0.55rem', borderRadius: '6px',
                 ...(w.tone === 'warn' ? { border: '1px solid #f0c36d', background: '#fff8e6' } : { border: '1px solid #c9d6ea', background: '#f7f9fd' })
               }}
             >
@@ -1183,7 +1183,7 @@ function ProfitBoard({ plan, saved, source, sources, entries, actual, terms, per
       )}
 
       {(saved?.assumptions?.length > 0 || saved?.ledgerNotes?.length > 0 || history.length > 0) && (
-        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1.55 }}>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.55 }}>
           {saved?.assumptions?.length > 0 && <div>{saved.note ? `${saved.note} ` : ''}가정한 값: {saved.assumptions.join(' · ')}</div>}
           {saved?.ledgerNotes?.length > 0 && <div style={{ color: '#b45309' }}>원장 값을 쓴 칸: {saved.ledgerNotes.join(' · ')}</div>}
           {history.length > 0 && (
@@ -1366,12 +1366,12 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
       <div style={{ padding: '0.7rem 0.9rem', borderBottom: '2px solid #4a6fa5', background: 'var(--bg-main)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
         <span style={{ fontWeight: '800', fontSize: '0.85rem', color: '#4a6fa5' }}>수익성 검토</span>
         {quotePlan && (
-          <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
             견적서 기준 · {state.quote.vehicleModel} · {quotePlan.months}개월 안 · {toDateInput(state.quote.createdAt)} 작성
           </span>
         )}
         {!quotePlan && state.estimate && (
-          <span style={{ fontSize: '0.74rem', fontWeight: '700', color: '#e08a1e' }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#e08a1e' }}>
             견적서 없음 · 렌트차량 DB 기준 추정 · {state.estimate.vehicleLabel} · {state.estimate.months}개월
           </span>
         )}
@@ -1379,7 +1379,7 @@ function ProfitReview({ ledgerId, entries, terms, periods, rentBySeq, billingRou
       <div style={{ padding: '0.8rem 0.9rem' }}>
         {body}
         {!quotePlan && state.estimate && !state.savedPlan && (
-          <div style={{ marginTop: '0.7rem', fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+          <div style={{ marginTop: '0.7rem', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
             {state.reason} 그래서 렌트차량 DB 값에 견적서 계산식을 돌린 추정치입니다. 월 렌트료·선납금·보증금·인수가는 원장 계약 조건을 먼저 씁니다. 가정한 값: {state.estimate.assumptions.join(' · ')}
             {state.estimate.ledgerNotes?.length > 0 && (
               <div style={{ marginTop: '0.3rem', color: '#b45309' }}>
@@ -1448,7 +1448,7 @@ function SalePanel({ ledger, entries, canEdit, dirty, authHeaders, showToast, on
         <span style={{ fontSize: '0.82rem' }}>
           {sale.kind} · {toDateInput(sale.date)} · <b>{toCommaString(sale.amount)}원</b>{sale.buyer ? ` · ${sale.buyer}` : ''}
         </span>
-        <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
           {sale.by ? `${sale.by} · ` : ''}{toDateInput(sale.at)} 처리 · 차량·계약 거래완료{sale.memo ? ` · ${sale.memo}` : ''}
         </span>
         {canEdit && (
@@ -2421,21 +2421,21 @@ function LedgerView({ showToast, currentUser }) {
                     style={{ borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }}
                   >
                     <td style={{ padding: '0.55rem 0.4rem', whiteSpace: 'nowrap' }}>
-                      <span style={{ fontSize: '0.72rem', fontWeight: '700', padding: '0.15rem 0.5rem', borderRadius: '10px', ...(FORM_STYLE[l.form] || FORM_STYLE.장기) }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: '700', padding: '0.15rem 0.5rem', borderRadius: '10px', ...(FORM_STYLE[l.form] || FORM_STYLE.장기) }}>
                         {l.form || '장기'}
                       </span>
                     </td>
                     <td style={{ padding: '0.55rem 0.4rem', fontWeight: '700', color: 'var(--primary)', whiteSpace: 'nowrap' }}>{l.ledgerNo}</td>
-                    <td style={{ padding: '0.55rem 0.4rem' }}>{l.header?.contractorName || l.company?.name || '-'}</td>
-                    <td style={{ padding: '0.55rem 0.4rem' }}>{l.header?.customerName || '-'}</td>
-                    <td style={{ padding: '0.55rem 0.4rem' }}>{l.header?.carModel || '-'}</td>
-                    <td style={{ padding: '0.55rem 0.4rem' }}>{l.header?.carSpec || '-'}</td>
+                    <td style={{ padding: '0.55rem 0.4rem', minWidth: '8rem' }}>{l.header?.contractorName || l.company?.name || '-'}</td>
+                    <td style={{ padding: '0.55rem 0.4rem', minWidth: '5rem' }}>{l.header?.customerName || '-'}</td>
+                    <td style={{ padding: '0.55rem 0.4rem', minWidth: '10rem' }}>{l.header?.carModel || '-'}</td>
+                    <td style={{ padding: '0.55rem 0.4rem', minWidth: '11rem' }}>{l.header?.carSpec || '-'}</td>
                     <td style={{ padding: '0.55rem 0.4rem', whiteSpace: 'nowrap' }}>{l.header?.plateNo || '-'}</td>
                     <td style={{ padding: '0.55rem 0.4rem', whiteSpace: 'nowrap' }}>{l.header?.vin || '-'}</td>
                     <td style={{ padding: '0.55rem 0.4rem', whiteSpace: 'nowrap' }}>{toDateInput(l.deliveredAt) || '-'}</td>
                     <td style={{ padding: '0.55rem 0.4rem', whiteSpace: 'nowrap' }}>{toDateInput(l.header?.contractEndAt) || '-'}</td>
                     <td style={{ padding: '0.55rem 0.4rem', whiteSpace: 'nowrap' }}>
-                      <span style={{ fontSize: '0.72rem', fontWeight: '700', padding: '0.15rem 0.45rem', borderRadius: '10px', background: l.status === '차량미배정' ? '#fff3cd' : 'var(--bg-main)', color: l.status === '차량미배정' ? '#8a6d1f' : 'var(--text-muted)' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: '700', padding: '0.15rem 0.45rem', borderRadius: '10px', background: l.status === '차량미배정' ? '#fff3cd' : 'var(--bg-main)', color: l.status === '차량미배정' ? '#8a6d1f' : 'var(--text-muted)' }}>
                         {l.status}
                       </span>
                     </td>
@@ -2559,7 +2559,7 @@ function LedgerView({ showToast, currentUser }) {
         <div className="m-two-col" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.8rem' }}>
           {headerFields.map(([label, key, type]) => (
             <div key={key}>
-              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>{label}</label>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>{label}</label>
               {type === null ? (
                 <div style={{ padding: '0.45rem 0.5rem', background: 'var(--bg-main)', borderRadius: '6px', fontSize: '0.82rem', fontWeight: '700' }}>{ledger.ledgerNo}</div>
               ) : type === 'date' ? (
@@ -2606,7 +2606,7 @@ function LedgerView({ showToast, currentUser }) {
               </button>
             );
           })}
-          <span style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
             차량가·등록비용은 최초 계약에만 있으므로, 차 1대의 진짜 손익은 &quot;전체&quot;입니다.
           </span>
         </div>
@@ -2633,12 +2633,12 @@ function LedgerView({ showToast, currentUser }) {
                   <span>계</span><span>{signed(box.total)}</span>
                 </div>
                 {box.title.startsWith('정산계') && summary.depositHeld !== 0 && (
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', paddingTop: '0.2rem' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', paddingTop: '0.2rem' }}>
                     보관 중인 보증금 {signed(summary.depositHeld)} (돌려줄 돈이라 정산계에서 뺌)
                   </div>
                 )}
                 {box.title.startsWith('정산계') && summary.takeoverOffset > 0 && (
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', paddingTop: '0.2rem' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', paddingTop: '0.2rem' }}>
                     거래완료인데 인수가 줄이 없어 보증금 {signed(summary.takeoverOffset)}을 인수가와 상계한 것으로 봄 (정산계에 넣음)
                   </div>
                 )}
@@ -2790,10 +2790,10 @@ function LedgerView({ showToast, currentUser }) {
                       return (
                         <tr key={e._id} style={{ borderBottom: '1px solid var(--border-color)', background: '#fcf7f7' }}>
                           <td style={{ ...cellPad, fontSize: '0.78rem', fontWeight: '700', color: 'var(--text-muted)' }}>{e.placeholder.label}</td>
-                          <td colSpan={3} style={{ ...cellPad, fontSize: '0.74rem', color: 'var(--text-muted)' }}>아직 적지 않았습니다</td>
+                          <td colSpan={3} style={{ ...cellPad, fontSize: '0.75rem', color: 'var(--text-muted)' }}>아직 적지 않았습니다</td>
                           <td style={{ ...cellPad, textAlign: 'center' }}>
                             {canEdit && (
-                              <button type="button" onClick={() => fillFixedSingle(e.placeholder)} title={`${e.placeholder.label} 입력`} style={{ ...iconBtn(column.accent), fontSize: '0.74rem', fontWeight: '700' }}>
+                              <button type="button" onClick={() => fillFixedSingle(e.placeholder)} title={`${e.placeholder.label} 입력`} style={{ ...iconBtn(column.accent), fontSize: '0.75rem', fontWeight: '700' }}>
                                 입력
                               </button>
                             )}
@@ -2848,7 +2848,7 @@ function LedgerView({ showToast, currentUser }) {
                             >
                               {/* 예전 '기타' 열에 적었던 줄은 표시를 달아 구분한다 */}
                               {e.group === '기타' && (
-                                <span style={{ fontSize: '0.66rem', fontWeight: '700', color: '#4a6fa5', background: '#eef3fa', borderRadius: '4px', padding: '0.05rem 0.3rem', marginRight: '0.3rem' }}>기타</span>
+                                <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#4a6fa5', background: '#eef3fa', borderRadius: '4px', padding: '0.05rem 0.3rem', marginRight: '0.3rem' }}>기타</span>
                               )}
                               {e.label || <span style={{ color: 'var(--text-muted)' }}>(내용 없음)</span>}
                             </td>
@@ -2928,19 +2928,20 @@ function LedgerView({ showToast, currentUser }) {
       <details open={!ledger.contractPeriods?.length && !Number(t.monthlyRent)} style={{ ...card, padding: '0.8rem 1.2rem' }}>
         <summary style={{ cursor: 'pointer', fontSize: '0.88rem', fontWeight: '800' }}>
           계약 조건 · 회사 할부 (입력칸)
-          <span style={{ fontSize: '0.74rem', fontWeight: '600', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
             {periodName(periods[periods.length - 1]?.seq || 1)} 월 {toCommaString(periods[periods.length - 1]?.monthlyRent || t.monthlyRent || 0)}원
             {periods[periods.length - 1]?.termMonths || t.termMonths ? ` · ${periods[periods.length - 1]?.termMonths || t.termMonths}개월` : ''}
             {t.paymentDay ? ` · 결제일 ${t.paymentDay}` : ''}
             {loan.executed ? ' · 회사 할부 실행함' : ''}
           </span>
         </summary>
-        <div style={{ display: 'grid', gap: '1rem', marginTop: '0.8rem' }}>
+        {/* minmax(0, 1fr): 안쪽 표의 최소 폭(960px)이 칸을 밀어 카드 밖으로 나가지 않게 한다. 넓으면 표만 옆으로 넘긴다 */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '1rem', marginTop: '0.8rem' }}>
       {/* 계약 조건 · 구간. 최초 계약과 연장마다 한 줄. 예전에는 '계약 구간'과 '고정 조건(마지막 계약만)'이 따로 있어
           보증금·인수가가 어느 계약 것인지 안 보였다(대표님 2026-10-23, 화우 Benz-003) */}
       <div style={{ ...card, padding: '1.2rem' }}>
         <h5 style={{ margin: '0 0 0.5rem', fontSize: '0.88rem', fontWeight: '800' }}>계약 조건 · 구간</h5>
-        <p style={{ margin: '0 0 0.9rem', fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+        <p style={{ margin: '0 0 0.9rem', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
           최초 계약과 연장 계약을 한 줄씩 적습니다. 지금 유효한 조건은 맨 아래 줄이고, 청구·수익성 계산은 이 줄 값을 씁니다.
           연장해도 갑지는 나누지 않습니다 — 나누면 차량가가 있는 최초 계약은 적자로, 연장 계약은 폭리로 보입니다.
           여기서 고친 값은 이 갑지 안에서만 쓰이고 계약서·차량 DB로는 넘어가지 않습니다.
@@ -2981,7 +2982,7 @@ function LedgerView({ showToast, currentUser }) {
                   <tr key={p.seq} style={{ borderBottom: '1px solid var(--border-color)', background: isLast && periods.length > 1 ? '#f7f9fd' : undefined }}>
                     <td style={{ ...td, fontWeight: '700', whiteSpace: 'nowrap' }}>
                       {periodName(p.seq)}
-                      {isLast && periods.length > 1 && <div style={{ fontSize: '0.68rem', fontWeight: '600', color: 'var(--primary)' }}>지금 계약</div>}
+                      {isLast && periods.length > 1 && <div style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--primary)' }}>지금 계약</div>}
                     </td>
                     <td style={{ ...td, whiteSpace: 'nowrap' }}>{p.contractNo || '-'}</td>
                     <td style={{ ...td, minWidth: '118px' }}>{date('startDate')}</td>
@@ -3000,11 +3001,11 @@ function LedgerView({ showToast, currentUser }) {
                       {/* 인수할 때 보증금을 인수가에서 빼고 나머지만 받는다(화우: 22,105,860 − 12,360,000 = 9,745,860) */}
                       {/* 계약이 끝났는데 보증금이 남아 있으면 인수가와 상계한 것(대표님 2026-10-28) */}
                       {isLast && summary.takeoverOffset > 0 ? (
-                        <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', textAlign: 'right', marginTop: '0.15rem', whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'right', marginTop: '0.15rem', whiteSpace: 'nowrap' }}>
                           보증금 {toCommaString(summary.takeoverOffset)}과 상계
                         </div>
                       ) : isLast && Number(valueOf('takeoverPrice')) > 0 && Number(t.deposit) > 0 && (
-                        <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', textAlign: 'right', marginTop: '0.15rem', whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'right', marginTop: '0.15rem', whiteSpace: 'nowrap' }}>
                           보증금 빼고 받을 돈 {toCommaString(Number(valueOf('takeoverPrice')) - Number(t.deposit))}
                         </div>
                       )}
@@ -3040,7 +3041,7 @@ function LedgerView({ showToast, currentUser }) {
               실행함
             </label>
           </h5>
-          <p style={{ margin: '0 0 0.9rem', fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          <p style={{ margin: '0 0 0.9rem', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
             "가져오기"를 누르면 월할부금이 <strong>이미 지나간 회차까지만</strong> 지출로 깔립니다.
             남은 회차를 미리 깔면 아직 나가지도 않은 돈이 정산금액에 섞입니다.
           </p>
@@ -3050,7 +3051,7 @@ function LedgerView({ showToast, currentUser }) {
               ['기간(개월)', 'termMonths', 'number'], ['월 할부금', 'monthlyPayment', 'money'],
               ['상환 완료일', 'finishedDate', 'date']].map(([label, key, type]) => (
               <div key={key}>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>{label}</label>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>{label}</label>
                 {type === 'money' ? (
                   <MoneyInput value={loan[key]} onChange={(e) => setLoanField(key, e.target.value)} disabled={!canEdit}
                     style={{ width: '100%', padding: '0.45rem 0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.82rem' }} />

@@ -179,7 +179,7 @@ function IssuedInvoicesView({ showToast }) {
                       {it.invoiceFileName || '-'}
                     </div>
                     {it.attachments.length > 0 && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
                         <Paperclip size={12} />
                         {it.attachments.map((a) => `${a.kind}${a.amount ? ` ${Number(a.amount).toLocaleString()}` : ''}`).join(', ')}
                       </div>

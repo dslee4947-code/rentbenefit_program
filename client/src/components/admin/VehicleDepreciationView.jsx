@@ -44,7 +44,7 @@ function Kpi({ label, value, sub }) {
     <div style={card}>
       <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', fontWeight: '600' }}>{label}</div>
       <div style={{ fontSize: '1.35rem', fontWeight: '800' }}>{value}</div>
-      {sub && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{sub}</div>}
+      {sub && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{sub}</div>}
     </div>
   );
 }

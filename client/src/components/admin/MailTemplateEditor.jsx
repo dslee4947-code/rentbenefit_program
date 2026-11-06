@@ -233,7 +233,7 @@ function MailTemplateEditor({ onClose, showToast, currentUser }) {
                 onChange={(e) => handleUpload(e.target.files?.[0])}
                 style={{ ...inputStyle, padding: '0.3rem' }}
               />
-              <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
                 지금 메일에 붙이시는 서명 그림을 그대로 올리세요. 올리면 기본 로고 대신 이 그림이 들어갑니다.
               </div>
             </div>

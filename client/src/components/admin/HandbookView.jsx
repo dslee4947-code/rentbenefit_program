@@ -150,9 +150,9 @@ function UpdatedMark({ date }) {
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: '0.25rem', marginLeft: '0.4rem',
       padding: '0 0.4rem', borderRadius: '999px', background: '#fee2e2', color: '#b91c1c',
-      fontSize: '0.7rem', fontWeight: 700, lineHeight: 1.6, verticalAlign: 'middle', whiteSpace: 'nowrap'
+      fontSize: '0.75rem', fontWeight: 700, lineHeight: 1.6, verticalAlign: 'middle', whiteSpace: 'nowrap'
     }}>
-      수정됨 <span style={{ fontWeight: 500, fontSize: '0.65rem', opacity: 0.85 }}>{date.slice(5).replace('-', '.')}</span>
+      수정됨 <span style={{ fontWeight: 500, fontSize: '0.75rem', opacity: 0.85 }}>{date.slice(5).replace('-', '.')}</span>
     </span>
   );
 }
@@ -542,7 +542,7 @@ function HandbookView({ setActiveTab, currentUser }) {
                             color: stageId === s.id ? '#fff' : 'inherit'
                           }}
                         >
-                          <span style={{ fontSize: '0.7rem', opacity: 0.8, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                          <span style={{ fontSize: '0.75rem', opacity: 0.8, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                             {s.no}<FreshDot on={hasFresh(s)} />
                           </span>
                           <span style={{ fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{s.short}</span>
@@ -572,7 +572,7 @@ function HandbookView({ setActiveTab, currentUser }) {
                     <div className="no-print" style={{ ...card, flex: '0 1 230px', minWidth: '200px', padding: '0.8rem' }}>
                       {SCREEN_GROUPS.map((g) => (
                         <div key={g.label} style={{ marginBottom: '0.6rem' }}>
-                          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', margin: '0.2rem 0.3rem' }}>
+                          <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', margin: '0.2rem 0.3rem' }}>
                             {g.label}
                           </div>
                           {g.screens.map((sc) => (

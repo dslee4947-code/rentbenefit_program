@@ -415,7 +415,7 @@ function UserManagementView({ showToast, currentUser }) {
                     <td style={{ padding: '1rem' }}>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontWeight: '700', color: 'var(--text-bright)' }}>
-                          {user.name} {isSelf && <span style={{ fontSize: '0.7rem', background: 'var(--primary)', color: '#fff', padding: '0.1rem 0.3rem', borderRadius: '4px', marginLeft: '0.3rem' }}>나</span>}
+                          {user.name} {isSelf && <span style={{ fontSize: '0.75rem', background: 'var(--primary)', color: '#fff', padding: '0.1rem 0.3rem', borderRadius: '4px', marginLeft: '0.3rem' }}>나</span>}
                         </span>
                         <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{user.email}</span>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{user.department}</span>

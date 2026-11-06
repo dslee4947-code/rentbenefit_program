@@ -1180,7 +1180,7 @@ function CustomerListView({ showToast, currentUser }) {
                             <span style={{ 
                               padding: '0.2rem 0.5rem', 
                               borderRadius: '4px', 
-                              fontSize: '0.7rem', 
+                              fontSize: '0.75rem', 
                               fontWeight: 'bold', 
                               background: r.matched ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
                               color: r.matched ? '#22c55e' : '#ef4444'

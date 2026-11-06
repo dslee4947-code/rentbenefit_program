@@ -52,13 +52,13 @@ function Kpi({ label, value, sub, color }) {
     <div style={card}>
       <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', fontWeight: 600 }}>{label}</div>
       <div style={{ fontSize: '1.35rem', fontWeight: 800, color }}>{value}</div>
-      {sub && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{sub}</div>}
+      {sub && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{sub}</div>}
     </div>
   );
 }
 
 function StatusChip({ status }) {
-  return <span style={{ fontSize: '0.74rem', fontWeight: 800, color: '#fff', background: STATUS_COLOR[status] || '#6b7280', borderRadius: '10px', padding: '0.1rem 0.55rem', whiteSpace: 'nowrap' }}>{status}</span>;
+  return <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#fff', background: STATUS_COLOR[status] || '#6b7280', borderRadius: '10px', padding: '0.1rem 0.55rem', whiteSpace: 'nowrap' }}>{status}</span>;
 }
 
 /* ── 공문 편집 ─────────────────────────────────────────────── */
@@ -208,7 +208,7 @@ function FilingEditor({ info, filing, canEdit, onSave, onStatus, onDelete, onOpe
         </div>
         {draft.contracts.length === 0 && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>붙인 계약서가 없습니다.</div>}
         {draft.contracts.map((c, i) => (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: '80px 1.1fr 2.4fr 1.6fr 1fr 0.8fr 0.6fr 0.9fr 36px', gap: '0.4rem', alignItems: 'end', marginBottom: '0.4rem', fontSize: '0.74rem', fontWeight: 700 }}>
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: '80px 1.1fr 2.4fr 1.6fr 1fr 0.8fr 0.6fr 0.9fr 36px', gap: '0.4rem', alignItems: 'end', marginBottom: '0.4rem', fontSize: '0.75rem', fontWeight: 700 }}>
             <label>제조사<select style={input} disabled={!editable} value={c.maker} onChange={(e) => setContract(i, { maker: e.target.value })}><option>현대</option><option>기아</option></select></label>
             <label>계약번호<input style={input} disabled={!editable} value={c.contractNo} onChange={(e) => setContract(i, { contractNo: e.target.value })} /></label>
             <label>차종/선택사양<input style={input} disabled={!editable} value={c.model} onChange={(e) => setContract(i, { model: e.target.value })} /></label>
@@ -342,7 +342,7 @@ function FleetComparePanel({ info, vehicles, onRefresh, refreshedAt }) {
           <button type="button" style={btn()} onClick={onRefresh}>새로고침</button>
         </span>
       </div>
-      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
         렌트차량 DB의 장기렌트·단기렌트·재고를 신고된 차로 셉니다. 계약중(출고 전)은 따로 보여 주고, 출고되면 증차 공문이 필요합니다. {refreshedAt && `${refreshedAt} 기준 · 30초마다 새로 읽습니다.`}
       </div>
       <div style={{ overflow: 'auto', maxHeight: '70vh' }}>
@@ -364,7 +364,7 @@ function FleetComparePanel({ info, vehicles, onRefresh, refreshedAt }) {
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
                       {(many ? list.slice(0, 10) : list).map((v) => <VehicleChip key={v._id} v={v} rate={rates[String(v._id)]} />)}
                       {list.length > 10 && (
-                        <button type="button" style={{ ...btn(), padding: '0.05rem 0.5rem', fontSize: '0.74rem' }} onClick={() => setOpen((o) => ({ ...o, [i]: !o[i] }))}>
+                        <button type="button" style={{ ...btn(), padding: '0.05rem 0.5rem', fontSize: '0.75rem' }} onClick={() => setOpen((o) => ({ ...o, [i]: !o[i] }))}>
                           {many ? `… ${list.length - 10}대 더 보기` : '접기'}
                         </button>
                       )}
@@ -631,7 +631,7 @@ function FleetFilingView({ showToast, currentUser }) {
                     <td style={{ ...td, whiteSpace: 'nowrap' }}>
                       {ymd(f.processedAt)}
                       {f.notice?.minwonNo && (
-                        <button type="button" title={`민원 ${f.notice.minwonNo} · ${f.notice.fileName || ''}`} style={{ ...btn(), padding: '0.1rem 0.45rem', fontSize: '0.72rem', marginLeft: '0.4rem' }} onClick={(e) => { e.stopPropagation(); openNotice(f._id); }}>알림 PDF</button>
+                        <button type="button" title={`민원 ${f.notice.minwonNo} · ${f.notice.fileName || ''}`} style={{ ...btn(), padding: '0.1rem 0.45rem', fontSize: '0.75rem', marginLeft: '0.4rem' }} onClick={(e) => { e.stopPropagation(); openNotice(f._id); }}>알림 PDF</button>
                       )}
                     </td>
                     <td style={{ ...td, fontSize: '0.76rem', color: 'var(--text-muted)' }}>{f.source ? `${f.source}` : f.memo}</td>

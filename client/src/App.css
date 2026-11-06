@@ -3404,8 +3404,8 @@ textarea.form-control {
 }
 
 .vehicle-data-table th {
-  background: #f8f9fa;
-  color: var(--text-muted);
+  background: #f1f5f9;
+  color: var(--text-bright);
   font-weight: 600;
   padding: 0.9rem 0.8rem;
   border-bottom: 1.5px solid var(--border-color);
@@ -3414,18 +3414,18 @@ textarea.form-control {
 
 .vehicle-data-table td {
   padding: 0.8rem;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid #e2e8f0;
   color: var(--text-main);
   white-space: nowrap;
   vertical-align: middle;
 }
 
 .vehicle-data-table tr:hover {
-  background: #fdfaf7; /* Soft orange/beige tint */
+  background: #f1f5ff;
 }
 
 .vehicle-data-table tr.selected-row {
-  background: #fff8f3;
+  background: #e8f0ff;
 }
 
 .no-data-cell {

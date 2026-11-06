@@ -208,13 +208,13 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
                   ? { backgroundColor: '#fef2f2', backgroundImage: STRIKE_BG }
                   : { background: valueOf(c, 'renting') ? '#fffbeb' : undefined }}>
                   <td style={{ ...td, textAlign: 'center', color: 'var(--text-muted)' }}>{i + 1}</td>
-                  <td style={{ ...td, fontWeight: 700 }}>{c.carModel}{c.reason && <div style={{ fontSize: '0.7rem', color: '#b45309', fontWeight: 400 }}>{c.reason}</div>}</td>
+                  <td style={{ ...td, fontWeight: 700 }}>{c.carModel}{c.reason && <div style={{ fontSize: '0.75rem', color: '#b45309', fontWeight: 400 }}>{c.reason}</div>}</td>
                   <td style={td}>{c.plateNo}</td>
-                  <td style={{ ...td, whiteSpace: 'nowrap' }}>{yearMonth(c.ageStart)}<div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{policy.monthly?.method !== 'quote' && c.excel
+                  <td style={{ ...td, whiteSpace: 'nowrap' }}>{yearMonth(c.ageStart)}<div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{policy.monthly?.method !== 'quote' && c.excel
                     ? `${c.excel.halfLabel} −${toCommaString(c.excel.step)}×${c.excel.steps}`
                     : (c.ageYear ? `${c.ageYear}년차 ×${c.ageFactor}` : '')} · {c.fuelType || '유종 미상'}</div></td>
                   <td style={{ ...td, whiteSpace: 'nowrap', color: c.rentalLife?.daysLeft <= 180 ? '#b91c1c' : 'var(--text-muted)', fontWeight: c.rentalLife?.daysLeft <= 180 ? 700 : 400 }}>
-                    {c.rentalLife ? <>{ymdText(c.rentalLife.until)}<div style={{ fontSize: '0.7rem' }}>{c.rentalLife.years}년 · {c.rentalLife.daysLeft < 0 ? '지남' : `D-${c.rentalLife.daysLeft}`}</div></> : '-'}
+                    {c.rentalLife ? <>{ymdText(c.rentalLife.until)}<div style={{ fontSize: '0.75rem' }}>{c.rentalLife.years}년 · {c.rentalLife.daysLeft < 0 ? '지남' : `D-${c.rentalLife.daysLeft}`}</div></> : '-'}
                   </td>
                   <td style={num}>{field('day')}</td>
                   <td style={num}>{field('week')}</td>
@@ -231,9 +231,9 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
                       <option value="long">장기 대여(월렌트)</option>
                     </select>
                     {valueOf(c, 'longRent') && (
-                      <div style={{ marginTop: '0.25rem', fontSize: '0.7rem', color: '#b91c1c', background: '#fff', whiteSpace: 'nowrap' }}>
+                      <div style={{ marginTop: '0.25rem', fontSize: '0.75rem', color: '#b91c1c', background: '#fff', whiteSpace: 'nowrap' }}>
                         반납 예정{' '}
-                        <input type="date" disabled={!canEdit} style={{ fontSize: '0.72rem' }} value={valueOf(c, 'longRentUntil') || ''}
+                        <input type="date" disabled={!canEdit} style={{ fontSize: '0.75rem' }} value={valueOf(c, 'longRentUntil') || ''}
                           onChange={(ev) => setEdit(c.ledgerId, 'longRentUntil', ev.target.value || null)} />
                       </div>
                     )}
@@ -273,7 +273,7 @@ const SHEET_NAVY = '#111e38';
 const SHEET_GOLD = '#ad885c';
 const SHEET_CSS = `
   .st-sheet-scroll { overflow-x: auto; }
-  .st-sheet-table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 0.86rem; color: #334155; background: #fff;
+  .st-sheet-table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 13.76px; color: #334155; background: #fff;
     border-top: 3px solid ${SHEET_NAVY}; border-bottom: 3px solid ${SHEET_NAVY}; }
   .st-sheet-table th { background: ${SHEET_NAVY}; color: #fff; font-weight: 800; padding: 9px 8px; text-align: center;
     border-right: 1px solid ${SHEET_GOLD}; border-bottom: 1px solid ${SHEET_GOLD}; white-space: nowrap; }
@@ -293,10 +293,10 @@ const SHEET_CSS = `
   .st-sheet-table tr.blocked td:not(.blocked-label):not(.rate)::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid #dc2626; }
   .st-sheet-table tr.blocked td.no, .st-sheet-table tr.blocked td.model { color: #9ca3af; }
   /* 요금 칸은 위(안내)·아래(단기 요금)로 나눠 선을 긋지 않는다. 그 경계가 다른 칸의 가운데 선과 이어진다 */
-  .st-sheet-table tr.blocked td.blocked-label { color: #b91c1c; font-weight: 800; font-size: 0.68rem; height: 17px; line-height: 16px; padding: 0 8px; border-bottom: 1px solid #fca5a5; }
-  .st-sheet-table tr.blocked td.rate { color: #b6bcc6; font-weight: 500; font-size: 0.74rem; height: 17px; line-height: 16px; padding-top: 0; padding-bottom: 0; }
+  .st-sheet-table tr.blocked td.blocked-label { color: #b91c1c; font-weight: 800; font-size: 10.88px; height: 17px; line-height: 16px; padding: 0 8px; border-bottom: 1px solid #fca5a5; }
+  .st-sheet-table tr.blocked td.rate { color: #b6bcc6; font-weight: 500; font-size: 11.84px; height: 17px; line-height: 16px; padding-top: 0; padding-bottom: 0; }
   .st-sheet-table tr.blocked td.rate.month { color: #b6bcc6; font-weight: 600; }
-  .st-sheet-table tr.brand td { background: #f3eee6 !important; color: ${SHEET_NAVY}; font-weight: 800; font-size: 0.84rem; padding: 6px 12px;
+  .st-sheet-table tr.brand td { background: #f3eee6 !important; color: ${SHEET_NAVY}; font-weight: 800; font-size: 13.44px; padding: 6px 12px;
     border-top: 2px solid ${SHEET_GOLD}; border-right: none; letter-spacing: 1px; }
   .st-sheet-table tr.brand td span { color: ${SHEET_GOLD}; font-weight: 700; margin-left: 6px; letter-spacing: 0; }
   @media print {
@@ -317,17 +317,17 @@ function RateSheet({ sheetRef, cars, policy }) {
     <>
       <style dangerouslySetInnerHTML={{ __html: SHEET_CSS }} />
       <div ref={sheetRef} className="print-fit" style={{ maxWidth: '900px', margin: '0 auto', background: '#fff', padding: '10px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', marginTop: '0.3rem', borderBottom: `2px solid ${SHEET_GOLD}`, paddingBottom: '0.6rem' }}>
-          <div style={{ width: '150px' }}><span style={{ fontSize: '1.1rem', fontWeight: 800, color: SHEET_NAVY }}>(주)렌트베네핏</span></div>
-          <h2 style={{ fontWeight: 800, fontSize: '1.7rem', color: SHEET_NAVY, margin: 0, letterSpacing: '1px', flex: 1, textAlign: 'center' }}>단기렌트 요금표</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', marginTop: '4.8px', borderBottom: `2px solid ${SHEET_GOLD}`, paddingBottom: '9.6px' }}>
+          <div style={{ width: '150px' }}><span style={{ fontSize: '17.6px', fontWeight: 800, color: SHEET_NAVY }}>(주)렌트베네핏</span></div>
+          <h2 style={{ fontWeight: 800, fontSize: '27.2px', color: SHEET_NAVY, margin: 0, letterSpacing: '1px', flex: 1, textAlign: 'center' }}>단기렌트 요금표</h2>
           <div style={{ width: '150px', display: 'flex', justifyContent: 'flex-end' }}><img src="/logo.png" alt="RENT BENefit" style={{ height: '32px', width: 'auto', objectFit: 'contain' }} /></div>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '1rem', marginBottom: '0.8rem', color: SHEET_NAVY, fontSize: '0.86rem', fontWeight: 700 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '16px', marginBottom: '12.8px', color: SHEET_NAVY, fontSize: '13.76px', fontWeight: 700 }}>
           <div style={{ lineHeight: 1.7 }}>
-            <span style={{ color: SHEET_GOLD, marginRight: '0.5rem' }}>보험</span>
+            <span style={{ color: SHEET_GOLD, marginRight: '8px' }}>보험</span>
             대인 {ins.bodily} · 대물 {ins.property} · 자손 {ins.selfInjury} · 자차 수리 {ins.ownDamageLimit} · 면책금 {ins.deductible}<br />
-            <span style={{ color: SHEET_GOLD, marginRight: '0.5rem' }}>주행</span>
+            <span style={{ color: SHEET_GOLD, marginRight: '8px' }}>주행</span>
             1일 {policy.kmPerDay}km · 1주 {toCommaString(policy.kmPerWeek)}km · 1개월 {toCommaString(policy.kmPerMonth)}km (초과 km당 {policy.excessPerKm}원)
           </div>
           <div style={{ color: '#555', fontWeight: 500, whiteSpace: 'nowrap' }}>작성일 {today}</div>
@@ -381,7 +381,7 @@ function RateSheet({ sheetRef, cars, policy }) {
           </table>
         </div>
 
-        <div style={{ marginTop: '0.8rem', background: '#fdfbfa', border: `1px dashed ${SHEET_GOLD}`, padding: '0.55rem 0.8rem', fontSize: '0.78rem', color: '#444', lineHeight: 1.7 }}>
+        <div style={{ marginTop: '12.8px', background: '#fdfbfa', border: `1px dashed ${SHEET_GOLD}`, padding: '8.8px 12.8px', fontSize: '12.48px', color: '#444', lineHeight: 1.7 }}>
           * 요금은 부가세·자차 포함 금액(원)입니다. 주말·공휴일 1일 렌트는 1일 요금에 {Math.round(policy.weekendSurchargeRate * 100)}% 추가됩니다.<br />
           * 탁송: {deliveryText(policy)}
           {notes.length > 0 && <><br />{notes.map((n) => `* ${n}`).join('  ')}</>}
@@ -429,13 +429,13 @@ function CarPicker({ cars, value, onChange, fieldStyle }) {
     <div ref={boxRef} style={{ position: 'relative', fontWeight: 400 }}>
       <button type="button" onClick={() => setOpen((o) => !o)}
         style={{ ...fieldStyle, width: '100%', background: '#fff', textAlign: 'left', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>{selected ? `${text(selected)}${selected.renting ? ' (대여 중)' : ''}` : '차량을 고르세요'}</span><span style={{ fontSize: '0.7rem' }}>▼</span>
+        <span>{selected ? `${text(selected)}${selected.renting ? ' (대여 중)' : ''}` : '차량을 고르세요'}</span><span style={{ fontSize: '0.75rem' }}>▼</span>
       </button>
       {open && (
         <div style={{ position: 'absolute', zIndex: 20, top: '100%', left: 0, right: 0, maxHeight: '320px', overflowY: 'auto', background: '#fff', border: '1px solid var(--border-color)', borderRadius: '6px', boxShadow: '0 6px 18px rgba(0,0,0,0.12)', marginTop: '2px' }}>
           {cars.map((c, i) => (
             <React.Fragment key={c.ledgerId}>
-              {c.brand !== cars[i - 1]?.brand && <div style={{ padding: '0.25rem 0.6rem', fontSize: '0.7rem', fontWeight: 800, color: '#ad885c', background: '#faf8f4' }}>{c.brand}</div>}
+              {c.brand !== cars[i - 1]?.brand && <div style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', fontWeight: 800, color: '#ad885c', background: '#faf8f4' }}>{c.brand}</div>}
               <div
                 role="option"
                 aria-disabled={c.longRent || undefined}
@@ -447,8 +447,8 @@ function CarPicker({ cars, value, onChange, fieldStyle }) {
                 onMouseEnter={(e) => { if (!c.longRent && String(c.ledgerId) !== String(value)) e.currentTarget.style.background = '#f5f7fb'; }}
                 onMouseLeave={(e) => { if (String(c.ledgerId) !== String(value)) e.currentTarget.style.background = ''; }}>
                 <span style={c.longRent ? blocked : undefined}>{text(c)}</span>
-                {c.longRent && <span style={{ color: '#b91c1c', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap' }}>대여 불가{c.longRentUntil ? ` ~${c.longRentUntil}` : ''}</span>}
-                {!c.longRent && c.renting && <span style={{ color: '#b45309', fontSize: '0.72rem', whiteSpace: 'nowrap' }}>대여 중</span>}
+                {c.longRent && <span style={{ color: '#b91c1c', fontSize: '0.75rem', fontWeight: 700, whiteSpace: 'nowrap' }}>대여 불가{c.longRentUntil ? ` ~${c.longRentUntil}` : ''}</span>}
+                {!c.longRent && c.renting && <span style={{ color: '#b45309', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>대여 중</span>}
               </div>
             </React.Fragment>
           ))}
@@ -506,7 +506,7 @@ function Calculator({ cars, policy, holidays, regions }) {
             {q.deliveryLines.length === 0 ? line('탁송 (서울 무료)', 0) : q.deliveryLines.map((l) => line(l.label, l.amount))}
             {q.excess > 0 && line(`초과 주행 ${toCommaString(q.excessKm)}km × ${policy.excessPerKm}원`, q.excess)}
             {line(q.deliveryKnown ? '합계 (부가세 포함)' : '합계 (탁송료 별도)', q.total, true)}
-            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.5rem', lineHeight: 1.6 }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem', lineHeight: 1.6 }}>
               포함 주행거리 {toCommaString(q.allowanceKm)}km ({[q.months && `1개월 ${toCommaString(policy.kmPerMonth)}km × ${q.months}`, q.weeks && `1주 ${toCommaString(policy.kmPerWeek)}km × ${q.weeks}`, q.restDays && `1일 ${policy.kmPerDay}km × ${q.restDays}`].filter(Boolean).join(' + ')})
             </div>
             {/* 금액이 어떻게 나왔는지 단계별 식 */}
@@ -518,8 +518,8 @@ function Calculator({ cars, policy, holidays, regions }) {
                     <span>{i + 1}. {st.label}</span>
                     {st.amount !== undefined && <span style={{ whiteSpace: 'nowrap' }}>{won(st.amount)}원</span>}
                   </div>
-                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.15rem', lineHeight: 1.55 }}>{st.formula}</div>
-                  {st.note && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>※ {st.note}</div>}
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.15rem', lineHeight: 1.55 }}>{st.formula}</div>
+                  {st.note && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>※ {st.note}</div>}
                 </div>
               ))}
             </div>
@@ -585,7 +585,7 @@ function Accident({ data, cars, contacts, setContacts, canEdit, saving, onSave, 
                           {data.insurerTable.map((g) => <option key={g.grade} value={g.grade}>{g.size} {g.grade}</option>)}
                         </select>
                       ) : (c.insurer ? `${c.insurer.size} ${c.insurer.grade}` : '-')}
-                      {c.insurer && <div style={{ fontSize: '0.68rem', color: c.insurer.basis === 'hybridUnknown' ? '#b45309' : 'var(--text-muted)' }}>{GRADE_BASIS[c.insurer.basis]}</div>}
+                      {c.insurer && <div style={{ fontSize: '0.75rem', color: c.insurer.basis === 'hybridUnknown' ? '#b45309' : 'var(--text-muted)' }}>{GRADE_BASIS[c.insurer.basis]}</div>}
                     </td>
                     <td style={num}>{won(c.insurer?.d1)}</td>
                     <td style={num}>{won(c.rates.day)}</td>

@@ -233,7 +233,7 @@ const StorageSettingView = ({ showToast, currentUser }) => {
               <div key={kind.code} style={{ display: 'grid', gridTemplateColumns: '170px minmax(0, 1fr)', gap: '0.6rem', alignItems: 'center' }}>
                 <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-bright)' }}>
                   {kind.label}
-                  {kind.hint && <div style={{ fontSize: '0.7rem', fontWeight: 400, color: 'var(--text-muted)' }}>{kind.hint}</div>}
+                  {kind.hint && <div style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>{kind.hint}</div>}
                 </div>
                 <input
                   type="text"
@@ -278,7 +278,7 @@ const StorageSettingView = ({ showToast, currentUser }) => {
                 <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.2rem' }}>{p.label}</div>
                 <div style={{
                   fontFamily: 'Consolas, Menlo, monospace',
-                  fontSize: '0.74rem',
+                  fontSize: '0.75rem',
                   lineHeight: 1.5,
                   color: 'var(--text-bright)',
                   background: 'var(--bg-main)',
@@ -294,7 +294,7 @@ const StorageSettingView = ({ showToast, currentUser }) => {
               </div>
             ))}
           </div>
-          <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.9rem', marginBottom: 0, lineHeight: 1.6 }}>
+          <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.9rem', marginBottom: 0, lineHeight: 1.6 }}>
             탐색기에서는 <b>OneDrive - CEO</b> 아래 같은 경로로 보입니다.
             계약자 이름은 예시입니다.
           </p>
@@ -352,9 +352,9 @@ const Field = ({ label, hint, tokens, children }) => (
       {label}
     </label>
     {children}
-    {hint && <p style={{ margin: '0.25rem 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{hint}</p>}
+    {hint && <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{hint}</p>}
     {tokens?.length > 0 && (
-      <p style={{ margin: '0.3rem 0 0', fontSize: '0.71rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
+      <p style={{ margin: '0.3rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
         쓸 수 있는 값:{' '}
         {tokens.map((t) => (
           <span key={t.token} title={t.desc} style={{

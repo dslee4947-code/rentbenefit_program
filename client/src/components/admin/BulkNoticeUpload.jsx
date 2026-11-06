@@ -417,7 +417,7 @@ function BulkNoticeUpload({ onClose, onDone, showToast, currentUser }) {
                             onClick={() => saveRow(row).then((ok) => ok && onDone?.())}
                             disabled={Boolean(blocker) || !row.checked || locked}
                             title={blocker || (row.checked ? '이 줄만 등록합니다' : '원본과 대조한 뒤 [확인]에 체크하세요')}
-                            style={{ border: 'none', background: (blocker || !row.checked) ? '#cbd5e1' : 'var(--primary)', color: '#fff', borderRadius: '5px', padding: '0.25rem 0.55rem', fontSize: '0.74rem', fontWeight: 800, cursor: (blocker || !row.checked) ? 'not-allowed' : 'pointer', marginRight: '0.25rem' }}
+                            style={{ border: 'none', background: (blocker || !row.checked) ? '#cbd5e1' : 'var(--primary)', color: '#fff', borderRadius: '5px', padding: '0.25rem 0.55rem', fontSize: '0.75rem', fontWeight: 800, cursor: (blocker || !row.checked) ? 'not-allowed' : 'pointer', marginRight: '0.25rem' }}
                           >
                             {row.status === 'saving' ? '...' : '등록'}
                           </button>
@@ -435,7 +435,7 @@ function BulkNoticeUpload({ onClose, onDone, showToast, currentUser }) {
             </table>
           </div>
 
-          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
             <strong style={{ color: ROUTE_INFO.longterm.color }}>장기렌트</strong> 위반일이 계약 기간 안이라 그 계약의 다음 청구서에 붙습니다 ·{' '}
             <strong style={{ color: ROUTE_INFO.rental.color }}>대차</strong> 단기렌트·사고대차 차량 운행 중이라 대차 고지서로 모읍니다 ·{' '}
             <strong style={{ color: ROUTE_INFO.review.color }}>확인 필요</strong> 원본을 열어 보고 갈 곳을 골라 주세요.

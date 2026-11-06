@@ -329,7 +329,7 @@ function PendingInquiriesView({ showToast, currentUser }) {
                           onMouseDown={(e) => e.preventDefault()}
                         >
                           <div style={{ fontWeight: '700' }}>{formatCustomerName(c)}</div>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{c.mobilePhone || c.contactPhone || '연락처 없음'}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{c.mobilePhone || c.contactPhone || '연락처 없음'}</div>
                         </li>
                       ))
                     )}

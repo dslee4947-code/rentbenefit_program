@@ -43,7 +43,19 @@
   padding: 0;
 }
 
+/* 사내 프로그램 화면만 글자·여백 기준을 16px에서 17px로 키운다(rem을 쓰는 곳이 한꺼번에 6% 커진다).
+   바꾸려면 이 숫자 하나만 고치면 된다.
+   인쇄(screen이 아닐 때)와 핸드폰, 고객용 페이지는 그대로다.
+   인쇄·PDF 문서는 rem을 쓰지 않고 px로 그려 이 값의 영향을 받지 않는다. 문서에 rem을 쓰지 않는다(docs/print-a4-guide.md). */
+@media screen and (min-width: 769px) {
+  html:has(.desktop-sidebar) {
+    font-size: 17px;
+  }
+}
+
+/* 글자 크기를 지정하지 않은 글자는 16px로 둔다. html 값을 그대로 물려받으면 인쇄 문서 글자까지 커진다 */
 body {
+  font-size: 16px;
   font-family: var(--font-sans);
   background: var(--bg-main);
   color: var(--text-main);

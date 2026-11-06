@@ -84,6 +84,7 @@ const blob = await makeFittedPdf(element, { orientation: 'portrait', marginMm: 8
 - ❌ `html2pdf()`를 직접 부르기 → 넓은 문서의 오른쪽이 잘린다. `makeFittedPdf`를 쓴다.
 - ❌ 인쇄할 문서를 `display: none`으로 숨겨 두고 PDF 만들기 → 폭이 0으로 잡힌다. 화면 밖에 두려면 `position: fixed; left: -10000px`로 둔다.
 - ❌ `printFitted`만 부르고 그 화면의 인쇄 CSS를 빠뜨리기 → 메뉴와 입력칸이 함께 찍혀 2장이 된다. 배율만으로는 해결되지 않는다. 견적서는 `QuoteInputView.jsx`의 공통 규칙을 쓰고, 문서를 `comparison-sheet-section`으로 감싼다. (2026-11-05: 연장·중고 견적서가 2장으로 나왔다)
+- ❌ 인쇄·PDF 문서에 `rem`을 쓰기 → 문서 글자와 칸이 사내 화면 기준(`index.css`의 17px)을 따라 커져 쪽이 넘친다. 문서는 `px`로 그린다. (2026-11-06: 사내 화면 글자를 키우면서 견적서 3종과 단기렌트 요금표를 같은 크기의 px로 바꿨다)
 - ❌ 인쇄용과 화면용 양식을 따로 두 벌 만들기 → 한쪽만 고쳐져 달라진다. 한 양식을 화면·인쇄·PDF가 함께 쓴다.
 - ❌ 화면에 고정(`position: fixed`)된 알림·팝업을 인쇄 때 그대로 두기 → 종이에 같이 찍힌다. 알림(`.toast-container`)은 `index.css`에서 이미 숨긴다. 새로 만든 고정 요소는 `no-print` class를 달아 숨긴다. (2026-10-07: 견적서 저장 직후 인쇄하면 "견적서가 저장되었습니다" 알림이 로고 위에 찍혔다)
 

@@ -789,7 +789,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                     </td>
                     <td style={{ ...tdStyle, fontWeight: '700' }}>
                       {x.partyName || '-'}
-                      <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', fontWeight: '600' }}>{x.contractNo}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600' }}>{x.contractNo}</div>
                     </td>
                     {/* 처리 방식. 계약에 정해 둔 것을 따르되 이 건만 바꿀 수 있다. */}
                     <td style={{ ...tdStyle, textAlign: 'center' }}>
@@ -799,7 +799,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                         disabled={x.issued || busy === id}
                         title={HANDLINGS[x.handling]?.hint}
                         style={{
-                          padding: '0.22rem 0.35rem', borderRadius: '5px', fontSize: '0.74rem', fontWeight: '800',
+                          padding: '0.22rem 0.35rem', borderRadius: '5px', fontSize: '0.75rem', fontWeight: '800',
                           cursor: (x.issued || busy === id) ? 'not-allowed' : 'pointer',
                           border: `1px solid ${HANDLINGS[x.handling]?.color || 'var(--border-color)'}`,
                           color: HANDLINGS[x.handling]?.color || 'var(--text-muted)',
@@ -811,7 +811,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                         ))}
                       </select>
                       {x.handling !== x.contractHandling && (
-                        <div style={{ fontSize: '0.68rem', color: '#d97706', fontWeight: '700', marginTop: '0.1rem' }}>
+                        <div style={{ fontSize: '0.75rem', color: '#d97706', fontWeight: '700', marginTop: '0.1rem' }}>
                           이 건만 예외
                         </div>
                       )}
@@ -824,7 +824,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                           type="button"
                           onClick={() => setFactFor(x)}
                           title="이 차의 계약사실 증명원을 열거나 만들어 저장합니다"
-                          style={{ display: 'flex', alignItems: 'center', gap: '0.15rem', marginTop: '0.15rem', border: 'none', background: 'none', padding: 0, color: '#047857', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.15rem', marginTop: '0.15rem', border: 'none', background: 'none', padding: 0, color: '#047857', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
                         >
                           <ScrollText size={11} /> 계약사실 증명원
                         </button>
@@ -833,13 +833,13 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                     <td style={tdStyle}>
                       {x.kind}
                       {x.noticeNo && (
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{x.noticeNo}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{x.noticeNo}</div>
                       )}
                     </td>
                     <td style={{ ...tdStyle, textAlign: 'center', color: 'var(--text-muted)' }}>{ymd(x.occurredAt)}</td>
                     <td style={{ ...tdStyle, textAlign: 'center' }}>
                       <div>{ymd(x.noticeDueDate)}</div>
-                      <div style={{ fontSize: '0.73rem', fontWeight: '800', color: ddayColor(x.dday, paid) }}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: '800', color: ddayColor(x.dday, paid) }}>
                         {paid ? '납부완료' : ddayLabel(x.dday)}
                       </div>
                     </td>
@@ -848,8 +848,8 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                     </td>
                     <td style={{ ...tdStyle, textAlign: 'center', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                       {x.roundNo}회차
-                      <div style={{ fontSize: '0.72rem' }}>{ymd(x.roundDueDate)}</div>
-                      {x.issued && <div style={{ fontSize: '0.7rem', color: '#0284c7', fontWeight: '700' }}>발행됨</div>}
+                      <div style={{ fontSize: '0.75rem' }}>{ymd(x.roundDueDate)}</div>
+                      {x.issued && <div style={{ fontSize: '0.75rem', color: '#0284c7', fontWeight: '700' }}>발행됨</div>}
                     </td>
                     {/* 고지서가 오면 알리는 것이 먼저다. 기한 안에 직접 내면 청구하지 않는다는 걸 고객이 알아야 한다. */}
                     <td style={{ ...tdStyle, textAlign: 'center' }}>
@@ -863,7 +863,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                             onClick={() => sendNotice(x, true)}
                             disabled={busy === id}
                             title={`${x.noticeMailTo}(으)로 보냈습니다. 다시 보냅니다.`}
-                            style={{ border: 'none', background: 'none', color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: '700', cursor: busy === id ? 'not-allowed' : 'pointer', padding: '0.1rem' }}
+                            style={{ border: 'none', background: 'none', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: '700', cursor: busy === id ? 'not-allowed' : 'pointer', padding: '0.1rem' }}
                           >
                             재발송
                           </button>
@@ -896,16 +896,16 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                       {(() => {
                         const st = STATUS_STYLE[x.noticeStatus] || STATUS_STYLE['접수'];
                         return (
-                          <span style={{ background: st.bg, color: st.color, padding: '0.15rem 0.5rem', borderRadius: '20px', fontSize: '0.73rem', fontWeight: '800', whiteSpace: 'nowrap' }}>
+                          <span style={{ background: st.bg, color: st.color, padding: '0.15rem 0.5rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '800', whiteSpace: 'nowrap' }}>
                             {x.noticeStatus}
                           </span>
                         );
                       })()}
                       {x.driverName && (
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>{x.driverName}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>{x.driverName}</div>
                       )}
                       {x.transferAgency && (
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>{x.transferAgency}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>{x.transferAgency}</div>
                       )}
                     </td>
 
@@ -976,7 +976,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                           onClick={() => cancelBilling(x)}
                           disabled={busy === id}
                           title="고객이 직접 내기로 했습니다. 청구액에서 빼고 고지서 기록은 남깁니다."
-                          style={{ display: 'block', margin: '0.25rem auto 0', border: 'none', background: 'none', color: '#a16207', fontSize: '0.72rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', textDecoration: 'underline' }}
+                          style={{ display: 'block', margin: '0.25rem auto 0', border: 'none', background: 'none', color: '#a16207', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', textDecoration: 'underline' }}
                         >
                           고객 직접 납부(청구 취소)
                         </button>
@@ -987,7 +987,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                           onClick={() => rebill(x)}
                           disabled={busy === id}
                           title="고객이 기한까지 안 냈으면 다시 청구액에 넣습니다"
-                          style={{ display: 'block', margin: '0.25rem auto 0', border: 'none', background: 'none', color: 'var(--primary)', fontSize: '0.72rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', textDecoration: 'underline' }}
+                          style={{ display: 'block', margin: '0.25rem auto 0', border: 'none', background: 'none', color: 'var(--primary)', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', textDecoration: 'underline' }}
                         >
                           다시 청구
                         </button>
@@ -1057,7 +1057,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
               <MoneyInput value={fixing.amount} onChange={(ev) => setFixing((f) => ({ ...f, amount: ev.target.value }))}
                 style={{ padding: '0.45rem 0.55rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.88rem', textAlign: 'right' }} />
             </label>
-            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>저장하면 {fixing.row.roundNo}회차 청구액과 캘린더 납부기한이 새 값으로 바뀝니다.</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>저장하면 {fixing.row.roundNo}회차 청구액과 캘린더 납부기한이 새 값으로 바뀝니다.</div>
             <div style={{ display: 'flex', gap: '0.4rem' }}>
               <button type="button" onClick={saveFix} disabled={Boolean(busy)} style={{ flex: 1, padding: '0.6rem', borderRadius: '8px', border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 800, cursor: 'pointer' }}>저장</button>
               <button type="button" onClick={() => setFixing(null)} style={{ flex: 1, padding: '0.6rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: '#fff', fontWeight: 700, cursor: 'pointer' }}>취소</button>

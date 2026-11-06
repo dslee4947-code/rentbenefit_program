@@ -1146,7 +1146,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                     <td style={{ padding: '0.7rem', textAlign: 'center' }}>
                       <div>{ymd(it.sendDate)}</div>
                       {it.round.status === '예정' && it.sendDday !== null && it.sendDday !== undefined && (
-                        <div style={{ fontSize: '0.72rem', fontWeight: '700', marginTop: '0.1rem', color: it.sendDday <= 0 ? 'var(--error)' : (it.sendDday <= 1 ? '#d97706' : 'var(--text-muted)') }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: '700', marginTop: '0.1rem', color: it.sendDday <= 0 ? 'var(--error)' : (it.sendDday <= 1 ? '#d97706' : 'var(--text-muted)') }}>
                           {it.sendDday > 0 ? `D-${it.sendDday}` : (it.sendDday === 0 ? '오늘 발송' : `${-it.sendDday}일 지남`)}
                         </div>
                       )}
@@ -1155,26 +1155,26 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                       {prev ? (
                         <>
                           {needsCheck(prev) ? (
-                            <span title={CHECK_TITLE} style={{ ...CHECK_CHIP, padding: '0.15rem 0.5rem', borderRadius: '20px', fontSize: '0.72rem', fontWeight: '800', whiteSpace: 'nowrap' }}>
+                            <span title={CHECK_TITLE} style={{ ...CHECK_CHIP, padding: '0.15rem 0.5rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '800', whiteSpace: 'nowrap' }}>
                               확인 필요
                             </span>
                           ) : (
-                            <span style={{ background: prevSt.bg, color: prevSt.color, padding: '0.15rem 0.5rem', borderRadius: '20px', fontSize: '0.72rem', fontWeight: '700' }}>
+                            <span style={{ background: prevSt.bg, color: prevSt.color, padding: '0.15rem 0.5rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '700' }}>
                               {prev.status}
                             </span>
                           )}
                           {needsCheck(prev) && (
-                            <div style={{ fontSize: '0.68rem', color: '#b45309', marginTop: '0.15rem', whiteSpace: 'nowrap' }}>청구됨 · 입금 미확인</div>
+                            <div style={{ fontSize: '0.75rem', color: '#b45309', marginTop: '0.15rem', whiteSpace: 'nowrap' }}>청구됨 · 입금 미확인</div>
                           )}
                           {/* 이번 청구서에 전월 미결제가 들어갔는데 전월이 지금 '입금완료'면, 청구서를 만들 때는 미납이었다가 나중에 들어온 것이다 */}
                           {/* 출금일 + 15일 안에 안 들어온 전월은 나중에 들어왔어도 미납이었다(대표님 지시 2026-10-20) */}
                           {prev.status === '입금완료' && prev.paidAt && (new Date(prev.paidAt) - new Date(prev.dueDate)) / 864e5 > 15 && (
-                            <div style={{ fontSize: '0.7rem', color: '#b45309', fontWeight: 700, marginTop: '0.15rem' }}>
+                            <div style={{ fontSize: '0.75rem', color: '#b45309', fontWeight: 700, marginTop: '0.15rem' }}>
                               미납 → {ymd(prev.paidAt).slice(5)} 입금
                             </div>
                           )}
                           {prev.unpaid > 0 && (
-                            <div style={{ fontSize: '0.72rem', color: 'var(--error)', fontWeight: '700', marginTop: '0.15rem' }}>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--error)', fontWeight: '700', marginTop: '0.15rem' }}>
                               {won(prev.unpaid)}
                             </div>
                           )}
@@ -1189,7 +1189,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                           <span title={CHECK_TITLE} style={{ ...CHECK_CHIP, padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '800', whiteSpace: 'nowrap' }}>
                             확인 필요
                           </span>
-                          <div style={{ fontSize: '0.68rem', color: '#b45309', marginTop: '0.15rem', whiteSpace: 'nowrap' }}>청구됨 · 입금 미확인</div>
+                          <div style={{ fontSize: '0.75rem', color: '#b45309', marginTop: '0.15rem', whiteSpace: 'nowrap' }}>청구됨 · 입금 미확인</div>
                         </>
                       ) : (
                         <span style={{ background: st.bg, color: st.color, padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '700' }}>
@@ -1197,12 +1197,12 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                         </span>
                       )}
                       {it.round.status === '미납' && (
-                        <div style={{ fontSize: '0.72rem', color: 'var(--error)', fontWeight: '800', marginTop: '0.15rem' }}>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--error)', fontWeight: '800', marginTop: '0.15rem' }}>
                           미납 {won(it.unpaid)}
                         </div>
                       )}
                       {it.round.status === '입금완료' && it.round.paidAt && (
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>{ymd(it.round.paidAt)}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>{ymd(it.round.paidAt)}</div>
                       )}
                     </td>
                     <td style={{ padding: '0.5rem 0.7rem' }} onClick={(e) => e.stopPropagation()}>
@@ -1229,7 +1229,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                                 color: it.round.status === '미납' ? 'var(--error)' : 'var(--text-bright)'
                               }}
                             />
-                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                               {it.round.status === '입금완료' ? '완납' : (it.round.paidAmount > 0 ? `${won(it.round.paidAmount)} 들어옴` : '0 = 완납')}
                             </span>
                             {/* 전달이 안 들어왔으면 [미납 처리] → 다음 청구서에 원금·이자(미리보기 후 확인). 출금일 뒤 15일이 지나야 보인다 */}
@@ -1241,7 +1241,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                                 style={{
                                   border: `1px solid ${it.round.status === '미납' ? '#64748b' : '#dc2626'}`, background: '#fff',
                                   color: it.round.status === '미납' ? '#475569' : '#dc2626', borderRadius: '6px',
-                                  padding: '0.25rem 0.55rem', fontSize: '0.72rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap'
+                                  padding: '0.25rem 0.55rem', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap'
                                 }}
                               >
                                 {it.round.status === '미납' ? '미납 취소' : '미납 처리'}
@@ -1265,7 +1265,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
               <button
                 type="button"
                 onClick={() => askThen(closeRound)}
-                style={{ marginLeft: 'auto', border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-muted)', padding: '0.2rem 0.6rem', borderRadius: '5px', fontSize: '0.74rem', fontWeight: '700', cursor: 'pointer' }}
+                style={{ marginLeft: 'auto', border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-muted)', padding: '0.2rem 0.6rem', borderRadius: '5px', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer' }}
               >
                 목록 전체 보기
               </button>
@@ -1328,23 +1328,23 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                           <td style={{ padding: '0.4rem 0.6rem', textAlign: 'right', color: 'var(--text-muted)' }}>{won(r.monthlyRent)}</td>
                           <td style={{ padding: '0.4rem 0.6rem', textAlign: 'right' }}>
                             {r.prevUnpaid ? <span style={{ color: 'var(--error)' }}>{won(r.prevUnpaid)}</span> : '-'}
-                            {r.prevOverpaid ? <div style={{ fontSize: '0.71rem', color: '#16a34a' }}>초과 {won(r.prevOverpaid)}</div> : null}
+                            {r.prevOverpaid ? <div style={{ fontSize: '0.75rem', color: '#16a34a' }}>초과 {won(r.prevOverpaid)}</div> : null}
                           </td>
                           <td style={{ padding: '0.4rem 0.6rem', textAlign: 'right' }}>
                             {r.interest ? won(r.interest) : '-'}
                             {r.interest && r.interestRate ? (
-                              <div style={{ fontSize: '0.71rem', color: 'var(--text-muted)' }}>연 {r.interestRate}% · {r.interestDays || 0}일</div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>연 {r.interestRate}% · {r.interestDays || 0}일</div>
                             ) : null}
                           </td>
                           <td style={{ padding: '0.4rem 0.6rem', textAlign: 'right' }}>
                             {r.fine ? <strong style={{ color: 'var(--error)' }}>{won(r.fine)}</strong> : (docs.length ? <span style={{ color: 'var(--text-muted)' }}>0원</span> : '-')}
                             {paidDocs.length > 1 && (
-                              <div style={{ fontSize: '0.71rem', color: 'var(--text-muted)' }}>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                 {paidDocs.map((a) => Number(a.amount).toLocaleString()).join(' · ')}
                               </div>
                             )}
                             {docs.length > 0 && (
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.2rem', fontSize: '0.71rem', color: 'var(--primary)', fontWeight: '700', marginTop: '0.1rem', flexWrap: 'wrap' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.2rem', fontSize: '0.75rem', color: 'var(--primary)', fontWeight: '700', marginTop: '0.1rem', flexWrap: 'wrap' }}>
                                 <Paperclip size={10} />
                                 서류 {docs.length}건
                                 {docs.some((a) => !Number(a.amount)) && (
@@ -1362,7 +1362,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                               </div>
                             )}
                             {docs.length > 0 && (
-                              <div style={{ fontSize: '0.71rem', color: 'var(--text-muted)' }}>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                 {[...new Set(docs.map((a) => a.plateNo).filter(Boolean))].join(', ')}
                               </div>
                             )}
@@ -1371,26 +1371,26 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                           <td style={{ padding: '0.4rem 0.6rem', textAlign: 'right' }}>
                             {r.other ? <span style={{ color: r.other < 0 ? '#16a34a' : 'inherit' }}>{won(r.other)}</span> : '-'}
                             {(r.extras || []).length > 0 && (
-                              <div style={{ fontSize: '0.71rem', color: 'var(--text-muted)' }}>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                 {r.extras.map((e) => e.label).filter(Boolean).join(', ')}
                               </div>
                             )}
                           </td>
                           <td style={{ padding: '0.4rem 0.6rem', textAlign: 'right', fontWeight: '700' }}>{won(r.total)}</td>
                           <td style={{ padding: '0.4rem 0.6rem', textAlign: 'center' }}>
-                            <span style={{ background: st.bg, color: st.color, padding: '0.12rem 0.5rem', borderRadius: '20px', fontSize: '0.71rem', fontWeight: '700' }}>
+                            <span style={{ background: st.bg, color: st.color, padding: '0.12rem 0.5rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '700' }}>
                               {r.status}
                             </span>
-                            {r.paidAt && <div style={{ fontSize: '0.69rem', color: 'var(--text-muted)' }}>{ymd(r.paidAt)}</div>}
+                            {r.paidAt && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{ymd(r.paidAt)}</div>}
                             {r.status === '미납' && (
-                              <div style={{ fontSize: '0.69rem', color: 'var(--error)', fontWeight: '800' }}>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--error)', fontWeight: '800' }}>
                                 {won(Math.max(0, (r.total || 0) - (r.paidAmount || 0)))}
                               </div>
                             )}
                           </td>
                           <td style={{ padding: '0.3rem 0.5rem' }}>
                             {r.issuedAt ? (
-                              <span style={{ fontSize: '0.71rem', color: 'var(--text-muted)' }}>발행됨 · 고칠 수 없음</span>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>발행됨 · 고칠 수 없음</span>
                             ) : (
                               <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center' }}>
                                 {(() => {
@@ -1410,7 +1410,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                                       placeholder="미납액"
                                       title="안 들어온 금액을 적으세요. 0을 적으면 완납입니다."
                                       style={{
-                                        width: '100px', padding: '0.22rem 0.4rem', borderRadius: '4px', fontSize: '0.72rem', fontWeight: '700', textAlign: 'right',
+                                        width: '100px', padding: '0.22rem 0.4rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '700', textAlign: 'right',
                                         border: `1px solid ${r.status === '미납' ? 'var(--error)' : 'var(--border-color)'}`,
                                         color: r.status === '미납' ? 'var(--error)' : 'var(--text-bright)'
                                       }}
@@ -1422,7 +1422,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                                     type="button"
                                     onClick={() => saveRoundPayment(r.no, 0, '예정')}
                                     title="아직 결과가 정해지지 않은 상태로 되돌립니다"
-                                    style={{ border: 'none', background: 'none', color: 'var(--text-muted)', fontSize: '0.68rem', fontWeight: '700', cursor: 'pointer', padding: '0 0.15rem' }}
+                                    style={{ border: 'none', background: 'none', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer', padding: '0 0.15rem' }}
                                   >
                                     되돌리기
                                   </button>
@@ -1437,7 +1437,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                 </table>
               </div>
 
-              <div style={{ padding: '0.5rem 0.9rem', fontSize: '0.74rem', color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)' }}>
+              <div style={{ padding: '0.5rem 0.9rem', fontSize: '0.75rem', color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)' }}>
                 회차·날짜·월 렌트료는 계약 조건으로 계산된 값이라 전부 들어 있습니다.
                 범칙금·기타청구와 입금 여부는 이 프로그램으로 처리한 회차부터 쌓입니다.
               </div>
@@ -1610,7 +1610,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
                 <Paperclip size={14} style={{ color: 'var(--primary)' }} />
                 <span style={{ fontSize: '0.82rem', fontWeight: '700', color: 'var(--text-bright)' }}>함께 보낼 서류</span>
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>올려 두면 청구서 메일에 함께 첨부됩니다</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>올려 두면 청구서 메일에 함께 첨부됩니다</span>
               </div>
 
               {attachments.length > 0 && (
@@ -1628,7 +1628,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                           {a.plateNo ? ` · ${a.plateNo}` : ''}
                           {a.occurredAt ? ` · 위반 ${ymd(a.occurredAt)}` : ''}
                         </div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {a.noticeDueDate ? (
                             <>
                               납부기한 {ymd(a.noticeDueDate)}
@@ -1657,7 +1657,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                           : (paidByCustomer ? '다시 청구 대상으로 되돌립니다' : '고객이 직접 냈습니다. 청구액에서 뺍니다.')}
                         style={{
                           flexShrink: 0, whiteSpace: 'nowrap', padding: '0.2rem 0.5rem', borderRadius: '5px',
-                          fontSize: '0.72rem', fontWeight: '800',
+                          fontSize: '0.75rem', fontWeight: '800',
                           cursor: form?.issuedAt ? 'not-allowed' : 'pointer',
                           opacity: form?.issuedAt ? 0.5 : 1,
                           border: `1px solid ${paidByCustomer ? '#16a34a' : 'var(--border-color)'}`,
@@ -1736,7 +1736,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                 )}
               </div>
               {platedVehicles.length > 1 && (
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>
                   차량 {platedVehicles.length}대 계약입니다. 해당 차량을 고르세요.
                   {customPlate && (
                     <button
@@ -1792,18 +1792,18 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                         </div>
                         <AmountChoices candidates={r.candidates} value={attachAmount} onPick={setAttachAmount} surcharge={r.surcharge} />
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.3rem' }}>
-                          <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>위반일
+                          <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>위반일
                             <input type="date" value={attachOccurredAt} onChange={(e) => setAttachOccurredAt(e.target.value)} style={{ ...inputStyle, padding: '0.25rem 0.4rem', fontSize: '0.78rem' }} />
                           </label>
-                          <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>납부기한
+                          <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>납부기한
                             <input type="date" value={attachNoticeDueDate} onChange={(e) => setAttachNoticeDueDate(e.target.value)} style={{ ...inputStyle, padding: '0.25rem 0.4rem', fontSize: '0.78rem' }} />
                           </label>
-                          <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>고지번호
+                          <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>고지번호
                             <input value={attachNoticeNo} onChange={(e) => setAttachNoticeNo(e.target.value)} style={{ ...inputStyle, padding: '0.25rem 0.4rem', fontSize: '0.78rem' }} />
                           </label>
                         </div>
                         {warnings.map((w) => (
-                          <div key={w} style={{ fontSize: '0.74rem', color: '#b45309', fontWeight: 700 }}>⚠ {w}</div>
+                          <div key={w} style={{ fontSize: '0.75rem', color: '#b45309', fontWeight: 700 }}>⚠ {w}</div>
                         ))}
                         <div style={{ display: 'flex', gap: '0.4rem' }}>
                           <button
@@ -1829,7 +1829,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                 );
               })()}
 
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
                 {NOTICE_KINDS.includes(attachKind)
                   ? '고지서를 고르면 글자를 읽어 금액·차량번호·위반일을 채웁니다. 확인한 뒤 [올리기]를 누르세요. 미납통행료는 원금만 청구합니다.'
                   : '파일을 고르면 바로 올라갑니다.'}
@@ -1877,7 +1877,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                 이 주소를 {schedule?.company && !schedule?.billingEmail ? '법인 청구 이메일' : '이 계약의 청구 이메일'}로 저장 (다음 달부터 기본값)
               </label>
               {schedule && recipientOf(schedule) && mailTo !== recipientOf(schedule) && (
-                <div style={{ fontSize: '0.72rem', color: 'var(--primary)', marginTop: '0.3rem' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--primary)', marginTop: '0.3rem' }}>
                   기존 주소: {recipientOf(schedule)}
                 </div>
               )}

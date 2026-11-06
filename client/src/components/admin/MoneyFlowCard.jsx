@@ -327,7 +327,7 @@ function MoneyFlowCard({ showToast }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '0.7rem', marginTop: '0.8rem' }}>
           {notes.map(([k, v, p]) => (
             <div key={k} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.6rem 0.8rem' }}>
-              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 700 }}>{k}</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 }}>{k}</div>
               <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>{v}</div>
               <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{p}</div>
             </div>

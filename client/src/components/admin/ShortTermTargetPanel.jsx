@@ -23,9 +23,9 @@ const ymd = (d) => {
 function Stat({ label, value, sub, color }) {
   return (
     <div style={{ background: 'var(--bg-main)', borderRadius: '8px', padding: '0.6rem 0.75rem', minWidth: 0 }}>
-      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>{label}</div>
+      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>{label}</div>
       <div style={{ fontSize: '1.05rem', fontWeight: 800, color: color || 'var(--text-bright)', marginTop: '0.15rem' }}>{value}</div>
-      {sub && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.15rem', lineHeight: 1.4 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.15rem', lineHeight: 1.4 }}>{sub}</div>}
     </div>
   );
 }
@@ -97,7 +97,7 @@ function ShortTermTargetPanel({ ledgerId, reloadKey, canEdit, authHeaders, showT
           </button>
         )}
       </div>
-      <p style={{ margin: '0 0 0.8rem', fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.55 }}>
+      <p style={{ margin: '0 0 0.8rem', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.55 }}>
         견적서로 <b>3년 계약 · 인수가 30% · 정비 포함</b>을 잡았을 때의 월 렌트료가 이 차가 매달 벌어 와야 할 돈입니다(선수금 없음).
         이만큼 벌고 3년 뒤 차량가의 30%에 팔면 3년 동안 이 차에 나간 돈을 다 회수합니다.
         고객은 같은 값이면 새 차를 고르므로 <b>차령에 따라</b> 1년차 ×1.1 · 2년차 ×1.0 · 3년차 ×0.9 · 4년차 ×0.8 · 5년차 이후 ×0.7로 가감합니다(1~3년 합계는 같음). 실제는 원장 고객입금 열의 대여 입금(보증금·장기 렌트료·과태료 대납 제외)입니다.
@@ -176,8 +176,8 @@ function ShortTermTargetPanel({ ledgerId, reloadKey, canEdit, authHeaders, showT
                   <tr key={m.month} style={{ borderTop: '1px solid var(--border-color)' }}>
                     <td style={{ padding: '0.35rem', whiteSpace: 'nowrap' }}>
                       {m.month}
-                      {m.current && <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}> (오늘까지)</span>}
-                      {!m.current && m.partial && <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}> (시작 달, 일할)</span>}
+                      {m.current && <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}> (오늘까지)</span>}
+                      {!m.current && m.partial && <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}> (시작 달, 일할)</span>}
                     </td>
                     <td style={{ padding: '0.35rem', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{m.ageYear}년차 ×{m.factor}</td>
                     <td style={{ padding: '0.35rem', textAlign: 'right', color: 'var(--text-muted)' }}>{toCommaString(m.target)}</td>
@@ -199,12 +199,12 @@ function ShortTermTargetPanel({ ledgerId, reloadKey, canEdit, authHeaders, showT
               </button>
             )}
             {p.undated > 0 && (
-              <div style={{ fontSize: '0.72rem', color: '#b45309', marginTop: '0.3rem' }}>날짜가 없는 입금 {toCommaString(p.undated)}원은 달에 나누지 못해 누적에만 넣었습니다.</div>
+              <div style={{ fontSize: '0.75rem', color: '#b45309', marginTop: '0.3rem' }}>날짜가 없는 입금 {toCommaString(p.undated)}원은 달에 나누지 못해 누적에만 넣었습니다.</div>
             )}
           </div>
 
           {data.assumptions?.length > 0 && (
-            <details style={{ marginTop: '0.7rem', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+            <details style={{ marginTop: '0.7rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
               <summary style={{ cursor: 'pointer' }}>목표 계산 근거 (3년 총원가 {toCommaString(Math.round(data.totalCost || 0))}원 · 정비 {toCommaString(data.maintenanceCost || 0)}원 포함 · 인수가 30% {toCommaString(data.takeoverPrice || 0)}원)</summary>
               <ul style={{ margin: '0.4rem 0 0', paddingLeft: '1.1rem', lineHeight: 1.6 }}>
                 {data.assumptions.map((a) => <li key={a}>{a}</li>)}

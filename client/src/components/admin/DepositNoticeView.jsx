@@ -148,7 +148,7 @@ export default function DepositNoticeView({ showToast, currentUser }) {
             {shown.map((it) => (
               <tr key={it.contractId} style={{ borderTop: '1px solid var(--border-color)' }}>
                 <td style={{ ...td, whiteSpace: 'nowrap' }}>{kstDate(it.contractDate)}</td>
-                <td style={td}><b>{it.partyName}</b><div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{it.contractNo}</div></td>
+                <td style={td}><b>{it.partyName}</b><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{it.contractNo}</div></td>
                 <td style={td}>{it.vehicles.map((v, i) => <div key={i}>{v.plateNo || '(번호 없음)'} {v.carModel}</div>)}</td>
                 <td style={money}>{it.deposit > 0 ? num(it.deposit) : '-'}</td>
                 <td style={money}>{it.advancePayment > 0 ? num(it.advancePayment) : '-'}</td>
@@ -158,7 +158,7 @@ export default function DepositNoticeView({ showToast, currentUser }) {
                 <td style={{ ...td, minWidth: '190px' }}>
                   <input type="email" value={toOf(it)} placeholder="청구 메일이 없습니다" onChange={(e) => setMailTo((m) => ({ ...m, [it.contractId]: e.target.value }))} style={input} disabled={!canEdit} />
                 </td>
-                <td style={{ ...td, fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                <td style={{ ...td, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                   {it.lastSent ? <>{kstDate(it.lastSent.sentAt)}<div>{it.lastSent.sentTo}</div></> : '보낸 적 없음'}
                 </td>
                 <td style={{ ...td, whiteSpace: 'nowrap', textAlign: 'right' }}>

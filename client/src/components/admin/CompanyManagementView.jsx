@@ -1112,7 +1112,7 @@ function CompanyManagementView({ showToast, currentUser }) {
                           gap: '0.2rem',
                           padding: '0.15rem 0.5rem',
                           borderRadius: '20px',
-                          fontSize: '0.72rem',
+                          fontSize: '0.75rem',
                           fontWeight: '700',
                           background: 'rgba(245, 158, 11, 0.14)',
                           color: '#f59e0b'
@@ -1124,7 +1124,7 @@ function CompanyManagementView({ showToast, currentUser }) {
                       <span style={{
                         padding: '0.15rem 0.5rem',
                         borderRadius: '20px',
-                        fontSize: '0.72rem',
+                        fontSize: '0.75rem',
                         fontWeight: '600',
                         background: co.bizType === '개인사업자' ? 'rgba(245, 158, 11, 0.12)' : 'rgba(54, 124, 255, 0.12)',
                         color: co.bizType === '개인사업자' ? '#f59e0b' : 'var(--primary)'
@@ -1256,7 +1256,7 @@ function CompanyManagementView({ showToast, currentUser }) {
                     <Plus size={16} />
                     사업자등록증 자동 완성 (PDF/이미지)
                   </span>
-                  <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'block' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>
                     클릭하거나 파일을 드래그하여 사업자등록증을 업로드하세요
                   </span>
                   <input
@@ -1339,7 +1339,7 @@ function CompanyManagementView({ showToast, currentUser }) {
                     style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-bright)' }}
                   />
                   {formData.bizType === '개인' && (
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
                       뒷자리는 성별 구분 한 자리까지만 입력됩니다. 그 뒤 숫자는 저장하지 않습니다.
                     </div>
                   )}
@@ -1472,7 +1472,7 @@ function CompanyManagementView({ showToast, currentUser }) {
                       소속 고객 {affiliatedCustomers.length > 0 && `(${affiliatedCustomers.length}명)`}
                     </span>
                   </div>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>* 주 소속은 고객당 한 개의 법인만 가능합니다</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>* 주 소속은 고객당 한 개의 법인만 가능합니다</span>
                 </div>
 
                 {/* 고객 검색 자동완성 인풋 */}
@@ -1698,7 +1698,7 @@ function CompanyManagementView({ showToast, currentUser }) {
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
                           <span style={{
-                            fontSize: '0.72rem', fontWeight: '600', color: '#b45309',
+                            fontSize: '0.75rem', fontWeight: '600', color: '#b45309',
                             background: 'rgba(180,83,9,0.1)', padding: '0.1rem 0.4rem', borderRadius: '10px', flexShrink: 0
                           }}>
                             {pd.docType}
@@ -1706,7 +1706,7 @@ function CompanyManagementView({ showToast, currentUser }) {
                           <span style={{ color: 'var(--text-bright)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {pd.file.name}
                           </span>
-                          <span style={{ color: '#b45309', fontSize: '0.72rem', flexShrink: 0 }}>저장 시 업로드됨</span>
+                          <span style={{ color: '#b45309', fontSize: '0.75rem', flexShrink: 0 }}>저장 시 업로드됨</span>
                         </div>
                         <button
                           type="button"
@@ -1775,7 +1775,7 @@ function CompanyManagementView({ showToast, currentUser }) {
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
                               <span style={{
-                                fontSize: '0.72rem', fontWeight: '600', color: 'var(--primary)',
+                                fontSize: '0.75rem', fontWeight: '600', color: 'var(--primary)',
                                 background: 'var(--primary-glow)', padding: '0.1rem 0.4rem', borderRadius: '10px', flexShrink: 0
                               }}>
                                 {doc.docType}
@@ -1783,7 +1783,7 @@ function CompanyManagementView({ showToast, currentUser }) {
                               <span style={{ color: 'var(--text-bright)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 {doc.originalName || doc.fileName}
                               </span>
-                              <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem', flexShrink: 0 }}>
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', flexShrink: 0 }}>
                                 {new Date(doc.createdAt).toLocaleDateString('ko-KR')}
                               </span>
                             </div>

@@ -164,7 +164,7 @@ function ContractExtendDialog({ contractId, onClose, onDone, showToast, initial 
                   <div key={r.vehicleId} style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 1.2fr) 1fr 1fr', gap: '0.5rem', alignItems: 'center', padding: '0.6rem 0.7rem', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
                     <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
                       {r.label}
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>지금 월 {won(r.before)}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 400 }}>지금 월 {won(r.before)}</div>
                     </div>
                     <MoneyInput value={r.monthlyFee} placeholder="월 렌트료" style={input}
                       onChange={(e) => setRows((prev) => prev.map((x, j) => (j === i ? { ...x, monthlyFee: e.target.value } : x)))} />
@@ -184,7 +184,7 @@ function ContractExtendDialog({ contractId, onClose, onDone, showToast, initial 
                 <FileCheck2 size={15} style={{ color: signedFile ? '#16a34a' : 'var(--primary)' }} /> 서명 완료본 (모두싸인에서 받은 연장 계약서 PDF)
               </span>
               <input type="file" accept="application/pdf,.pdf" onChange={(e) => setSignedFile(e.target.files?.[0] || null)} style={{ fontSize: '0.82rem' }} />
-              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
                 {signedFile
                   ? `${signedFile.name} → 계약 폴더(01.계약서/${preview.contractNo}…)에 '서명완료'로 저장됩니다.`
                   : '서명을 마친 계약서를 올려야 연장이 청구서·손익 원장에 반영됩니다.'}

@@ -1568,7 +1568,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                 background: '#f5f5f5'
               }}
             />
-            <span style={{ fontSize: '0.66rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.2rem' }}>* (합계 / 개월 수)로 자동 고정 적용됩니다.</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.2rem' }}>* (합계 / 개월 수)로 자동 고정 적용됩니다.</span>
           </div>
         </div>
 
@@ -1645,7 +1645,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                             color: row.checked ? 'var(--text-bright)' : '#999'
                           }}
                         />
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
                           × {row.times}회 = {toCommaString(row.price)}원
                         </div>
                       </>
@@ -1712,7 +1712,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
   // 비교표는 안이 늘어날수록 넓어지는데, 폭을 묶어두면 표 안에서만 가로 스크롤이 생겨
   // 실제로 보이는 구간이 좁아진다.
   return (
-    <div className="quote-input-container fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', background: '#fff', padding: '2rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-premium)', width: '100%', boxSizing: 'border-box' }}>
+    <div className="quote-input-container fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', background: '#fff', padding: '1.5rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-premium)', width: '100%', boxSizing: 'border-box' }}>
       <style dangerouslySetInnerHTML={{ __html: `
           /* Print Overrides
              인쇄는 화면 모양 그대로 A4에 맞춰 배율만 줄인다(utils/printFit.js, docs/print-a4-guide.md).
@@ -1747,6 +1747,11 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
               overflow: visible !important;
               /* 화면 배경색(회색)이 종이 가장자리와 문서 아래에 비치지 않게 한다 */
               background: #fff !important;
+            }
+            /* 바깥 카드의 테두리·그림자가 종이 가장자리에 흐린 선으로 찍히지 않게 한다 */
+            .quote-input-container {
+              border: none !important;
+              box-shadow: none !important;
             }
             /* 문서를 감싼 카드는 종이 왼쪽 위에 붙인다. 문서의 위치·여백은 printFit이 정한다 */
             .comparison-sheet-section {
@@ -2244,7 +2249,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                           <span style={{ color: '#8c8c8c', marginRight: '0.6rem' }}>{new Date(q.createdAt).toLocaleDateString('ko-KR')}</span>
                           <span style={{ fontWeight: '700' }}>{q.vehicleModel}</span>
                           {q.status === '계약전환' && (
-                            <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', background: '#e6f7ff', color: '#1890ff', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>계약전환됨</span>
+                            <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', background: '#e6f7ff', color: '#1890ff', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>계약전환됨</span>
                           )}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
@@ -2803,7 +2808,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                     border: `1px solid ${(selectedOpt?.tireType === 'standard' || !selectedOpt?.tireType) ? 'var(--primary)' : 'var(--border-color)'}`,
                     borderRadius: '4px',
                     padding: '0.2rem 0.4rem',
-                    fontSize: '0.68rem',
+                    fontSize: '0.75rem',
                     fontWeight: '600',
                     cursor: 'pointer',
                     color: (selectedOpt?.tireType === 'standard' || !selectedOpt?.tireType) ? 'var(--primary)' : 'var(--text-muted)'
@@ -2823,7 +2828,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                     border: `1px solid ${selectedOpt?.tireType === 'premium' ? 'var(--primary)' : 'var(--border-color)'}`,
                     borderRadius: '4px',
                     padding: '0.2rem 0.4rem',
-                    fontSize: '0.68rem',
+                    fontSize: '0.75rem',
                     fontWeight: '600',
                     cursor: 'pointer',
                     color: selectedOpt?.tireType === 'premium' ? 'var(--primary)' : 'var(--text-muted)'
@@ -2832,7 +2837,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                   고급: {toCommaString(recTires.premium)}원
                 </button>
               </div>
-              <div style={{ fontSize: '0.64rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
                 * 추천: {selectedOpt?.tireType === 'premium' ? recTires.premiumLabel : recTires.standardLabel}
               </div>
             </div>
@@ -3110,7 +3115,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.15rem' }}>
                         <label style={{ display: 'block', color: '#666' }}>월 정비비 (원)</label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.72rem', cursor: 'pointer', color: 'var(--primary)', fontWeight: '600' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.75rem', cursor: 'pointer', color: 'var(--primary)', fontWeight: '600' }}>
                           <input 
                             type="checkbox" 
                             checked={opt.isMaintenanceEnabled !== false} 
@@ -3629,7 +3634,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                 <div style={{ marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border-color)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.7rem', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--text-bright)' }}>회사명</span>
-                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                       타사 견적이면 회사명을 적으세요. 비교 견적서 안 이름 위 줄에 표시되고, 비워 둔 안은 {OWN_COMPANY_NAME}으로 나옵니다
                     </span>
                   </div>
@@ -3654,7 +3659,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                             color: '#fff',
                             padding: '0.05rem 0.35rem',
                             borderRadius: '3px',
-                            fontSize: '0.7rem',
+                            fontSize: '0.75rem',
                             fontWeight: '800'
                           }}>{opt.contractType || '렌트'}</span>
                           <span>{veh.carModel ? `${veh.carModel.split(' ')[0]} ` : ''}{opt.name}</span>
@@ -3682,7 +3687,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
               )}
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.7rem', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--text-bright)' }}>특이사항</span>
-                <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                   {isSpecialNoteMerged
                     ? '비교 견적서 맨 아래 줄의 칸을 합쳐서 한 번에 표시됩니다'
                     : '비교 견적서 맨 아래 줄에 안별로 표시됩니다'}
@@ -3752,7 +3757,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                           color: '#fff',
                           padding: '0.05rem 0.35rem',
                           borderRadius: '3px',
-                          fontSize: '0.7rem',
+                          fontSize: '0.75rem',
                           fontWeight: '800'
                         }}>{opt.contractType || '렌트'}</span>
                         <span>{veh.carModel ? `${veh.carModel.split(' ')[0]} ` : ''}{opt.name}</span>
@@ -3783,7 +3788,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.7rem' }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--text-bright)' }}>비고</span>
-                <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                   장기렌터카 견적서 왼쪽 하단 비고 칸에 표시됩니다
                 </span>
               </div>
@@ -3860,7 +3865,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                화면 전용이며, 인쇄와 PDF에서는 아래에서 해제한다. */
             max-height: 72vh;
             overflow-y: auto;
-            margin-top: 1.5rem;
+            margin-top: 24px;
             border-radius: 0;
             box-shadow: none;
           }
@@ -3881,7 +3886,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
           .comparison-table-modern {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.88rem;
+            font-size: 14.08px;
             color: #334155;
             background: #fff;
             border-top: 3px solid #111e38;
@@ -3912,16 +3917,16 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
           }
           .value-cell {
             text-align: right !important;
-            padding-right: 2.5rem !important;
+            padding-right: 40px !important;
             font-weight: 500;
           }
           .badge-gold {
             background-color: #ad885c;
             color: #fff;
-            padding: 0.15rem 0.4rem;
+            padding: 2.4px 6.4px;
             border-radius: 4px;
             font-weight: 800;
-            font-size: 0.72rem;
+            font-size: 11.52px;
             display: inline-block;
           }
           .print-only {
@@ -3940,7 +3945,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
           /* Mobile responsiveness optimization */
           @media screen and (max-width: 768px) {
             .comparison-sheet-section {
-              padding: 1rem !important;
+              padding: 16px !important;
             }
             .comparison-table-modern {
               min-width: 800px !important;
@@ -3951,7 +3956,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             .customer-info-bar {
               flex-direction: column !important;
               align-items: flex-start !important;
-              gap: 0.5rem !important;
+              gap: 8px !important;
             }
           }
 
@@ -3963,11 +3968,11 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
           <div ref={compOuterRef} className="m-fit-outer" style={compFit.outer}>
           <div ref={compSheetRef} className={`comparison-print-area print-fit m-doc${compFitRaw ? ' m-fitted' : ''}`} style={{ maxWidth: isComparisonLandscape ? '100%' : '900px', margin: '0 auto', background: '#fff', padding: '10px', ...compFit.inner }}>
             {/* Document Title Header */}
-            <div className="comparison-doc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isComparisonLandscape ? '0.8rem' : '1.5rem', marginTop: '0.3rem', borderBottom: '2px solid #ad885c', paddingBottom: '0.6rem' }}>
+            <div className="comparison-doc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isComparisonLandscape ? '12.8px' : '24px', marginTop: '4.8px', borderBottom: '2px solid #ad885c', paddingBottom: '9.6px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '150px' }}>
-                <span style={{ fontSize: '1.1rem', fontWeight: '800', color: '#111e38' }}>(주)렌트베네핏</span>
+                <span style={{ fontSize: '17.6px', fontWeight: '800', color: '#111e38' }}>(주)렌트베네핏</span>
               </div>
-              <h2 className="comparison-doc-title" style={{ fontWeight: '800', fontSize: '1.7rem', color: '#111e38', margin: 0, letterSpacing: '1px', flex: 1, textAlign: 'center' }}>
+              <h2 className="comparison-doc-title" style={{ fontWeight: '800', fontSize: '27.2px', color: '#111e38', margin: 0, letterSpacing: '1px', flex: 1, textAlign: 'center' }}>
                 차량 조건비교표
               </h2>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '150px' }}>
@@ -3980,16 +3985,16 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
               display: 'flex', 
               justifyContent: 'space-between', 
               alignItems: 'center', 
-              marginBottom: '1rem',
+              marginBottom: '16px',
               color: '#111e38',
-              fontSize: '0.98rem',
+              fontSize: '15.68px',
               fontWeight: '700'
             }}>
               <div>
-                <span style={{ color: '#ad885c', marginRight: '0.6rem' }}>수신</span>
+                <span style={{ color: '#ad885c', marginRight: '9.6px' }}>수신</span>
                 <span>{displayCustomerName} 귀하</span>
               </div>
-              <div style={{ color: '#555', fontWeight: '500', fontSize: '0.9rem', textAlign: 'right' }}>
+              <div style={{ color: '#555', fontWeight: '500', fontSize: '14.4px', textAlign: 'right' }}>
                 <div>작성일 {todayDateStr}</div>
                 <div>견적번호 RB-{todayDateStr.replace(/-/g, '').substring(2)}-{formatProfitCode(firstOption?.calc?.profitMargin)}</div>
               </div>
@@ -3999,13 +4004,13 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             <div className="mobile-scroll-hint" style={{ 
               display: 'none', 
               textAlign: 'center', 
-              fontSize: '0.8rem', 
+              fontSize: '12.8px', 
               color: '#ad885c', 
               backgroundColor: '#fdfbfa',
               border: '1px dashed #ad885c',
               borderRadius: '6px',
-              padding: '0.6rem',
-              marginBottom: '1rem', 
+              padding: '9.6px',
+              marginBottom: '16px', 
               fontWeight: '700' 
             }}>
               ← 좌우로 밀어서 전체 비교표를 확인하세요 →
@@ -4019,7 +4024,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                   <tr style={{ background: '#111e38', color: '#fff' }}>
                     {/* 구분과 비고는 같은 폭으로 둔다(양끝 균형).
                         가장 긴 항목명 "약정운행거리(년)"이 줄바꿈 없이 들어가는 값이 기준이다. */}
-                    <th className="comparison-th-corner" rowSpan={hasCompanyRow ? 3 : 2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '11%', minWidth: '140px', borderBottom: '1px solid #ad885c', textAlign: 'center', borderRight: '1px solid #ad885c' }}>구 분</th>
+                    <th className="comparison-th-corner" rowSpan={hasCompanyRow ? 3 : 2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '15.2px', width: '11%', minWidth: '140px', borderBottom: '1px solid #ad885c', textAlign: 'center', borderRight: '1px solid #ad885c' }}>구 분</th>
                     {vehicleColSpans.map((group, idx) => {
                       return (
                         <th
@@ -4030,8 +4035,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                             background: '#111e38',
                             color: '#fff',
                             fontWeight: '800',
-                            fontSize: '1rem',
-                            padding: '1.2rem 0.5rem',
+                            fontSize: '16px',
+                            padding: '19.2px 8px',
                             borderBottom: '1px solid #ad885c',
                             borderRight: '1px solid #ad885c',
                             textAlign: 'center',
@@ -4043,7 +4048,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                       );
                     })}
                     {/* 구분 열과 같은 값. 문구가 길면 이 폭 안에서 두 줄로 흘러간다 */}
-                    <th className="comparison-th-corner" rowSpan={hasCompanyRow ? 3 : 2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '0.95rem', width: '11%', minWidth: '140px', borderBottom: '1px solid #ad885c', textAlign: 'center' }}>비고</th>
+                    <th className="comparison-th-corner" rowSpan={hasCompanyRow ? 3 : 2} style={{ background: '#111e38', color: '#fff', fontWeight: '800', fontSize: '15.2px', width: '11%', minWidth: '140px', borderBottom: '1px solid #ad885c', textAlign: 'center' }}>비고</th>
                   </tr>
                   {/* 회사명: 1안/2안 바로 위 줄 */}
                   {hasCompanyRow && (
@@ -4056,7 +4061,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                             background: '#111e38',
                             borderBottom: '1px solid #ad885c',
                             borderRight: '1px solid #ad885c',
-                            padding: '0.5rem',
+                            padding: '8px',
                             fontSize: '11pt',
                             fontWeight: '800',
                             color: '#fff',
@@ -4079,7 +4084,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                             background: '#111e38',
                             borderBottom: '1px solid #ad885c',
                             borderRight: '1px solid #ad885c',
-                            padding: '0.8rem 0.5rem',
+                            padding: '12.8px 8px',
                             fontWeight: '700',
                             color: '#fff',
                             textAlign: 'center'
@@ -4090,7 +4095,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            gap: '0.35rem',
+                            gap: '5.6px',
                             fontSize: '11pt',
                             fontWeight: '800',
                             lineHeight: '1.3',
@@ -4099,7 +4104,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                             <span style={{
                               backgroundColor: '#ad885c',
                               color: '#fff',
-                              padding: '0.1rem 0.4rem',
+                              padding: '1.6px 6.4px',
                               borderRadius: '4px',
                               fontWeight: '800',
                               display: 'inline-block'
@@ -4107,7 +4112,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                             <span style={{
                               backgroundColor: getContractTypeColors(opt.contractType).solid,
                               color: '#fff',
-                              padding: '0.1rem 0.4rem',
+                              padding: '1.6px 6.4px',
                               borderRadius: '4px',
                               fontWeight: '800',
                               display: 'inline-block'
@@ -4121,7 +4126,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                             fontWeight: '500',
                             color: '#cbd5e1',
                             lineHeight: '1.6',
-                            marginTop: '0.25rem'
+                            marginTop: '4px'
                           }}>
                             <div>보증금 {Math.round(opt.depositRate * 100)}%</div>
                             <div>선수금 {Math.round(opt.advancePaymentRate * 100)}%</div>
@@ -4193,7 +4198,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                   <tr>
                     <td className="row-header" style={{ background: '#f9f8f6', borderRight: '1px solid #ad885c' }}>월 납입액</td>
                     {displaySelectedOptions.map(({ calc }, idx) => (
-                      <td key={idx} style={getCellStyles(idx, true, { fontWeight: '800', fontSize: '0.95rem', color: '#111e38' })}>{toCommaString(calc.monthlyLeaseFee)}</td>
+                      <td key={idx} style={getCellStyles(idx, true, { fontWeight: '800', fontSize: '15.2px', color: '#111e38' })}>{toCommaString(calc.monthlyLeaseFee)}</td>
                     ))}
                     <td style={{ background: '#f9f8f6', textAlign: 'center', color: '#94a3b8' }}>-</td>
                   </tr>
@@ -4229,7 +4234,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                       return (
                         <td 
                           key={idx} 
-                          style={getCellStyles(idx, true, { fontWeight: '800', fontSize: '0.95rem' })}
+                          style={getCellStyles(idx, true, { fontWeight: '800', fontSize: '15.2px' })}
                         >
                           {toCommaString(totalBuyCost)}
                         </td>
@@ -4284,12 +4289,12 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
               display: 'flex', 
               justifyContent: 'space-between', 
               alignItems: 'center', 
-              marginTop: '1.5rem', 
-              fontSize: '0.78rem',
+              marginTop: '24px', 
+              fontSize: '12.48px',
               color: '#777',
               fontWeight: '500',
               borderTop: '1px solid #e9e6e0',
-              paddingTop: '1rem'
+              paddingTop: '16px'
             }}>
               <div>
                 본 비교표는 계약 조건에 따라 변동될 수 있습니다.
@@ -4298,7 +4303,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                 color: '#ad885c', 
                 fontWeight: '800', 
                 letterSpacing: '2px', 
-                fontSize: '0.85rem' 
+                fontSize: '13.6px' 
               }}>
                 RENT BENEFIT
               </div>
@@ -4310,30 +4315,30 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
           {/* 화면에서 A4 한 장과 같은 비율(가로 900px × 세로 1270px)로 그린다.
               인쇄와 PDF는 이 모양을 그대로 A4 한 장에 맞게 줄이기만 한다(utils/printFit.js).
               예전에는 인쇄할 때만 글자·여백을 따로 줄이고 세로를 억지로 늘려서, 화면과 종이 모양이 달랐다. */}
-          <div ref={rentalSheetRef} className={`rental-print-area print-fit m-doc${rentalFit.outer ? ' m-fitted' : ''}`} style={{ width: `${RENTAL_SHEET_WIDTH_PX}px`, height: `${RENTAL_SHEET_HEIGHT_PX}px`, margin: '0 auto', background: '#fff', padding: `${RENTAL_SHEET_MARGIN_PX}px`, color: '#000', fontFamily: "'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif", fontSize: '0.76rem', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden', ...rentalFit.inner }}>
+          <div ref={rentalSheetRef} className={`rental-print-area print-fit m-doc${rentalFit.outer ? ' m-fitted' : ''}`} style={{ width: `${RENTAL_SHEET_WIDTH_PX}px`, height: `${RENTAL_SHEET_HEIGHT_PX}px`, margin: '0 auto', background: '#fff', padding: `${RENTAL_SHEET_MARGIN_PX}px`, color: '#000', fontFamily: "'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif", fontSize: '12.16px', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden', ...rentalFit.inner }}>
             {/* 1. Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', borderBottom: '2.5px double #000', paddingBottom: '0.6rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6.4px', borderBottom: '2.5px double #000', paddingBottom: '9.6px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '150px' }}>
-                <span style={{ fontSize: '1.1rem', fontWeight: '800', color: '#111e38' }}>(주)렌트베네핏</span>
+                <span style={{ fontSize: '17.6px', fontWeight: '800', color: '#111e38' }}>(주)렌트베네핏</span>
               </div>
-              <h2 style={{ fontSize: '1.8rem', fontWeight: '800', color: '#111e38', margin: 0, letterSpacing: '2px', flex: 1, textAlign: 'center' }}>장기렌터카 견적서</h2>
+              <h2 style={{ fontSize: '28.8px', fontWeight: '800', color: '#111e38', margin: 0, letterSpacing: '2px', flex: 1, textAlign: 'center' }}>장기렌터카 견적서</h2>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '150px' }}>
                 <img src="/logo.png" alt="RENT BENefit" style={{ maxWidth: '120px', height: 'auto' }} />
               </div>
             </div>
 
             {/* 2. Customer & Document Meta Info */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1.0rem', marginBottom: '0.3rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', marginBottom: '4.8px' }}>
               {/* 왼쪽 테이블: 고객 및 차량 정보 */}
-              <table style={{ width: '50%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.74rem' }}>
+              <table style={{ width: '50%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '11.84px' }}>
                 <tbody>
                   <tr>
                     <td style={{ width: '25%', background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>고객명</td>
-                    <td style={{ width: '75%', padding: '4px 6px', border: '1px solid #000', fontWeight: '700', fontSize: '0.78rem' }}>{displayCustomerName} 귀하</td>
+                    <td style={{ width: '75%', padding: '4px 6px', border: '1px solid #000', fontWeight: '700', fontSize: '12.48px' }}>{displayCustomerName} 귀하</td>
                   </tr>
                   <tr>
                     <td style={{ background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>차종</td>
-                    <td style={{ padding: '4px 6px', border: '1px solid #000', fontSize: '0.72rem', fontWeight: '600' }}>{firstOption?.veh.carModel || '차종 미입력'}</td>
+                    <td style={{ padding: '4px 6px', border: '1px solid #000', fontSize: '11.52px', fontWeight: '600' }}>{firstOption?.veh.carModel || '차종 미입력'}</td>
                   </tr>
                   <tr>
                     <td style={{ background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>예상납기</td>
@@ -4341,20 +4346,20 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                   </tr>
                   <tr>
                     <td style={{ background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>색상</td>
-                    <td style={{ padding: '4px 6px', border: '1px solid #000', fontSize: '0.72rem' }}>
+                    <td style={{ padding: '4px 6px', border: '1px solid #000', fontSize: '11.52px' }}>
                       [외장]: <span style={{ color: '#d9534f', fontWeight: '700' }}>{firstOption?.veh.exteriorColor || '-'}</span>, &nbsp;
                       [내장]: <span style={{ color: '#d9534f', fontWeight: '700' }}>{firstOption?.veh.interiorColor || '-'}</span>
                     </td>
                   </tr>
                   <tr>
                     <td style={{ background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>옵션</td>
-                    <td style={{ padding: '4px 6px', border: '1px solid #000', fontSize: '0.70rem', color: '#d9534f', fontWeight: '600' }}>{firstOption?.veh.carOptionsName || '-'}</td>
+                    <td style={{ padding: '4px 6px', border: '1px solid #000', fontSize: '11.2px', color: '#d9534f', fontWeight: '600' }}>{firstOption?.veh.carOptionsName || '-'}</td>
                   </tr>
                 </tbody>
               </table>
 
               {/* 오른쪽 테이블: 견적 정보 및 담당자 */}
-              <table style={{ width: '50%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.74rem' }}>
+              <table style={{ width: '50%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '11.84px' }}>
                 <tbody>
                   <tr>
                     <td style={{ width: '25%', background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>작성일</td>
@@ -4376,7 +4381,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                   </tr>
                   <tr>
                     <td style={{ background: '#dcdcdc', padding: '4px 6px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' }}>연락처</td>
-                    <td style={{ padding: '2px 6px', border: '1px solid #000', fontSize: '0.70rem' }}>
+                    <td style={{ padding: '2px 6px', border: '1px solid #000', fontSize: '11.2px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span>TEL</span>
                         <span>02-547-0303 / 010-9061-3000</span>
@@ -4396,14 +4401,14 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             </div>
 
             {/* 3. Credit Information Notice */}
-            <div style={{ background: '#fafafa', border: '1px solid #adadad', padding: '4px 10px', fontSize: '0.68rem', color: '#333', marginBottom: '0.3rem', borderRadius: '4px', lineHeight: '1.3' }}>
+            <div style={{ background: '#fafafa', border: '1px solid #adadad', padding: '4px 10px', fontSize: '10.88px', color: '#333', marginBottom: '4.8px', borderRadius: '4px', lineHeight: '1.3' }}>
               <div style={{ fontWeight: '700', textAlign: 'center', marginBottom: '1px' }}>• 대출액 10억 이하인 경우 및 최근 1개년 재무제표 미제출시에 한함 •</div>
               <div>1. 기업의 신용도 판단 목적으로 대표자의 개인신용정보를 조회할 경우, 렌트베네핏은 해당 기업의 대표자에게 조회 사실 및 이유 등을 사전 고지하여야 합니다.</div>
               <div>2. 렌트베네핏에 장기 견적을 요청한 업무담당자께서는 귀사의 대표자에게 신용조회가 발생할 수 있음을 반드시 사전 보고해 주시기 바랍니다.</div>
             </div>
 
             {/* 4. Main Rental Details Table */}
-            <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.74rem', marginBottom: '0.1rem' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '11.84px', marginBottom: '1.6px' }}>
               <thead>
                 <tr style={{ background: '#dcdcdc', borderBottom: '1.5px solid #000' }}>
                   <th style={{ width: '6%', padding: '4px 2px', border: '1px solid #000', fontWeight: '700', textAlign: 'center' }}>구분</th>
@@ -4424,10 +4429,10 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                     const { veh, opt, calc } = item;
                     return (
                       <React.Fragment key={index}>
-                        <tr style={{ height: '1.5rem' }}>
+                        <tr style={{ height: '24px' }}>
                           {/* 렌트/리스 구분은 비교 견적서에만 표시한다 */}
                           <td rowSpan={2} style={{ textAlign: 'center', padding: '4px 2px', border: '1px solid #000', fontWeight: '700', background: '#fafafa' }}>{index + 1}</td>
-                          <td style={{ padding: '4px 4px', border: '1px solid #000', fontWeight: '700', fontSize: '0.70rem' }}>{veh.carModel}</td>
+                          <td style={{ padding: '4px 4px', border: '1px solid #000', fontWeight: '700', fontSize: '11.2px' }}>{veh.carModel}</td>
                           <td style={{ textAlign: 'center', padding: '4px 2px', border: '1px solid #000' }}>1</td>
                           <td style={{ textAlign: 'center', padding: '4px 2px', border: '1px solid #000' }}>{opt.termYears * 12}</td>
                           <td style={{ textAlign: 'right', padding: '4px 4px', border: '1px solid #000' }}>{toCommaString(calc.totalCarPrice)}</td>
@@ -4436,7 +4441,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                           <td style={{ textAlign: 'right', padding: '4px 4px', border: '1px solid #000' }}>{toCommaString(calc.takeoverPrice)}</td>
                           <td style={{ textAlign: 'right', padding: '4px 4px', border: '1px solid #000', fontWeight: '700', color: '#111e38' }}>{toCommaString(calc.monthlyLeaseFee)}</td>
                         </tr>
-                        <tr className="quote-sub-row" style={{ fontSize: '0.66rem', height: '1.2rem' }}>
+                        <tr className="quote-sub-row" style={{ fontSize: '10.56px', height: '19.2px' }}>
                           <td style={{ padding: '2px 4px', border: '1px solid #000', color: '#555' }}>
                             정비 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <strong>{opt.isMaintenanceEnabled !== false ? '가입' : '미가입'}</strong>
                           </td>
@@ -4457,7 +4462,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                   } else {
                     return (
                       <React.Fragment key={index}>
-                        <tr style={{ height: '1.4rem' }}>
+                        <tr style={{ height: '22.4px' }}>
                           <td rowSpan={2} style={{ textAlign: 'center', padding: '4px 2px', border: '1px solid #000', fontWeight: '700', background: '#fafafa', color: '#ccc' }}>{index + 1}</td>
                           <td style={{ padding: '4px 4px', border: '1px solid #000' }}></td>
                           <td style={{ border: '1px solid #000' }}></td>
@@ -4468,7 +4473,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                           <td style={{ border: '1px solid #000' }}></td>
                           <td style={{ border: '1px solid #000' }}></td>
                         </tr>
-                        <tr className="quote-sub-row" style={{ height: '1.1rem' }}>
+                        <tr className="quote-sub-row" style={{ height: '17.6px' }}>
                           <td style={{ border: '1px solid #000' }}></td>
                           <td colSpan={3} style={{ border: '1px solid #000' }}></td>
                           <td style={{ border: '1px solid #000' }}></td>
@@ -4483,12 +4488,12 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
               </tbody>
             </table>
 
-            <div style={{ textAlign: 'right', fontSize: '0.62rem', color: '#555', marginBottom: '0.2rem', fontWeight: '600' }}>
+            <div style={{ textAlign: 'right', fontSize: '9.92px', color: '#555', marginBottom: '3.2px', fontWeight: '600' }}>
               대당 / 차량소비자가격 * 옵션 및 VAT포함 / 월대여료 : VAT포함
             </div>
 
             {/* 5. Fine Print / Guidelines */}
-            <div style={{ background: '#fdfbfa', border: '1px dashed #ad885c', padding: '4px 8px', fontSize: '0.66rem', color: '#555', marginBottom: '0.3rem', lineHeight: '1.35' }}>
+            <div style={{ background: '#fdfbfa', border: '1px dashed #ad885c', padding: '4px 8px', fontSize: '10.56px', color: '#555', marginBottom: '4.8px', lineHeight: '1.35' }}>
               <div>• 상기 견적 금액은 운용대수(계약대수/차량보유대수), 차량가 변동 또는 정부 시책에 따라 변동될 수 있습니다.</div>
               {/* 표의 월대여료는 이미 선납금을 뺀 금액이다. 예전 문구("월대여료에서 차감하고 청구")는
                   표의 금액에서 한 번 더 빼는 것처럼 읽혀, 실제 청구액보다 적게 낼 것으로 오해하게 했다. */}
@@ -4498,11 +4503,11 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             </div>
 
             {/* 6. Rental and Insurance Clauses Grid */}
-            <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.3rem' }}>
+            <div style={{ display: 'flex', gap: '9.6px', marginBottom: '4.8px' }}>
               {/* 왼쪽 블록: 대여료 포함사항 & 보험가입내용 */}
-              <div style={{ width: '50%', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              <div style={{ width: '50%', display: 'flex', flexDirection: 'column', gap: '6.4px' }}>
                 {/* 원대여료 포함사항 */}
-                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.68rem' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '10.88px' }}>
                   <thead>
                     <tr style={{ background: '#dcdcdc', borderBottom: '1px solid #000' }}>
                       <th style={{ padding: '3px', fontWeight: '700', textAlign: 'center' }}>원대여료 포함사항</th>
@@ -4520,7 +4525,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                 </table>
 
                 {/* 보험 가입 내용 */}
-                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.66rem' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '10.56px' }}>
                   <thead>
                     <tr style={{ background: '#dcdcdc', borderBottom: '1px solid #000' }}>
                       <th colSpan={4} style={{ padding: '3px', fontWeight: '700', textAlign: 'center' }}>보험 가입 내용</th>
@@ -4568,9 +4573,9 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
               </div>
 
               {/* 오른쪽 블록: 대여조건 & 차량관리/정비서비스 */}
-              <div style={{ width: '50%', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <div style={{ width: '50%', display: 'flex', flexDirection: 'column', gap: '3.2px' }}>
                 {/* 대여 조건 */}
-                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.68rem' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '10.88px' }}>
                   <thead>
                     <tr style={{ background: '#dcdcdc', borderBottom: '1px solid #000' }}>
                       <th colSpan={2} style={{ padding: '3px', fontWeight: '700', textAlign: 'center' }}>대여 조건</th>
@@ -4595,7 +4600,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                 </table>
 
                 {/* 차량 관리 서비스 */}
-                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '0.66rem' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '10.56px' }}>
                   <thead>
                     <tr style={{ background: '#dcdcdc', borderBottom: '1px solid #000' }}>
                       <th colSpan={3} style={{ padding: '3px', fontWeight: '700', textAlign: 'center' }}>차량 관리 서비스</th>
@@ -4657,8 +4662,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             {/* 7. Notes and Special Terms
                 A4 한 장에서 위 내용을 다 그리고 남은 세로 공간을 이 줄이 전부 가져간다(flex: 1).
                 표(table)는 남은 높이만큼 늘어나지 않아서 상자(div)로 그린다. */}
-            <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.3rem', flex: 1, minHeight: '80px' }}>
-              <div style={{ width: '50%', display: 'flex', flexDirection: 'column', border: '1.5px solid #000', fontSize: '0.68rem' }}>
+            <div style={{ display: 'flex', gap: '9.6px', marginBottom: '4.8px', flex: 1, minHeight: '80px' }}>
+              <div style={{ width: '50%', display: 'flex', flexDirection: 'column', border: '1.5px solid #000', fontSize: '10.88px' }}>
                 <div style={{ background: '#dcdcdc', borderBottom: '1px solid #000', padding: '3px', fontWeight: '700', textAlign: 'center' }}>비고</div>
                 {/* 위쪽 입력 영역에서 받은 비고를 표시만 한다 */}
                 <div style={{ flex: 1, padding: '5px 8px', color: '#333', whiteSpace: 'pre-wrap', lineHeight: '1.4', overflow: 'hidden' }}>
@@ -4666,8 +4671,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                 </div>
               </div>
 
-              <div style={{ width: '50%', display: 'flex', flexDirection: 'column', border: '1.5px solid #000', fontSize: '0.66rem' }}>
-                <div style={{ background: '#dcdcdc', borderBottom: '1px solid #000', padding: '3px', fontWeight: '700', textAlign: 'center', fontSize: '0.68rem' }}>특약사항</div>
+              <div style={{ width: '50%', display: 'flex', flexDirection: 'column', border: '1.5px solid #000', fontSize: '10.56px' }}>
+                <div style={{ background: '#dcdcdc', borderBottom: '1px solid #000', padding: '3px', fontWeight: '700', textAlign: 'center', fontSize: '10.88px' }}>특약사항</div>
                 <div style={{ flex: 1, padding: '5px 8px', lineHeight: '1.4', color: '#333', overflow: 'hidden' }}>
                   <div>• 개별소비세 관련 정부 정책 변경 이후 출고되는 차량의 렌탈료는 [개별소비세 변동 금액/계약 개월 수]만큼 변동됩니다.</div>
                   <div style={{ marginTop: '2px' }}>• 전기차의 대차는 내연기관 차량으로 제공됩니다.</div>
@@ -4677,7 +4682,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             </div>
 
             {/* 8. Required Documents */}
-            <div style={{ border: '1px solid #000', padding: '4px 8px', fontSize: '0.68rem', marginBottom: '0.4rem', display: 'flex', gap: '0.4rem', lineHeight: '1.25' }}>
+            <div style={{ border: '1px solid #000', padding: '4px 8px', fontSize: '10.88px', marginBottom: '6.4px', display: 'flex', gap: '6.4px', lineHeight: '1.25' }}>
               <div style={{ fontWeight: '800', whiteSpace: 'nowrap' }}>계약시 필요서류</div>
               <div style={{ color: '#333' }}>
                 <strong>• 법인:</strong> 법인등기부등본(원본), 법인인감증명서(원본), 사업자등록증(사본), 사용인감사용시 사용인감계, 대리인 날인시 위임장, CMS통장사본
@@ -4685,12 +4690,12 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
             </div>
 
             {/* 9. Signatures (Footer) */}
-            <div style={{ textAlign: 'center', marginTop: '0.2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.1rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'baseline', gap: '1.2rem' }}>
-                <span style={{ fontSize: '1.1rem', fontWeight: '800', letterSpacing: '2px', color: '#111e38' }}>주식회사 렌트베네핏</span>
-                <span style={{ fontSize: '1.0rem', fontWeight: '800', color: '#111e38' }}>대표이사 신 동 일</span>
+            <div style={{ textAlign: 'center', marginTop: '3.2px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'baseline', gap: '19.2px' }}>
+                <span style={{ fontSize: '17.6px', fontWeight: '800', letterSpacing: '2px', color: '#111e38' }}>주식회사 렌트베네핏</span>
+                <span style={{ fontSize: '16px', fontWeight: '800', color: '#111e38' }}>대표이사 신 동 일</span>
               </div>
-              <div style={{ fontSize: '0.70rem', fontWeight: '800', letterSpacing: '3px', color: '#ad885c', marginTop: '0.2rem' }}>
+              <div style={{ fontSize: '11.2px', fontWeight: '800', letterSpacing: '3px', color: '#ad885c', marginTop: '3.2px' }}>
                 TOTAL CAR PREMIUM SOLUTION
               </div>
             </div>

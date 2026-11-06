@@ -88,7 +88,7 @@ function BasisDialog({ spec, onClose }) {
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--text-bright)' }}>{hasAmount ? `${won(total)}원` : `${total.toLocaleString()}${spec.unit || '건'}`}</div>
             {rows && spec.expected !== undefined && (
-              <div style={{ fontSize: '0.74rem', color: matches ? '#15803d' : '#b91c1c', fontWeight: 700 }}>
+              <div style={{ fontSize: '0.75rem', color: matches ? '#15803d' : '#b91c1c', fontWeight: 700 }}>
                 {matches ? `✓ 카드 숫자(${spec.expectedLabel})와 같습니다` : `카드 숫자 ${spec.expectedLabel}와 다릅니다 — 새로고침 후 다시 확인해 주세요`}
               </div>
             )}

@@ -383,9 +383,9 @@ function InvoiceArchiveView({ showToast, currentUser }) {
             <div key={g.key} style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
               <div style={{ position: 'sticky', top: 0, zIndex: 1, background: '#fff', display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.35rem 0.2rem 0.25rem', borderBottom: '1px solid var(--border-color)' }}>
                 {g.key === 'etc'
-                  ? <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)' }}>결제일 미정</span>
+                  ? <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)' }}>결제일 미정</span>
                   : <PaymentDayBadge dayKey={g.key} />}
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{g.items.length}건</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{g.items.length}건</span>
               </div>
           {g.items.map((c) => {
             const active = picked?.contractId === c.contractId;
@@ -401,7 +401,7 @@ function InvoiceArchiveView({ showToast, currentUser }) {
                 }}
               >
                 <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{c.partyName || '계약자 미상'}</div>
-                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                   {/* 차가 많은 계약(신흥 20대 등)은 두 대만 보이고 나머지는 '외 n대'. 검색은 모든 차량번호로 된다 */}
                   {c.contractNo} · {(c.vehicles || []).slice(0, 2).map((v) => `${v.carModel} ${v.plateNo}`.trim()).join(', ') || '차량 미정'}
                   {(c.vehicles || []).length > 2 ? ` 외 ${c.vehicles.length - 2}대` : ''}
@@ -470,33 +470,33 @@ function InvoiceArchiveView({ showToast, currentUser }) {
                           {/* 고치는 중인 회차는 저장 전이라도 바뀐 금액을 보여 준다 */}
                           {won(r.no === selectedNo && !locked ? previewTotal : r.total)}
                           {r.excelInvoice?.total !== undefined && r.excelInvoice.total !== r.total && (
-                            <div style={{ fontSize: '0.7rem', color: '#0f766e' }}>엑셀 {won(r.excelInvoice.total)}</div>
+                            <div style={{ fontSize: '0.75rem', color: '#0f766e' }}>엑셀 {won(r.excelInvoice.total)}</div>
                           )}
                           {(r.extras || []).length > 0 && (
-                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', whiteSpace: 'normal' }}>+ {r.extras.map((e) => e.label).join(', ')}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'normal' }}>+ {r.extras.map((e) => e.label).join(', ')}</div>
                           )}
                         </td>
                         <td style={{ padding: '0.5rem', textAlign: 'center', whiteSpace: 'nowrap' }}>
-                          <span style={{ background: st.bg, color: st.color, padding: '0.1rem 0.5rem', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 700 }}>{st.label}</span>
+                          <span style={{ background: st.bg, color: st.color, padding: '0.1rem 0.5rem', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 700 }}>{st.label}</span>
                           {r.sentAt && <Mail size={13} style={{ color: '#16a34a', marginLeft: '0.3rem', verticalAlign: 'middle' }} />}
                         </td>
                         <td style={{ padding: '0.5rem', textAlign: 'center' }}>
                           {/* 출금일 + 15일 안에 안 들어온 회차는 나중에 들어왔어도 '미납'으로 보여 주고 실제 입금일을 붙인다(대표님 지시 2026-10-20) */}
                           {r.status === '입금완료' && wasLate(r) ? (
                             <>
-                              <span style={{ background: PAY_STYLE['미납'].bg, color: PAY_STYLE['미납'].color, padding: '0.1rem 0.5rem', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap' }}>미납</span>
-                              <div style={{ fontSize: '0.66rem', color: '#16a34a', fontWeight: 700, whiteSpace: 'nowrap' }}>→ {ymd(r.paidAt).slice(2).replace(/-/g, '.')} 입금</div>
+                              <span style={{ background: PAY_STYLE['미납'].bg, color: PAY_STYLE['미납'].color, padding: '0.1rem 0.5rem', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 700, whiteSpace: 'nowrap' }}>미납</span>
+                              <div style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: 700, whiteSpace: 'nowrap' }}>→ {ymd(r.paidAt).slice(2).replace(/-/g, '.')} 입금</div>
                             </>
                           ) : (
-                            <span style={{ background: pay.bg, color: pay.color, padding: '0.1rem 0.5rem', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap' }}>{r.status}</span>
+                            <span style={{ background: pay.bg, color: pay.color, padding: '0.1rem 0.5rem', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 700, whiteSpace: 'nowrap' }}>{r.status}</span>
                           )}
                           {r.unbilledInterest?.amount > 0 && (
-                            <div style={{ fontSize: '0.66rem', color: laterChargeOf(r) ? '#dc2626' : '#92400e', whiteSpace: 'nowrap' }}>
+                            <div style={{ fontSize: '0.75rem', color: laterChargeOf(r) ? '#dc2626' : '#92400e', whiteSpace: 'nowrap' }}>
                               {laterChargeOf(r) ? <>이자 {won(r.unbilledInterest.amount)}<br />→ {laterChargeOf(r)}회 청구</> : `미청구 이자 ${won(r.unbilledInterest.amount)}`}
                             </div>
                           )}
                           {r.pastInterestCharge?.amount > 0 && (
-                            <div style={{ fontSize: '0.66rem', color: '#dc2626', fontWeight: 700, whiteSpace: 'nowrap' }}>지난 이자<br />{won(r.pastInterestCharge.amount)} 청구</div>
+                            <div style={{ fontSize: '0.75rem', color: '#dc2626', fontWeight: 700, whiteSpace: 'nowrap' }}>지난 이자<br />{won(r.pastInterestCharge.amount)} 청구</div>
                           )}
                         </td>
                       </tr>
@@ -614,7 +614,7 @@ function InvoiceArchiveView({ showToast, currentUser }) {
                   )}
 
                   {!locked && ymd(round.dueDate) <= todayYmd() && (
-                    <div style={{ fontSize: '0.74rem', color: '#b45309' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#b45309' }}>
                       지난 회차는 입금 기록이 없으면 전월 미결제·연체 이자가 0원으로 계산됩니다.
                     </div>
                   )}

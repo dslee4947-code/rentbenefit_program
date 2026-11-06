@@ -104,7 +104,7 @@ function SignedDocsDialog({ contract, onClose, onDone, showToast }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.2rem', borderBottom: '1px solid var(--border-color)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 800, fontSize: '1.02rem' }}>
             <FileCheck2 size={18} style={{ color: '#16a34a' }} /> 서명 완료본 · {contract.contractNo}
-            {info?.contractKind === '연장' && <span style={{ fontSize: '0.72rem', color: '#7c3aed', border: '1px solid #c4b5fd', borderRadius: '4px', padding: '0 0.3rem' }}>연장</span>}
+            {info?.contractKind === '연장' && <span style={{ fontSize: '0.75rem', color: '#7c3aed', border: '1px solid #c4b5fd', borderRadius: '4px', padding: '0 0.3rem' }}>연장</span>}
           </div>
           <button type="button" onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={18} /></button>
         </div>
@@ -146,7 +146,7 @@ function SignedDocsDialog({ contract, onClose, onDone, showToast }) {
             <input type="file" accept="application/pdf,.pdf" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ fontSize: '0.82rem' }} />
             <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="메모 (예: 모두싸인 완료 10/26, 재서명)"
               style={{ width: '100%', boxSizing: 'border-box', marginTop: '0.45rem', padding: '0.45rem 0.6rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.82rem' }} />
-            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
               계약자 폴더 01.계약서/{contract.contractNo}… 에 '{contract.contractNo}_계약서_서명완료_v{(docs[0]?.version || 0) + 1}.pdf'로 저장됩니다. 예전 버전은 지우지 않습니다.
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.7rem' }}>

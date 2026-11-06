@@ -547,17 +547,17 @@ function DeliveryPrepView({ showToast, currentUser }) {
                     {v.contract ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
                         <span style={{ fontWeight: '600' }}>{v.contract.companyId?.name || formatCustomerName(v.contract.customer)}</span>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{v.contract.contractNo}</span>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{v.contract.contractNo}</span>
                       </div>
                     ) : '-'}
                   </td>
                   <td style={{ padding: '0.8rem' }}>
                     <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
                       {!v.plateNo && (
-                        <span style={{ background: '#fff1f0', color: '#ff4d4f', padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.72rem', fontWeight: '600' }}>차량번호 없음</span>
+                        <span style={{ background: '#fff1f0', color: '#ff4d4f', padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '600' }}>차량번호 없음</span>
                       )}
                       {!v.vin && (
-                        <span style={{ background: '#fff1f0', color: '#ff4d4f', padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.72rem', fontWeight: '600' }}>차대번호 없음</span>
+                        <span style={{ background: '#fff1f0', color: '#ff4d4f', padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '600' }}>차대번호 없음</span>
                       )}
                     </div>
                   </td>

@@ -188,9 +188,9 @@ export default function BulkSendDialog({ title, items, currentUser, showToast, o
                   <td style={{ ...cell, textAlign: 'center' }}>
                     <input type="checkbox" checked={r.pick} disabled={running || done || Boolean(r.state)} onChange={(e) => update(i, { pick: e.target.checked })} />
                   </td>
-                  <td style={cell}><strong>{nameOf(r.it)}</strong><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{r.it.carSummary || ''}</div></td>
+                  <td style={cell}><strong>{nameOf(r.it)}</strong><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{r.it.carSummary || ''}</div></td>
                   <td style={{ ...cell, whiteSpace: 'nowrap' }}><PaymentDayBadge date={r.it.round.dueDate} /> {r.it.round.no}회차 · {String(r.it.round.dueDate || '').slice(0, 10)}
-                    {r.docs && <div style={{ fontSize: '0.72rem', color: 'var(--primary)', fontWeight: 700, marginTop: '0.15rem' }}>함께 보냄: {r.docs}</div>}
+                    {r.docs && <div style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 700, marginTop: '0.15rem' }}>함께 보냄: {r.docs}</div>}
                   </td>
                   <td style={{ ...cell, textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>{won(r.total)}</td>
                   <td style={cell}>
@@ -204,7 +204,7 @@ export default function BulkSendDialog({ title, items, currentUser, showToast, o
                   </td>
                   <td style={{ ...cell, whiteSpace: 'nowrap', fontWeight: 700, color: STATE_COLOR[r.state] || 'var(--text-muted)' }}>
                     {r.state || (r.pick ? '보낼 예정' : '빼기')}
-                    {r.message && <div style={{ fontSize: '0.7rem', fontWeight: 400, color: 'var(--text-muted)', whiteSpace: 'normal', maxWidth: '200px' }}>{r.message}</div>}
+                    {r.message && <div style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)', whiteSpace: 'normal', maxWidth: '200px' }}>{r.message}</div>}
                   </td>
                 </tr>
               ))}

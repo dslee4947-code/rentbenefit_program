@@ -159,7 +159,7 @@ function MaintenanceRatesView({ showToast, currentUser }) {
         <div style={{ display: 'grid', gap: '0.5rem' }}>
           {grades.map((g) => (
             <label key={g.key} style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '0.6rem', alignItems: 'start', fontSize: '0.8rem' }}>
-              <span style={{ fontWeight: '700', paddingTop: '0.35rem' }}>{g.label}<div style={{ fontWeight: '400', color: 'var(--text-muted)', fontSize: '0.72rem' }}>{g.examples}</div></span>
+              <span style={{ fontWeight: '700', paddingTop: '0.35rem' }}>{g.label}<div style={{ fontWeight: '400', color: 'var(--text-muted)', fontSize: '0.75rem' }}>{g.examples}</div></span>
               <textarea
                 rows={2}
                 disabled={!canEdit}
@@ -171,7 +171,7 @@ function MaintenanceRatesView({ showToast, currentUser }) {
             </label>
           ))}
         </div>
-        <div style={{ marginTop: '0.7rem', fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+        <div style={{ marginTop: '0.7rem', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
           참고 자료: {(rates.sources || []).join(' · ')}
         </div>
       </div>

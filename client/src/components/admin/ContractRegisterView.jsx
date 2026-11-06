@@ -2144,7 +2144,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                       <>
                         {companySuggestions.length > 0 && (
                           <>
-                            <li style={{ padding: '0.4rem 0.8rem', fontSize: '0.7rem', fontWeight: '700', color: 'var(--text-muted)', background: 'var(--bg-main)' }}>
+                            <li style={{ padding: '0.4rem 0.8rem', fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)', background: 'var(--bg-main)' }}>
                               🏢 법인
                             </li>
                             {companySuggestions.map(company => (
@@ -2163,7 +2163,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                                   <span style={{ fontWeight: '600', color: 'var(--text-bright)' }}>{company.name}</span>
                                   <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{company.ceoName ? `대표 ${company.ceoName}` : ''}</span>
                                 </div>
-                                <div style={{ fontSize: '0.7rem', color: 'var(--primary)' }}>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--primary)' }}>
                                   {company.bizNo || '사업자번호 없음'}
                                 </div>
                               </li>
@@ -2172,7 +2172,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                         )}
                         {custSuggestions.length > 0 && (
                           <>
-                            <li style={{ padding: '0.4rem 0.8rem', fontSize: '0.7rem', fontWeight: '700', color: 'var(--text-muted)', background: 'var(--bg-main)' }}>
+                            <li style={{ padding: '0.4rem 0.8rem', fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)', background: 'var(--bg-main)' }}>
                               👤 고객
                             </li>
                             {custSuggestions.map(item => {
@@ -2196,9 +2196,9 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                                     <span style={{ fontWeight: '600', color: 'var(--text-bright)' }}>{formatCustomerName(c)}</span>
                                     <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{c.mobilePhone || c.contactPhone || '연락처 없음'}</span>
                                   </div>
-                                  <div style={{ fontSize: '0.7rem', color: 'var(--primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <div style={{ fontSize: '0.75rem', color: 'var(--primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <span>{c.bizNo || '사업자번호 없음'}</span>
-                                    <span style={{ background: 'var(--primary-glow)', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: '600', fontSize: '0.65rem', border: '1px solid var(--primary-glow-border)' }}>
+                                    <span style={{ background: 'var(--primary-glow)', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: '600', fontSize: '0.75rem', border: '1px solid var(--primary-glow-border)' }}>
                                       {item.reason}
                                     </span>
                                   </div>
@@ -2500,7 +2500,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                     <option value="고객납부">고객 직접 납부</option>
                     <option value="명의변경">명의 변경</option>
                   </select>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                     {fineHandling === '대납청구' && '우리가 먼저 내고 다음 청구서에 얹습니다'}
                     {fineHandling === '고객납부' && '담당자를 거쳐 운전자가 냅니다. 기한을 지켜봐야 합니다'}
                     {fineHandling === '명의변경' && '관공서에 넘겨 고객에게 직접 고지되게 합니다'}

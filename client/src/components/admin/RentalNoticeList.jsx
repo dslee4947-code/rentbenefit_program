@@ -136,7 +136,7 @@ function RentalNoticeList({ showToast, currentUser, reloadKey }) {
                 <tr key={x._id} style={{ opacity: FINISHED.includes(x.status) ? 0.6 : 1 }}>
                   <td style={cell}>
                     <div style={{ fontWeight: 800, color: 'var(--text-bright)' }}>{x.plateNo}</div>
-                    {x.rentalType && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{x.rentalType}{x.insuranceCompany ? ` · ${x.insuranceCompany}` : ''}</div>}
+                    {x.rentalType && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{x.rentalType}{x.insuranceCompany ? ` · ${x.insuranceCompany}` : ''}</div>}
                   </td>
                   <td style={cell}>{x.kind}</td>
                   <td style={{ ...cell, width: '110px' }}>
@@ -147,13 +147,13 @@ function RentalNoticeList({ showToast, currentUser, reloadKey }) {
                       onBlur={(e) => save(x._id, { amount: Number(String(e.target.value).replace(/,/g, '')) || 0 })}
                       style={input}
                     />
-                    {x.surcharge > 0 && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>부가 {won(x.surcharge)} 제외</div>}
+                    {x.surcharge > 0 && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>부가 {won(x.surcharge)} 제외</div>}
                   </td>
                   <td style={{ ...cell, whiteSpace: 'nowrap' }}>{ymd(x.occurredAt) || '-'}{x.violationTime ? ` ${x.violationTime}` : ''}</td>
                   <td style={{ ...cell, whiteSpace: 'nowrap' }}>
                     {ymd(x.noticeDueDate) || '-'}
                     {dday !== null && (
-                      <div style={{ fontSize: '0.72rem', fontWeight: 800, color: dday < 0 ? 'var(--error)' : (dday <= 3 ? '#d97706' : 'var(--text-muted)') }}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 800, color: dday < 0 ? 'var(--error)' : (dday <= 3 ? '#d97706' : 'var(--text-muted)') }}>
                         {dday > 0 ? `D-${dday}` : (dday === 0 ? '오늘까지' : `${-dday}일 지남`)}
                       </div>
                     )}
@@ -218,7 +218,7 @@ function RentalNoticeList({ showToast, currentUser, reloadKey }) {
         </table>
       </div>
 
-      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
         <strong>고객청구</strong> 운전한 고객에게 청구합니다 (안내 → 청구 → 입금완료) ·{' '}
         <strong>명의변경</strong> 대여계약서를 관공서에 보내 고객에게 직접 고지되게 합니다 ·{' '}
         <strong>회사부담</strong> 직원 운행 등 회사가 냅니다. 미납통행료는 원금만 청구합니다.

@@ -39,7 +39,7 @@ function Navbar({
           <Car className="animate-float" style={{ color: 'var(--primary)', width: '24px', height: '24px' }} />
           <span className="logo-text" style={{ fontSize: '1.6rem', letterSpacing: '1px' }}>BENefit</span>
         </div>
-        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 'bold', letterSpacing: '0.5px' }}>ALL TYPES OF PREMIUM CAR SERVICE</span>
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 'bold', letterSpacing: '0.5px' }}>ALL TYPES OF PREMIUM CAR SERVICE</span>
       </div>
 
       {/* 렌터카 특화 서비스 메뉴바 (Desktop) */}

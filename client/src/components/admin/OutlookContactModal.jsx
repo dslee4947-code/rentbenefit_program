@@ -401,13 +401,13 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
           <Tag size={15} />
           <span>[{formData.outlookCategory || '기본 연락처'}] - {formData.displayName || formData.name}</span>
           {isTopWindow && (
-            <span style={{ fontSize: '0.7rem', background: 'rgba(255,255,255,0.25)', padding: '0.1rem 0.4rem', borderRadius: '10px' }}>
+            <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.25)', padding: '0.1rem 0.4rem', borderRadius: '10px' }}>
               ● 활성 창 (Ctrl+S / ESC)
             </span>
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <span style={{ fontSize: '0.73rem', opacity: 0.85, pointerEvents: 'none' }}>
+          <span style={{ fontSize: '0.75rem', opacity: 0.85, pointerEvents: 'none' }}>
             드래그 이동
           </span>
           <button
@@ -563,7 +563,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
               <div>
-                <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>성 (G)</label>
+                <label style={{ fontSize: '0.75rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>성 (G)</label>
                 <input
                   type="text"
                   value={formData.surname}
@@ -572,7 +572,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
                 />
               </div>
               <div>
-                <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>이름 (M)</label>
+                <label style={{ fontSize: '0.75rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>이름 (M)</label>
                 <input
                   type="text"
                   value={formData.givenName}
@@ -583,7 +583,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
             </div>
 
             <div>
-              <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>차량정보 (P)</label>
+              <label style={{ fontSize: '0.75rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>차량정보 (P)</label>
               <input
                 type="text"
                 value={formData.companyName}
@@ -595,7 +595,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
               <div>
-                <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>부서 (A)</label>
+                <label style={{ fontSize: '0.75rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>부서 (A)</label>
                 <input
                   type="text"
                   value={formData.department}
@@ -604,7 +604,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
                 />
               </div>
               <div>
-                <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>직급 (T)</label>
+                <label style={{ fontSize: '0.75rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>직급 (T)</label>
                 <input
                   type="text"
                   value={formData.jobTitle}
@@ -615,7 +615,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
             </div>
 
             <div>
-              <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>표시 방법 (E)</label>
+              <label style={{ fontSize: '0.75rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>표시 방법 (E)</label>
               <input
                 type="text"
                 value={formData.displayName}
@@ -635,7 +635,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
             </div>
 
             <div>
-              <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>전자 메일</label>
+              <label style={{ fontSize: '0.75rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>전자 메일</label>
               <input
                 type="email"
                 value={formData.email}
@@ -645,7 +645,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
             </div>
 
             <div>
-              <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>웹 페이지 (W)</label>
+              <label style={{ fontSize: '0.75rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>웹 페이지 (W)</label>
               <input
                 type="text"
                 value={formData.webPage}
@@ -667,7 +667,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
               <div>
-                <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>휴대폰...</label>
+                <label style={{ fontSize: '0.75rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>휴대폰...</label>
                 <input
                   type="text"
                   value={formData.mobilePhone}
@@ -676,7 +676,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
                 />
               </div>
               <div>
-                <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>근무처...</label>
+                <label style={{ fontSize: '0.75rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>근무처...</label>
                 <input
                   type="text"
                   value={formData.businessPhone}
@@ -688,7 +688,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
               <div>
-                <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>집...</label>
+                <label style={{ fontSize: '0.75rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>집...</label>
                 <input
                   type="text"
                   value={formData.homePhone}
@@ -697,7 +697,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
                 />
               </div>
               <div>
-                <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>근무처 팩스...</label>
+                <label style={{ fontSize: '0.75rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>근무처 팩스...</label>
                 <input
                   type="text"
                   value={formData.faxNumber}
@@ -719,7 +719,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
 
             <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: '0.5rem' }}>
               <div>
-                <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>우편 번호 (U)</label>
+                <label style={{ fontSize: '0.75rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>우편 번호 (U)</label>
                 <input
                   type="text"
                   value={formData.postalCode}
@@ -728,7 +728,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
                 />
               </div>
               <div>
-                <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>대표 주소 (B)</label>
+                <label style={{ fontSize: '0.75rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>대표 주소 (B)</label>
                 <input
                   type="text"
                   value={formData.address}
@@ -739,7 +739,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
             </div>
 
             <div>
-              <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>근무처 주소 (Business Address)</label>
+              <label style={{ fontSize: '0.75rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>근무처 주소 (Business Address)</label>
               <input
                 type="text"
                 value={formData.businessAddress}
@@ -749,7 +749,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
             </div>
 
             <div>
-              <label style={{ fontSize: '0.73rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>집 주소 (Home Address)</label>
+              <label style={{ fontSize: '0.75rem', color: '#606266', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>집 주소 (Home Address)</label>
               <input
                 type="text"
                 value={formData.homeAddress}
@@ -774,8 +774,8 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
               background: '#fafafa',
               borderBottom: '1px solid #ebeef5',
               padding: '0.35rem 0.7rem',
-              fontSize: '0.7rem',
-              color: '#909399',
+              fontSize: '0.75rem',
+              color: '#64748b',
               fontWeight: '600',
               display: 'flex',
               justify: 'space-between'
@@ -824,7 +824,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
                 </div>
 
                 {formData.department && (
-                  <div style={{ fontSize: '0.72rem', color: '#909399' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
                     {formData.department}
                   </div>
                 )}
@@ -846,19 +846,19 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
                 )}
 
                 {formData.businessAddress && (
-                  <div style={{ fontSize: '0.72rem', color: '#606266', display: 'flex', alignItems: 'flex-start', gap: '0.3rem', marginTop: '0.1rem' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#606266', display: 'flex', alignItems: 'flex-start', gap: '0.3rem', marginTop: '0.1rem' }}>
                     <MapPin size={12} style={{ color: '#0078d4', flexShrink: 0, marginTop: '2px' }} />
                     <span><strong>근무처:</strong> {formData.businessAddress}</span>
                   </div>
                 )}
                 {formData.homeAddress && (
-                  <div style={{ fontSize: '0.72rem', color: '#606266', display: 'flex', alignItems: 'flex-start', gap: '0.3rem', marginTop: '0.1rem' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#606266', display: 'flex', alignItems: 'flex-start', gap: '0.3rem', marginTop: '0.1rem' }}>
                     <MapPin size={12} style={{ color: '#d81b60', flexShrink: 0, marginTop: '2px' }} />
                     <span><strong>집:</strong> {formData.homeAddress}</span>
                   </div>
                 )}
                 {!formData.businessAddress && !formData.homeAddress && formData.address && (
-                  <div style={{ fontSize: '0.72rem', color: '#606266', display: 'flex', alignItems: 'flex-start', gap: '0.3rem', marginTop: '0.1rem' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#606266', display: 'flex', alignItems: 'flex-start', gap: '0.3rem', marginTop: '0.1rem' }}>
                     <MapPin size={12} style={{ color: '#78909c', flexShrink: 0, marginTop: '2px' }} />
                     <span>{formData.address}</span>
                   </div>
@@ -937,9 +937,9 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
 
           {/* 연결된 법인 목록 */}
           {companiesLoading ? (
-            <div style={{ padding: '0.8rem', textAlign: 'center', color: '#909399', fontSize: '0.8rem' }}>불러오는 중...</div>
+            <div style={{ padding: '0.8rem', textAlign: 'center', color: '#64748b', fontSize: '0.8rem' }}>불러오는 중...</div>
           ) : companyAssociations.length === 0 ? (
-            <div style={{ padding: '0.8rem', textAlign: 'center', color: '#909399', fontSize: '0.8rem', background: '#fafafa', borderRadius: '4px', border: '1px dashed #dcdfe6' }}>
+            <div style={{ padding: '0.8rem', textAlign: 'center', color: '#64748b', fontSize: '0.8rem', background: '#fafafa', borderRadius: '4px', border: '1px dashed #dcdfe6' }}>
               소속된 법인이 없습니다.
             </div>
           ) : (
@@ -966,7 +966,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
                       {assoc.companyId.name}
                     </span>
                     {assoc.companyId.bizType && (
-                      <span style={{ fontSize: '0.7rem', color: assoc.companyId.bizType === '개인사업자' ? '#f59e0b' : '#0078d4', background: assoc.companyId.bizType === '개인사업자' ? '#fff7e6' : '#f0f7ff', padding: '0.1rem 0.4rem', borderRadius: '10px', flexShrink: 0 }}>
+                      <span style={{ fontSize: '0.75rem', color: assoc.companyId.bizType === '개인사업자' ? '#f59e0b' : '#0078d4', background: assoc.companyId.bizType === '개인사업자' ? '#fff7e6' : '#f0f7ff', padding: '0.1rem 0.4rem', borderRadius: '10px', flexShrink: 0 }}>
                         {assoc.companyId.bizType}
                       </span>
                     )}
@@ -991,7 +991,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
             <div style={{ borderTop: '1px solid #ebeef5', paddingTop: '0.7rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <div style={{ position: 'relative', flex: 1 }}>
-                  <Search size={13} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: '#909399' }} />
+                  <Search size={13} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
                   <input
                     type="text"
                     autoFocus
@@ -1015,7 +1015,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
                 <button
                   type="button"
                   onClick={resetAddCompanyPanel}
-                  style={{ border: 'none', background: 'transparent', color: '#909399', cursor: 'pointer', padding: '0.2rem' }}
+                  style={{ border: 'none', background: 'transparent', color: '#64748b', cursor: 'pointer', padding: '0.2rem' }}
                 >
                   <X size={16} />
                 </button>
@@ -1024,7 +1024,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
               {companySearchTerm.trim() && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '140px', overflowY: 'auto' }}>
                   {companySearching ? (
-                    <div style={{ padding: '0.5rem', color: '#909399', fontSize: '0.78rem' }}>검색 중...</div>
+                    <div style={{ padding: '0.5rem', color: '#64748b', fontSize: '0.78rem' }}>검색 중...</div>
                   ) : companySearchResults.length > 0 ? (
                     companySearchResults.map((co) => (
                       <button
@@ -1039,12 +1039,12 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
                         }}
                       >
                         <span style={{ fontWeight: '600', color: '#1a1a1a' }}>{co.name}</span>
-                        <span style={{ color: '#909399', fontSize: '0.75rem' }}>{co.bizNo || co.bizType || ''}</span>
+                        <span style={{ color: '#64748b', fontSize: '0.75rem' }}>{co.bizNo || co.bizType || ''}</span>
                       </button>
                     ))
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                      <div style={{ padding: '0.4rem 0.1rem', color: '#909399', fontSize: '0.78rem' }}>
+                      <div style={{ padding: '0.4rem 0.1rem', color: '#64748b', fontSize: '0.78rem' }}>
                         "{companySearchTerm}" 검색 결과가 없습니다.
                       </div>
                       {!showInlineCreateForm ? (
@@ -1205,7 +1205,7 @@ function OutlookContactModal({ customer, windowId, initialPosition, zIndex, isTo
                 style={{
                   padding: '0.5rem 0.8rem',
                   background: 'transparent',
-                  color: '#909399',
+                  color: '#64748b',
                   border: 'none',
                   fontWeight: '500',
                   cursor: 'pointer',

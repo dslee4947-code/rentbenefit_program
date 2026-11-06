@@ -43,7 +43,7 @@ function Kpi({ label, value, sub, warn, onClick }) {
         {onClick && <span style={{ color: 'var(--primary)', whiteSpace: 'nowrap' }}>근거 보기 ›</span>}
       </div>
       <div style={{ fontSize: '1.35rem', fontWeight: '800', color: warn ? '#d9534f' : 'var(--text-main)' }}>{value}</div>
-      {sub && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{sub}</div>}
+      {sub && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{sub}</div>}
     </div>
   );
 }
@@ -172,7 +172,7 @@ function SourceDialog({ spec, onClose, onOpenAccount, showToast }) {
           <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
             <div style={{ fontSize: '1.3rem', fontWeight: '800' }}>{toCommaString(Math.round(total))}원</div>
             {items && (
-              <div style={{ fontSize: '0.74rem', color: matches ? '#15803d' : '#d9534f', fontWeight: '700' }}>
+              <div style={{ fontSize: '0.75rem', color: matches ? '#15803d' : '#d9534f', fontWeight: '700' }}>
                 {matches ? `✓ 카드 금액(${man(spec.value)}만 원)과 같습니다` : `카드 금액 ${toCommaString(Math.round(spec.value))}원과 다릅니다`}
               </div>
             )}
@@ -218,8 +218,8 @@ function SourceDialog({ spec, onClose, onOpenAccount, showToast }) {
                         <td style={{ ...td, color: '#2e7d32' }}>{t.direction === '입금' ? toCommaString(t.amount) : ''}</td>
                         <td style={{ ...td, fontWeight: '700', color: t.v < 0 ? '#2e7d32' : undefined }}>{t.excluded ? '합계 제외' : toCommaString(t.v)}</td>
                         <td style={td}>{toCommaString(t.run)}</td>
-                        <td style={{ ...td, textAlign: 'left', color: 'var(--text-muted)', fontSize: '0.74rem' }}>{sourceOf(t)}</td>
-                        <td style={{ ...td, textAlign: 'left', whiteSpace: 'normal', color: 'var(--text-muted)', fontSize: '0.74rem' }}>{[t.memo, t.excluded ? t.excludeReason : ''].filter(Boolean).join(' · ')}</td>
+                        <td style={{ ...td, textAlign: 'left', color: 'var(--text-muted)', fontSize: '0.75rem' }}>{sourceOf(t)}</td>
+                        <td style={{ ...td, textAlign: 'left', whiteSpace: 'normal', color: 'var(--text-muted)', fontSize: '0.75rem' }}>{[t.memo, t.excluded ? t.excludeReason : ''].filter(Boolean).join(' · ')}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -497,7 +497,7 @@ function TransactionsTab({ filter, setFilter, years, showToast, onChanged }) {
                 <td style={td}>{t.direction === '출금' ? toCommaString(t.amount) : ''}</td>
                 <td style={{ ...td, color: '#2e7d32' }}>{t.direction === '입금' ? toCommaString(t.amount) : ''}</td>
                 <td style={{ ...td, textAlign: 'left', whiteSpace: 'normal', color: 'var(--text-muted)', fontSize: '0.75rem' }}>{[t.memo, t.excluded ? t.excludeReason : ''].filter(Boolean).join(' · ')}</td>
-                <td style={{ ...td, textAlign: 'left', color: 'var(--text-muted)', fontSize: '0.72rem' }}>{t.source === 'excel' ? `${t.sourceSheet} › ${t.sourceColumn}` : '직접 입력'}</td>
+                <td style={{ ...td, textAlign: 'left', color: 'var(--text-muted)', fontSize: '0.75rem' }}>{t.source === 'excel' ? `${t.sourceSheet} › ${t.sourceColumn}` : '직접 입력'}</td>
                 <td style={{ ...td, textAlign: 'left' }}>
                   <button type="button" title={t.excluded ? '다시 합계에 넣기' : '합계에서 빼기(겹친 줄 등)'} onClick={() => save(t._id, { excluded: !t.excluded, excludeReason: t.excluded ? '' : '화면에서 합계에서 뺌' })} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
                     {t.excluded ? <Eye size={15} /> : <EyeOff size={15} />}

@@ -279,7 +279,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
           object-fit: contain;
         }
         .sidebar-brand span {
-          font-size: 0.72rem;
+          font-size: 0.75rem;
           font-weight: 600;
           color: var(--text-muted);
           letter-spacing: 0.04em;
@@ -299,7 +299,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
         .nav-section + .nav-section { margin-top: 0.35rem; }
         .nav-section-label {
           padding: 0.85rem 0.75rem 0.3rem;
-          font-size: 0.72rem;
+          font-size: 0.75rem;
           font-weight: 700;
           color: #64748b;
           letter-spacing: 0.02em;
@@ -352,7 +352,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
           border-radius: 10px;
           background: #ef4444;
           color: #fff;
-          font-size: 0.7rem;
+          font-size: 0.75rem;
           font-weight: 700;
           line-height: 18px;
           text-align: center;
@@ -392,7 +392,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
         }
         .sidebar-user-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
         .sidebar-user-name { font-size: 0.88rem; font-weight: 700; color: var(--text-bright); }
-        .sidebar-user-email { font-size: 0.72rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .sidebar-user-email { font-size: 0.75rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .sidebar-user-gear { flex-shrink: 0; color: #94a3b8; }
         .sidebar-logout {
           display: flex;
@@ -533,10 +533,10 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
         {renderFooter()}
       </aside>
       {/* Main Content Area */}
-      <main className="main-content" style={{ flex: 1, padding: '2.5rem', overflowY: 'auto', minWidth: 0 }}>
+      <main className="main-content" style={{ flex: 1, padding: '2rem', gap: '1.25rem', overflowY: 'auto', minWidth: 0 }}>
         
         {/* Header Title Area */}
-        <header style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h1 style={{ fontSize: '1.8rem', fontWeight: '800', color: 'var(--text-bright)' }}>
               {activeTab === 'dashboard' && '통계 대시보드'}

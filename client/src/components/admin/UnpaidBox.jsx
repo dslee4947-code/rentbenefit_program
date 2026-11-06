@@ -65,7 +65,7 @@ export default function UnpaidBox({ scheduleId, round, rounds, onDone, showToast
         </div>
         {!preview && (
           inGrace && !isUnpaid
-            ? <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>출금일 뒤 {LATE_GRACE_DAYS}일이 지나면 미납으로 처리할 수 있습니다</span>
+            ? <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>출금일 뒤 {LATE_GRACE_DAYS}일이 지나면 미납으로 처리할 수 있습니다</span>
             : (
               <button type="button" disabled={busy} onClick={() => call(true)} style={bigBtn(isUnpaid ? '#475569' : '#dc2626', !isUnpaid)}>
                 {busy ? '계산 중…' : (isUnpaid ? '미납 취소' : '미납으로 처리')}
@@ -116,7 +116,7 @@ export default function UnpaidBox({ scheduleId, round, rounds, onDone, showToast
                 </div>
               )}
               {preview.changes.length > 1 && (
-                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>그 뒤 {preview.changes.length - 1}개 회차도 함께 다시 계산됩니다.</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>그 뒤 {preview.changes.length - 1}개 회차도 함께 다시 계산됩니다.</div>
               )}
             </div>
           ) : (

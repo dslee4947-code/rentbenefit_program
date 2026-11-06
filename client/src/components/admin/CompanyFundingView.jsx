@@ -77,17 +77,17 @@ function CompanyFundingView({ showToast }) {
         <div>
           <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', fontWeight: '600' }}>내부 금리 (연)</div>
           <div style={{ fontSize: '1.6rem', fontWeight: '800', color: 'var(--primary)' }}>{(preview.rate * 100).toFixed(2)}%</div>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{sourceText}</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{sourceText}</div>
         </div>
         <div>
           <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', fontWeight: '600' }}>대출 잔액 합계</div>
           <div style={{ fontSize: '1.3rem', fontWeight: '800' }}>{toCommaString(totals.balance)}원</div>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>원금 합계 {toCommaString(totals.principal)}원</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>원금 합계 {toCommaString(totals.principal)}원</div>
         </div>
         <div>
           <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', fontWeight: '600' }}>1년 이자 (잔액 기준 추정)</div>
           <div style={{ fontSize: '1.3rem', fontWeight: '800' }}>{toCommaString(totals.yearlyInterest)}원</div>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>월 약 {toCommaString(totals.yearlyInterest / 12)}원</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>월 약 {toCommaString(totals.yearlyInterest / 12)}원</div>
         </div>
         <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
           <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)', fontWeight: '600' }}>내부 금리 직접 정하기 (%, 비우면 자동)</span>

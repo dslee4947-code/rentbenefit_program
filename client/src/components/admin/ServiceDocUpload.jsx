@@ -94,7 +94,7 @@ export default function ServiceDocUpload({ rows, onClose, onSaved, showToast }) 
   };
 
   const input = { width: '100%', padding: '0.35rem 0.45rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-bright)', fontSize: '0.8rem', boxSizing: 'border-box' };
-  const lab = { fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.1rem' };
+  const lab = { fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.1rem' };
   const sortedRows = [...rows].sort((a, b) => String(a.plateNo).localeCompare(String(b.plateNo)));
 
   return (
@@ -124,13 +124,13 @@ export default function ServiceDocUpload({ rows, onClose, onSaved, showToast }) 
             <div key={it.id} data-doc-row style={{ background: '#fff', border: `1px solid ${it.state === '실패' ? '#fca5a5' : 'var(--border-color)'}`, borderRadius: '10px', padding: '0.6rem 0.7rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', fontSize: '0.8rem' }}>
                 <b style={{ overflowWrap: 'anywhere' }}>📎 {it.file.name}</b>
-                {it.parsed && <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{DOC_LABEL[it.parsed.docType]} · {READ_SOURCE[it.source] || it.source}로 읽음</span>}
-                <span style={{ marginLeft: 'auto', fontWeight: 800, fontSize: '0.74rem', color: it.state === '실패' ? '#dc2626' : it.state === '저장됨' ? '#16a34a' : 'var(--text-muted)' }}>{it.state}</span>
+                {it.parsed && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{DOC_LABEL[it.parsed.docType]} · {READ_SOURCE[it.source] || it.source}로 읽음</span>}
+                <span style={{ marginLeft: 'auto', fontWeight: 800, fontSize: '0.75rem', color: it.state === '실패' ? '#dc2626' : it.state === '저장됨' ? '#16a34a' : 'var(--text-muted)' }}>{it.state}</span>
                 {!['읽는 중', '저장 중'].includes(it.state) && (
                   <button type="button" onClick={() => setItems((cur) => cur.filter((x) => x.id !== it.id))} title="이 줄 빼기" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0 }}><X size={14} /></button>
                 )}
               </div>
-              {it.message && <div style={{ fontSize: '0.74rem', color: '#dc2626', marginTop: '0.2rem' }}>{it.message}</div>}
+              {it.message && <div style={{ fontSize: '0.75rem', color: '#dc2626', marginTop: '0.2rem' }}>{it.message}</div>}
 
               {it.state === '확인' && (
                 <>
@@ -175,12 +175,12 @@ export default function ServiceDocUpload({ rows, onClose, onSaved, showToast }) 
                     <div style={lab}>작업 내용</div>
                     <input style={input} value={it.fields.description} onChange={(e) => setField(it.id, { description: e.target.value })} />
                   </div>
-                  <div style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--primary)', marginTop: '0.35rem' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary)', marginTop: '0.35rem' }}>
                     → {it.vehicleId ? targetText(it.target) : '차를 고르면 넣을 일정을 찾습니다'}
                     {it.parsed.docType === 'repair' && it.parsed.total > 0 ? ` · 내역서 합계 ${won(it.parsed.total)}` : ''}
                     {it.parsed.nextDate ? ` · 다음 검사 ${it.parsed.nextDate}` : ''}
                   </div>
-                  {(it.parsed.warnings || []).map((w) => <div key={w} style={{ fontSize: '0.72rem', color: '#b45309', marginTop: '0.15rem' }}>⚠ {w}</div>)}
+                  {(it.parsed.warnings || []).map((w) => <div key={w} style={{ fontSize: '0.75rem', color: '#b45309', marginTop: '0.15rem' }}>⚠ {w}</div>)}
                 </>
               )}
             </div>
@@ -189,7 +189,7 @@ export default function ServiceDocUpload({ rows, onClose, onSaved, showToast }) 
 
         {items.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.7rem' }}>
-            <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
               {unready.length ? `차·날짜가 빠진 ${unready.length}건은 채워야 저장됩니다.` : '파일은 계약자 폴더의 차량번호 폴더에 저장됩니다.'}
             </span>
             <button type="button" onClick={tryClose} style={{ marginLeft: 'auto', border: '1px solid var(--border-color)', background: '#fff', borderRadius: '7px', padding: '0.45rem 0.9rem', fontWeight: 700, cursor: 'pointer' }}>닫기</button>

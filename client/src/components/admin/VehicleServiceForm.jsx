@@ -226,12 +226,12 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
   // ── 모양
   const card = { background: '#fff', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '0.8rem 0.9rem' };
   const h2 = { margin: '0 0 0.6rem', fontSize: '0.88rem', fontWeight: 800, color: 'var(--text-bright)', display: 'flex', alignItems: 'center', gap: '0.4rem' };
-  const tag = { marginLeft: 'auto', fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)' };
+  const tag = { marginLeft: 'auto', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' };
   const row2 = { display: 'grid', gridTemplateColumns: '84px 1fr', gap: '0.5rem', alignItems: 'center', marginBottom: '0.45rem' };
-  const lab = { fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 700 };
+  const lab = { fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 };
   const input = { width: '100%', padding: '0.35rem 0.45rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-bright)', fontSize: '0.8rem', boxSizing: 'border-box' };
   const auto = { background: 'var(--bg-main)', borderRadius: '6px', padding: '0.35rem 0.55rem', fontSize: '0.76rem', color: 'var(--text-bright)' };
-  const hint = { fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.15rem' };
+  const hint = { fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.15rem' };
   const two = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem' };
   const three = { display: 'grid', gridTemplateColumns: '1.4fr 1fr 0.8fr', gap: '0.35rem' };
   // 컴포넌트로 만들면 입력할 때마다 다시 만들어져 글자 칸이 포커스를 잃는다. 그래서 함수로 그린다.
@@ -239,7 +239,7 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
       {items.map((it) => (
         <button key={it} type="button" onClick={() => onChange(value === it ? '' : it)}
-          style={{ border: `1px solid ${value === it ? 'var(--primary)' : 'var(--border-color)'}`, background: value === it ? 'var(--primary)' : '#fff', color: value === it ? '#fff' : 'var(--text-muted)', borderRadius: '999px', padding: '0.22rem 0.65rem', fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer' }}>
+          style={{ border: `1px solid ${value === it ? 'var(--primary)' : 'var(--border-color)'}`, background: value === it ? 'var(--primary)' : '#fff', color: value === it ? '#fff' : 'var(--text-muted)', borderRadius: '999px', padding: '0.22rem 0.65rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>
           {it}
         </button>
       ))}
@@ -280,7 +280,7 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.8rem' }}>
           <div>
             <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-bright)' }}>
-              정비·수리 기록 {record ? '고치기' : '입력'} <span style={{ fontSize: '0.7rem', background: '#eef3fe', color: 'var(--primary)', borderRadius: '10px', padding: '0.1rem 0.5rem', verticalAlign: '2px' }}>테스트</span>
+              정비·수리 기록 {record ? '고치기' : '입력'} <span style={{ fontSize: '0.75rem', background: '#eef3fe', color: 'var(--primary)', borderRadius: '10px', padding: '0.1rem 0.5rem', verticalAlign: '2px' }}>테스트</span>
             </div>
             <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
               {row?.plateNo} · {row?.carModel} · {row?.partyName || '-'} · 인도 {row?.deliveryDate || '-'}{row?.annualKm ? ` · 약정 ${Number(row.annualKm).toLocaleString()}km/년` : ''}
@@ -307,7 +307,7 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
                 {showText ? '글자 닫기' : form.invoice?.text ? '읽은 글자 보기·고치기' : '글자 붙여 넣기'}
               </button>
               {readInfo && (
-                <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                   {READ_SOURCE[readInfo.source] || readInfo.source}로 읽음 · 채운 칸: {readInfo.filled.join(', ') || '없음'}
                 </span>
               )}
@@ -318,13 +318,13 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
             {readInfo?.parsed?.kindGuess && readInfo.parsed.kindGuess !== form.kind && (
               <div style={hint}>
                 내역서로 보면 <b>{readInfo.parsed.kindGuess}</b> 같습니다.{' '}
-                <button type="button" onClick={() => set({ kind: readInfo.parsed.kindGuess })} style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0 0.4rem', fontSize: '0.7rem', cursor: 'pointer' }}>종류 바꾸기</button>
+                <button type="button" onClick={() => set({ kind: readInfo.parsed.kindGuess })} style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0 0.4rem', fontSize: '0.75rem', cursor: 'pointer' }}>종류 바꾸기</button>
               </div>
             )}
             {(readInfo?.parsed?.warnings || []).map((w) => <div key={w} style={{ ...hint, color: '#b45309' }}>⚠ {w}</div>)}
             {showText && (
               <div style={{ marginTop: '0.4rem' }}>
-                <textarea style={{ ...input, minHeight: '140px', fontFamily: 'monospace', fontSize: '0.74rem' }}
+                <textarea style={{ ...input, minHeight: '140px', fontFamily: 'monospace', fontSize: '0.75rem' }}
                   value={form.invoice?.text || ''}
                   onChange={(e) => setForm((f) => ({ ...f, invoice: { ...(f.invoice || {}), text: e.target.value } }))}
                   placeholder={'내역서 글자를 붙여 넣거나, 읽은 글자를 고친 뒤 [글자로 다시 정리]를 누르세요.\n예) 엔진오일 1 45,000 45,000 20,000 / 공급가액 253,000 / 부가세 25,300 / 합계 278,300'} />
@@ -362,7 +362,7 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
               <tfoot>
                 <tr style={{ borderTop: '2px solid var(--border-color)', fontWeight: 800 }}>
                   <td style={{ padding: '0.3rem' }}>
-                    <button type="button" onClick={() => setForm((f) => ({ ...f, lines: [...f.lines, emptyLine()] }))} style={{ border: '1px dashed var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.15rem 0.6rem', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>+ 줄 더하기</button>
+                    <button type="button" onClick={() => setForm((f) => ({ ...f, lines: [...f.lines, emptyLine()] }))} style={{ border: '1px dashed var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.15rem 0.6rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>+ 줄 더하기</button>
                     <span style={{ marginLeft: '0.6rem' }}>작업 합</span>
                   </td>
                   <td /><td />
@@ -373,14 +373,14 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
             </table>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '0.3rem', marginTop: '0.45rem' }}>
               {[['부품 합계', form.invoice?.partsTotal], ['공임 합계', form.invoice?.laborTotal], ['할인', form.invoice?.discount], ['공급가액', form.invoice?.supply], ['부가세', form.invoice?.vat], ['내역서 합계', form.invoice?.total]].map(([k, v]) => (
-                <div key={k} style={{ ...auto, textAlign: 'center' }}><div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{k}</div><b>{num(v) ? num(v).toLocaleString() : '-'}</b></div>
+                <div key={k} style={{ ...auto, textAlign: 'center' }}><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{k}</div><b>{num(v) ? num(v).toLocaleString() : '-'}</b></div>
               ))}
             </div>
             <div style={{ ...hint, display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
               {form.invoice?.bizNo ? `사업자번호 ${form.invoice.bizNo} · ` : ''}공급가액·부가세는 ④ 수리비·부가세 칸에 들어갑니다.
               {form.lines.length > 0 && (
                 <button type="button" onClick={() => { const sup = lineSum('amount') - num(form.invoice?.discount); setCost({ repair: String(sup), vat: String(Math.round(sup * 0.1)) }); }}
-                  style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.05rem 0.5rem', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}>
+                  style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.05rem 0.5rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>
                   작업 합으로 수리비 다시 계산 (부가세 10%)
                 </button>
               )}
@@ -401,7 +401,7 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
               <div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.3rem' }}>
                   {[['계약 중 예정', checks?.expected ?? '-'], ['받은 횟수', checks?.done ?? 0], ['남은 횟수', checks?.remaining ?? '-'], ['다음 점검', row?.maintenance?.date || '-']].map(([k, v]) => (
-                    <div key={k} style={{ ...auto, textAlign: 'center' }}><div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{k}</div><b>{typeof v === 'number' ? `${v}회` : v}</b></div>
+                    <div key={k} style={{ ...auto, textAlign: 'center' }}><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{k}</div><b>{typeof v === 'number' ? `${v}회` : v}</b></div>
                   ))}
                 </div>
                 <div style={hint}>
@@ -433,9 +433,9 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
                     : '주행거리 기록이 쌓이면 약정 대비 주행을 계산합니다.'}
                 </div>
                 {(row?.notices || []).map((n) => (
-                  <div key={n.type} style={{ borderLeft: '3px solid #d97706', background: '#fff7e6', borderRadius: '6px', padding: '0.4rem 0.6rem', fontSize: '0.74rem', marginTop: '0.35rem', lineHeight: 1.5 }}>
+                  <div key={n.type} style={{ borderLeft: '3px solid #d97706', background: '#fff7e6', borderRadius: '6px', padding: '0.4rem 0.6rem', fontSize: '0.75rem', marginTop: '0.35rem', lineHeight: 1.5 }}>
                     {n.text}
-                    <button type="button" onClick={() => makeNotice(n)} style={{ marginLeft: '0.4rem', border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.1rem 0.5rem', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}>안내 문자 만들기</button>
+                    <button type="button" onClick={() => makeNotice(n)} style={{ marginLeft: '0.4rem', border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.1rem 0.5rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>안내 문자 만들기</button>
                   </div>
                 ))}
                 {notice && <textarea readOnly value={notice} style={{ ...input, marginTop: '0.35rem', minHeight: '70px' }} />}
@@ -475,9 +475,9 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
             <div style={row2}><span style={lab}>보험 처리액</span><MoneyInput style={input} value={form.costs.insurancePaid} onChange={(e) => setCost({ insurancePaid: e.target.value })} placeholder="보험사가 낸 금액" /></div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.3rem', marginTop: '0.5rem' }}>
               {[['수리비 합계', repairTotal], ['탁송료', transportFee], ['보험 처리', -insurancePaid]].map(([k, v]) => (
-                <div key={k} style={{ ...auto, textAlign: 'center' }}><div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{k}</div><b>{Math.round(v).toLocaleString()}</b></div>
+                <div key={k} style={{ ...auto, textAlign: 'center' }}><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{k}</div><b>{Math.round(v).toLocaleString()}</b></div>
               ))}
-              <div style={{ ...auto, textAlign: 'center', background: 'var(--text-bright)', color: '#fff' }}><div style={{ fontSize: '0.68rem', opacity: 0.75 }}>회사 실부담</div><b>{Math.round(companyBurden).toLocaleString()}</b></div>
+              <div style={{ ...auto, textAlign: 'center', background: 'var(--text-bright)', color: '#fff' }}><div style={{ fontSize: '0.75rem', opacity: 0.75 }}>회사 실부담</div><b>{Math.round(companyBurden).toLocaleString()}</b></div>
             </div>
             <div style={hint}>원장 반영(테스트판에서는 기록만): {[repairTotal ? `${form.kind} ${won(repairTotal)}` : '', insurancePaid ? `보험 입금 ${won(insurancePaid)}` : '', transportFee ? `탁송 ${won(transportFee)}` : ''].filter(Boolean).join(' / ') || '-'}</div>
           </div>
@@ -488,7 +488,7 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
             <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: '1rem', alignItems: 'start' }}>
               <div>
                 <CarDamageMap parts={form.parts} onToggle={togglePart} />
-                <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'center', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+                <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
                   {ACTIONS.map((a) => <span key={a}><i style={{ display: 'inline-block', width: 9, height: 9, background: ACTION_COLOR[a], borderRadius: 2, marginRight: 3 }} />{a}</span>)}
                 </div>
               </div>

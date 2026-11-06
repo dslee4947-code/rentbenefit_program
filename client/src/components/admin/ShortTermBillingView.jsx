@@ -109,7 +109,7 @@ export default function ShortTermBillingView({ showToast, currentUser, onOpenBil
             </button>
           )}
         </div>
-        <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', fontSize: '0.74rem' }}>
+        <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', fontSize: '0.75rem' }}>
           {c.rounds.map((r) => (
             <span key={r.no} title={`${ymd(r.dueDate)} · ${won(r.total)}${r.paidAmount ? ` · 입금 ${won(r.paidAmount)}` : ''}`} style={{ border: `1px solid ${STATUS_COLOR[r.status]}`, color: STATUS_COLOR[r.status], borderRadius: '999px', padding: '0.1rem 0.5rem' }}>
               {r.no}회 {ymd(r.dueDate).slice(5)} {r.status}{r.issued && r.status === '예정' ? '(발행)' : ''}

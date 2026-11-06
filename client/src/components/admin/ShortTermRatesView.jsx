@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Save, Printer, Plus, Trash2 } from 'lucide-react';
 import { toCommaString, parseNumber } from '../../utils/format.js';
 import { quoteRental, insurerAmountFor, deriveRates } from '../../../../shared/shortTermRates.js';
@@ -150,7 +151,15 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
   });
 
   const sheetRef = useRef(null);
-  const print = () => printFitted(sheetRef.current, { orientation: 'portrait', title: `렌트베네핏_단기렌트료_${ymdText(new Date())}` });
+  const listRef = useRef(null);
+  const [sheetKind, setSheetKind] = useState('rates'); // rates: 요금표, list: 금액 없는 차량 목록
+  // 두 양식 다 그려 두고 고른 쪽만 보인다. 인쇄 전에 먼저 보이게 해야 폭을 재고 종이에 찍힌다.
+  const print = (kind = sheetKind) => {
+    flushSync(() => setSheetKind(kind));
+    const today = ymdText(new Date());
+    if (kind === 'list') printFitted(listRef.current, { orientation: 'portrait', title: `렌트베네핏_단기렌트_차량목록_${today}` });
+    else printFitted(sheetRef.current, { orientation: 'portrait', title: `렌트베네핏_단기렌트료_${today}` });
+  };
 
   return (
     <>
@@ -158,7 +167,8 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
         <span style={{ fontWeight: 800, color: '#fa8c16' }}>렌트베네핏 단기렌트료 ({cars.length}대)</span>
         <div style={{ display: 'flex', gap: '0.4rem' }}>
-          <button type="button" style={btn(false)} onClick={print}><Printer size={14} /> 인쇄·PDF</button>
+          <button type="button" style={btn(false)} onClick={() => print('rates')}><Printer size={14} /> 요금표 인쇄·PDF</button>
+          <button type="button" style={btn(false)} onClick={() => print('list')}><Printer size={14} /> 차량 목록 인쇄·PDF</button>
           {canEdit && <button type="button" style={btn(true)} disabled={!dirty || saving} onClick={onSave}><Save size={14} /> {saving ? '저장 중…' : '저장'}</button>}
         </div>
       </div>
@@ -256,12 +266,18 @@ function RateCard({ data, cars, policy, edits, setEdits, canEdit, saving, onSave
       </div>
     </div>
     <div className="st-sheet-section" style={card}>
-      <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
-        <span style={{ fontWeight: 800 }}>고객 안내용 단가표 (인쇄 모양)</span>
-        <button type="button" style={{ ...btn(true), background: SHEET_NAVY }} onClick={print}><Printer size={14} /> 인쇄하기 / PDF 다운로드</button>
+      <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
+        <div style={{ display: 'flex', gap: '0.4rem' }}>
+          {[['rates', '요금표'], ['list', '차량 목록 (금액 없음)']].map(([key, label]) => (
+            <button key={key} type="button" onClick={() => setSheetKind(key)}
+              style={{ ...btn(sheetKind === key), background: sheetKind === key ? SHEET_NAVY : '#fff' }}>{label}</button>
+          ))}
+        </div>
+        <button type="button" style={{ ...btn(true), background: SHEET_NAVY }} onClick={() => print()}><Printer size={14} /> 인쇄하기 / PDF 다운로드</button>
       </div>
-      {dirty && <div className="no-print" style={{ fontSize: '0.76rem', color: '#b45309', marginBottom: '0.5rem' }}>위에서 고친 내용이 아래 요금표에 미리 보입니다. [저장]을 눌러야 남습니다.</div>}
-      <RateSheet sheetRef={sheetRef} cars={sheetCars} policy={policy} />
+      {dirty && sheetKind === 'rates' && <div className="no-print" style={{ fontSize: '0.76rem', color: '#b45309', marginBottom: '0.5rem' }}>위에서 고친 내용이 아래 요금표에 미리 보입니다. [저장]을 눌러야 남습니다.</div>}
+      <div style={{ display: sheetKind === 'rates' ? 'block' : 'none' }}><RateSheet sheetRef={sheetRef} cars={sheetCars} policy={policy} /></div>
+      <div style={{ display: sheetKind === 'list' ? 'block' : 'none' }}><CarListSheet sheetRef={listRef} cars={sheetCars} /></div>
     </div>
     </>
   );
@@ -385,6 +401,54 @@ function RateSheet({ sheetRef, cars, policy }) {
           * 요금은 부가세·자차 포함 금액(원)입니다. 주말·공휴일 1일 렌트는 1일 요금에 {Math.round(policy.weekendSurchargeRate * 100)}% 추가됩니다.<br />
           * 탁송: {deliveryText(policy)}
           {notes.length > 0 && <><br />{notes.map((n) => `* ${n}`).join('  ')}</>}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// 금액 없는 차량 목록. 어르신도 잘 보이게 글자를 크고 까맣게 그린다.
+// 폭 733px는 A4에서 좌우 여백 8mm를 뺀 폭이라 종이에도 줄지 않고 이 크기로 찍힌다.
+const LIST_CSS = `
+  .st-list-table { width: 100%; min-width: 700px; border-collapse: collapse; color: #000; font-size: 20px; font-weight: 700; background: #fff; border: 2px solid #000; }
+  .st-list-table th { background: ${SHEET_NAVY}; color: #fff; font-size: 20px; font-weight: 800; padding: 9px 8px; text-align: center; border: 1px solid #000; white-space: nowrap; }
+  .st-list-table td { color: #000; padding: 6px; height: 38px; border: 1px solid #000; text-align: center; white-space: nowrap; }
+  .st-list-table td.model { text-align: left; font-weight: 800; white-space: normal; word-break: keep-all; line-height: 1.25; padding-left: 8px; }
+  .st-list-table tr.brand td { background: #e5e7eb; font-weight: 800; text-align: left; height: 34px; padding: 3px 10px; }
+`;
+
+function CarListSheet({ sheetRef, cars }) {
+  return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: LIST_CSS }} />
+      <div ref={sheetRef} className="print-fit" style={{ width: '733px', maxWidth: '100%', margin: '0 auto', background: '#fff', color: '#000' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '3px solid #000', paddingBottom: '8px', marginBottom: '8px' }}>
+          <h2 style={{ fontWeight: 800, fontSize: '30px', color: '#000', margin: 0 }}>단기렌트 차량 목록</h2>
+          <img src="/logo.png" alt="RENT BENefit" style={{ height: '34px', width: 'auto', objectFit: 'contain' }} />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '18px', fontWeight: 700, color: '#000', marginBottom: '8px' }}>
+          <span>(주)렌트베네핏 · 총 {cars.length}대</span>
+          <span>작성일 {ymdText(new Date())}</span>
+        </div>
+        <div className="print-fit-scroll" style={{ overflowX: 'auto' }}>
+          <table className="st-list-table">
+            <thead>
+              <tr><th>차종</th><th style={{ width: '118px' }}>차량번호</th><th style={{ width: '78px' }}>유종</th><th style={{ width: '130px' }}>연식</th></tr>
+            </thead>
+            <tbody>
+              {cars.map((c, i) => (
+                <React.Fragment key={c.ledgerId}>
+                  {c.brand !== cars[i - 1]?.brand && <tr className="brand"><td colSpan={4}>{c.brand}</td></tr>}
+                  <tr>
+                    <td className="model">{c.carModel}</td>
+                    <td>{c.plateNo}</td>
+                    <td>{c.fuelType || ''}</td>
+                    <td>{yearMonth(c.ageStart)}</td>
+                  </tr>
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </>

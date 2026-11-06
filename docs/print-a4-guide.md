@@ -99,6 +99,7 @@ const blob = await makeFittedPdf(element, { orientation: 'portrait', marginMm: 8
 | 차량 손익 원장 | `LedgerView.jsx` 인쇄 버튼 | `window.print()`로 화면 전체를 찍음 | - | ⏳ 다음 대상: 원장 문서 부분에 `print-fit`을 달고 나머지는 숨긴다 |
 | 업무 매뉴얼 | `HandbookView.jsx` 인쇄 버튼 | `window.print()`로 화면 전체를 찍음 | - | ⏳ 긴 글이라 `onePage: false`로 적용 |
 | 단기렌트 요금표 | `ShortTermRatesView.jsx` (`RateSheet`, 비교견적서 양식) | `printFitted` | - | ✅ 적용 (2026-10-28) |
+| 단기렌트 차량 목록 (금액 없음, 큰 글씨) | `ShortTermRatesView.jsx` (`CarListSheet`, 폭 733px라 줄지 않음) | `printFitted` | - | ✅ 적용 (2026-11-06) |
 | 증차·감차 공문 (신청서·신구사업대비표·매매계약서) | `FleetFilingDocs.jsx` → `FleetFilingView.jsx` | 묶은 PDF를 새 창에 열어 인쇄 | `makeA4PagesPdf` (쪽마다 세로·가로 A4 그대로) | ✅ 적용 (2026-10-30) |
 | 중도해지 정산서 (구분형·요약형·상세, 맨 뒤에 중도해지 절차) · 계약종료 확인서 | `EarlySettlementSheet.jsx`, `ContractEndSheet.jsx` (공통 모양 `EndDocParts.jsx`) → `ContractEndView.jsx` | - | `makeFittedPdf` (jpeg, 여백 0, A4 크기로 그림. 메일 첨부라 png를 쓰지 않음) | ✅ 적용 (2026-11-04) |
 

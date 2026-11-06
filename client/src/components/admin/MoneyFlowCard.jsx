@@ -5,9 +5,10 @@ const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? ''
 /**
  * "렌트베네핏은 이렇게 벌고 쓴다" — 매출 → 영업비용·영업이익 → 남는 돈 흐름도 (대표님 2026-10-29 통계 대시보드).
  *
- * 차량 손익 원장(렌트료·단기 매출·차량 운영비)과 회사 장부(판관비·이자)를 기간별로 더한 값을 서버가 준다(/api/company-book/money-flow).
- * 차 구입·할부 상환·인수·매각 대금은 매출·비용이 아니라 흐름 밖 참고 칸으로 둔다.
- * 비용이 매출보다 큰 해(2021 시작 해)는 띠를 그릴 수 없어 표만 보여 준다.
+ * 렌트 사업과 차량 판매를 나눠 보여 준다(대표님 2026-11-06). 계산은 서버 utils/moneyFlow.js.
+ * 렌트 사업 비용에 차값 감가가 들어가고, 판매는 판매 대금에서 판 날까지 감가하고 남은 차값을 뺀다.
+ * 이자는 회사 장부 + 캐피탈·할부 이자다. 갑지의 '이자' 줄은 회사 장부 이자와 같은 돈이라 넣지 않는다.
+ * 손실이 난 기간은 띠를 그릴 수 없어 표만 보여 준다.
  */
 
 const C = {
@@ -30,21 +31,33 @@ const GAP = [26, 0, 40, 10];
 const MIN_SLOT = [52, 0, 0, 30];
 
 function totals(d) {
-  const revenue = d.income.reduce((s, [, v]) => s + v, 0);
-  const cost = d.costs.reduce((s, [, v]) => s + v, 0);
+  const rentRevenue = d.income.reduce((s, [, v]) => s + v, 0);
+  const rentCost = d.costs.reduce((s, [, v]) => s + v, 0);
+  const revenue = rentRevenue + d.saleRevenue;
+  const cost = rentCost + d.saleCost;
   const op = revenue - cost;
-  return { revenue, cost, op, net: op - d.interest + d.refund };
+  return {
+    rentRevenue, rentCost, rentProfit: rentRevenue - rentCost,
+    saleProfit: d.saleRevenue - d.saleCost,
+    revenue, cost, op, net: op - d.interest + d.refund
+  };
 }
 
-function layout(d) {
-  const { revenue, cost, op } = totals(d);
+/** 흐름도에는 렌트와 판매를 한 그림에 놓되, 왼쪽 칸과 오른쪽 칸에서 판매를 따로 보이게 한다. */
+function layout(period) {
+  const d = {
+    ...period,
+    income: [...period.income, ...(period.saleRevenue > 0 ? [['차량 판매', period.saleRevenue]] : [])],
+    costs: [...period.costs, ...(period.saleCost > 0 ? [['판매한 차의 남은 값', period.saleCost]] : [])].sort((a, b) => b[1] - a[1])
+  };
+  const { revenue, cost, op } = totals(period);
   const nodes = [
     ...d.income.map(([label], i) => ({ id: `in${i}`, col: 0, label, kind: 'rev' })),
     { id: 'rev', col: 1, label: '영업수익', kind: 'rev', big: true },
     ...(d.refund > 0 ? [{ id: 'refund', col: 2, label: '보험료 환급 등 (영업외)', kind: 'profit', gapAfter: 120 }] : []),
     { id: 'op', col: 2, label: '영업이익', kind: 'profit', big: true, rate: `영업이익률 ${pct(op, revenue)}` },
     { id: 'cost', col: 2, label: '영업비용', kind: 'cost', big: true },
-    { id: 'net', col: 3, label: '남는 돈', kind: 'profit', big: true },
+    { id: 'net', col: 3, label: '남는 돈', kind: 'profit', big: true, gapAfter: 24 }, // 금액·수익률 글자가 아래 칸과 겹치지 않게
     ...(d.interest > 0 ? [{ id: 'int', col: 3, label: '대출 이자', kind: 'cost' }] : []),
     ...d.costs.map(([label], i) => ({ id: `c${i}`, col: 3, label, kind: 'cost' }))
   ];
@@ -147,15 +160,16 @@ function NodeLabel({ n, revenue, net }) {
 // ───────────── 현금 기준: 남는 돈에서 차 구입을 빼고, 모자란 돈을 어디서 메웠는지 가로 폭포 그림으로
 const WF_W = 1160; const WF_LABEL = 300; const WF_VALUE = 130; const WF_ROW = 34; const WF_BAR = 20;
 
-function cashSteps(d, net) {
+function cashSteps(d) {
+  const net = d.cashNet;
   const afterCars = net - d.carBuy - d.loanRepay + d.sale;
   const funded = d.funding.reduce((s, [, v]) => s + v, 0);
   const gap = -(afterCars + funded);
   const steps = [
-      { label: '차를 굴려서 남은 돈', v: net, kind: 'profit' },
+      { label: '장사로 남은 현금 (감가 전)', v: net, kind: 'profit' },
       { label: '새 차 구입', v: -d.carBuy, kind: 'cost' },
-      ...(d.loanRepay ? [{ label: '차량 할부 상환 (캐피탈·할부)', v: -d.loanRepay, kind: 'cost' }] : []),
-      ...(d.sale ? [{ label: '인수·매각으로 돌려받음', v: d.sale, kind: 'profit' }] : []),
+      ...(d.loanRepay ? [{ label: '차량 할부 원금 상환', v: -d.loanRepay, kind: 'cost' }] : []),
+      ...(d.sale ? [{ label: '차량 판매 대금', v: d.sale, kind: 'profit' }] : []),
       { label: '차 구입까지 넣은 결과', v: afterCars, total: true },
       ...d.funding.map(([label, v]) => ({ label, v, kind: 'fund' })),
       ...(Math.abs(gap) >= 10000 ? [{ label: gap > 0 ? '장부에 없는 돈 (통장 잔액·대출·할부 차값 등)' : '장부에 없이 남은 돈 (통장 잔액 증가 등)', v: gap, kind: 'gap' }] : []),
@@ -212,6 +226,7 @@ const td = { padding: '0.3rem 0.6rem', borderBottom: '1px solid var(--border-col
 
 function MoneyFlowCard({ showToast }) {
   const [periods, setPeriods] = useState(null);
+  const [checks, setChecks] = useState(null);
   const [key, setKey] = useState('last12');
   const [tip, setTip] = useState(null);
   const [showTable, setShowTable] = useState(false);
@@ -220,37 +235,52 @@ function MoneyFlowCard({ showToast }) {
   useEffect(() => {
     fetch(`${API_HOST}/api/company-book/money-flow`)
       .then((r) => r.json())
-      .then((d) => { if (!d.success) throw new Error(d.message); setPeriods(d.periods); })
+      .then((d) => { if (!d.success) throw new Error(d.message); setPeriods(d.periods); setChecks(d.checks); })
       .catch((err) => showToast?.(err.message || '돈 흐름을 불러오지 못했습니다.', 'error'));
   }, [showToast]);
 
   const d = periods?.find((p) => p.key === key) || periods?.[periods.length - 1];
   const t = useMemo(() => (d ? totals(d) : null), [d]);
-  const chart = useMemo(() => (d && t.op - Math.max(0, d.interest) >= 0 ? layout(d) : null), [d, t]);
+  const chart = useMemo(() => (d && d.saleRevenue >= 0 && t.op - Math.max(0, d.interest) >= 0 ? layout(d) : null), [d, t]);
 
-  const cash = useMemo(() => (d ? cashSteps(d, t.net) : null), [d, t]);
+  const cash = useMemo(() => (d ? cashSteps(d) : null), [d]);
 
   if (!periods) return <div style={{ ...card, color: 'var(--text-muted)', fontSize: '0.9rem' }}>돈 흐름을 계산하는 중…</div>;
   if (!d) return null;
 
   const rows = [
-    ['매출', '', ''],
+    ['렌트 사업', '', ''],
     ...d.income.map(([l, v]) => ['', l, v]),
-    ['', '영업수익 합계', t.revenue],
-    ['영업비용', '', ''],
-    ...d.costs.map(([l, v]) => ['', l, v]),
-    ['', '영업비용 합계', t.cost],
-    ['', t.op >= 0 ? '영업이익' : '영업손실', t.op],
+    ['', '렌트 매출 합계', t.rentRevenue],
+    ...d.costs.map(([l, v]) => ['', l, -v]),
+    ['', '렌트 비용 합계', -t.rentCost],
+    ['', t.rentProfit >= 0 ? '렌트 사업 이익' : '렌트 사업 손실', t.rentProfit],
+    ['차량 판매', '', ''],
+    ['', `판매 매출 (${d.saleCount}대)`, d.saleRevenue],
+    ['', '판매한 차의 남은 값', -d.saleCost],
+    ['', t.saleProfit >= 0 ? '판매 이익' : '판매 손실', t.saleProfit],
     ['영업외', '보험료 환급 등', d.refund],
-    ['', '대출 이자', -d.interest],
+    ['', '이자 (회사 장부)', -d.bookInterest],
+    ['', '이자 (캐피탈·할부)', -d.capitalInterest],
     ['', '남는 돈', t.net]
   ];
-  const notes = [
-    ['남는 돈', won(t.net), `영업수익 ${won(t.revenue)} 중 ${pct(t.net, t.revenue)}`],
-    ['새 차 구입 (재투자)', won(d.carBuy), d.carBuy > t.net ? `남는 돈보다 ${won(d.carBuy - t.net)} 더 씀 — 담보대출·대표님 차입금·보증금으로 메움` : '남는 돈 안에서 삼'],
-    ['차량 할부 상환', won(d.loanRepay), '캐피탈·할부 차의 원금·이자. 흐름에는 넣지 않음'],
-    ['인수·매각으로 회수', won(d.sale), '고객 인수가·매각 대금. 차값 회수라 매출에서 뺌']
+  const summary = [
+    { k: '렌트 사업', v: t.rentProfit, p: `매출 ${won(t.rentRevenue)} − 비용 ${won(t.rentCost)} (차값 감가 포함)` },
+    { k: `차량 판매 (${d.saleCount}대)`, v: t.saleProfit, p: `매출 ${won(d.saleRevenue)} − 남은 차값 ${won(d.saleCost)}` },
+    { k: '남는 돈', v: t.net, p: `이자 ${won(d.interest)}${d.refund ? ` · 환급 ${won(d.refund)}` : ''} 반영` }
   ];
+  const notes = [
+    ['새 차 구입 (현금)', won(d.carBuy), '산 날 비용으로 빼지 않고 감가로 나눠 뺌'],
+    ['차량 할부 원금 상환', won(d.loanRepay), '차값을 나눠 내는 돈이라 비용이 아님. 이자 몫만 비용'],
+    ['이자', won(d.interest), `회사 장부 ${won(d.bookInterest)} + 캐피탈·할부 ${won(d.capitalInterest)}. 갑지 이자 줄은 같은 돈이라 뺌`]
+  ];
+
+  // 자료가 모자라 정확히 못 센 차. 숫자를 지어내지 않고 무엇을 채우면 되는지 보여 준다
+  const checkLines = [
+    checks?.noSaleRecord?.length ? `판매 기록이 없는 거래완료 갑지: ${checks.noSaleRecord.join(', ')} (남은 차값을 손실로 잡음)` : null,
+    checks?.loanInterestUnknown?.length ? `대출 원금·약정이 없어 이자를 못 나눈 할부 차: ${checks.loanInterestUnknown.join(', ')} (이자 0원으로 잡음)` : null,
+    checks?.saleOnRunningCar?.length ? `운용 중인데 판매 대금 줄이 있는 갑지: ${checks.saleOnRunningCar.join(', ')} (판매 매출에서 뺌)` : null
+  ].filter(Boolean);
 
   return (
     <div style={card}>
@@ -261,7 +291,7 @@ function MoneyFlowCard({ showToast }) {
             {d.range} · 차량 손익 원장 + 회사 장부{mode === 'flow' ? ' · 띠에 마우스를 올리면 금액' : ''}
           </div>
           <div style={{ display: 'flex', gap: '0.3rem', marginTop: '0.5rem' }} role="group" aria-label="보는 기준">
-            <button type="button" style={chip(mode === 'flow')} aria-pressed={mode === 'flow'} onClick={() => setMode('flow')}>장사 흐름 (차 구입 제외)</button>
+            <button type="button" style={chip(mode === 'flow')} aria-pressed={mode === 'flow'} onClick={() => setMode('flow')}>손익 (차값 감가 포함)</button>
             <button type="button" style={chip(mode === 'cash')} aria-pressed={mode === 'cash'} onClick={() => setMode('cash')}>현금 기준 (차 구입 포함)</button>
           </div>
         </div>
@@ -277,19 +307,28 @@ function MoneyFlowCard({ showToast }) {
       {mode === 'cash' ? (
         <>
           <div style={{ margin: '0.8rem 0 0.4rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-            장사로 남은 돈에서 차 산 돈을 빼면 <b style={{ color: cash.afterCars < 0 ? C.cost : C.profit }}>{won(cash.afterCars)}</b>입니다.
+            장사로 남은 현금에 차 산 돈과 판 돈을 넣으면 <b style={{ color: cash.afterCars < 0 ? C.cost : C.profit }}>{won(cash.afterCars)}</b>입니다.
             {cash.afterCars < 0 && ' 모자란 돈은 아래처럼 보증금·차입금·대출로 메웠습니다.'}
           </div>
           <div style={{ overflowX: 'auto' }}><CashWaterfall cash={cash} /></div>
           {cash.gap >= 10000 && (
             <div style={{ marginTop: '0.6rem', fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-              회색 '장부에 없는 돈'은 회사 장부·원장에 적히지 않은 돈입니다. 그해 통장에 있던 돈을 쓴 것, 장부에 없는 담보대출,
+              회색 '장부에 없는 돈'은 회사 장부·원장에 적히지 않은 돈입니다. 그해 통장에 있던 돈을 쓴 것, 실행액이 장부에 없는 담보대출,
               캐피탈이 차값을 대신 내 준 할부 차(원장에는 차값 전체가 적힘) 등이 섞여 있습니다. 자금팀 일일업무보고·통장 잔액을 받으면 나눠 보여 드립니다(할 일 30번).
             </div>
           )}
         </>
       ) : (
         <>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '0.7rem', marginTop: '0.8rem' }}>
+        {summary.map(({ k, v, p }) => (
+          <div key={k} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.7rem 0.9rem' }}>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700 }}>{k}</div>
+            <div style={{ fontSize: '1.35rem', fontWeight: 800, color: v < 0 ? C.cost : 'var(--text-bright)' }}>{won(v)}</div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{p}</div>
+          </div>
+        ))}
+      </div>
       {chart ? (
           <div style={{ position: 'relative', overflowX: 'auto', marginTop: '0.5rem' }} onMouseLeave={() => setTip(null)}>
             <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', minWidth: '760px', height: 'auto', display: 'block' }} role="img" aria-label={`영업수익 ${won(t.revenue)}, 영업비용 ${won(t.cost)}, 남는 돈 ${won(t.net)}`}>
@@ -320,7 +359,7 @@ function MoneyFlowCard({ showToast }) {
           </div>
         ) : (
           <div style={{ margin: '1rem 0', padding: '0.8rem 1rem', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '8px', fontSize: '0.85rem', color: '#9a3412' }}>
-            이 기간은 비용이 매출보다 커서(시작 해) 흐름도 대신 아래 표로 보여 줍니다.
+            이 기간은 이자까지 빼면 손실이라 흐름도 대신 아래 표로 보여 줍니다.
           </div>
         )}
   
@@ -338,7 +377,7 @@ function MoneyFlowCard({ showToast }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '0.8rem' }}>
             <thead>
               <tr>
-                {['구분', '항목', '금액', '영업수익 대비'].map((h, i) => (
+                {['구분', '항목', '금액', '전체 매출 대비'].map((h, i) => (
                   <th key={h} style={{ ...td, fontWeight: 800, background: 'var(--bg-main)', textAlign: i >= 2 ? 'right' : 'left' }}>{h}</th>
                 ))}
               </tr>
@@ -347,7 +386,7 @@ function MoneyFlowCard({ showToast }) {
               {rows.map(([g, l, v], i) => (
                 <tr key={i}>
                   <td style={{ ...td, fontWeight: 700 }}>{g}</td>
-                  <td style={{ ...td, fontWeight: /합계|이익|손실|남는/.test(l) ? 800 : 400 }}>{l}</td>
+                  <td style={{ ...td, fontWeight: /합계|이익|손실|남는|매출 \(/.test(l) ? 800 : 400 }}>{l}</td>
                   <td style={{ ...td, textAlign: 'right' }}>{v === '' ? '' : won(v)}</td>
                   <td style={{ ...td, textAlign: 'right', color: 'var(--text-muted)' }}>{v === '' ? '' : pct(v, t.revenue)}</td>
                 </tr>
@@ -355,6 +394,11 @@ function MoneyFlowCard({ showToast }) {
             </tbody>
           </table>
         ) : null}
+        {checkLines.length > 0 && (
+          <div style={{ marginTop: '0.7rem', fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+            <b>확인 필요</b>{checkLines.map((line) => <div key={line}>· {line}</div>)}
+          </div>
+        )}
         {chart && (
           <button type="button" onClick={() => setShowTable((v) => !v)} style={{ marginTop: '0.6rem', background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', padding: 0 }}>
             {showTable ? '표 닫기' : '표로 보기'}

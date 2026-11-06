@@ -1,9 +1,10 @@
 import CompanyTransaction from '../models/CompanyTransaction.js';
 import VehicleLedger from '../models/VehicleLedger.js';
 import { depreciationOf, DEPRECIATION_RULE } from '../../shared/vehicleDepreciation.js';
-import { COMPANY_ACCOUNTS, isCompanyAccount, accountOf } from '../../shared/companyAccounts.js';
+import { COMPANY_ACCOUNTS, isCompanyAccount } from '../../shared/companyAccounts.js';
 import { applyCompanyBookExcel } from '../utils/companyBookApply.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
+import { buildMoneyFlow } from '../utils/moneyFlow.js';
 
 /**
  * 회사 장부 (관리 > 회사 장부). 월급·임대료·대출이자·대표 차입금처럼 차 한 대에 속하지 않는 회사의 돈.
@@ -123,122 +124,19 @@ export const getDepreciation = async (req, res) => {
   }
 };
 
-// 돈 흐름도의 비용 묶음. 원장 분류와 회사 장부 계정을 대표님이 보시는 이름 8개로 모은다. 여기 없는 것은 '기타 운영비'
-const FLOW_COST_GROUPS = [
-  ['인건비 (급여·4대보험)', { book: ['salary', 'payroll'] }],
-  ['차량 보험료', { ledger: ['보험'] }],
-  ['차량작업·탁송', { ledger: ['차량작업', '탁송'], book: ['vehicleWork', 'delivery'] }],
-  ['법인카드', { book: ['card'] }],
-  ['정비·수리·검사·세금', { ledger: ['수리·사고', '자동차세', '정기점검', '검사비', '공제조합'] }],
-  ['접대비', { book: ['entertainment'] }],
-  ['유류·세차·통행료', { ledger: ['유류·세차', '과태료·통행료'] }]
-];
-const OTHER_COST = '기타 운영비';
-// 현금 기준 화면: 차 사고 모자란 돈을 어디서 메웠나. 순서대로 보여 준다
-const FUND = {
-  deposit: '고객 보증금 (받음 − 돌려줌)',
-  owner: '대표님 차입금 (빌림 − 갚음)',
-  loan: '은행·공제조합 대출 (받음 − 갚음)',
-  advance: '고객 선납금',
-  vat: '부가세 (환급 − 납부)',
-  equity: '자본금',
-  asset: '회사가 맡긴 돈 (보증금·적금)'
-};
-const FUND_OF_SECTION = { debt: FUND.loan, vat: FUND.vat, equity: FUND.equity, asset: FUND.asset };
-const flowGroupOf = (side, key) => FLOW_COST_GROUPS.find(([, g]) => (g[side] || []).includes(key))?.[0] || OTHER_COST;
-const SKIP_COST = ['할부금', '할부이자', '차량가', '계약금', '등록비용', '제세공과', '대출금', '보증금', '환급'];
-
 /**
  * @route GET /api/company-book/money-flow
- * "렌트베네핏은 이렇게 벌고 쓴다" 흐름도 자료. 차량 손익 원장(렌트료·단기 매출·차량 운영비)과 회사 장부(판관비·이자)를 기간별로 더한다(만 원 아님, 원).
- * 기간: 연도마다 + 최근 12개월(이번 달 포함). 월은 한국 날짜 기준.
- * 차 구입·할부 상환·인수·매각 대금은 매출·비용이 아니라 흐름 밖 값으로 따로 보낸다. 현금 기준 화면이 이 값과 funding(보증금·차입금·대출·부가세)으로 통장 흐름을 맞춘다.
- * 원장의 '이자' 줄(갑지 이자)은 회사 장부 대출이자와 같은 돈이라 넣지 않는다(이자 두 번 금지, 2026-10-28).
+ * "렌트베네핏은 이렇게 벌고 쓴다" 흐름도 자료. 계산 규칙은 utils/moneyFlow.js.
  */
 export const getMoneyFlow = async (req, res) => {
   try {
-    const monthOf = (d) => new Date(new Date(d).getTime() + 9 * 3600e3).toISOString().slice(0, 7);
-    const now = monthOf(new Date());
-    const [ny, nm] = now.split('-').map(Number);
-    const from12 = `${nm === 12 ? ny : ny - 1}-${String(nm === 12 ? 1 : nm + 1).padStart(2, '0')}`;
-    const buckets = new Map();
-    const bucketsOf = (m) => {
-      const keys = [m.slice(0, 4)];
-      if (m >= from12 && m <= now) keys.push('last12');
-      return keys.map((k) => {
-        if (!buckets.has(k)) buckets.set(k, { income: {}, costs: {}, refund: 0, interest: 0, carBuy: 0, loanRepay: 0, sale: 0, funding: {} });
-        return buckets.get(k);
-      });
-    };
-    const add = (o, k, v) => { o[k] = (o[k] || 0) + v; };
-
-    const txs = await CompanyTransaction.find({ excluded: { $ne: true } }).select('date direction amount account').lean();
-    // 공제조합 대출처럼 원장(대출금)과 회사 장부(은행 대출)에 같은 돈이 함께 적힌 줄이 있다. 금액이 같고 7일 안이면 장부 쪽만 센다
-    const bookLoans = txs.filter((t) => t.account === 'bankLoan' && t.direction === '입금');
-    const inBook = (e) => bookLoans.some((t) => t.amount === Number(e.amount) && Math.abs(new Date(t.date) - new Date(e.date)) <= 7 * 864e5);
-
-    const ledgers = await VehicleLedger.find({})
-      .select('ledgerType entries.side entries.category entries.amount entries.date entries.label')
-      .lean();
-    for (const l of ledgers) {
-      for (const e of l.entries || []) {
-        if (!e.date) continue;
-        const m = monthOf(e.date);
-        if (m < '2020-01' || m > now) continue; // 날짜를 잘못 적은 줄(1902년·2505년)은 뺀다
-        const a = Number(e.amount) || 0;
-        for (const b of bucketsOf(m)) {
-          if (e.side === '입금') {
-            if (l.ledgerType === '장기렌트' && e.category === '렌트료') add(b.income, '장기 렌트료', a);
-            else if (l.ledgerType === '단기렌트' && !['보증금', '대출금', '인수가', '차량가'].includes(e.category)) add(b.income, '단기·사고대차', a);
-            else if (['수수료', '캐시백'].includes(e.category) && l.ledgerType === '장기렌트') add(b.income, '판매수수료·캐시백', a);
-            else if (e.category === '인수가' || /판매\s*(금|대금)|매각/.test(e.label || '')) b.sale += a;
-            else if (e.category === '보증금') add(b.funding, FUND.deposit, a);
-            else if (e.category === '선납금') add(b.funding, FUND.advance, a);
-            else if (e.category === '대출금' && !inBook(e)) add(b.funding, FUND.loan, a);
-          } else if (['할부금', '할부이자'].includes(e.category)) {
-            if (e.label !== '이자') b.loanRepay += a;
-          } else if (['차량가', '계약금', '등록비용', '제세공과'].includes(e.category)) b.carBuy += a;
-          else if (e.category === '보증금') add(b.funding, FUND.deposit, -a);
-          else if (e.category === '대출금') add(b.funding, FUND.loan, -a);
-          else if (e.category === '환급') b.refund -= a; // 환급은 지출 쪽에 마이너스로 적혀 있다
-          else if (!SKIP_COST.includes(e.category)) add(b.costs, flowGroupOf('ledger', e.category), a);
-        }
-      }
-    }
-
-    for (const t of txs) {
-      const m = monthOf(t.date);
-      if (m > now) continue;
-      const section = accountOf(t.account).section;
-      const v = t.direction === '출금' ? t.amount : -t.amount;
-      for (const b of bucketsOf(m)) {
-        if (section === 'opex') add(b.costs, flowGroupOf('book', t.account), v);
-        if (section === 'finance') b.interest += v;
-        // 빌리고 갚은 돈·부가세·자본금·맡긴 돈은 비용이 아니라 현금 기준 화면의 '돈을 어디서 마련했나'로 간다(들어오면 +)
-        if (FUND_OF_SECTION[section]) add(b.funding, t.account === 'ownerLoan' ? FUND.owner : FUND_OF_SECTION[section], -v);
-      }
-    }
-
-    // 환급보다 되돌려 준 돈이 많은 해(2021·2022)는 영업외 수익이 아니라 운영비로 본다
-    for (const b of buckets.values()) if (b.refund < 0) { add(b.costs, OTHER_COST, -b.refund); b.refund = 0; }
-    const order = [...FLOW_COST_GROUPS.map(([n]) => n), OTHER_COST];
-    const periods = [...buckets.entries()]
-      .sort(([a], [b]) => (a === 'last12' ? 1 : b === 'last12' ? -1 : a.localeCompare(b)))
-      .map(([key, b]) => ({
-        key,
-        label: key === 'last12' ? '최근 12개월' : `${key}년${key === now.slice(0, 4) ? ` (${Number(now.slice(5))}월까지)` : ''}`,
-        range: key === 'last12' ? `${from12} ~ ${now}` : key,
-        income: ['장기 렌트료', '단기·사고대차', '판매수수료·캐시백'].map((n) => [n, Math.round(b.income[n] || 0)]).filter(([, v]) => v > 0),
-        costs: order.map((n) => [n, Math.round(b.costs[n] || 0)]).filter(([, v]) => v > 0).sort((x, y) => y[1] - x[1]),
-        refund: Math.round(b.refund),
-        interest: Math.round(b.interest),
-        carBuy: Math.round(b.carBuy),
-        loanRepay: Math.round(b.loanRepay),
-        sale: Math.round(b.sale),
-        funding: Object.values(FUND).map((n) => [n, Math.round(b.funding[n] || 0)]).filter(([, v]) => v !== 0)
-      }))
-      .filter((p) => p.income.length);
-    res.json({ success: true, periods });
+    const [txs, ledgers] = await Promise.all([
+      CompanyTransaction.find({ excluded: { $ne: true } }).select('date direction amount account').lean(),
+      VehicleLedger.find({})
+        .select('ledgerNo ledgerType status header terms loan contractPeriods entries.side entries.category entries.amount entries.date entries.label')
+        .lean()
+    ]);
+    res.json({ success: true, ...buildMoneyFlow({ ledgers, txs }) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

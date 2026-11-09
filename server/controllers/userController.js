@@ -1,12 +1,32 @@
 import User from '../models/User.js';
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 import generateToken from '../utils/generateToken.js';
+import { sendPasswordResetMail } from '../utils/mailService.js';
+
+const PASSWORD_POLICY = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>_\-]).{8,}$/;
+const PASSWORD_POLICY_MESSAGE = '비밀번호는 영문, 숫자, 특수문자를 포함하여 8자 이상이어야 합니다.';
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ROLES = ['viewer', 'editor', 'admin'];
+const STATUSES = ['PENDING', 'ACTIVE', 'REJECTED', 'SUSPENDED'];
+const RESET_CODE_MINUTES = 10;
+const RESET_MAX_ATTEMPTS = 5;
+const RESET_RESEND_SECONDS = 60;
+
+/** 응답에서 비밀번호와 인증번호를 뺀다 */
+const publicUser = (user) => {
+  const obj = user.toObject ? user.toObject() : { ...user };
+  delete obj.password;
+  delete obj.passwordReset;
+  return obj;
+};
 
 // @desc    승인 대기 중인 유저 목록 조회
 // @route   GET /api/users/pending
 // @access  Admin
 export const getPendingUsers = async (req, res) => {
   try {
-    const users = await User.find({ status: 'PENDING' }).select('-password').sort({ createdAt: 1 });
+    const users = await User.find({ status: 'PENDING' }).select('-password -passwordReset').sort({ createdAt: 1 });
     res.json(users);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -34,8 +54,7 @@ export const approveUser = async (req, res) => {
     user.rejectionReason = '';
     const updatedUser = await user.save();
 
-    const userResponse = updatedUser.toObject();
-    delete userResponse.password;
+    const userResponse = publicUser(updatedUser);
     res.json(userResponse);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -58,8 +77,7 @@ export const rejectUser = async (req, res) => {
     user.rejectionReason = reason || '';
     const updatedUser = await user.save();
 
-    const userResponse = updatedUser.toObject();
-    delete userResponse.password;
+    const userResponse = publicUser(updatedUser);
     res.json(userResponse);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -72,7 +90,7 @@ export const rejectUser = async (req, res) => {
 export const getUsers = async (req, res) => {
   try {
     // 보안을 위해 조회 결과에서 비밀번호(password) 제외
-    const users = await User.find({}).select('-password');
+    const users = await User.find({}).select('-password -passwordReset');
     res.json(users);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -85,7 +103,7 @@ export const getUsers = async (req, res) => {
 export const getUserById = async (req, res) => {
   try {
     // 특정 ID의 유저를 조회하되 비밀번호 필드 제외
-    const user = await User.findById(req.params.id).select('-password');
+    const user = await User.findById(req.params.id).select('-password -passwordReset');
     if (user) {
       res.json(user);
     } else {
@@ -142,8 +160,7 @@ export const createUser = async (req, res) => {
     const createdUser = await user.save();
 
     // 승인 전이므로 토큰은 발급하지 않는다 (자동 로그인 방지)
-    const userResponse = createdUser.toObject();
-    delete userResponse.password;
+    const userResponse = publicUser(createdUser);
 
     res.status(201).json(userResponse);
   } catch (error) {
@@ -151,49 +168,145 @@ export const createUser = async (req, res) => {
   }
 };
 
-// @desc    유저 정보 수정
+// @desc    유저 정보 수정 (사용자 권한 관리 — 최고 관리자만)
 // @route   PUT /api/users/:id
-// @access  Public
+// @access  Admin
 export const updateUser = async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
-    if (user) {
-      // 입력받은 정보가 있을 때만 수정 처리
-      user.name = req.body.name || user.name;
-      user.email = req.body.email || user.email;
-      if (req.body.password) {
-        user.password = req.body.password; // User 모델의 pre-save 훅을 통해 자동 해싱 처리됨
-      }
-      if (req.body.user_type) {
-        user.user_type = req.body.user_type;
-      }
-      if (req.body.role) {
-        user.role = req.body.role;
-      }
-      if (req.body.status) {
-        user.status = req.body.status;
-      }
-      if (typeof req.body.financeTeam === 'boolean') {
-        user.financeTeam = req.body.financeTeam;
-      }
-      if (req.body.address !== undefined) {
-        user.address = req.body.address;
-      }
+    const body = req.body || {};
+    const isSelf = String(user._id) === String(req.user?._id);
 
-      // 수정된 데이터 저장
-      const updatedUser = await user.save();
-      
-      // 반환 데이터에서 비밀번호 삭제
-      const userResponse = updatedUser.toObject();
-      delete userResponse.password;
-
-      res.json(userResponse);
-    } else {
-      res.status(404).json({ message: 'User not found' });
+    // 자기 권한·상태를 스스로 내리면 관리자가 아무도 없게 될 수 있어 막는다
+    if (isSelf && body.role !== undefined && body.role !== user.role) {
+      return res.status(400).json({ message: '자기 자신의 권한은 바꿀 수 없습니다.' });
     }
+    if (isSelf && body.status !== undefined && body.status !== user.status) {
+      return res.status(400).json({ message: '자기 자신의 상태는 바꿀 수 없습니다.' });
+    }
+
+    for (const key of ['name', 'phone', 'department']) {
+      if (body[key] !== undefined) {
+        const v = String(body[key]).trim();
+        if (!v) return res.status(400).json({ message: '이름, 연락처, 소속은 비워 둘 수 없습니다.' });
+        user[key] = v;
+      }
+    }
+    if (body.address !== undefined) user.address = String(body.address);
+    if (body.applyReason !== undefined) user.applyReason = String(body.applyReason);
+
+    if (body.email !== undefined) {
+      const email = String(body.email).trim().toLowerCase();
+      if (!email) return res.status(400).json({ message: '아이디(이메일)를 입력해 주세요.' });
+      // 예전부터 rent-003 같은 아이디 계정이 있어 '@'가 있을 때만 이메일 형식을 본다
+      if (email.includes('@') && !EMAIL_PATTERN.test(email)) {
+        return res.status(400).json({ message: '올바른 이메일 형식이 아닙니다.' });
+      }
+      if (email !== user.email) {
+        const existing = await User.findOne({ email, _id: { $ne: user._id } });
+        if (existing) return res.status(400).json({ message: '이미 사용 중인 아이디(이메일)입니다.' });
+        user.email = email;
+      }
+    }
+
+    if (body.password) {
+      if (!PASSWORD_POLICY.test(body.password)) return res.status(400).json({ message: PASSWORD_POLICY_MESSAGE });
+      user.password = body.password; // User 모델의 pre-save 훅을 통해 자동 해싱 처리됨
+      user.passwordReset = { codeHash: '', attempts: 0 };
+    }
+    if (body.user_type !== undefined) {
+      if (!['customer', 'admin'].includes(body.user_type)) return res.status(400).json({ message: '사용자 구분이 올바르지 않습니다.' });
+      user.user_type = body.user_type;
+    }
+    if (body.role !== undefined) {
+      if (!ROLES.includes(body.role)) return res.status(400).json({ message: '올바른 권한(role)을 선택해주세요.' });
+      user.role = body.role;
+    }
+    if (body.status !== undefined) {
+      if (!STATUSES.includes(body.status)) return res.status(400).json({ message: '상태 값이 올바르지 않습니다.' });
+      user.status = body.status;
+    }
+    if (typeof body.financeTeam === 'boolean') user.financeTeam = body.financeTeam;
+
+    const updatedUser = await user.save();
+    res.json(publicUser(updatedUser));
   } catch (error) {
     res.status(400).json({ message: error.message });
+  }
+};
+
+// @desc    비밀번호 찾기 1단계 — 아이디(이메일)와 이름이 맞으면 인증번호를 메일로 보낸다
+// @route   POST /api/users/forgot-password
+// @access  Public
+// 계정이 있는지 없는지는 알려 주지 않는다. 사용자가 버튼을 눌렀을 때만 메일이 나간다.
+export const requestPasswordReset = async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const name = String(req.body?.name || '').trim();
+  const generic = { message: '입력하신 정보가 맞으면 인증번호를 메일로 보냈습니다. 메일함(스팸함 포함)을 확인해 주세요.' };
+  try {
+    if (!email || !name) return res.status(400).json({ message: '아이디(이메일)와 이름을 입력해 주세요.' });
+    if (!EMAIL_PATTERN.test(email)) {
+      return res.status(400).json({ message: '이메일이 아닌 아이디는 메일로 찾을 수 없습니다. 관리자에게 비밀번호 초기화를 요청해 주세요.' });
+    }
+    const user = await User.findOne({ email });
+    const sameName = (a, b) => String(a || '').replace(/\s/g, '') === String(b || '').replace(/\s/g, '');
+    if (!user || !sameName(user.name, name) || user.status !== 'ACTIVE') return res.json(generic);
+
+    const last = user.passwordReset?.requestedAt ? new Date(user.passwordReset.requestedAt).getTime() : 0;
+    if (Date.now() - last < RESET_RESEND_SECONDS * 1000) {
+      return res.status(429).json({ message: `인증번호는 ${RESET_RESEND_SECONDS}초에 한 번만 받을 수 있습니다. 잠시 후 다시 눌러 주세요.` });
+    }
+
+    const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+    user.passwordReset = {
+      codeHash: await bcrypt.hash(code, 10),
+      expiresAt: new Date(Date.now() + RESET_CODE_MINUTES * 60 * 1000),
+      attempts: 0,
+      requestedAt: new Date()
+    };
+    await user.save();
+    await sendPasswordResetMail({ to: user.email, name: user.name, code });
+    res.json(generic);
+  } catch (error) {
+    console.error('[비밀번호 찾기]', error.message);
+    res.status(500).json({ message: '인증번호 메일을 보내지 못했습니다. 관리자에게 비밀번호 초기화를 요청해 주세요.' });
+  }
+};
+
+// @desc    비밀번호 찾기 2단계 — 인증번호를 확인하고 새 비밀번호로 바꾼다
+// @route   POST /api/users/reset-password
+// @access  Public
+export const resetPassword = async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const code = String(req.body?.code || '').trim();
+    const newPassword = String(req.body?.newPassword || '');
+    if (!email || !code || !newPassword) return res.status(400).json({ message: '인증번호와 새 비밀번호를 입력해 주세요.' });
+
+    const user = await User.findOne({ email });
+    const reset = user?.passwordReset;
+    const invalid = { message: '인증번호가 맞지 않거나 시간이 지났습니다. 인증번호를 다시 받아 주세요.' };
+    if (!user || !reset?.codeHash || !reset.expiresAt || new Date(reset.expiresAt) < new Date()) {
+      return res.status(400).json(invalid);
+    }
+    if ((reset.attempts || 0) >= RESET_MAX_ATTEMPTS) {
+      return res.status(400).json({ message: `인증번호를 ${RESET_MAX_ATTEMPTS}번 틀렸습니다. 인증번호를 다시 받아 주세요.` });
+    }
+    if (!(await bcrypt.compare(code, reset.codeHash))) {
+      user.passwordReset.attempts = (reset.attempts || 0) + 1;
+      await user.save();
+      return res.status(400).json(invalid);
+    }
+    if (!PASSWORD_POLICY.test(newPassword)) return res.status(400).json({ message: PASSWORD_POLICY_MESSAGE });
+
+    user.password = newPassword; // pre-save 훅에서 해싱
+    user.passwordReset = { codeHash: '', attempts: 0 };
+    await user.save();
+    res.json({ message: '비밀번호를 바꿨습니다. 새 비밀번호로 로그인해 주세요.' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };
 
@@ -221,7 +334,7 @@ export const deleteUser = async (req, res) => {
 // @access  Private
 export const getMyProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('-password');
+    const user = await User.findById(req.user._id).select('-password -passwordReset');
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
@@ -279,8 +392,7 @@ export const updateMyProfile = async (req, res) => {
     }
 
     const updatedUser = await user.save();
-    const userResponse = updatedUser.toObject();
-    delete userResponse.password;
+    const userResponse = publicUser(updatedUser);
     res.json(userResponse);
   } catch (error) {
     res.status(400).json({ message: error.message });

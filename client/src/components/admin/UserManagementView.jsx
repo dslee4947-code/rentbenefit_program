@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Trash2, Shield, User, ShieldCheck, ShieldAlert, Key, Clock, Check, X, Ban, RotateCcw } from 'lucide-react';
+import { Search, Trash2, Shield, User, ShieldCheck, ShieldAlert, Key, Clock, Check, X, Ban, RotateCcw, Pencil } from 'lucide-react';
+import UserEditModal from './UserEditModal.jsx';
 import { useTableSort } from './useTableSort.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
 
@@ -26,6 +27,7 @@ function UserManagementView({ showToast, currentUser }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('all'); // 권한으로 걸러 보기
   const [loading, setLoading] = useState(true);
+  const [editingUser, setEditingUser] = useState(null); // 정보 수정 창에 연 사용자
 
   const authHeaders = () => ({
     'Content-Type': 'application/json',
@@ -418,7 +420,7 @@ function UserManagementView({ showToast, currentUser }) {
                           {user.name} {isSelf && <span style={{ fontSize: '0.75rem', background: 'var(--primary)', color: '#fff', padding: '0.1rem 0.3rem', borderRadius: '4px', marginLeft: '0.3rem' }}>나</span>}
                         </span>
                         <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{user.email}</span>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{user.department}</span>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{[user.department, user.phone].filter(Boolean).join(' · ')}</span>
                       </div>
                     </td>
                     <td style={{ padding: '1rem' }}>
@@ -477,6 +479,13 @@ function UserManagementView({ showToast, currentUser }) {
                     </td>
                     <td style={{ padding: '1rem', textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', justifyContent: 'center' }}>
+                        <button
+                          onClick={() => setEditingUser(user)}
+                          title="정보 수정 · 비밀번호 초기화"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', background: '#f0f5ff', color: '#1d39c4', border: '1px solid #adc6ff', borderRadius: '6px', padding: '0.35rem 0.65rem', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}
+                        >
+                          <Pencil size={14} /> 수정
+                        </button>
                         {user.status !== 'REJECTED' && (
                           <button
                             onClick={() => handleToggleSuspend(user._id, user.status)}
@@ -523,6 +532,24 @@ function UserManagementView({ showToast, currentUser }) {
             </tbody>
           </table>
         </div>
+      )}
+
+      {editingUser && (
+        <UserEditModal
+          user={editingUser}
+          isSelf={editingUser._id === currentUser?._id}
+          apiHost={API_HOST}
+          authHeaders={authHeaders}
+          showToast={showToast}
+          onClose={() => setEditingUser(null)}
+          onSaved={(saved) => {
+            setUsers(prev => prev.map(u => u._id === saved._id ? { ...u, ...saved } : u));
+            setPendingUsers(prev => saved.status === 'PENDING'
+              ? prev.map(u => u._id === saved._id ? { ...u, ...saved } : u)
+              : prev.filter(u => u._id !== saved._id));
+            setEditingUser(null);
+          }}
+        />
       )}
     </div>
   );

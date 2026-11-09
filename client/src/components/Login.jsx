@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Car, Headphones, X, CheckCircle, AlertTriangle } from 'lucide-react';
+import ForgotPasswordModal from './ForgotPasswordModal.jsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 function Login({
@@ -13,6 +14,7 @@ function Login({
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
 
   // 🔄 컴포넌트 로드 시 기억된 이메일이 있는지 확인
   useEffect(() => {
@@ -72,7 +74,7 @@ function Login({
   };
 
   const handleForgotPassword = () => {
-    showToast('비밀번호 찾기 기능은 준비 중입니다.', 'info');
+    setShowForgot(true);
   };
 
   // 🔒 이미 로그인되어 있는 상태인 경우 안내 화면 렌더링
@@ -219,11 +221,21 @@ function Login({
           {/* Forgotten password link */}
           <div className="login-forgot-container">
             <span className="login-forgot-link" onClick={handleForgotPassword}>
-              Forgotten your password?
+              Forgotten your password? (비밀번호 찾기)
             </span>
           </div>
         </form>
       </div>
+      {showForgot && (
+        <ForgotPasswordModal
+          initialEmail={email}
+          showToast={showToast}
+          onClose={(changedEmail) => {
+            setShowForgot(false);
+            if (changedEmail) { setEmail(changedEmail); setPassword(''); }
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -81,6 +81,13 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    // 비밀번호 찾기 인증번호. 번호는 해시로만 두고, 10분 지나거나 5번 틀리면 못 쓴다.
+    passwordReset: {
+      codeHash: { type: String, default: '' },
+      expiresAt: Date,
+      attempts: { type: Number, default: 0 },
+      requestedAt: Date,
+    },
   },
   {
     // 생성일(createdAt) 및 수정일(updatedAt) 자동 기록

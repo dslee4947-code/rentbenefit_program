@@ -324,3 +324,39 @@ export const sendInternalMail = async ({ subject, html }) => {
   }
   return { to: toList };
 };
+
+/**
+ * 비밀번호 찾기 인증번호 메일. 사용자가 로그인 화면에서 [인증번호 받기]를 눌렀을 때만 나간다.
+ * 청구서와 같은 보내는 계정(rent@)을 쓰고, 보낸편지함에는 남기지 않는다.
+ *
+ * @param {object} params
+ * @param {string} params.to 받는 사람(계정 이메일)
+ * @param {string} params.name 사용자 이름
+ * @param {string} params.code 6자리 인증번호
+ */
+export const sendPasswordResetMail = async ({ to, name, code }) => {
+  const sender = invoiceSender();
+  const token = await getGraphAccessToken();
+  const html = [
+    `<p>${escapeHtml(name)} 님, 렌트베네핏 프로그램 비밀번호 찾기 인증번호입니다.</p>`,
+    `<p style="font-size:22px;font-weight:700;letter-spacing:4px">${escapeHtml(code)}</p>`,
+    '<p>10분 안에 로그인 화면에 입력해 주세요. 직접 요청하지 않으셨다면 이 메일은 무시하셔도 됩니다.</p>',
+    '<p>㈜렌트베네핏</p>'
+  ].join('');
+  const res = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: {
+        subject: '[렌트베네핏] 비밀번호 찾기 인증번호',
+        body: { contentType: 'HTML', content: html },
+        toRecipients: [{ emailAddress: { address: to } }]
+      },
+      saveToSentItems: false
+    })
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`인증번호 메일을 보내지 못했습니다. (Graph ${res.status}) ${detail.slice(0, 200)}`);
+  }
+};

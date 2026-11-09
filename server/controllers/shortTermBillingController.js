@@ -141,11 +141,7 @@ export const updateShortTerm = async (req, res) => {
       if (monthlyFee <= 0) return badRequest(res, '월 대여료를 넣어 주세요.');
       contract.pricing = { ...(contract.pricing?.toObject?.() || contract.pricing || {}), monthlyFee };
       await contract.save();
-      const s = await BillingSchedule.findOne({ contract: contract._id });
-      if (s) {
-        s.rounds.forEach((r) => { if (r.status === '예정' && !r.issuedAt && !r.note) { r.monthlyRent = monthlyFee; r.total = monthlyFee; } });
-        await s.save();
-      }
+      // 청구서를 아직 만들지 않은 회차의 대여료는 아래 buildShortTermSchedule이 새 금액으로 바꾸고 고지서까지 더해 합계를 낸다
     }
     const schedule = await buildShortTermSchedule(contract.toObject());
     if (req.body.billingEmail !== undefined) { schedule.billingEmail = String(req.body.billingEmail || '').trim(); await schedule.save(); }

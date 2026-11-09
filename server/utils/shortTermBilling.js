@@ -6,6 +6,7 @@ import VehicleLedger from '../models/VehicleLedger.js';
 import '../models/Company.js';
 import '../models/Customer.js';
 import { calcDailyRent } from './billingDate.js';
+import { recalcRound } from './roundTotal.js';
 
 /**
  * 단기렌트 월 청구 (대표님 2026-11-03, 주식회사 레이 그랜저 142호9185).
@@ -55,16 +56,25 @@ export const shortTermDueDate = (start, n, billingDay) => {
 const dayDiff = (a, b) => Math.round((kstNoon(...Object.values(kstParts(b))) - kstNoon(...Object.values(kstParts(a)))) / 86400000);
 const ymd = (d) => { const { y, m, d: dd } = kstParts(d); return `${y}-${String(m + 1).padStart(2, '0')}-${String(dd).padStart(2, '0')}`; };
 
+// 청구서를 만들었거나 입금이 들어온 회차. 금액·날짜를 다시 계산하지 않고 그대로 둔다
+const isLocked = (r) => r.status !== '예정' || !!r.issuedAt;
+// 사람이 회차에 붙인 것(고지서·추가 청구). 이게 있으면 회차가 필요 없어져도 지우지 않는다
+const hasAddedItems = (r) => (r.attachments || []).length > 0 || (r.extras || []).length > 0;
+const RETURN_NOTE = /^반납일\(/;
+
 /**
- * 단기렌트 계약의 회차표를 만들거나 늘린다. 청구·입금된 회차는 그대로 둔다.
- * @param {object|string} contractOrId
- * @param {Date} [now]
+ * 단기렌트 회차표에 들어갈 회차를 정한다(DB를 건드리지 않는다).
+ *
+ * 이미 있는 회차는 그 줄을 그대로 쓴다. 발행 전 회차도 날짜·대여료만 고치고 합계를 다시 낸다.
+ * 예전에는 발행 전 회차를 새 줄로 바꿔 끼워, 청구 화면을 열 때마다 그 회차에 올린
+ * 고지서(통행료·과태료)와 추가 청구가 사라졌다(2026-11-09 레이 그랜저 3회차 통행료 3건).
+ *
+ * @param {object} contract 단기렌트 계약
+ * @param {object[]} existingRounds 지금 회차표의 회차(mongoose 서브도큐먼트여도 된다)
+ * @param {Date} now
+ * @returns {{rounds: object[], monthly: number, billingDay: number, start: Date}}
  */
-export const buildShortTermSchedule = async (contractOrId, now = new Date()) => {
-  const contract = typeof contractOrId === 'object' && contractOrId.rentalKind
-    ? contractOrId
-    : await Contract.findById(contractOrId).lean();
-  if (!isShortTerm(contract)) throw new Error('단기렌트 계약이 아닙니다.');
+export const planShortTermRounds = (contract, existingRounds = [], now = new Date()) => {
   const start = contract.rentStartDate || contract.deliveryDate;
   const monthly = Number(contract.pricing?.monthlyFee) || 0;
   const billingDay = Number(contract.pricing?.billingDay) || 0;
@@ -72,8 +82,7 @@ export const buildShortTermSchedule = async (contractOrId, now = new Date()) => 
   if (!monthly) throw new Error('월 대여료가 0원입니다.');
 
   const until = contract.returnDate ? new Date(contract.returnDate) : new Date(now.getTime() + AHEAD_DAYS * 86400000);
-  const existing = await BillingSchedule.findOne({ contract: contract._id });
-  const kept = new Map((existing?.rounds || []).filter((r) => r.status !== '예정' || r.issuedAt).map((r) => [r.no, r]));
+  const prior = new Map(existingRounds.map((r) => [r.no, r]));
 
   const rounds = [];
   for (let i = 0; i < 600; i += 1) {
@@ -81,7 +90,8 @@ export const buildShortTermSchedule = async (contractOrId, now = new Date()) => 
     const due = shortTermDueDate(start, i, billingDay);
     if (contract.returnDate ? dayDiff(period, until) <= 0 : due > until) break;
     const no = i + 1;
-    if (kept.has(no)) { rounds.push(kept.get(no)); continue; }
+    const old = prior.get(no);
+    if (old && isLocked(old)) { rounds.push(old); continue; }
     // 반납이 이번 달 대여 기간 안이면 반납일까지 일할(반납일은 빼고 센다)
     const next = addMonths(start, i + 1);
     let amount = monthly;
@@ -92,11 +102,40 @@ export const buildShortTermSchedule = async (contractOrId, now = new Date()) => 
       amount = Math.round((monthly * days) / span);
       note = `반납일(${ymd(until)})까지 ${days}일 일할 (월 ${monthly.toLocaleString()}원 × ${days}/${span}일)`;
     }
+    if (old) {
+      old.dueDate = due;
+      old.monthlyRent = amount;
+      if (note) old.note = note;
+      else if (RETURN_NOTE.test(old.note || '')) old.note = undefined;
+      recalcRound(old); // 고지서·추가 청구를 더한 합계
+      rounds.push(old);
+      continue;
+    }
     rounds.push({ no, dueDate: due, monthlyRent: amount, total: amount, status: '예정', ...(note ? { note } : {}) });
   }
-  // 반납으로 회차가 줄면 뒤의 (아직 안 나간) 회차는 지운다. 이미 청구·입금된 회차는 남긴다
-  kept.forEach((r, no) => { if (!rounds.some((x) => x.no === no)) rounds.push(r); });
+  // 반납으로 회차가 줄면 뒤의 (아직 안 나간) 회차는 지운다.
+  // 이미 청구·입금된 회차와, 고지서·추가 청구를 붙여 둔 회차는 남긴다(지우면 그 고지서가 청구에서 빠진다)
+  prior.forEach((r, no) => {
+    if (!rounds.some((x) => x.no === no) && (isLocked(r) || hasAddedItems(r))) rounds.push(r);
+  });
   rounds.sort((a, b) => a.no - b.no);
+  return { rounds, monthly, billingDay, start };
+};
+
+/**
+ * 단기렌트 계약의 회차표를 만들거나 늘린다. 바뀐 것이 없으면 저장하지 않는다.
+ * (청구 화면을 열 때마다 저장하면, 같은 때 고지서를 올린 저장과 부딪힌다)
+ * @param {object|string} contractOrId
+ * @param {Date} [now]
+ */
+export const buildShortTermSchedule = async (contractOrId, now = new Date()) => {
+  const contract = typeof contractOrId === 'object' && contractOrId.rentalKind
+    ? contractOrId
+    : await Contract.findById(contractOrId).lean();
+  if (!isShortTerm(contract)) throw new Error('단기렌트 계약이 아닙니다.');
+
+  const existing = await BillingSchedule.findOne({ contract: contract._id });
+  const { rounds, monthly, billingDay, start } = planShortTermRounds(contract, existing?.rounds || [], now);
 
   const payload = {
     contract: contract._id,
@@ -110,7 +149,10 @@ export const buildShortTermSchedule = async (contractOrId, now = new Date()) => 
     rounds
   };
   if (existing) {
+    const snapshot = () => JSON.stringify(existing.toObject({ depopulate: true }));
+    const before = snapshot();
     existing.set(payload);
+    if (snapshot() === before) return existing;
     return existing.save();
   }
   return BillingSchedule.create(payload);

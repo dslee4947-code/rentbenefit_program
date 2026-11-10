@@ -3,7 +3,7 @@ import { Search, FileText, Download, Save, ExternalLink, X, Send } from 'lucide-
 import ContractEndSheet from './ContractEndSheet.jsx';
 import EarlySettlementSheet from './EarlySettlementSheet.jsx';
 import { DEPOSIT_ACCOUNT } from './InvoiceSheet.jsx';
-import { END_KINDS, FINE_DEPOSIT, SETTLEMENT_LAYOUTS, originOf, ratePctOf, settlementOf, unpaidCoverage } from '../../utils/contractEnd.js';
+import { END_KINDS, FINE_DEPOSIT, defaultEndNotice, SETTLEMENT_LAYOUTS, originOf, ratePctOf, settlementOf, unpaidCoverage } from '../../utils/contractEnd.js';
 import { makeFittedPdf } from '../../utils/printFit.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -395,6 +395,22 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
                 <input type={type} value={form[k] || ''} onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))} style={input} />
               </label>
             ))}
+
+            {mode === 'end' && <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+                <span style={{ fontWeight: 700 }}>계약 종료 안내 문구</span>
+                {typeof form.notice === 'string' && (
+                  <button type="button" onClick={() => setForm((f) => ({ ...f, notice: null }))} style={{ border: 'none', background: 'none', color: '#2563eb', cursor: 'pointer', fontWeight: 700, padding: 0 }}>기본 문구로</button>
+                )}
+              </div>
+              <textarea
+                value={typeof form.notice === 'string' ? form.notice : defaultEndNotice(form).join('\n')}
+                onChange={(e) => setForm((f) => ({ ...f, notice: e.target.value }))}
+                rows={8}
+                style={{ ...input, width: '100%', resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }}
+              />
+              <div style={{ color: '#4b5563', marginTop: '0.2rem' }}>한 줄이 한 항목입니다. 번호는 저절로 붙습니다. 고치지 않으면 종료 구분·날짜에 맞춰 문구가 바뀝니다.</div>
+            </div>}
 
             {coverage.covered.length > 0 && (
               <div style={{ background: '#d1fae5', color: '#065f46', borderRadius: '8px', padding: '0.6rem', lineHeight: 1.5 }}>

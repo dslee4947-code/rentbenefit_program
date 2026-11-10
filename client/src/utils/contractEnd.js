@@ -2,6 +2,8 @@
  * 계약종료 확인서의 종료 구분. 구분마다 날짜 칸 이름, 차량회수지 칸 여부, 안내 문구가 다르다.
  * 양식: Dropbox "09.중도해지/중도해지 위약금_260220.xlsx" '계약종료 확인서' 시트(대표님 2026-11-03)
  */
+
+import { korDate } from './endDocStyle.js';
 export const END_KINDS = {
   early: {
     label: '중도해지',
@@ -208,3 +210,17 @@ export const settlementOf = (doc, form) => {
     claimTotal, final
   };
 };
+
+/**
+ * '2. 계약 종료 안내'의 기본 문구. 종료 구분과 날짜로 만든다.
+ * @returns {string[]}
+ */
+export const defaultEndNotice = (form) => {
+  const type = END_KINDS[form.kind] || END_KINDS.return;
+  return [...type.lines(korDate(form.endDate) || '        '), '기타 문의 사항은 렌트베네핏(☎ 02-547-0303)으로 연락 주시기 바랍니다. 감사합니다.'];
+};
+
+// 화면에서 고친 문구(form.notice, 한 줄에 한 항목)가 있으면 그것을, 없으면 기본 문구를 쓴다. 번호는 확인서에서 붙인다.
+export const endNoticeLines = (form) => (typeof form.notice === 'string'
+  ? form.notice.split('\n').map((t) => t.trim()).filter(Boolean)
+  : defaultEndNotice(form));

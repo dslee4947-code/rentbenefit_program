@@ -6,7 +6,7 @@
  * 정산이 끝난 고객에게 보낸다. 종료 구분(중도해지 · 만기 후 인수 · 만기 후 반납)에 따라 날짜 칸 이름과 안내 문구만 바뀐다.
  */
 
-import { END_KINDS } from '../../utils/contractEnd.js';
+import { END_KINDS, endNoticeLines } from '../../utils/contractEnd.js';
 import { LINE, NAVY, PAGE_W, headCell, korDate, tableStyle, valueCell } from '../../utils/endDocStyle.js';
 import { A4Page, Band, DocHead, PairTable, SealLine } from './EndDocParts.jsx';
 
@@ -18,7 +18,7 @@ const termText = (months) => {
 };
 
 /**
- * @param {{ data: object, form: { kind: 'early'|'takeover'|'return', endDate: string, pickupAddress: string, phone: string, issueDate: string }, innerRef?: any }} props
+ * @param {{ data: object, form: { kind: 'early'|'takeover'|'return', endDate: string, pickupAddress: string, phone: string, issueDate: string, notice?: string|null }, innerRef?: any }} props
  *   data = 서버 buildDeliveryDocs 결과(docs는 고른 차만)
  */
 export default function ContractEndSheet({ data, form, innerRef }) {
@@ -33,7 +33,7 @@ export default function ContractEndSheet({ data, form, innerRef }) {
     ...(type.pickup ? [['차량회수지(주소)', blank(form.pickupAddress)]] : []),
     ['연락처', blank(form.phone)]
   ];
-  const lines = [...type.lines(korDate(form.endDate) || '        '), '기타 문의 사항은 렌트베네핏(☎ 02-547-0303)으로 연락 주시기 바랍니다. 감사합니다.'];
+  const lines = endNoticeLines(form);
 
   return (
     <div ref={innerRef} className="print-fit" style={{ width: `${PAGE_W}px`, background: '#fff' }}>

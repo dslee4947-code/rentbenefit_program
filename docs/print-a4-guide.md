@@ -102,6 +102,7 @@ const blob = await makeFittedPdf(element, { orientation: 'portrait', marginMm: 8
 | 단기렌트 차량 목록 (금액 없음, 큰 글씨) | `ShortTermRatesView.jsx` (`CarListSheet`, 폭 733px라 줄지 않음) | `printFitted` | - | ✅ 적용 (2026-11-06) |
 | 증차·감차 공문 (신청서·신구사업대비표·매매계약서) | `FleetFilingDocs.jsx` → `FleetFilingView.jsx` | 묶은 PDF를 새 창에 열어 인쇄 | `makeA4PagesPdf` (쪽마다 세로·가로 A4 그대로) | ✅ 적용 (2026-10-30) |
 | 중도해지 정산서 (구분형·요약형·상세, 맨 뒤에 중도해지 절차) · 계약종료 확인서 | `EarlySettlementSheet.jsx`, `ContractEndSheet.jsx` (공통 모양 `EndDocParts.jsx`) → `ContractEndView.jsx` | - | `makeFittedPdf` (jpeg, 여백 0, A4 크기로 그림. 메일 첨부라 png를 쓰지 않음) | ✅ 적용 (2026-11-04) |
+| 차량 반납 안내 (만기 반납 전 고객 안내) | `ReturnGuideView.jsx` (`ReturnGuideSheet`, 공통 모양 `EndDocParts.jsx`, A4 크기로 그림) | `printFitted` (여백 0, 단기렌트 요금표처럼 안내문만 왼쪽 위에 찍음) | - | ✅ 적용 (2026-11-10) |
 
 새 인쇄·PDF 기능을 만들거나 위 ⏳ 항목을 고치면 이 표를 함께 고친다.
 

@@ -124,7 +124,10 @@ const toNum = (v) => Number(String(v ?? '').replace(/[^\d.-]/g, '')) || 0;
  *   C 면책금(수리비) = 수리내역 합계
  *   D 미납 청구금액 = 미납 통행료 + 범칙금 + 미납 수리비
  *   E 위약금 = earlyPenalty
- *   최종 정산금 = A + B + C + D + E − 보증금 − 선수금 미경과분 − 초과 납부 렌트료
+ *   연체 이자(대표님 2026-11-11) = 받지 못한 청구서의 연체 이자 + 마지막 미납 출금일부터 반납일까지 미납 원금의 이자.
+ *     엑셀에는 없던 항목이라 A(미납 렌트료)와 한 묶음으로 보여 준다. 화면에서 금액을 적으면 그 값을 쓴다.
+ *     청구 보류 이자(받지 않기로 한 지난 이자)는 넣지 않는다.
+ *   최종 정산금 = A + 연체 이자 + B + C + D + E − 보증금 − 선수금 미경과분 − 초과 납부 렌트료
  * @param {object} doc 서버 buildDeliveryDocs의 차 한 대
  * @param {object} form 화면 입력값(문자열이어도 된다)
  * @returns {object | null} 반납일·인도일·만료일이 날짜가 아니면 null
@@ -193,7 +196,17 @@ export const settlementOf = (doc, form) => {
   const advanceRemain = Math.floor(advanceDaily * remainDays);
   const advanceUsed = advance - advanceRemain;
 
-  const claimTotal = unpaidRent + excessFee + repairTotal + unpaidClaim + penalty;
+  // 연체 이자: 서버(settlement-info)가 센 미납 청구서 이자 + 마지막 미납 출금일 → 반납일 이자
+  const ii = form.interestInfo || {};
+  const interestRate = Number(ii.rate) || 0;
+  const interestDays = ii.since && ii.principal > 0 ? Math.max(0, daysBetween(ii.since, returnDate)) : 0;
+  const interestTail = Math.floor(((Number(ii.principal) || 0) * (interestRate / 100) / 365) * interestDays / 10) * 10;
+  const interestBilled = Number(ii.owed) || 0;
+  const interestTyped = String(form.lateInterest ?? '').trim() !== '';
+  const lateInterest = interestTyped ? toNum(form.lateInterest) : interestBilled + interestTail;
+  const rentClaim = unpaidRent + lateInterest;
+
+  const claimTotal = rentClaim + excessFee + repairTotal + unpaidClaim + penalty;
   // 선수금은 이용기간만큼 빼고 나머지를, 반납일 뒤까지 낸 렌트료는 그만큼을 돌려줄 돈으로 보고 위약금 등과 상계한다(대표님 2026-11-04)
   const final = claimTotal - deposit - advanceRemain - overpaidRent;
 
@@ -207,6 +220,8 @@ export const settlementOf = (doc, form) => {
     repairs, repairTotal, toll, fine, unpaidRepair, unpaidClaim,
     penaltyDaily: pen?.daily || 0, penaltyDailySupply: pen ? pen.daily / 1.1 : 0, advanceMonthly: pen?.advanceMonthly || 0, penalty,
     advanceDaily, advanceUsed, advanceRemain,
+    interestRate, interestBilled, interestCount: Number(ii.count) || 0, interestFromNo: ii.fromNo || 0, interestToNo: ii.toNo || 0,
+    interestPrincipal: Number(ii.principal) || 0, interestSince: ii.since || '', interestDays, interestTail, interestTyped, lateInterest, rentClaim,
     claimTotal, final
   };
 };

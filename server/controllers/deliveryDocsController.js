@@ -1,6 +1,7 @@
 import VehicleLedger from '../models/VehicleLedger.js';
 import { recipientOf } from '../../shared/billingRecipient.js';
 import { ledgerCheckOf } from '../utils/settlementLedgerCheck.js';
+import { lateInterestByRound, ownAmountOf } from '../utils/lateInterestHistory.js';
 import crypto from 'crypto';
 import Contract from '../models/Contract.js';
 import Vehicle from '../models/Vehicle.js';
@@ -501,6 +502,54 @@ export const sendEndDoc = async (req, res) => {
 };
 
 /**
+ * 중도해지 정산서에 넣을 미납 연체 이자(대표님 2026-11-11, 동춘푸드).
+ *
+ * 청구서에 찍힌 이자(회차의 interest)와 모아 청구한 이자(pastInterestCharge), 청구 보류 이자(unbilledInterest)에는
+ * 같은 이자가 여러 곳에 들어가 있다(동춘푸드 36회차 이자 67,410원 중 44,940원이 37회차 묶음에 또 있다).
+ * 그래서 청구서 규칙(utils/lateInterestHistory.js)으로 회차마다 붙었어야 할 이자를 건별로 다시 세고 겹치지 않게 나눈다.
+ *  - 넣는 이자(owed): 아직 입금되지 않은 청구서에 붙은 건, 또는 아직 입금되지 않은 회차에 모아 청구하기로 한 건
+ *  - 보류 이자(held): 청구한 적 없는 지난 이자. 받지 않기로 한 돈이라 정산서에 넣지 않고 화면에만 알린다
+ *  - 입금완료 회차에 청구한 이자는 받은 것이라 뺀다
+ * 마지막 청구서 출금일(since) 뒤의 이자는 반납일에 따라 달라 화면에서 센다(principal × 연이율 × 일수 ÷ 365).
+ * @returns {{ rate, owed, count, fromNo, toNo, held, heldCount, principal, since, unpaidNos }}
+ */
+export const unpaidInterestOf = (rounds, rate) => {
+  const empty = { rate, owed: 0, count: 0, fromNo: 0, toNo: 0, held: 0, heldCount: 0, principal: 0, since: '', unpaidNos: [] };
+  if (!rate || !rounds.length) return empty;
+  const byNo = new Map(rounds.map((r) => [r.no, r]));
+  const isPaid = (no) => byNo.get(no)?.status === '입금완료';
+  const chargedOn = new Map(); // 'onNo:fromNo' -> 모아 청구한 회차 번호
+  rounds.forEach((r) => (r.pastInterestCharge?.items || []).forEach((it) => chargedOn.set(`${it.onNo}:${it.fromNo}`, r.no)));
+  const all = [...lateInterestByRound(rounds, rate).entries()].flatMap(([onNo, list]) => list.map((it) => ({ ...it, onNo })));
+  const owedItems = [];
+  const heldItems = [];
+  for (const it of all) {
+    const charged = chargedOn.get(`${it.onNo}:${it.fromNo}`);
+    const billed = Number(byNo.get(it.onNo)?.interest) > 0;
+    if (charged !== undefined) { if (!isPaid(charged)) owedItems.push(it); continue; }
+    if (billed) { if (!isPaid(it.onNo)) owedItems.push(it); continue; }
+    heldItems.push(it);
+  }
+  // 아직 안 받은 회차의 원금. 마지막 미납 회차의 출금일부터 반납일까지 이자가 더 붙는다
+  const today = kstYmd(new Date());
+  const unpaid = rounds.filter((r) => ['청구됨', '미납'].includes(r.status) && kstYmd(r.dueDate) <= today).sort((a, b) => a.no - b.no);
+  const principal = unpaid.reduce((s, r) => s + ownAmountOf(r) - (Number(r.pastInterestCharge?.amount) || 0), 0);
+  const sum = (list) => list.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+  return {
+    rate,
+    owed: sum(owedItems),
+    count: owedItems.length,
+    fromNo: owedItems.length ? Math.min(...owedItems.map((it) => it.fromNo)) : 0,
+    toNo: owedItems.length ? Math.max(...owedItems.map((it) => it.onNo)) : 0,
+    held: sum(heldItems),
+    heldCount: heldItems.length,
+    principal: Math.max(0, principal),
+    since: unpaid.length ? kstYmd(unpaid[unpaid.length - 1].dueDate) : '',
+    unpaidNos: unpaid.map((r) => r.no)
+  };
+};
+
+/**
  * 중도해지 정산서에 넣을 값. 납부 회차는 청구 회차표의 입금완료 수다.
  * 연장 계약은 회차와 렌트료가 연장 구간부터 다시 시작해 periodStart(구간 시작일)도 준다.
  * 차량의 인도일은 최초 인도일로 남아 있는 차가 있다(Ray-001: 2021년 인도, 2026-10-28 연장).
@@ -509,17 +558,20 @@ export const sendEndDoc = async (req, res) => {
  */
 export const getSettlementInfo = async (req, res) => {
   try {
-    const contract = await Contract.findById(req.params.contractId).select('vehicles').lean();
+    const contract = await Contract.findById(req.params.contractId).select('vehicles terms.lateInterestRate').lean();
     if (!contract) return res.status(404).json({ success: false, message: '계약을 찾을 수 없습니다.' });
-    const vehicles = await Vehicle.find(contract.vehicles?.length ? { _id: { $in: contract.vehicles } } : { contract: contract._id }).select('monthlyFee').lean();
-    const schedule = await BillingSchedule.findOne({ contract: contract._id }).select('rounds.no rounds.monthlyRent rounds.status').lean();
+    const vehicles = await Vehicle.find(contract.vehicles?.length ? { _id: { $in: contract.vehicles } } : { contract: contract._id }).select('monthlyFee lateInterestRate').lean();
+    const schedule = await BillingSchedule.findOne({ contract: contract._id }).lean();
     const rounds = schedule?.rounds || [];
     const feeSum = vehicles.reduce((s, v) => s + (Number(v.monthlyFee) || 0), 0);
     const paidRounds = rounds.filter((r) => r.status === '입금완료').length;
     const rentOf = (no) => Number(rounds.find((r) => r.no === no)?.monthlyRent) || 0;
+    const rate = Number(vehicles.find((v) => v.lateInterestRate)?.lateInterestRate) || Number(contract.terms?.lateInterestRate) || 0;
+    const interest = unpaidInterestOf(rounds, rate);
     const data = {};
     for (const v of vehicles) {
       const share = vehicles.length > 1 && feeSum > 0 ? (Number(v.monthlyFee) || 0) / feeSum : 1;
+      const part = (n) => Math.floor((n * share) / 10) * 10;
       const ledger = await VehicleLedger.findOne({ vehicle: v._id }).select('ledgerNo entries contractPeriods').lean();
       const period = (ledger?.contractPeriods || []).find((p) => String(p.contract) === String(contract._id));
       const periodSeq = period?.seq || 1;
@@ -530,6 +582,7 @@ export const getSettlementInfo = async (req, res) => {
         hasLedger: Boolean(ledger),
         ledgerNo: ledger?.ledgerNo || '',
         periodStart: periodSeq > 1 ? kstYmd(period.startDate) : '',
+        interest: { ...interest, owed: part(interest.owed), held: part(interest.held), principal: part(interest.principal) },
         ...(ledger ? ledgerCheckOf({ entries: ledger.entries, periodSeq }) : {})
       };
     }

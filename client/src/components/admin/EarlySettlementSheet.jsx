@@ -30,6 +30,15 @@ const paidLabel = (s) => `${num(s.paidCount)}회 (${s.paidUntil}까지)`;
 const paidText = (s) => `납부 ${num(s.paidCount)}회분은 ${s.paidUntil}까지 (1회차 ${s.start} ~ ${s.firstRoundEnd})`;
 const overText = (s) => `납부 회차 중 반납일 다음 날(${s.overFrom})부터 ${s.paidUntil}까지 ${s.overMonths ? `${num(s.overMonths)}개월 ` : ''}${num(s.overDays)}일 (1일 ${num(s.dailyRent)}원)`;
 
+/** 연체 이자 산출 근거. 화면에서 금액을 적었으면 그렇다고만 쓴다 */
+function interestLines(s) {
+  if (s.interestTyped) return [`연체 이자 ${won(s.lateInterest)} (담당자 확인 금액)`];
+  const lines = [];
+  if (s.interestBilled) lines.push(`미납 청구서 연체 이자 ${num(s.interestCount)}건 ${won(s.interestBilled)} (${num(s.interestFromNo)}~${num(s.interestToNo)}회차 미납분)`);
+  if (s.interestTail) lines.push(`미납 원금 ${num(s.interestPrincipal)}원 × 연 ${num(s.interestRate)}% × ${num(s.interestDays)}일(${s.interestSince} ~ ${s.returnDate}) ÷ 365 = ${won(s.interestTail)}`);
+  return lines.length ? lines : ['미납 연체 이자 없음'];
+}
+
 function excessLines(s) {
   const contract = `약정 = 연 ${num(s.annualKm)}km ÷ 365 × 이용 ${num(s.usedDays)}일`;
   return s.excessFee === 0
@@ -142,7 +151,8 @@ function SplitLayout({ data, doc, s, form }) {
     ['잔여 일수', `${num(s.leftDays)}일`],
     ['1일 렌트료', won(s.dailyRent)],
     ['잔여분 렌트료', won(s.leftRent)],
-    ['미납 렌트료', won(s.unpaidRent)]
+    ['미납 렌트료', won(s.unpaidRent)],
+    ...(s.lateInterest ? [['연체 이자', won(s.lateInterest)]] : [])
   ];
   const b = [
     ['중도해지 위약금율', pctText(s.ratePct)],
@@ -171,6 +181,7 @@ function SplitLayout({ data, doc, s, form }) {
   const notes = [
     `※ 미납 렌트료 = 월 렌트료 ${num(s.fee)}원 × ${num(s.unpaidRounds)}회 + 1일 렌트료 ${num(s.dailyRent)}원 × 잔여 ${num(s.leftDays)}일`,
     `     ${paidText(s)}${s.hasUnpaid ? ` / 미납 ${s.unpaidFrom} ~ ${s.returnDate} ${num(s.unpaidDays)}일` : ''}`,
+    ...(s.lateInterest ? [`※ 연체 이자 = ${interestLines(s).join(' + ')}`] : []),
     ...(s.overpaidRent ? [`※ 초과 납부 렌트료 = ${overText(s)} (위약금 등과 상계)`] : []),
     s.excessFee === 0
       ? `※ 초과주행거리 = 실주행 ${num(s.actualKm)}km ≤ 약정 ${num(s.contractKm)}km(연 ${num(s.annualKm)}km÷365×이용 ${num(s.usedDays)}일) → 부담금 없음`
@@ -218,7 +229,7 @@ function SplitLayout({ data, doc, s, form }) {
             </tr>
           ))}
           <tr>
-            <td style={subCell}>소  계 ( a )</td><td style={subMoney}>{won(s.unpaidRent)}</td>
+            <td style={subCell}>소  계 ( a )</td><td style={subMoney}>{won(s.rentClaim)}</td>
             <td style={subCell}>소  계 ( b )</td><td style={subMoney}>{won(s.excessFee + s.repairTotal + s.unpaidClaim + s.penalty)}</td>
             <td style={subCell}>소  계 ( c )</td><td style={subMoney}>{won(s.deposit + s.advanceRemain + s.overpaidRent)}</td>
           </tr>
@@ -261,7 +272,7 @@ function SplitLayout({ data, doc, s, form }) {
 function ClaimTable({ s, basis, advanceNote, depositNote }) {
   const item = { ...valueCell, textAlign: 'left', fontWeight: 700 };
   const text = { ...valueCell, textAlign: 'left', fontSize: '11.5px', color: '#404040', lineHeight: 1.45, padding: '3px 8px' };
-  const rows = [['A', '미납 렌트료', s.unpaidRent], ['B', '초과운행 부담금', s.excessFee], ['C', '면책금(수리비)', s.repairTotal], ['D', '미납 청구금액', s.unpaidClaim], ['E', '위약금', s.penalty]];
+  const rows = [['A', s.lateInterest ? '미납 렌트료·연체 이자' : '미납 렌트료', s.rentClaim], ['B', '초과운행 부담금', s.excessFee], ['C', '면책금(수리비)', s.repairTotal], ['D', '미납 청구금액', s.unpaidClaim], ['E', '위약금', s.penalty]];
   const total = { ...labelCell, textAlign: 'left', padding: '0 9px' };
   const minus = { ...valueCell, textAlign: 'left' };
   return (
@@ -327,9 +338,10 @@ function SummaryLayout({ data, doc, s, form }) {
         advanceNote={<>납입 {won(s.advance)} - 이용기간 사용분 {won(s.advanceUsed)} (위약금 등과 상계)<br />{advanceText(s)}</>}
         basis={{
           title: '산출 근거 (숫자 대입)',
-          A: s.overpaidRent
+          A: [...(s.overpaidRent
             ? ['납부 회차가 반납일을 넘어 미납 없음', `※ 초과 납부분은 아래에서 차감 : ${overText(s)}`]
-            : [`월 렌트료 ${num(s.fee)}원 × 미납 ${num(s.unpaidRounds)}회 = ${won(s.roundRent)}`, `  + 잔여 ${num(s.leftDays)}일 × 1일 ${num(s.dailyRent)}원 = ${won(s.leftRent)}`, `※ ${paidText(s)}`],
+            : [`월 렌트료 ${num(s.fee)}원 × 미납 ${num(s.unpaidRounds)}회 = ${won(s.roundRent)}`, `  + 잔여 ${num(s.leftDays)}일 × 1일 ${num(s.dailyRent)}원 = ${won(s.leftRent)}`, `※ ${paidText(s)}`]),
+          ...(s.lateInterest ? interestLines(s).map((t) => `+ ${t}`) : [])],
           B: excessLines(s),
           C: [s.repairTotal === 0 ? '반납 점검 결과 청구할 수리내역 없음' : '반납 점검 리포트상 수리내역 합계'],
           D: [`미납 통행료 ${won(s.toll)} + 범칙금 ${won(s.fine)} + 미납 수리비 ${won(s.unpaidRepair)}`, '※ 범칙금 30만원은 예치금으로, 반납 3개월 후 최종 부과 확인 뒤 잔액 반환'],
@@ -393,7 +405,7 @@ function DetailLayout({ data, doc, s, form }) {
           advanceNote="선수금 중 이용하지 않은 기간분 (아래 ⑤)"
           basis={{
             title: '내용',
-            A: ['납부 완료 회차 이후, 반납일까지의 렌트료'],
+            A: [s.lateInterest ? '납부 완료 회차 이후, 반납일까지의 렌트료와 미납분 연체 이자' : '납부 완료 회차 이후, 반납일까지의 렌트료'],
             B: ['약정 주행거리 초과분에 대한 정산'],
             C: ['반납 점검 결과 차량 손상 복구 비용'],
             D: ['미납 통행료·범칙금 등'],
@@ -430,7 +442,11 @@ function DetailLayout({ data, doc, s, form }) {
             ['⑦', '1일 렌트료', `${num(s.fee)}원 × 12개월 ÷ 365일 (원 단위 절사)`, won(s.dailyRent)],
             ['⑧', '잔여분 렌트료', `⑦ ${num(s.dailyRent)}원 × ⑥ ${num(s.leftDays)}일`, won(s.leftRent)],
             ['⑨', '미납 렌트료', '⑤ + ⑧', won(s.unpaidRent), true],
-            ...(s.overpaidRent ? [['⑩', '초과 납부 렌트료', overText(s), won(s.overpaidRent), true]] : [])
+            ...(s.overpaidRent ? [['⑩', '초과 납부 렌트료', overText(s), won(s.overpaidRent), true]] : []),
+            ...(s.lateInterest ? [
+              ['⑪', '연체 이자', interestLines(s).join(' / '), won(s.lateInterest)],
+              ['⑫', '미납 렌트료·연체 이자', '⑨ + ⑪', won(s.rentClaim), true]
+            ] : [])
           ]}
           foot={['※ 렌트료는 인도일을 기준으로 매월 같은 날 시작하는 회차 단위로 부과되며, 마지막 회차에 미치지 못한 기간만 일할 계산합니다.']}
         />

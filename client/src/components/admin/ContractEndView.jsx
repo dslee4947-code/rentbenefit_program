@@ -31,6 +31,7 @@ const SETTLEMENT_FORM = (d) => ({
   repairs: ['', '', '', '', ''],
   toll: '',
   unpaidRepair: '',
+  lateInterest: '', // 비우면 청구 회차표로 센 연체 이자
   issueDate: todayYmd(),
   manager: '렌트베네핏 팀장 이두식 010-9061-3000 / 02-547-0303',
   account: `${DEPOSIT_ACCOUNT.bankName} ${DEPOSIT_ACCOUNT.accountNo}`
@@ -120,7 +121,7 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
   const sheetData = settleDoc ? { ...previewData, docs: [settleDoc] } : previewData;
   const paidTyped = String(form.paidCount ?? '').trim() !== '';
   // 납부 회차를 적지 않았으면 청구 회차표의 입금완료 수
-  const sheetForm = settlement ? { ...form, paidCount: paidTyped ? form.paidCount : info?.paidRounds ?? '' } : form;
+  const sheetForm = settlement ? { ...form, paidCount: paidTyped ? form.paidCount : info?.paidRounds ?? '', interestInfo: info?.interest } : form;
   const settled = settleDoc ? settlementOf(settleDoc, sheetForm) : null;
   const settleWarnings = [];
   if (settleDoc) {
@@ -139,6 +140,7 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
       if (info.hasLedger && info.ledgerRounds !== info.paidRounds) settleWarnings.push(`청구 회차표는 입금완료 ${info.paidRounds}회인데 차량 손익 원장에는 렌트료가 ${info.ledgerRounds}회 있습니다. 입금 처리가 늦은 회차면 고객이 낸 돈이 미납으로 잡힙니다. 확인 후 납부 회차 칸에 맞는 수를 적어 주세요.`);
       if (info.hasLedger && settleDoc.advancePayment !== info.advanceIn) settleWarnings.push(`차량 DB의 선수금(${wonText(settleDoc.advancePayment)})이 원장에 입금된 선수금(${wonText(info.advanceIn)})과 다릅니다. 선수금 잔액을 확인해 주세요.`);
       if (info.firstRoundRent && info.roundRent && Math.abs(info.firstRoundRent - info.roundRent) > 1000) settleWarnings.push(`1회차를 일할로 받은 계약입니다(1회차 ${wonText(info.firstRoundRent)}, 월 ${wonText(info.roundRent)}, 차액 ${wonText(Math.abs(info.roundRent - info.firstRoundRent))}). 이 차액은 정산서에 넣지 않았습니다.`);
+      if (info.interest?.held > 0) settleWarnings.push(`청구하지 않고 보류한 지난 연체 이자 ${wonText(info.interest.held)}(${info.interest.heldCount}건)는 정산서에 넣지 않았습니다. 받으시려면 연체 이자 칸에 합계를 적어 주세요.`);
       if (info.roundRent && Math.abs(info.roundRent - settleDoc.monthlyFee) > 1000) settleWarnings.push(`차량 DB의 월 렌트료(${wonText(settleDoc.monthlyFee)})가 청구 회차표(${wonText(info.roundRent)})와 다릅니다. 차량 DB를 고친 뒤 만들어 주세요.`);
     }
   }
@@ -340,10 +342,10 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
                   </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
-                  {[['toll', '미납 통행료'], ['unpaidRepair', '미납 수리비']].map(([k, label]) => (
+                  {[['toll', '미납 통행료', ''], ['unpaidRepair', '미납 수리비', ''], ['lateInterest', '연체 이자', settled && !settled.interestTyped ? `자동 ${settled.lateInterest.toLocaleString('ko-KR')}` : '']].map(([k, label, ph]) => (
                     <label key={k}>
                       <div style={{ fontWeight: 700, marginBottom: '0.2rem' }}>{label}</div>
-                      <input inputMode="numeric" value={form[k]} onChange={setField(k)} style={input} />
+                      <input inputMode="numeric" value={form[k]} placeholder={ph} onChange={setField(k)} style={input} />
                     </label>
                   ))}
                 </div>
@@ -358,6 +360,7 @@ export default function ContractEndView({ showToast, currentUser, mode = 'end' }
                   <div style={{ background: 'var(--bg-main)', borderRadius: '8px', padding: '0.5rem 0.6rem', lineHeight: 1.65 }}>
                     <div>납부 회차 {settled.paidCount}회 <span style={{ color: 'var(--text-muted)' }}>({settled.paidUntil}까지)</span></div>
                     <div>{settled.overpaidRent ? <>초과 납부 렌트료 <b>{wonText(settled.overpaidRent)}</b> <span style={{ color: 'var(--text-muted)' }}>(상계)</span></> : <>미납 렌트료 {wonText(settled.unpaidRent)}</>}</div>
+                    <div>연체 이자 {wonText(settled.lateInterest)} <span style={{ color: 'var(--text-muted)' }}>{settled.interestTyped ? '(직접 입력)' : `(미납 청구서 ${wonText(settled.interestBilled)} + 반납일까지 ${settled.interestDays}일 ${wonText(settled.interestTail)})`}</span></div>
                     <div>위약금 {wonText(settled.penalty)}</div>
                     <div>초과운행 {wonText(settled.excessFee)} · 수리 {wonText(settled.repairTotal)} · 미납 청구 {wonText(settled.unpaidClaim)}</div>
                     <div>보증금·선수금 차감 {wonText(settled.deposit + settled.advanceRemain)}</div>

@@ -9,6 +9,7 @@ import { ensureContractDocument, refreshContractDocument, loadContractForDocumen
 import { looksLikeResidentRegistrationNumber } from '../utils/validators.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
 import { buildExtensionValues } from './contractLifecycleController.js';
+import { linkCompanyFromDocument } from '../utils/linkCompanyFromDocument.js';
 
 const KIND = '장기렌트';
 // 목록에서는 무거운 해석 결과(칸·글상자·원문)를 빼고 보낸다
@@ -362,11 +363,15 @@ export const confirmDocument = async (req, res) => {
     doc.confirmedAt = reopen ? undefined : new Date();
     doc.confirmedBy = reopen ? undefined : userName(req);
     await doc.save();
+    // 계약에 법인이 빠져 있으면 확정한 계약서의 계약사로 잇는다
+    const link = reopen ? { linked: false } : await linkCompanyFromDocument(doc);
     await logActivity({
       req, dept: '계약·출고부', action: ACTIONS.CONTRACT_TEMPLATE, target: { model: 'ContractDocument', id: doc._id },
-      summary: `전자계약서 ${reopen ? '확정 풀기' : '확정'} (${doc.contract?.contractNo || ''})`
+      summary: `전자계약서 ${reopen ? '확정 풀기' : '확정'} (${doc.contract?.contractNo || ''})${link.linked ? ` · 계약사 ${link.company.name} 연결` : ''}`
     });
-    res.json({ success: true, document: await ContractDocument.findById(doc._id).populate(DOC_POPULATE).lean(), message: reopen ? '다시 고칠 수 있습니다.' : '계약서를 확정했습니다.' });
+    const message = reopen ? '다시 고칠 수 있습니다.'
+      : link.linked ? `계약서를 확정했습니다. 계약에 계약사 ${link.company.name}${link.created ? '(새로 등록)' : ''}을(를) 연결했습니다.` : '계약서를 확정했습니다.';
+    res.json({ success: true, document: await ContractDocument.findById(doc._id).populate(DOC_POPULATE).lean(), message });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

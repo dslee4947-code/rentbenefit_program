@@ -90,15 +90,13 @@ export const resolvePaymentDate = (year, monthIndex, paymentDay) => {
   return new Date(year, monthIndex, Math.min(day, lastDay), 12);
 };
 
-// 고객 검색/선택 UI에서 "성 이름" 형태로 통일해서 보여준다.
-// 아웃룩 연동 고객은 surname/givenName이 실제 사람 이름이고, name은 "차량정보"
-// 필드(회사 P)가 비어있을 때 표시 방법(E)에서 파생된 값이라 사람 이름 표시에는
-// 부적합하다. 수동 등록 고객은 surname/givenName이 없으므로 name으로 대체한다.
+// 고객명은 아웃룩 '성' 칸만 쓴다.
+// 우리는 아웃룩 '성'에 고객 이름과 직함(예: 구정훈 대표님)을 적고, '이름'에는 차량번호·메모 같은
+// 고객 관련 내용(예: KBIZ17 67)을 적는다. 그래서 '이름'을 붙이면 고객명이 지저분해진다.
+// name은 회사 칸이 비었을 때 표시 이름에서 나온 값이라, 성이 없는 수동 등록 고객에게만 쓴다.
 export const formatCustomerName = (c) => {
   if (!c) return '-';
-  const surname = c.surname || c.name || '-';
-  const givenName = c.givenName || '';
-  return givenName ? `${surname} ${givenName}` : surname;
+  return String(c.surname || c.name || '').trim() || '-';
 };
 
 // 견적 화면은 값이 없을 때 '-'를 넣어 두는 자리가 있다. 그 표기는 화면용이라 계약서로 넘기지 않는다.

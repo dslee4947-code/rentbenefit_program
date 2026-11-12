@@ -5,6 +5,7 @@ import QuoteInputView from './QuoteInputView.jsx';
 import ContractRegisterView from './ContractRegisterView.jsx';
 import ContractDocsView from './ContractDocsView.jsx';
 import DeliveryPrepView from './DeliveryPrepView.jsx';
+import ReleaseReportView from './ReleaseReportView.jsx';
 import DepositNoticeView from './DepositNoticeView.jsx';
 import VehicleManagementView from './VehicleManagementView.jsx';
 import VehicleServiceView from './VehicleServiceView.jsx';
@@ -63,7 +64,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
   const getTabFromHash = () => {
     const hash = window.location.hash.replace('#/', '');
     // 메뉴를 새로 추가하면 여기에도 넣어야 한다. 빠지면 주소는 바뀌는데 화면은 대시보드로 되돌아간다.
-    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'contract-docs', 'delivery-prep', 'deposit-notice', 'vehicles', 'vehicle-service', 'calendar', 'users', 'billing', 'short-term-billing', 'contract-facts', 'contract-ends', 'return-guide', 'early-settlement', 'invoice-archive', 'fine-notices', 'ledgers', 'handbook', 'storage-settings', 'maintenance-rates', 'company-funding', 'company-book', 'vehicle-depreciation', 'short-term-rates', 'fleet-filings', 'mypage'];
+    const validTabs = ['dashboard', 'customers', 'inquiries', 'companies', 'quote-input', 'contract-register', 'contract-docs', 'delivery-prep', 'release-report', 'deposit-notice', 'vehicles', 'vehicle-service', 'calendar', 'users', 'billing', 'short-term-billing', 'contract-facts', 'contract-ends', 'return-guide', 'early-settlement', 'invoice-archive', 'fine-notices', 'ledgers', 'handbook', 'storage-settings', 'maintenance-rates', 'company-funding', 'company-book', 'vehicle-depreciation', 'short-term-rates', 'fleet-filings', 'mypage'];
     return validTabs.includes(hash) ? hash : 'dashboard';
   };
 
@@ -143,6 +144,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
       { id: 'contract-register', name: '계약서 등록', icon: <FileSignature size={ICON_SIZE} /> },
       { id: 'contract-docs', name: '전자계약서', icon: <FileText size={ICON_SIZE} /> },
       { id: 'delivery-prep', name: '출고 준비', icon: <Truck size={ICON_SIZE} /> },
+      { id: 'release-report', name: '렌트출고 보고', icon: <ClipboardList size={ICON_SIZE} /> },
       // 계약사실 증명원 메일은 자금팀 > 계약사실 증명원으로 옮기고 이 자리는 보증금·선수금 안내가 쓴다(대표님 2026-11-04)
       { id: 'deposit-notice', name: '보증금·선수금 안내', icon: <MailCheck size={ICON_SIZE} /> }
     ] },
@@ -550,6 +552,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'contract-register' && '계약서 신규 등록'}
               {activeTab === 'contract-docs' && '전자계약서'}
               {activeTab === 'delivery-prep' && '출고 준비'}
+              {activeTab === 'release-report' && '렌트출고 보고'}
               {activeTab === 'deposit-notice' && '보증금·선수금 안내'}
               {activeTab === 'vehicles' && '렌트차량 DB 관리'}
               {activeTab === 'vehicle-service' && '렌트 차량 AS'}
@@ -583,6 +586,7 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               {activeTab === 'contract-register' && '확정된 견적 정보를 계약서로 신규 등록하고 입고 차량 DB 및 알림 일정을 자동 생성합니다.'}
               {activeTab === 'contract-docs' && '엑셀 전자계약서 양식을 올려 두면 견적에서 계약으로 전환할 때 계약서가 만들어집니다. 약관 원문도 버전별로 보관합니다.'}
               {activeTab === 'delivery-prep' && '계약은 완료됐지만 차량번호/차대번호 등 실물 등록이 아직 안 끝난 차량을 정리합니다.'}
+              {activeTab === 'release-report' && '출고한 차의 계약사·담당자·차량·금액·용품·보험·정비를 정해진 양식의 글로 만들어 복사합니다.'}
               {activeTab === 'deposit-notice' && '보증금·선수금 입금 안내문을 버튼 하나로 고객 메일로 보냅니다.'}
               {activeTab === 'vehicles' && '전체 렌트 차량의 계약정보, 잔여일정, 담당 정비 내역을 상세 조회합니다.'}
               {activeTab === 'vehicle-service' && '차마다 다음 자동차검사·정기점검 날짜를 챙기고, 정비·수리 이력과 누적 수리비를 남깁니다. 수리 내역서를 올리면 작업 내역·금액이 정리됩니다.'}
@@ -671,6 +675,10 @@ function AdminDashboard({ showToast, currentUser, onLogout, onUpdateUser }) {
               showToast={showToast}
               currentUser={currentUser}
             />
+          )}
+
+          {activeTab === 'release-report' && (
+            <ReleaseReportView showToast={showToast} />
           )}
 
           {activeTab === 'delivery-prep' && (

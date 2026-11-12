@@ -251,7 +251,7 @@ export const searchDeliveryDocs = async (req, res) => {
     const Customer = Contract.db.model('Customer');
     const [companies, customers, vehicles] = await Promise.all([
       Company.find({ name: rx }).select('_id').limit(50).lean(),
-      Customer.find({ name: rx }).select('_id').limit(50).lean(),
+      Customer.find({ $or: [{ name: rx }, { surname: rx }] }).select('_id').limit(50).lean(),
       Vehicle.find({ plateNo: rx }).select('contract').limit(50).lean()
     ]);
     const contracts = await Contract.find({
@@ -264,7 +264,7 @@ export const searchDeliveryDocs = async (req, res) => {
       ]
     })
       .populate('companyId', 'name billingEmail')
-      .populate('customer', 'name email')
+      .populate('customer', 'name surname email')
       .select('contractNo status vehicles companyId customer deliveryDocs.status deliveryDocs.sentAt deliveryDocs.to contractDate')
       .sort({ contractDate: -1 })
       .limit(30)
@@ -277,7 +277,7 @@ export const searchDeliveryDocs = async (req, res) => {
         contractId: String(c._id),
         contractNo: c.contractNo,
         contractStatus: c.status,
-        partyName: c.companyId?.name || stripHonorific(c.customer?.name || ''),
+        partyName: c.companyId?.name || stripHonorific(c.customer?.surname || c.customer?.name || ''),
         to: c.deliveryDocs?.to || c.companyId?.billingEmail || c.customer?.email || '',
         status: c.deliveryDocs?.status || '',
         sentAt: c.deliveryDocs?.sentAt || null,

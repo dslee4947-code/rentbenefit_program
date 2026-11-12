@@ -173,6 +173,13 @@ const VehicleSchema = new Schema({
 
   // 보험 가입 - 위 insurance는 견적 기준의 '조건'이고, 여기는 실제 가입 결과다.
   // 증권번호와 만기일은 가입해야 나오는 값이라 따로 둔다.
+  // 렌트출고 보고 글에서 직원이 고친 값(계약사·담당자·썬팅·보험 등). 없으면 계약·차량 값으로 채운다.
+  releaseReport: {
+    values: Schema.Types.Mixed,
+    savedAt: Date,
+    savedBy: String
+  },
+
   insuranceEnrollment: {
     enrolled: { type: Boolean, default: false },
     company: String, // 실제 가입한 보험사

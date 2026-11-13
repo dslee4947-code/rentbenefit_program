@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { MessageCircleQuestion, Plus, X, Save, CheckCircle2, Trash2, Search } from 'lucide-react';
+import { MessageCircleQuestion, Plus, X, Save, CheckCircle2, Trash2, Search, Pencil, RotateCcw } from 'lucide-react';
 import { formatCustomerName } from '../../utils/format.js';
 import { useTableSort } from './useTableSort.js';
 import { useSaveShortcut } from './useSaveShortcut.js';
@@ -16,6 +16,7 @@ function PendingInquiriesView({ showToast, currentUser }) {
   const [keyword, setKeyword] = useState(''); // 고객명·내용·담당자로 걸러 본다
 
   const [showModal, setShowModal] = useState(false);
+  const [editing, setEditing] = useState(null); // 고치는 문의. null이면 새 문의 등록
 
   // 팝업을 제목 줄로 잡아 끌어 옮길 수 있게 한다
 
@@ -72,12 +73,27 @@ function PendingInquiriesView({ showToast, currentUser }) {
   }, [customerSearchQuery]);
 
   const openAddModal = () => {
+    setEditing(null);
     setSelectedCustomer(null);
     setCustomerSearchQuery('');
     setContent('');
     setAssignee(currentUser?.name || '');
     setShowModal(true);
   };
+
+  // 등록한 문의의 고객·내용·담당자를 고친다
+  const openEditModal = (inquiry) => {
+    setEditing(inquiry);
+    setSelectedCustomer(inquiry.customer || null);
+    setCustomerSearchQuery(inquiry.customer ? formatCustomerName(inquiry.customer) : '');
+    setContent(inquiry.content || '');
+    setAssignee(inquiry.assignee || '');
+    setShowModal(true);
+  };
+
+  const replaceInquiry = (updated) => setInquiries((prev) => (showAll || updated.status !== '처리완료'
+    ? prev.map((i) => (i._id === updated._id ? updated : i))
+    : prev.filter((i) => i._id !== updated._id)));
 
   const handleCreateInquiry = async (e) => {
     e?.preventDefault();
@@ -96,20 +112,21 @@ function PendingInquiriesView({ showToast, currentUser }) {
 
     try {
       setSaving(true);
-      const res = await fetch(`${API_HOST}/api/inquiries`, {
-        method: 'POST',
+      const res = await fetch(`${API_HOST}/api/inquiries${editing ? `/${editing._id}` : ''}`, {
+        method: editing ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json', 'X-User-Role': currentUser?.role || 'viewer' },
         body: JSON.stringify({
           customerId: selectedCustomer._id,
           content: content.trim(),
           assignee,
-          createdBy: currentUser?.name || ''
+          ...(editing ? {} : { createdBy: currentUser?.name || '' })
         })
       });
       if (res.ok) {
-        showToast?.('문의가 등록되었습니다.', 'success');
+        showToast?.(editing ? '문의를 고쳤습니다.' : '문의가 등록되었습니다.', 'success');
         setShowModal(false);
-        fetchInquiries();
+        if (editing) replaceInquiry(await res.json());
+        else fetchInquiries();
       } else {
         const err = await res.json();
         showToast?.(err.message || '등록에 실패했습니다.', 'error');
@@ -125,7 +142,8 @@ function PendingInquiriesView({ showToast, currentUser }) {
   // 팝업이 열려 있는 동안 Ctrl+S로 저장한다
   useSaveShortcut(showModal && !saving, () => handleCreateInquiry());
 
-  const handleResolve = async (inquiry) => {
+  // 처리완료로 바꾸거나, 처리완료한 문의를 다시 대기로 돌린다
+  const handleResolve = async (inquiry, status = '처리완료') => {
     if (currentUser?.role === 'viewer') {
       showToast?.('수정 권한이 없습니다. 관리자에게 문의하세요.', 'error');
       return;
@@ -134,13 +152,11 @@ function PendingInquiriesView({ showToast, currentUser }) {
       const res = await fetch(`${API_HOST}/api/inquiries/${inquiry._id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'X-User-Role': currentUser?.role || 'viewer' },
-        body: JSON.stringify({ status: '처리완료', resolvedBy: currentUser?.name || '' })
+        body: JSON.stringify({ status, resolvedBy: currentUser?.name || '' })
       });
       if (res.ok) {
-        showToast?.('처리완료 처리되었습니다.', 'success');
-        setInquiries(prev => showAll
-          ? prev.map(i => i._id === inquiry._id ? { ...i, status: '처리완료' } : i)
-          : prev.filter(i => i._id !== inquiry._id));
+        showToast?.(status === '처리완료' ? '처리완료 처리되었습니다.' : '대기로 되돌렸습니다.', 'success');
+        replaceInquiry(await res.json());
       } else {
         showToast?.('처리에 실패했습니다.', 'error');
       }
@@ -257,7 +273,7 @@ function PendingInquiriesView({ showToast, currentUser }) {
               visibleInquiries.map(i => (
                 <tr key={i._id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                   <td style={{ padding: '0.8rem', fontWeight: '700' }}>{formatCustomerName(i.customer)}</td>
-                  <td style={{ padding: '0.8rem', maxWidth: '360px' }}>{i.content}</td>
+                  <td onClick={() => openEditModal(i)} title="눌러서 고치기" style={{ padding: '0.8rem', maxWidth: '360px', whiteSpace: 'pre-wrap', cursor: 'pointer' }}>{i.content}</td>
                   <td style={{ padding: '0.8rem' }}>{i.assignee || '-'}</td>
                   <td style={{ padding: '0.8rem' }}>{new Date(i.createdAt).toLocaleDateString()}</td>
                   <td style={{ padding: '0.8rem' }}>
@@ -271,6 +287,14 @@ function PendingInquiriesView({ showToast, currentUser }) {
                   </td>
                   <td style={{ padding: '0.8rem' }}>
                     <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                      <button onClick={() => openEditModal(i)} title="수정" style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer' }}>
+                        <Pencil size={16} />
+                      </button>
+                      {i.status === '처리완료' && (
+                        <button onClick={() => handleResolve(i, '대기')} title="대기로 되돌리기" style={{ border: 'none', background: 'none', color: '#fa8c16', cursor: 'pointer' }}>
+                          <RotateCcw size={16} />
+                        </button>
+                      )}
                       {i.status !== '처리완료' && (
                         <button onClick={() => handleResolve(i)} title="처리완료" style={{ border: 'none', background: 'none', color: '#52c41a', cursor: 'pointer' }}>
                           <CheckCircle2 size={16} />
@@ -296,7 +320,7 @@ function PendingInquiriesView({ showToast, currentUser }) {
         <div onClick={() => setShowModal(false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000, padding: `${DIALOG_TOP} 1rem 1rem` }}>
           <div onClick={(e) => e.stopPropagation()} style={{ ...dragStyle, background: '#fff', borderRadius: '12px', width: '90%', maxWidth: '480px', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}>
             <div {...dragHandleProps} style={{ ...dragHandleProps.style, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.2rem 1.5rem', borderBottom: '1px solid var(--border-color)' }}>
-              <h3 style={{ margin: 0, fontWeight: '800', fontSize: '1.05rem' }}>새 문의 등록</h3>
+              <h3 style={{ margin: 0, fontWeight: '800', fontSize: '1.05rem' }}>{editing ? '문의 수정' : '새 문의 등록'}</h3>
               <button type="button" onClick={() => setShowModal(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
                 <X size={20} />
               </button>
@@ -350,7 +374,7 @@ function PendingInquiriesView({ showToast, currentUser }) {
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.8rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)' }}>
                 <button type="button" onClick={() => setShowModal(false)} style={{ background: '#fff', border: '1px solid var(--border-color)', padding: '0.6rem 1.4rem', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '0.85rem' }}>취소</button>
                 <button type="submit" disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'var(--primary)', color: '#fff', border: 'none', padding: '0.6rem 1.4rem', borderRadius: '8px', fontWeight: '700', cursor: saving ? 'not-allowed' : 'pointer', fontSize: '0.85rem', opacity: saving ? 0.7 : 1 }}>
-                  <Save size={16} /> {saving ? '등록 중...' : '등록'}
+                  <Save size={16} /> {saving ? '저장 중...' : editing ? '저장' : '등록'}
                 </button>
               </div>
             </form>

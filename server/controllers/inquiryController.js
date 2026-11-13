@@ -71,6 +71,7 @@ export const updateInquiry = async (req, res) => {
       return res.status(404).json({ message: 'Inquiry not found' });
     }
 
+    if (req.body.customerId) inquiry.customer = req.body.customerId;
     if (req.body.content !== undefined) inquiry.content = req.body.content;
     if (req.body.assignee !== undefined) inquiry.assignee = req.body.assignee;
 

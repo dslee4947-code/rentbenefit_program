@@ -4,7 +4,7 @@ import Vehicle from '../models/Vehicle.js';
 import Setting from '../models/Setting.js';
 import { SERVICE_KINDS } from '../utils/vehicleServicePlan.js';
 import { syncVehicleServiceSchedules } from '../utils/vehicleServiceScheduleJob.js';
-import { syncCalendarInbox } from '../utils/calendarInboxSync.js';
+import { syncCalendarInbox, refreshInboxSuggestions } from '../utils/calendarInboxSync.js';
 import { isGoogleCalendarConfigured } from '../utils/googleCalendar.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
 
@@ -23,6 +23,8 @@ const num = (v) => {
  */
 export const getCalendarInbox = async (req, res) => {
   try {
+    // 화면에서 방금 적은 기록도 바로 '이미 기록 있음'으로 보이게 열 때마다 다시 맞춘다
+    await refreshInboxSuggestions();
     const items = await CalendarInbox.find({
       $or: [{ status: { $in: ['대기', '번호없음'] } }, { status: '옮김', $or: [{ changedAfterImport: true }, { eventDeleted: true }] }]
     })
@@ -135,6 +137,63 @@ export const importCalendarInbox = async (req, res) => {
       meta: { eventId: item.eventId, kinds }
     });
     res.json({ success: true, created: created.length, records: created.map((r) => ({ id: r._id, kind: r.kind })), message: `${vehicle.plateNo} ${kinds.join('·')} 기록 ${created.length}건을 남겼습니다.` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 확인 대기 일정을 이미 있는 기록과 잇는다. 새 기록을 만들지 않는다.
+ *
+ * 기록을 화면에서 먼저 적었는데 캘린더 일정이 다른 날짜(예약일)로 들어와 두 건이 되는 것을 막는다.
+ * 기록에 이 일정의 id를 적어 두어, 다음에 캘린더를 읽을 때도 같은 일정으로 안다.
+ *
+ * @route POST /api/vehicle-services/calendar-inbox/:id/link
+ * @body {serviceIds?: string[]} 비우면 서버가 찾아 둔 기록(suggested) 전부
+ */
+export const linkCalendarInbox = async (req, res) => {
+  try {
+    const item = await CalendarInbox.findById(req.params.id);
+    if (!item) return res.status(404).json({ success: false, message: '일정을 찾을 수 없습니다.' });
+    if (item.status === '옮김') return res.status(400).json({ success: false, message: '이미 옮긴 일정입니다.' });
+    const wanted = Array.isArray(req.body?.serviceIds) && req.body.serviceIds.length
+      ? req.body.serviceIds.map(String)
+      : (item.suggested || []).map((s) => String(s.serviceId));
+    if (!wanted.length) return res.status(400).json({ success: false, message: '이을 기록이 없습니다.' });
+    const records = await VehicleService.find({ _id: { $in: wanted } });
+    if (!records.length) return res.status(400).json({ success: false, message: '기록을 찾을 수 없습니다.' });
+    if (item.vehicle && records.some((r) => String(r.vehicle) !== String(item.vehicle) && r.plateNo !== item.parsed?.plateNo)) {
+      return res.status(400).json({ success: false, message: '다른 차의 기록과는 이을 수 없습니다.' });
+    }
+
+    // 기록에 일정 id를 남긴다(이미 다른 일정 id가 있는 기록은 그대로 둔다). 둘째부터는 '#종류'를 붙여 겹치지 않게 한다.
+    let first = true;
+    for (const r of records) {
+      if (r.calendarEventId) continue;
+      const key = first ? item.eventId : `${item.eventId}#${r.kind}`;
+      // eslint-disable-next-line no-await-in-loop
+      if (await VehicleService.exists({ calendarEventId: key, vehicle: r.vehicle })) continue;
+      r.calendarEventId = key;
+      // eslint-disable-next-line no-await-in-loop
+      await r.save();
+      first = false;
+    }
+
+    const who = req.user?.name || req.user?.email || '';
+    item.status = '옮김';
+    item.serviceIds = [...new Set([...(item.serviceIds || []).map(String), ...records.map((r) => String(r._id))])];
+    item.suggested = [];
+    item.handledBy = who;
+    item.handledAt = new Date();
+    await item.save();
+
+    logActivity({
+      req, dept: '차량관리부', action: ACTIONS.VEHICLE_SERVICE_RECORD,
+      target: { model: 'CalendarInbox', id: item._id },
+      summary: `캘린더 일정 → 이미 있는 기록 ${records.length}건과 연결 (${item.parsed?.plateNo || ''})`,
+      meta: { eventId: item.eventId, serviceIds: records.map((r) => r._id) }
+    });
+    res.json({ success: true, linked: records.length, message: `이미 있는 기록 ${records.length}건과 연결했습니다. 새 기록은 만들지 않았습니다.` });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

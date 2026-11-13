@@ -43,6 +43,9 @@ const CalendarInboxSchema = new Schema({
   changedAfterImport: { type: Boolean, default: false },
   eventDeleted: { type: Boolean, default: false },
   serviceIds: [{ type: Schema.Types.ObjectId, ref: 'VehicleService' }],
+  // 같은 차·같은 종류의 기록이 앞뒤 14일 안에 이미 있으면 여기 적는다(2026-11-13 대표님: 날짜가 달라 두 번 생기는 일 막기).
+  // 직원이 [이 기록과 연결]을 누르면 새 기록을 만들지 않고 이 기록과 잇는다.
+  suggested: [{ _id: false, serviceId: { type: Schema.Types.ObjectId, ref: 'VehicleService' }, kind: String, date: Date, shop: String, description: String }],
   handledBy: String,
   handledAt: Date
 }, { timestamps: true });

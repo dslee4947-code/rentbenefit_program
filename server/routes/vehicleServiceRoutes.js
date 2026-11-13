@@ -17,6 +17,7 @@ import {
   getCalendarInbox,
   syncCalendarInboxNow,
   importCalendarInbox,
+  linkCalendarInbox,
   dismissCalendarInbox
 } from '../controllers/calendarInboxController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
@@ -32,6 +33,7 @@ router.get('/vehicle/:vehicleId', getVehicleServices);
 router.get('/calendar-inbox', getCalendarInbox);
 router.post('/calendar-inbox/sync', checkWritePermission, syncCalendarInboxNow);
 router.post('/calendar-inbox/:id/import', checkWritePermission, importCalendarInbox);
+router.post('/calendar-inbox/:id/link', checkWritePermission, linkCalendarInbox);
 router.post('/calendar-inbox/:id/dismiss', checkWritePermission, dismissCalendarInbox);
 // file: 예전 간단 양식(한 장) / files: 상세 양식(수리 내역서·견적서·사진 여러 장)
 router.post('/', checkWritePermission, upload.fields([{ name: 'file', maxCount: 1 }, { name: 'files', maxCount: 10 }]), createVehicleService);

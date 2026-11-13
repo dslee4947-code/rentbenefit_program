@@ -133,6 +133,50 @@ export const parseServiceEvent = (event) => {
   };
 };
 
+// 같은 일로 보는 날짜 폭. 예약일(캘린더)과 실제 입고·출고일(기록)이 며칠~2주 벌어진다.
+export const SAME_JOB_DAYS = 14;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * '확인 대기' 일정마다, 이미 있는 기록 중 같은 일로 보이는 것을 찾아 suggested에 적는다.
+ *
+ * 같은 차(같은 번호판의 예전 차량 문서 포함), 같은 종류, 날짜가 앞뒤 14일 안인 기록.
+ * 일정이 '기타'로만 짐작됐으면 종류는 보지 않는다. 다른 캘린더 일정에 이미 이어진 기록은 뺀다.
+ * 기록을 화면에서 먼저 적은 뒤 캘린더 일정이 들어오면 날짜가 달라 두 건이 되던 것을 막는다.
+ * 자동으로 잇지 않는다. 같은 날 점검과 수리가 따로 있는 등 사람이 봐야 하는 경우가 있다.
+ */
+export const refreshInboxSuggestions = async () => {
+  const items = await CalendarInbox.find({ status: '대기', vehicle: { $ne: null } }).select('eventId vehicle start parsed suggested').lean();
+  if (!items.length) return 0;
+  const vehicles = await Vehicle.find({ _id: { $in: items.map((x) => x.vehicle) } }).select('plateNo').lean();
+  const plateOf = new Map(vehicles.map((v) => [String(v._id), v.plateNo]));
+  // 다른 일정에 이미 이어진 기록
+  const taken = new Set((await CalendarInbox.find({ status: '옮김' }).select('serviceIds').lean()).flatMap((x) => (x.serviceIds || []).map(String)));
+  let changed = 0;
+  for (const it of items) {
+    const start = it.start ? new Date(it.start).getTime() : null;
+    if (!start) continue;
+    const kinds = (it.parsed?.kinds || []).filter((k) => k !== '기타');
+    const plate = plateOf.get(String(it.vehicle));
+    // eslint-disable-next-line no-await-in-loop
+    const recs = await VehicleService.find({
+      $or: [{ vehicle: it.vehicle }, ...(plate ? [{ plateNo: plate }] : [])],
+      date: { $gte: new Date(start - SAME_JOB_DAYS * DAY_MS), $lte: new Date(start + SAME_JOB_DAYS * DAY_MS) },
+      ...(kinds.length ? { kind: { $in: kinds } } : {})
+    }).select('kind date shop description calendarEventId').sort({ date: 1 }).lean();
+    const suggested = recs
+      .filter((r) => !taken.has(String(r._id)) && (!r.calendarEventId || r.calendarEventId.split('#')[0] === it.eventId))
+      .map((r) => ({ serviceId: r._id, kind: r.kind, date: r.date, shop: r.shop || '', description: String(r.description || '').slice(0, 200) }));
+    const before = JSON.stringify((it.suggested || []).map((s) => String(s.serviceId)));
+    const after = JSON.stringify(suggested.map((s) => String(s.serviceId)));
+    if (before === after) continue;
+    changed += 1;
+    // eslint-disable-next-line no-await-in-loop
+    await CalendarInbox.updateOne({ _id: it._id }, { $set: { suggested } });
+  }
+  return changed;
+};
+
 const startOf = (event) => {
   const s = event.start?.dateTime || (event.start?.date ? `${event.start.date}T00:00:00+09:00` : null);
   return s ? new Date(s) : null;
@@ -237,6 +281,7 @@ export const syncCalendarInbox = async ({ since, dryRun = false } = {}) => {
   }
 
   if (!dryRun) {
+    await refreshInboxSuggestions();
     await Setting.updateOne({ key: SYNC_KEY }, { $set: { value: { lastSyncAt: startedAt, lastCounts: counts }, updatedBy: '구글 캘린더 읽기' } }, { upsert: true });
   }
   return { from, ...counts };

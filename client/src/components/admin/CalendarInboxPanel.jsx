@@ -63,7 +63,7 @@ export default function CalendarInboxPanel({ vehicles, onImported, showToast }) 
       showToast?.(d.message || '처리했습니다.', d.success ? 'success' : 'error');
       if (d.success) {
         await load();
-        if (action === 'import') onImported?.();
+        if (action === 'import' || action === 'link') onImported?.();
       }
     } finally { setBusy(''); }
   };
@@ -115,6 +115,17 @@ export default function CalendarInboxPanel({ vehicles, onImported, showToast }) 
                   {p.done && <div>내용: {p.done}</div>}
                   {p.costText && <div>비용: {p.costText}</div>}
                 </div>
+                {!after && (it.suggested || []).length > 0 && (
+                  <div style={{ border: '1px solid #fcd34d', background: '#fffbeb', borderRadius: '6px', padding: '0.4rem 0.6rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.78rem', color: '#92400e', lineHeight: 1.5, flex: 1, minWidth: '220px' }}>
+                      <b>이미 기록 있음</b> — 같은 차·같은 종류 기록이 앞뒤 14일 안에 있습니다. 같은 일이면 [연결]을 누르세요(새 기록을 만들지 않습니다).
+                      {it.suggested.map((s) => (
+                        <div key={s.serviceId}>· {ymd(s.date)} {s.kind}{s.shop ? ` · ${s.shop}` : ''}{s.description ? ` · ${s.description.slice(0, 60)}` : ''}</div>
+                      ))}
+                    </span>
+                    <button type="button" disabled={busy === it._id} onClick={() => act(it, 'link')} style={btn('#b45309', '#fff')}>이 기록과 연결</button>
+                  </div>
+                )}
                 {after ? (
                   <div><button type="button" disabled={busy === it._id} onClick={() => act(it, 'dismiss')} style={btn('#fff', 'var(--text-muted)')}>확인함</button></div>
                 ) : (
@@ -148,6 +159,7 @@ export default function CalendarInboxPanel({ vehicles, onImported, showToast }) 
           <div style={{ padding: '0.5rem 0.8rem', ...small, lineHeight: 1.6 }}>
             업무캘린더에 '&lt; 차종 / 차량번호 &gt; AS' 줄이 있는 일정 중 우리 차만 올라옵니다. 종류는 제목·점검 의뢰·점검 내용으로 짐작한 것이라 확인하고 옮겨 주세요.
             여러 종류를 고르면(예: 사고수리 + 정기점검) 종류마다 기록이 하나씩 생기고, 금액은 첫 기록에만 들어갑니다.
+            예약일과 실제 날짜가 달라 같은 일이 두 번 들어가지 않게, 앞뒤 14일 안에 같은 기록이 있으면 '이미 기록 있음'으로 알려 줍니다.
           </div>
         </div>
       )}

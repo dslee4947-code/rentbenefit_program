@@ -48,6 +48,119 @@ const fetchBillingGaps = async () => {
 
 const won = (n) => `${Number(n || 0).toLocaleString()}원`;
 
+const TYPE_COLOR = { 차량검사: '#3b82f6', 렌트만료: '#ef4444', 청구서발송: '#10b981' };
+const typeColor = (type) => TYPE_COLOR[type] || '#f59e0b';
+const dDayLabel = (d) => (d <= 0 ? 'D-Day' : `D-${d}`);
+/** 이 수 이하인 묶음은 펼치지 않아도 차량·고객을 한 줄에 보여 준다 */
+const INLINE_MAX = 2;
+
+const itemLabel = (it) => {
+  const car = it.targetVehicle?.carModel || it.targetVehicle?.model || '';
+  const plate = it.targetVehicle?.plateNo || '';
+  const name = it.targetContract?.customer?.name || '';
+  return [[car, plate].filter(Boolean).join(' '), name].filter(Boolean).join(' · ') || '정보 없음';
+};
+
+const smallBtn = {
+  background: '#fff', border: '1px solid var(--border-color)', color: 'var(--text-main)',
+  padding: '0.3rem 0.7rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600,
+  cursor: 'pointer', whiteSpace: 'nowrap'
+};
+
+/**
+ * 임박 일정 알림 (D-7 ~ D-Day).
+ * 청구서발송처럼 같은 날 수십 건씩 생기는 일정 때문에 목록이 길어져서,
+ * 종류와 날짜가 같은 일정은 한 줄로 묶고 건수만 보여 준다. 건별 목록은 [펼치기]를 눌렀을 때만 나온다.
+ */
+function UpcomingSchedulesPanel({ notifications, canOpenBilling, setActiveTab, onComplete }) {
+  const [open, setOpen] = React.useState({});
+
+  const groups = React.useMemo(() => {
+    const map = new Map();
+    for (const it of notifications) {
+      const d = Math.max(0, Number(it.dDay) || 0);
+      const key = `${d}|${it.type}`;
+      if (!map.has(key)) map.set(key, { key, dDay: d, type: it.type, items: [] });
+      map.get(key).items.push(it);
+    }
+    return [...map.values()].sort((a, b) => a.dDay - b.dDay || a.type.localeCompare(b.type, 'ko'));
+  }, [notifications]);
+
+  const goTo = (type) => setActiveTab(type === '청구서발송' && canOpenBilling ? 'billing' : 'calendar');
+
+  return (
+    <div style={{ background: 'var(--bg-surface)', padding: '1.25rem 1.5rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-premium)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: groups.length ? '0.8rem' : 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <Bell size={20} style={{ color: 'var(--primary)' }} />
+          <h3 style={{ fontSize: '1.15rem', fontWeight: '700', color: 'var(--text-bright)', margin: 0 }}>임박 일정 (7일 이내)</h3>
+        </div>
+        <span style={{ background: 'rgba(255,98,0,0.1)', color: 'var(--primary)', padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.8rem', fontWeight: '700' }}>
+          {notifications.length}건
+        </span>
+      </div>
+
+      {groups.length === 0 ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.92rem', marginTop: '0.8rem' }}>
+          <CheckCircle2 size={18} style={{ color: '#10b981' }} /> 7일 안에 처리할 일정이 없습니다.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {groups.map((g) => {
+            const color = typeColor(g.type);
+            const inline = g.items.length <= INLINE_MAX;
+            const expanded = !!open[g.key];
+            return (
+              <div key={g.key} style={{ borderTop: '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', padding: '0.6rem 0', flexWrap: 'wrap' }}>
+                  <span style={{ minWidth: '3.6rem', textAlign: 'center', background: g.dDay <= 1 ? '#ef4444' : '#f97316', color: '#fff', padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 700 }}>
+                    {dDayLabel(g.dDay)}
+                  </span>
+                  <span style={{ minWidth: '5.5rem', color, fontWeight: 700, fontSize: '0.92rem' }}>{g.type}</span>
+                  <span style={{ fontWeight: 700, color: 'var(--text-bright)', fontSize: '0.92rem' }}>{g.items.length}건</span>
+                  {inline && (
+                    <span style={{ flex: 1, minWidth: 0, color: 'var(--text-main)', fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {g.items.map(itemLabel).join(', ')}
+                    </span>
+                  )}
+                  <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem' }}>
+                    {inline ? (
+                      g.items.map((it) => (
+                        <button key={it._id} type="button" style={smallBtn} onClick={() => onComplete(it._id)} title={itemLabel(it)}>
+                          완료{g.items.length > 1 ? ` (${itemLabel(it).split(' · ')[0]})` : ''}
+                        </button>
+                      ))
+                    ) : (
+                      <>
+                        <button type="button" style={smallBtn} onClick={() => setOpen((o) => ({ ...o, [g.key]: !o[g.key] }))}>
+                          {expanded ? '접기 ▴' : '펼치기 ▾'}
+                        </button>
+                        <button type="button" style={{ ...smallBtn, display: 'flex', alignItems: 'center', gap: '0.2rem' }} onClick={() => goTo(g.type)}>
+                          {g.type === '청구서발송' && canOpenBilling ? '청구 화면' : '캘린더'} <ChevronRight size={14} />
+                        </button>
+                      </>
+                    )}
+                  </span>
+                </div>
+                {expanded && !inline && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', padding: '0 0 0.7rem 4.3rem', maxHeight: '260px', overflowY: 'auto' }}>
+                    {g.items.map((it) => (
+                      <div key={it._id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.86rem' }}>
+                        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-main)' }}>{itemLabel(it)}</span>
+                        <button type="button" style={{ ...smallBtn, padding: '0.15rem 0.55rem', fontSize: '0.76rem' }} onClick={() => onComplete(it._id)}>완료</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DashboardView({ setActiveTab, showToast, currentUser }) {
   const queryClient = useQueryClient();
 
@@ -292,115 +405,13 @@ function DashboardView({ setActiveTab, showToast, currentUser }) {
       </div>
       )}
 
-      {/* Urgent Schedules (D-7, D-1) Alert Panel */}
-      <div style={{ background: 'var(--bg-surface)', padding: '2rem', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-premium)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Bell size={20} style={{ color: 'var(--primary)' }} />
-            <h3 style={{ fontSize: '1.2rem', fontWeight: '700', color: 'var(--text-bright)' }}>임박 일정 알림 (D-7 ~ D-1)</h3>
-          </div>
-          <span style={{ background: 'rgba(255,98,0,0.1)', color: 'var(--primary)', padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '600' }}>
-            대기중 {notifications.length}건
-          </span>
-        </div>
-
-        {notifications.length === 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem 1rem', gap: '0.8rem', color: 'var(--text-muted)' }}>
-            <CheckCircle2 size={36} style={{ color: '#10b981' }} />
-            <span style={{ fontSize: '0.95rem', fontWeight: '600' }}>현재 7일 이내의 임박 일정이 없습니다.</span>
-            <span style={{ fontSize: '0.8rem' }}>정기점검, 검사 및 렌트 만료 일정이 안전하게 관리되고 있습니다.</span>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {notifications.map(item => {
-              let badgeColor = '#ef4444'; // default red
-              let dDayText = `D-${item.dDay}`;
-              if (item.dDay <= 0) {
-                dDayText = 'D-Day';
-              }
-
-              // Color coordinate schedule types
-              let typeColor = '#f59e0b'; // maintenance - yellow
-              if (item.type === '차량검사') typeColor = '#3b82f6'; // blue
-              if (item.type === '렌트만료') typeColor = '#ef4444'; // red
-              if (item.type === '청구서발송') typeColor = '#10b981'; // green
-
-              return (
-                <div 
-                  key={item._id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '1.2rem',
-                    background: 'var(--bg-main)',
-                    borderRadius: '8px',
-                    borderLeft: `5px solid ${typeColor}`,
-                    transition: 'var(--transition-smooth)'
-                  }}
-                  className="notification-item"
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    {/* D-Day badge */}
-                    <span style={{
-                      background: item.dDay === 1 || item.dDay === 0 ? '#ef4444' : '#f97316',
-                      color: '#fff',
-                      padding: '0.3rem 0.6rem',
-                      borderRadius: '4px',
-                      fontSize: '0.8rem',
-                      fontWeight: '700'
-                    }}>
-                      {dDayText}
-                    </span>
-
-                    {/* Schedule type badge */}
-                    <span style={{
-                      background: 'rgba(255,255,255,0.7)',
-                      border: `1px solid ${typeColor}`,
-                      color: typeColor,
-                      padding: '0.2rem 0.5rem',
-                      borderRadius: '4px',
-                      fontSize: '0.75rem',
-                      fontWeight: '600'
-                    }}>
-                      {item.type}
-                    </span>
-
-                    {/* Details */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                      <span style={{ fontWeight: '600', color: 'var(--text-bright)', fontSize: '0.95rem' }}>
-                        {item.targetVehicle?.model} ({item.targetVehicle?.code}) - {item.targetContract?.customer?.name || '고객 정보 없음'}
-                      </span>
-                      <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                        예정일: {new Date(item.dueDate).toLocaleDateString()} | 차량번호: {item.targetVehicle?.plateNo || '번호판 등록 전'} | 담당자: {item.assignee || '미정'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <button 
-                    onClick={() => handleCompleteSchedule(item._id)}
-                    style={{
-                      background: '#fff',
-                      border: '1px solid var(--border-color)',
-                      color: 'var(--text-main)',
-                      padding: '0.4rem 0.8rem',
-                      borderRadius: '6px',
-                      fontSize: '0.8rem',
-                      fontWeight: '500',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                    className="complete-btn"
-                  >
-                    완료 처리
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      {/* 임박 일정 알림 - 종류·날짜가 같은 일정은 한 줄로 묶는다 */}
+      <UpcomingSchedulesPanel
+        notifications={notifications}
+        canOpenBilling={currentUser?.financeTeam === true}
+        setActiveTab={setActiveTab}
+        onComplete={handleCompleteSchedule}
+      />
 
     </div>
   );

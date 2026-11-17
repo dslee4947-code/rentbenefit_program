@@ -909,15 +909,23 @@ function Due({ item, color }) {
 }
 
 // 위 칩을 누르면 그 상태의 차만 남긴다. 아침에 "오늘 챙길 차"만 보려는 용도다.
-const FILTERS = [
-  { id: 'insp-over', label: '검사일 지남', color: '#b91c1c', test: (r) => ['over', 'grace'].includes(inspectionLevelOf(r)) },
-  { id: 'insp-due', label: '검사 2개월 이내', color: '#a16207', test: (r) => inspectionLevelOf(r) === 'due' },
-  { id: 'maint-over', label: '점검 지남', color: 'var(--error)', test: (r) => r.maintenance?.status === '지남' },
-  { id: 'maint-soon', label: '점검 30일 이내', color: '#d97706', test: (r) => r.maintenance?.status === '30일 이내' },
-  { id: 'age-now', label: '차령 연장 신청', color: '#c2410c', test: (r) => ['end', 'expired', 'confirm', 'last', 'apply'].includes(carAgeLevelOf(r)) },
-  { id: 'age-soon', label: '차령 6개월 이내', color: '#a16207', test: (r) => carAgeLevelOf(r) === 'soon' },
-  { id: 'insp-unverified', label: '검사 기록 없음', color: '#6d28d9', test: (r) => Boolean(r.inspection?.unverified) }
+// 칩은 일의 종류로 묶고 달력과 같은 색을 쓴다(자동차검사 파랑, 정기점검 초록. 대표님 2026-11-17).
+// 차령 연장은 자동차검사를 받으면서 신청하므로 자동차검사 묶음 안에 '차령'으로 붙인다.
+// 지남·신청처럼 바로 할 일(urgent)은 색을 채우고, 다가오는 일은 테두리만 둔다.
+const FILTER_GROUPS = [
+  { id: 'insp', label: '자동차검사', color: KIND.자동차검사.color, bg: KIND.자동차검사.bg },
+  { id: 'maint', label: '정기점검', color: KIND.정기점검.color, bg: KIND.정기점검.bg }
 ];
+const FILTERS = [
+  { id: 'insp-over', group: 'insp', urgent: true, label: '검사일 지남', test: (r) => ['over', 'grace'].includes(inspectionLevelOf(r)) },
+  { id: 'insp-due', group: 'insp', label: '검사 2개월 이내', test: (r) => inspectionLevelOf(r) === 'due' },
+  { id: 'insp-unverified', group: 'insp', label: '검사 기록 없음', test: (r) => Boolean(r.inspection?.unverified) },
+  { id: 'age-now', group: 'insp', sub: '차령', urgent: true, label: '연장 신청', test: (r) => ['end', 'expired', 'confirm', 'last', 'apply'].includes(carAgeLevelOf(r)) },
+  { id: 'age-soon', group: 'insp', sub: '차령', label: '6개월 이내', test: (r) => carAgeLevelOf(r) === 'soon' },
+  { id: 'maint-over', group: 'maint', urgent: true, label: '정기점검 지남', test: (r) => r.maintenance?.status === '지남' },
+  { id: 'maint-soon', group: 'maint', label: '정기점검 30일 이내', test: (r) => r.maintenance?.status === '30일 이내' }
+];
+const filterLabel = (f) => (f.sub ? `${f.sub} ${f.label}` : f.label);
 
 // 정비 포함 장기렌트와 단기렌트(사고대차 포함)는 회사가 정비를 챙기는 차라 먼저 본다
 const isCareGroup = (r) => r.generalMaintenance === '가입' || r.status === '단기렌트' || r.status === '사고대차';
@@ -1109,21 +1117,37 @@ function VehicleServiceView({ showToast, currentUser }) {
       )}
       {view === 'list' && (<>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-        {FILTERS.map((f) => {
-          const count = rows.filter(f.test).length;
-          const on = filter === f.id;
-          const { color } = f;
-          return (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => setFilter(on ? '' : f.id)}
-              style={{ border: `1px solid ${on ? color : 'var(--border-color)'}`, background: on ? color : '#fff', color: on ? '#fff' : color, padding: '0.4rem 0.75rem', borderRadius: '999px', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer' }}
-            >
-              {f.label} {count}
-            </button>
-          );
-        })}
+        {FILTER_GROUPS.map((g) => (
+          <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap', border: `1px solid ${g.color}33`, background: `${g.bg}66`, borderRadius: '10px', padding: '0.3rem 0.45rem' }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 800, color: g.color, padding: '0 0.2rem' }}>{g.label}</span>
+            {FILTERS.filter((f) => f.group === g.id).map((f, i, list) => {
+              const count = rows.filter(f.test).length;
+              const on = filter === f.id;
+              const firstOfSub = f.sub && list[i - 1]?.sub !== f.sub;
+              return (
+                <span key={f.id} style={{ display: 'contents' }}>
+                  {firstOfSub && (
+                    <span style={{ fontSize: '0.74rem', fontWeight: 800, color: g.color, borderLeft: `1px solid ${g.color}55`, paddingLeft: '0.45rem', marginLeft: '0.15rem' }}>{f.sub}</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setFilter(on ? '' : f.id)}
+                    title={filterLabel(f)}
+                    style={{
+                      border: `1px solid ${g.color}`,
+                      background: on ? g.color : f.urgent ? g.bg : '#fff',
+                      color: on ? '#fff' : g.color,
+                      opacity: count || on ? 1 : 0.55,
+                      padding: '0.35rem 0.7rem', borderRadius: '999px', fontSize: '0.8rem', fontWeight: f.urgent ? 800 : 700, cursor: 'pointer'
+                    }}
+                  >
+                    {f.label} {count}
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        ))}
         <div style={{ position: 'relative', marginLeft: 'auto' }}>
           <Search size={13} style={{ position: 'absolute', left: '0.5rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="차량번호·차종·계약자" style={{ ...input, width: '200px', paddingLeft: '1.6rem' }} />

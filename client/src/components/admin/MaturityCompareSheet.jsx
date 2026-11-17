@@ -109,7 +109,8 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
               const t = splitTitle(c.title);
               return (
                 <th key={i} style={{ background: NAVY, color: '#fff', padding: '7px 8px', borderRight: i < table.cols.length - 1 ? '1px solid rgba(173,136,92,0.5)' : 'none', borderBottom: `2px solid ${GOLD}` }}>
-                  <div style={{ fontSize: '12.16px', fontWeight: '700', color: '#d4b58c', letterSpacing: '1px' }}>{t.no}</div>
+                  {/* 안 번호는 금색 배지로 눈에 띄게(대표님 2026-11-17 "1안·2안·3안을 더 잘 보이게") */}
+                  <div style={{ display: 'inline-block', background: GOLD, color: '#fff', fontSize: '13.6px', fontWeight: '800', letterSpacing: '1px', padding: '1px 12px', borderRadius: '10px', marginBottom: '4px' }}>{t.no}</div>
                   <div style={{ fontSize: '15.2px', fontWeight: '800', letterSpacing: '1px' }}>{t.name}</div>
                 </th>
               );

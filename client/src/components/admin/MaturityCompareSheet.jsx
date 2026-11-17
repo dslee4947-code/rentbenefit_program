@@ -149,7 +149,7 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
             );
           })}
           <tr>
-            <td style={{ ...label, borderTop: `1.5px solid ${NAVY}` }}>알아 두실 점</td>
+            <td style={{ ...label, borderTop: `1.5px solid ${NAVY}` }}>비고</td>
             {table.cols.map((c, i) => (
               <td key={i} style={{ ...value, borderTop: `1.5px solid ${NAVY}`, borderRight: i < table.cols.length - 1 ? `1px solid ${LINE}` : 'none', verticalAlign: 'top', fontSize: '12.48px', lineHeight: 1.6, color: '#3d3a35' }}>
                 {c.kind === 'ext' && '연장 계약서를 새로 쓰고, 연장 1회차부터 새 렌트료로 청구됩니다.'}

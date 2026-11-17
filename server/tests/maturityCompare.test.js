@@ -68,6 +68,7 @@ test('비교표: 한 칸에 한 내용, 다성테크는 1안 24개월 월 268,00
   assert.deepEqual(rows.find((r) => r.label === '보증금').notes, ['연장 계약으로 승계', '인수가와 상계', '반납 후 반환']);
   assert.deepEqual(cell('보증금 반환'), ['없음', '없음', '27,389,000원']);
   assert.equal(rows.some((r) => r.label === '승계 수수료'), false);
+  assert.equal(rows.some((r) => r.label === '수리비'), false);
   assert.equal(rows.some((r) => r.label === '인수 시 취득세'), false);
   // 차 정보를 주면 취득세 줄: 연장 안은 연장이 끝나는 2028년, 인수는 2026년 기준
   const withTax = maturityTable({ m, ext: [{ months: 24, monthlyFee: 268000, takeoverPrice: 17389000, maintenance: false, endDate: '2028-12-01' }], startDate: '2026-12-02',

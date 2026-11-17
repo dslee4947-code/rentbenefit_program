@@ -150,7 +150,7 @@ export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false,
       };
     })()] : []),
     ...(thirdParty ? [row('승계 수수료', { ext: () => '없음', takeover: () => wonText(t.fee), return: () => '없음' })] : []),
-    row('수리비', { ext: () => '없음', takeover: () => '없음', return: () => (repairKnown ? wonText(m.return.repair) : '반납 후 확정') }),
+    // 반납 수리비 줄은 표에서 뺀다(대표님 2026-11-18). 수리비 공제는 비고에 적는다
     { ...row(m.remaining.length > 1 ? '잔여 렌트료' : '마지막 렌트료', {
       ext: () => (m.remainingSum ? wonText(m.remainingSum) : '없음'),
       takeover: () => (m.remainingSum ? wonText(m.remainingSum) : '없음'),

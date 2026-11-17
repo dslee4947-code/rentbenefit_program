@@ -1,7 +1,10 @@
+import React from 'react';
 import { DEPOSIT_ACCOUNT } from './InvoiceSheet.jsx';
-import { settleLabel } from '../../../../shared/maturityCompare.js';
+import { maturityTable } from '../../../../shared/maturityCompare.js';
 
 const won = (n) => Math.round(Number(n) || 0).toLocaleString('ko-KR');
+// 안마다 머리 색: 연장 파랑 · 인수 초록 · 반납 주황
+const TONE = { ext: '#1d4ed8', takeover: '#047857', return: '#b45309' };
 const todayYmd = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 const ymd = (v) => (v ? new Date(new Date(v).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10) : '');
 
@@ -20,6 +23,7 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
   const head = (bg) => ({ ...cellHead, background: bg, color: '#fff', fontSize: '14.4px', padding: '7px 8px' });
   const rowHead = { ...cellHead, width: '16%', fontSize: '11.84px' };
   const muted = { fontSize: '11.2px', color: '#555' };
+  const table = maturityTable({ m, ext, startDate: car.startDate, thirdParty, repairKnown });
 
   return (
     <>
@@ -82,71 +86,34 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
         <thead>
           <tr>
             <th style={{ ...cellHead, width: '16%' }}>구분</th>
-            <th style={head('#1d4ed8')}>1안 계약 연장</th>
-            <th style={head('#047857')}>2안 인수</th>
-            <th style={head('#b45309')}>3안 반납</th>
+            {table.cols.map((c, i) => <th key={i} style={head(TONE[c.kind])}>{c.title}</th>)}
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td style={rowHead}>내용</td>
-            <td style={col}>같은 차를 계속 이용합니다.<br />연장 시작 {car.startDate || '-'}</td>
-            <td style={col}>{thirdParty ? <>고객님이 정하신 분(<b>제3자</b>) 명의로 차를 넘겨 드립니다.</> : '차를 고객님 명의로 넘겨 드립니다.'}</td>
-            <td style={col}>만기에 차를 돌려주시고 계약을 마칩니다.</td>
-          </tr>
-          <tr>
-            <td style={rowHead}>보증금</td>
-            <td style={col}>연장 계약으로 그대로 승계</td>
-            <td style={col}>인수가에서 차감</td>
-            <td style={col}>차량 확인 후 반환</td>
-          </tr>
-          <tr>
-            <td style={rowHead}>이후 비용</td>
-            <td style={col}>
-              {ext.length ? ext.map((o, i) => (
-                <div key={i} style={{ marginBottom: '3px' }}>
-                  <b>{o.months}개월</b> 월 <b>{won(o.monthlyFee)}원</b>
-                  <div style={muted}>{o.endDate ? `${o.endDate}까지 · ` : ''}정비 {o.maintenance ? '포함' : '미포함'}{o.takeoverPrice > 0 ? ` · 만기 인수가 ${won(o.takeoverPrice)}원` : ''}</div>
-                </div>
-              )) : <span style={muted}>연장 견적을 넣으면 여기에 나옵니다.</span>}
-            </td>
-            <td style={col}>
-              인수가 {won(m.takeover.price)}원<br />
-              − 보증금 {won(m.deposit)}원<br />
-              {thirdParty ? <>+ 승계 수수료 {won(m.takeover.fee)}원<br /></> : null}
-              = <b>{m.takeover.pay >= 0 ? `인수 금액 ${won(m.takeover.pay)}원` : `보증금 차액 반환 ${won(-m.takeover.pay)}원`}</b>
-            </td>
-            <td style={col}>
-              보증금 {won(m.deposit)}원<br />
-              {repairKnown ? <>− 수리비 {won(m.return.repair)}원<br /></> : null}
-              = <b>보증금 반환 {won(m.return.depositBack)}원</b>
-            </td>
-          </tr>
-          <tr style={{ background: '#fffbeb' }}>
-            <td style={{ ...rowHead, background: '#fde68a' }}>만기 정산<div style={{ fontSize: '10.4px', fontWeight: 500 }}>잔여 렌트료 포함</div></td>
-            {[['extension', m.extension.settle], ['takeover', m.takeover.settle], ['return', m.return.settle]].map(([kind, n]) => {
-              const l = settleLabel(n, kind);
-              return (
-                <td key={kind} style={{ ...col, textAlign: 'center', verticalAlign: 'middle', color: n < 0 ? '#047857' : '#111e38' }}>
-                  <div style={{ fontSize: '11.84px', fontWeight: '700' }}>{l.title}</div>
-                  {l.amount ? <div style={{ fontSize: '15.2px', fontWeight: '800' }}>{won(l.amount)}원</div> : null}
-                </td>
-              );
-            })}
-          </tr>
+          {table.rows.map((r, ri) => (
+            <React.Fragment key={r.label}>
+              {r.section === 'settle' && table.rows[ri - 1]?.section !== 'settle' && (
+                <tr><td colSpan={table.cols.length + 1} style={{ ...cellHead, background: '#fde68a', textAlign: 'left' }}>만기 정산</td></tr>
+              )}
+              <tr style={r.section === 'settle' ? { background: '#fffbeb' } : undefined}>
+                <td style={rowHead}>{r.label}</td>
+                {r.cells.map((v, i) => (
+                  <td key={i} style={{ ...cell, textAlign: 'center', verticalAlign: 'middle', fontWeight: r.section === 'settle' && v !== '없음' ? '800' : '500',
+                    fontSize: r.section === 'settle' && v !== '없음' ? '13.6px' : undefined,
+                    color: v === '없음' || v === '-' ? '#9ca3af' : r.label === '보증금 반환' ? '#047857' : '#111' }}>{v}</td>
+                ))}
+              </tr>
+            </React.Fragment>
+          ))}
           <tr>
             <td style={rowHead}>알아 두실 점</td>
-            <td style={{ ...col, ...muted }}>
-              연장 계약서를 새로 쓰고, 연장 1회차부터 새 렌트료로 청구됩니다.
-            </td>
-            <td style={{ ...col, ...muted }}>
-              렌트 종료일부터 1주일 안에 입금과 이전 서류(양도증명서·인감증명서 등)를 마쳐야 합니다.
-              {thirdParty ? ' 제3자 인수는 약관에 따라 승계 수수료가 붙습니다.' : ''}
-            </td>
-            <td style={{ ...col, ...muted }}>
-              반납 시 외관 상태(긁힘·찌그러짐·파손 등)를 확인하며, 수리비가 발생하면 보증금에서 공제한 뒤 반환합니다.
-              {repairKnown ? '' : ' 수리비는 반납 후 확정됩니다.'}
-            </td>
+            {table.cols.map((c, i) => (
+              <td key={i} style={{ ...col, ...muted }}>
+                {c.kind === 'ext' && '연장 계약서를 새로 쓰고, 연장 1회차부터 새 렌트료로 청구됩니다.'}
+                {c.kind === 'takeover' && `렌트 종료일부터 1주일 안에 입금과 이전 서류(양도증명서·인감증명서 등)를 마쳐야 합니다.${thirdParty ? ' 제3자 인수는 약관에 따라 승계 수수료가 붙습니다.' : ''}`}
+                {c.kind === 'return' && `반납 시 외관 상태(긁힘·찌그러짐·파손 등)를 확인하며, 수리비가 발생하면 보증금에서 공제한 뒤 반환합니다.${repairKnown ? '' : ' 수리비는 반납 후 확정됩니다.'}`}
+              </td>
+            ))}
           </tr>
         </tbody>
       </table>

@@ -98,13 +98,42 @@ export const compareMaturity = ({ rounds = [], contractEnd = '', monthlyRent = 0
   };
 };
 
+const wonText = (n) => `${Math.round(Number(n) || 0).toLocaleString('ko-KR')}원`;
+
 /**
- * 정산 금액을 고객에게 보이는 말로. 반납·인수에서 돌려드리는 돈은 보증금이므로 '보증금 반환'이라 쓴다.
- * @param {number} n settle 값(+ 납부, - 반환)
- * @param {'extension'|'takeover'|'return'} kind
+ * 비교표의 열(안)과 줄. 한 칸에는 한 가지 내용만 넣는다(대표님 2026-11-17 "한 셀에 여러 내용을 담지 말고 줄을 나눠서").
+ * 연장 견적 안이 여럿이면 연장 열이 그만큼 생기고, 인수·반납은 그 뒤 번호를 받는다.
+ * 만기 정산은 '마지막 렌트료 / 인수 금액 / 보증금 반환'을 따로 적는다. '납부 금액'처럼 합쳐 쓰면 다른 돈을 또 내는 것처럼 보인다.
+ *
+ * @param {object} p m(compareMaturity 결과), ext(연장 안 [{months, monthlyFee, takeoverPrice, maintenance, endDate}]),
+ *   startDate 연장 시작일, thirdParty 제3자 인수, repairKnown 반납 수리비를 넣었는지
+ * @returns {{ cols: {kind: 'ext'|'takeover'|'return', title: string}[], rows: {label: string, section?: 'settle', cells: string[]}[] }}
  */
-export const settleLabel = (n, kind) => {
-  if (n > 0) return { title: '납부 금액', amount: n };
-  if (n < 0) return { title: kind === 'takeover' ? '보증금 차액 반환' : '보증금 반환', amount: -n };
-  return { title: '추가 납부 없음', amount: 0 };
+export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false, repairKnown = false }) => {
+  const exts = ext.length ? ext : [null];
+  const cols = [
+    ...exts.map((o, i) => ({ kind: 'ext', o, title: `${i + 1}안 계약 연장` })),
+    { kind: 'takeover', title: `${exts.length + 1}안 인수` },
+    { kind: 'return', title: `${exts.length + 2}안 반납` }
+  ];
+  const row = (label, pick, section) => ({ label, section, cells: cols.map((c) => pick[c.kind](c.o)) });
+  const t = m.takeover;
+  const rows = [
+    row('방법', { ext: (o) => (o ? `${o.months}개월 연장` : '연장 견적 없음'), takeover: () => (thirdParty ? '제3자 인수' : '인수'), return: () => '반납' }),
+    row('기간', { ext: (o) => (o ? `${startDate} ~ ${o.endDate}` : '-'), takeover: () => '만기 종료', return: () => '만기 종료' }),
+    row('월 렌트료', { ext: (o) => (o ? wonText(o.monthlyFee) : '-'), takeover: () => '없음', return: () => '없음' }),
+    row('정비', { ext: (o) => (o ? (o.maintenance ? '포함' : '미포함') : '-'), takeover: () => '없음', return: () => '없음' }),
+    row('보증금', { ext: () => '승계', takeover: () => '인수가에서 차감', return: () => '반납 후 반환' }),
+    row('인수가', { ext: (o) => (o?.takeoverPrice > 0 ? `${wonText(o.takeoverPrice)} (연장 만기 때)` : '없음'), takeover: () => wonText(t.price), return: () => '없음' }),
+    ...(thirdParty ? [row('승계 수수료', { ext: () => '없음', takeover: () => wonText(t.fee), return: () => '없음' })] : []),
+    row('수리비', { ext: () => '없음', takeover: () => '없음', return: () => (repairKnown ? wonText(m.return.repair) : '반납 후 확정') }),
+    row(m.remaining.length > 1 ? `잔여 렌트료 (${m.remaining.length}회)` : '마지막 렌트료', {
+      ext: () => (m.remainingSum ? wonText(m.remainingSum) : '없음'),
+      takeover: () => (m.remainingSum ? wonText(m.remainingSum) : '없음'),
+      return: () => (m.remainingSum ? wonText(m.remainingSum) : '없음')
+    }, 'settle'),
+    row('인수 금액', { ext: () => '없음', takeover: () => (t.pay >= 0 ? wonText(t.pay) : '없음'), return: () => '없음' }, 'settle'),
+    row('보증금 반환', { ext: () => '없음', takeover: () => (t.pay < 0 ? wonText(-t.pay) : '없음'), return: () => wonText(m.return.depositBack) }, 'settle')
+  ];
+  return { cols, rows };
 };

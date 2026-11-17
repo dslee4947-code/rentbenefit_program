@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compareMaturity, remainingRoundsOf, settleLabel, SUCCESSION_FEE } from '../../shared/maturityCompare.js';
+import { compareMaturity, remainingRoundsOf, maturityTable, SUCCESSION_FEE } from '../../shared/maturityCompare.js';
 
 // 청담건설 101호2198 (2026-11-09): 35회 입금완료, 36회 예정 377,550원(렌트료 376,700 + 통행료 850), 인수가 2,506,900, 보증금 0
 const CHEONGDAM = [
@@ -51,9 +51,20 @@ test('만기 비교: 회차표가 만기 전에 끝나 있으면 빠진 결제�
   assert.equal(db.remaining[0].dueDate, '2026-11-25');
 });
 
-test('정산 문구: 납부 금액 / 보증금 반환 / 보증금 차액 반환', () => {
-  assert.deepEqual(settleLabel(1208000, 'extension'), { title: '납부 금액', amount: 1208000 });
-  assert.deepEqual(settleLabel(-26181000, 'return'), { title: '보증금 반환', amount: 26181000 });
-  assert.deepEqual(settleLabel(-115550, 'takeover'), { title: '보증금 차액 반환', amount: 115550 });
-  assert.equal(settleLabel(0, 'takeover').title, '추가 납부 없음');
+test('비교표: 한 칸에 한 내용, 다성테크는 1안 24개월 월 268,000원 · 인수 금액 0원 · 보증금 반환 27,389,000원', () => {
+  const ds = [{ no: 10, status: '입금완료', total: 1208000, paidAmount: 1208000, dueDate: '2026-10-25' }, { no: 11, status: '청구됨', total: 1208000, dueDate: '2026-11-25' }];
+  const m = compareMaturity({ rounds: ds, contractEnd: '2026-12-02', monthlyRent: 1208000, deposit: 27389000, takeoverPrice: 27389000 });
+  const { cols, rows } = maturityTable({ m, ext: [{ months: 24, monthlyFee: 268000, takeoverPrice: 17389000, maintenance: false, endDate: '2028-12-01' }], startDate: '2026-12-02' });
+  assert.deepEqual(cols.map((c) => c.title), ['1안 계약 연장', '2안 인수', '3안 반납']);
+  const cell = (label) => rows.find((r) => r.label === label).cells;
+  assert.deepEqual(cell('방법'), ['24개월 연장', '인수', '반납']);
+  assert.deepEqual(cell('월 렌트료'), ['268,000원', '없음', '없음']);
+  assert.deepEqual(cell('마지막 렌트료'), ['1,208,000원', '1,208,000원', '1,208,000원']);
+  assert.deepEqual(cell('인수 금액'), ['없음', '0원', '없음']);
+  assert.deepEqual(cell('보증금 반환'), ['없음', '없음', '27,389,000원']);
+  assert.equal(rows.some((r) => r.label === '승계 수수료'), false);
+  // 제3자 인수면 승계 수수료 줄이 생긴다
+  const third = maturityTable({ m: compareMaturity({ rounds: ds, contractEnd: '2026-12-02', monthlyRent: 1208000, deposit: 0, takeoverPrice: 2506900, thirdParty: true }), thirdParty: true });
+  assert.deepEqual(third.rows.find((r) => r.label === '승계 수수료').cells, ['없음', '330,000원', '없음']);
+  assert.deepEqual(third.rows.find((r) => r.label === '방법').cells, ['연장 견적 없음', '제3자 인수', '반납']);
 });

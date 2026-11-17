@@ -5,7 +5,7 @@ import usePhoneFit, { phoneFitStyles } from '../../utils/usePhoneFit.js';
 import MoneyInput from './MoneyInput.jsx';
 import ContractExtendDialog from './ContractExtendDialog.jsx';
 import MaturityCompareSheet from './MaturityCompareSheet.jsx';
-import { compareMaturity, settleLabel, SUCCESSION_FEE } from '../../../../shared/maturityCompare.js';
+import { compareMaturity, maturityTable, SUCCESSION_FEE } from '../../../../shared/maturityCompare.js';
 import { calculateUsedQuoteOption, compareUsedQuoteMaintenance, vehicleAgeLimit, monthsLabel, USED_QUOTE_DEFAULTS } from '../../../../shared/usedQuoteCalc.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -157,6 +157,8 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
     deposit: car.currentDeposit, takeoverPrice: car.currentTakeover, extensions: maturityExt,
     thirdParty: maturity.thirdParty, successionFee: maturity.successionFee, repairEstimate: maturity.repair
   });
+
+  const maturityView = maturityTable({ m: maturityData, ext: maturityExt, startDate: car.startDate, thirdParty: maturity.thirdParty, repairKnown: Number(maturity.repair) > 0 });
 
   /** 지금 계약의 회차표를 읽어 남은 렌트료를 잡는다 */
   const loadSchedule = async (contractId) => {
@@ -559,35 +561,20 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
               <thead>
                 <tr>
                   <th style={{ padding: '0.4rem', textAlign: 'left', borderBottom: '1px solid var(--border-color)' }}></th>
-                  {[['1안 계약 연장', '#1d4ed8'], ['2안 인수', '#047857'], ['3안 반납', '#b45309']].map(([t, c]) => (
-                    <th key={t} style={{ padding: '0.4rem', textAlign: 'right', color: c, borderBottom: '1px solid var(--border-color)' }}>{t}</th>
+                  {maturityView.cols.map((c, i) => (
+                    <th key={i} style={{ padding: '0.4rem', textAlign: 'right', color: { ext: '#1d4ed8', takeover: '#047857', return: '#b45309' }[c.kind], borderBottom: '1px solid var(--border-color)' }}>{c.title}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <th style={{ padding: '0.35rem', textAlign: 'left', fontWeight: 700 }}>잔여 렌트료 (공통)</th>
-                  <td colSpan={3} style={{ padding: '0.35rem', textAlign: 'right' }}>
-                    {maturityData.remaining.length ? maturityData.remaining.map((r) => `${r.no}회${r.no === maturityData.lastNo ? '(마지막)' : ''} ${won(r.amount)}`).join(' · ') : '없음'} = <b>{won(maturityData.remainingSum)}원</b>
-                  </td>
-                </tr>
-                <tr>
-                  <th style={{ padding: '0.35rem', textAlign: 'left', fontWeight: 700 }}>이후 비용</th>
-                  <td style={{ padding: '0.35rem', textAlign: 'right' }}>{maturityExt.length ? maturityExt.map((o) => `${o.months}개월 월 ${won(o.monthlyFee)}원`).join(' / ') : '아래에서 연장 안을 계산해 주세요'}</td>
-                  <td style={{ padding: '0.35rem', textAlign: 'right' }}>인수가 {won(maturityData.takeover.price)} − 보증금 {won(maturityData.deposit)}{maturity.thirdParty ? ` + 승계 수수료 ${won(maturityData.takeover.fee)}` : ''}</td>
-                  <td style={{ padding: '0.35rem', textAlign: 'right' }}>보증금 {won(maturityData.deposit)}{Number(maturity.repair) ? ` − 수리비 ${won(maturity.repair)}` : ''} 반환</td>
-                </tr>
-                <tr style={{ background: '#fffbeb' }}>
-                  <th style={{ padding: '0.4rem', textAlign: 'left', fontWeight: 800 }}>만기 정산</th>
-                  {[['extension', maturityData.extension.settle], ['takeover', maturityData.takeover.settle], ['return', maturityData.return.settle]].map(([k, n]) => {
-                    const l = settleLabel(n, k);
-                    return (
-                      <td key={k} style={{ padding: '0.4rem', textAlign: 'right', fontWeight: 800, color: n < 0 ? '#047857' : 'var(--text-bright)' }}>
-                        {l.title}{l.amount ? ` ${won(l.amount)}원` : ''}
-                      </td>
-                    );
-                  })}
-                </tr>
+                {maturityView.rows.map((r) => (
+                  <tr key={r.label} style={r.section === 'settle' ? { background: '#fffbeb' } : undefined}>
+                    <th style={{ padding: '0.3rem 0.4rem', textAlign: 'left', fontWeight: r.section === 'settle' ? 800 : 700 }}>{r.label}</th>
+                    {r.cells.map((v, i) => (
+                      <td key={i} style={{ padding: '0.3rem 0.4rem', textAlign: 'right', fontWeight: r.section === 'settle' && v !== '없음' ? 800 : 500, color: v === '없음' || v === '-' ? 'var(--text-muted)' : r.label === '보증금 반환' ? '#047857' : 'var(--text-bright)' }}>{v}</td>
+                    ))}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

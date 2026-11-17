@@ -11,7 +11,7 @@ const NAVY = '#111e38';
 const GOLD = '#ad885c';
 const LINE = '#e4dfd6';
 const SOFT = '#f9f8f6';
-const DIM = '#b3ada2';
+const DIM = '#9a948a';
 
 /**
  * 계약 만기 처리 비교표 한 장(A4). 1안 계약 연장 · 2안 인수 · 3안 반납(만기 반납)을 나란히 보여 준다.
@@ -23,15 +23,15 @@ const DIM = '#b3ada2';
  */
 export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKnown, multiCar, createdBy }) {
   const table = maturityTable({ m, ext, startDate: car.startDate, thirdParty, repairKnown });
-  const frame = { width: '100%', borderCollapse: 'collapse', fontSize: '12.16px', borderTop: `2px solid ${NAVY}`, borderBottom: `2px solid ${NAVY}` };
-  const label = { background: SOFT, color: '#4b4b4b', fontWeight: '700', padding: '6px 10px', borderBottom: `1px solid ${LINE}`, borderRight: `1px solid ${GOLD}`, textAlign: 'center', whiteSpace: 'nowrap' };
-  const value = { padding: '6px 10px', borderBottom: `1px solid ${LINE}`, color: NAVY };
-  const note = { fontSize: '10.4px', fontWeight: '500', color: '#8a8579', marginTop: '1px' };
+  const frame = { width: '100%', borderCollapse: 'collapse', fontSize: '13.6px', borderTop: `2px solid ${NAVY}`, borderBottom: `2px solid ${NAVY}` };
+  const label = { background: SOFT, color: '#2b2b2b', fontWeight: '700', padding: '8px 10px', borderBottom: `1px solid ${LINE}`, borderRight: `1px solid ${GOLD}`, textAlign: 'center', whiteSpace: 'nowrap' };
+  const value = { padding: '8px 10px', borderBottom: `1px solid ${LINE}`, color: NAVY };
+  const note = { fontSize: '11.84px', fontWeight: '500', color: '#5f5a51', marginTop: '2px' };
   const sectionTitle = (text, sub) => (
     <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', margin: '14px 0 6px' }}>
       <span style={{ width: '3px', height: '13px', background: GOLD, display: 'inline-block', alignSelf: 'center' }} />
-      <span style={{ fontSize: '13.6px', fontWeight: '800', color: NAVY }}>{text}</span>
-      {sub ? <span style={{ fontSize: '11.2px', color: '#8a8579' }}>{sub}</span> : null}
+      <span style={{ fontSize: '15.2px', fontWeight: '800', color: NAVY }}>{text}</span>
+      {sub ? <span style={{ fontSize: '12.48px', color: '#5f5a51' }}>{sub}</span> : null}
     </div>
   );
   // '1안 계약 연장' → 번호와 이름을 나눠 머리에 두 줄로
@@ -69,7 +69,7 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
         </tbody>
       </table>
 
-      <div style={{ fontSize: '12.48px', lineHeight: 1.7, color: '#333', margin: '12px 2px 0' }}>
+      <div style={{ fontSize: '13.6px', lineHeight: 1.7, color: '#222', margin: '12px 2px 0' }}>
         그동안 이용해 주셔서 감사합니다. 계약 만기에 선택하실 수 있는 세 가지 방법과 각 금액을 정리해 드립니다.
         어느 방법을 선택하시더라도 아래 <b style={{ color: NAVY }}>잔여 렌트료</b>는 계약 기간까지 납부해 주셔야 합니다.
       </div>
@@ -81,7 +81,7 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
             <tr key={r.no}>
               <td style={{ ...label, width: '16%' }}>{r.no}회차</td>
               <td style={{ ...value, width: '22%', textAlign: 'center' }}>{ymd(r.dueDate)} 결제</td>
-              <td style={{ ...value, color: '#6b675f' }}>
+              <td style={{ ...value, color: '#4a463f' }}>
                 {r.status === '미납' ? '미납' : r.status === '청구됨' ? '청구서 발송' : '결제 예정'}{r.no === m.lastNo ? ' · 마지막 회차' : ''}
                 {r.fine ? <div style={note}>통행료·과태료 {won(r.fine)}원 포함</div> : null}
               </td>
@@ -108,8 +108,8 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
               const t = splitTitle(c.title);
               return (
                 <th key={i} style={{ background: NAVY, color: '#fff', padding: '7px 8px', borderRight: i < table.cols.length - 1 ? '1px solid rgba(173,136,92,0.5)' : 'none', borderBottom: `2px solid ${GOLD}` }}>
-                  <div style={{ fontSize: '10.4px', fontWeight: '700', color: GOLD, letterSpacing: '1px' }}>{t.no}</div>
-                  <div style={{ fontSize: '13.6px', fontWeight: '800', letterSpacing: '1px' }}>{t.name}</div>
+                  <div style={{ fontSize: '12.16px', fontWeight: '700', color: '#d4b58c', letterSpacing: '1px' }}>{t.no}</div>
+                  <div style={{ fontSize: '15.2px', fontWeight: '800', letterSpacing: '1px' }}>{t.name}</div>
                 </th>
               );
             })}
@@ -122,8 +122,8 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
               <React.Fragment key={r.label}>
                 {firstSettle && (
                   <tr>
-                    <td colSpan={table.cols.length + 1} style={{ padding: '7px 10px 5px', borderTop: `1.5px solid ${NAVY}`, borderBottom: `1px solid ${GOLD}`, color: NAVY, fontWeight: '800', fontSize: '12.16px', letterSpacing: '1px' }}>
-                      만기 정산 <span style={{ fontWeight: '500', color: '#8a8579', letterSpacing: 0, fontSize: '11.2px' }}>계약 만기 때 오가는 금액</span>
+                    <td colSpan={table.cols.length + 1} style={{ padding: '7px 10px 5px', borderTop: `1.5px solid ${NAVY}`, borderBottom: `1px solid ${GOLD}`, color: NAVY, fontWeight: '800', fontSize: '13.6px', letterSpacing: '1px' }}>
+                      만기 정산 <span style={{ fontWeight: '500', color: '#5f5a51', letterSpacing: 0, fontSize: '12.48px' }}>계약 만기 때 오가는 금액</span>
                     </td>
                   </tr>
                 )}
@@ -149,7 +149,7 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
           <tr>
             <td style={{ ...label, borderTop: `1.5px solid ${NAVY}` }}>알아 두실 점</td>
             {table.cols.map((c, i) => (
-              <td key={i} style={{ ...value, borderTop: `1.5px solid ${NAVY}`, borderRight: i < table.cols.length - 1 ? `1px solid ${LINE}` : 'none', verticalAlign: 'top', fontSize: '11.2px', lineHeight: 1.6, color: '#5b574f' }}>
+              <td key={i} style={{ ...value, borderTop: `1.5px solid ${NAVY}`, borderRight: i < table.cols.length - 1 ? `1px solid ${LINE}` : 'none', verticalAlign: 'top', fontSize: '12.48px', lineHeight: 1.6, color: '#3d3a35' }}>
                 {c.kind === 'ext' && '연장 계약서를 새로 쓰고, 연장 1회차부터 새 렌트료로 청구됩니다.'}
                 {c.kind === 'takeover' && `렌트 종료일부터 1주일 안에 입금과 이전 서류(양도증명서·인감증명서 등)를 마쳐야 합니다.${thirdParty ? ' 제3자 인수는 약관에 따라 승계 수수료가 붙습니다.' : ''}`}
                 {c.kind === 'return' && `반납 시 외관 상태(긁힘·찌그러짐·파손 등)를 확인하며, 수리비가 발생하면 보증금에서 공제한 뒤 반환합니다.${repairKnown ? '' : ' 수리비는 반납 후 확정됩니다.'}`}
@@ -159,7 +159,7 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
         </tbody>
       </table>
 
-      <div style={{ marginTop: 'auto', paddingTop: '10px', borderTop: `1px solid ${GOLD}`, fontSize: '11.2px', lineHeight: 1.75, color: '#5b574f' }}>
+      <div style={{ marginTop: 'auto', paddingTop: '10px', borderTop: `1px solid ${GOLD}`, fontSize: '12.48px', lineHeight: 1.75, color: '#3d3a35' }}>
         <div>• 입금 계좌: {DEPOSIT_ACCOUNT.bankName} {DEPOSIT_ACCOUNT.accountNo} (예금주 {DEPOSIT_ACCOUNT.holder})</div>
         <div>• 잔여 렌트료는 회차 결제일에 CMS로 출금됩니다. 인수 금액을 한 번에 입금하시면 해당 회차 CMS 출금은 하지 않습니다.</div>
         {multiCar ? <div>• 이 계약은 차량이 여러 대로, 잔여 렌트료는 계약 전체 금액입니다.</div> : null}

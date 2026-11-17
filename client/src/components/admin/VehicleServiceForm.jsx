@@ -228,6 +228,14 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
     setPrefilled(filled);
     return next;
   });
+  // 같은 입고에 함께 한 작업(새 기록에서만). 예: 사고수리로 들어가 고장수리·정기점검도 함께.
+  // 저장하면 작업마다 기록이 하나씩 생긴다(정기점검 회차·다음 점검일·수리비 합계를 종류별로 세기 때문).
+  // 픽업·인도·연락처·전화·특이사항·파일은 함께 쓰고, 작업 내용과 금액만 작업마다 따로 적는다.
+  const [extras, setExtras] = useState([]);
+  const [extraWork, setExtraWork] = useState({}); // { 종류: { description, repair, vat } }
+  const toggleExtra = (k) => setExtras((xs) => (xs.includes(k) ? xs.filter((x) => x !== k) : [...xs, k]));
+  const setWork = (k, patch) => setExtraWork((w) => ({ ...w, [k]: { ...(w[k] || {}), ...patch } }));
+  const kindsAll = [form.kind, ...extras.filter((k) => k !== form.kind)];
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [reading, setReading] = useState(false);
@@ -328,7 +336,9 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
     if (finishing && !hasFile) { showToast?.('완료하려면 견적서나 점검 결과서를 올려 주세요.', 'error'); return; }
     setSaving(true);
     try {
-      const payload = { ...form };
+      const others = record ? [] : kindsAll.slice(1);
+      const together = others.length ? `같은 입고: ${kindsAll.join(' + ')}` : '';
+      const payload = { ...form, memo: [form.memo, together].filter(Boolean).join(' / ') };
       let res;
       if (record) {
         res = await fetch(`${API_HOST}/api/vehicle-services/${record._id}`, {
@@ -352,7 +362,28 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
         const upData = await up.json().catch(() => ({}));
         if (!up.ok || !upData.success) showToast?.(upData.message || '파일을 붙이지 못했습니다. 내용은 저장했습니다.', 'error');
       }
-      showToast?.(data.message || '저장했습니다.', 'success');
+      // 함께 한 작업은 같은 입고 정보로 기록을 하나씩 더 만든다. 파일은 첫 기록에만 붙는다
+      let made = 0;
+      for (const k of others) {
+        const w = extraWork[k] || {};
+        const fd = new FormData();
+        fd.append('vehicleId', row.vehicleId);
+        fd.append('kind', k);
+        fd.append('data', JSON.stringify({
+          ...payload,
+          kind: k,
+          description: w.description || '',
+          costs: { repair: w.repair || '', vat: w.vat || '', insurancePaid: '' },
+          lines: [],
+          invoice: null,
+          consumables: ['정기점검', '소모품교환'].includes(k) ? form.consumables : [],
+          carAgeExtended: k === '자동차검사' ? form.carAgeExtended : false
+        }));
+        const r2 = await fetch(`${API_HOST}/api/vehicle-services`, { method: 'POST', body: fd }).then((x) => x.json()).catch(() => ({}));
+        if (r2.success) made += 1;
+        else showToast?.(`${k} 기록을 만들지 못했습니다: ${r2.message || ''}`, 'error');
+      }
+      showToast?.(others.length ? `${kindsAll.slice(0, made + 1).join(' · ')} ${made + 1}건을 저장했습니다.` : (data.message || '저장했습니다.'), 'success');
       onSaved?.();
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
@@ -497,7 +528,24 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
         {/* 1. 접수 */}
         <div style={card}>
           <h3 style={h2}>① 접수</h3>
-          {field('종류', chips(KINDS, form.kind, (v) => v && changeKind(v)))}
+          {field(record ? '종류' : '주 작업', chips(KINDS, form.kind, (v) => { if (v) { changeKind(v); setExtras((xs) => xs.filter((x) => x !== v)); } }))}
+          {!record && field('같이 한 작업', (
+            <div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                {KINDS.filter((k) => k !== form.kind).map((k) => {
+                  const on = extras.includes(k);
+                  return (
+                    <button key={k} type="button" onClick={() => toggleExtra(k)}
+                      style={{ border: `1px solid ${on ? '#0f766e' : 'var(--border-color)'}`, background: on ? '#ccfbf1' : '#fff', color: on ? '#0f766e' : 'var(--text-muted)', borderRadius: '999px', padding: '0.22rem 0.65rem', fontSize: '0.76rem', fontWeight: 700, cursor: 'pointer' }}>
+                      {on ? '✓ ' : '+ '}{k}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={hint}>한 번 입고해서 여러 작업을 했으면 모두 고르세요(여러 개 가능). 저장하면 작업마다 기록이 하나씩 만들어집니다.</div>
+            </div>
+          ))}
+          {record && <div style={{ ...hint, marginTop: '-0.2rem', marginBottom: '0.4rem' }}>같은 입고의 다른 작업은 아래 [+ 새 기록]에서 '같이 한 작업'으로 더하세요.</div>}
           {field('진행 상태', chips(STATUSES, form.status, (v) => v && set({ status: v })))}
           {field('진행자 · 정비소', (
             <div style={two}>
@@ -523,13 +571,13 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
               <textarea style={{ ...area, minHeight: '170px' }} value={form.request} onChange={(e) => set({ request: e.target.value })} placeholder={'고객이 요청한 것\n예) 1. 엔진경고등 점등\n2. 브레이크 밟을 때 소리'} />
             </div>
             <div>
-              <div style={{ ...lab, marginBottom: '0.25rem' }}>점검 내용 (실제로 한 작업)</div>
+              <div style={{ ...lab, marginBottom: '0.25rem' }}>{extras.length ? `${form.kind} — ` : ''}점검 내용 (실제로 한 작업)</div>
               <textarea style={{ ...area, minHeight: '170px' }} value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder={'실제로 한 작업\n예) 엔진오일·오일필터·에어필터 교환, 와이퍼 교환'} />
             </div>
           </div>
           {field('입고후 확인전화', text('callAfterIn', '언제, 누구와 (예: 9월 22일 어드바이저)'))}
           {field('점검 안내 전화', text('callGuide', '언제, 누구에게 (예: 25일 13:05 고객님)'))}
-          {field('점검 비용', (
+          {field(extras.length ? `${form.kind} 비용` : '점검 비용', (
             <div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '0.4rem', alignItems: 'center' }}>
                 <MoneyInput style={input} value={form.costs.repair} onChange={(e) => setCost({ repair: e.target.value })} placeholder="금액 (공급가)" />
@@ -545,6 +593,19 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
                   <MoneyInput style={input} value={form.deductible} onChange={(e) => set({ deductible: e.target.value })} placeholder="자기부담금" />
                 </div>
               )}
+            </div>
+          ))}
+          {/* 같이 한 작업마다 작업 내용·금액. 위 칸은 주 작업 것이다 */}
+          {!record && kindsAll.slice(1).map((k) => (
+            <div key={k} style={{ border: '1px solid #99f6e4', background: '#f0fdfa', borderRadius: '8px', padding: '0.55rem 0.65rem', marginBottom: '0.5rem' }}>
+              <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#0f766e', marginBottom: '0.3rem' }}>같이 한 작업 · {k}</div>
+              <textarea style={{ ...area, minHeight: '90px' }} value={extraWork[k]?.description || ''} onChange={(e) => setWork(k, { description: e.target.value })}
+                placeholder={k === '정기점검' ? '예) 엔진오일·오일필터·에어필터 교환' : k === '고장수리' ? '예) 엔진경고등 — 점화코일 교환' : '이 작업에서 한 일'} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '0.4rem', alignItems: 'center', marginTop: '0.35rem' }}>
+                <MoneyInput style={input} value={extraWork[k]?.repair || ''} onChange={(e) => setWork(k, { repair: e.target.value })} placeholder={`${k} 금액 (공급가)`} />
+                <MoneyInput style={input} value={extraWork[k]?.vat || ''} onChange={(e) => setWork(k, { vat: e.target.value })} placeholder="부가세 (없으면 비움)" />
+                <b style={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>합계 {won(num(extraWork[k]?.repair) + num(extraWork[k]?.vat))}</b>
+              </div>
             </div>
           ))}
           {field('고객 성향·기분', text('mood', '대체적으로 만족'))}
@@ -570,8 +631,8 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
           <div style={{ marginTop: '0.45rem' }}>{field('인도 확인 전화', text('callAfterOut', '언제, 누구와'))}</div>
           {field('특이사항', <textarea style={area} value={form.memo} onChange={(e) => set({ memo: e.target.value })} placeholder="없음" />)}
           {field('다음에 할 일', text('nextTodo', '다음 점검 때 챙길 것 (예: 브레이크 패드 30% 남음, 다음에 교환)'))}
-          {['사고수리', '고장수리'].includes(form.kind) && field('대차 제공', text('loaner', '수리 동안 내준 차 (예: 아반떼 125호5281, 2/26~3/5)'))}
-          {['정기점검', '소모품교환'].includes(form.kind) && field('바꾼 소모품', (
+          {kindsAll.some((k) => ['사고수리', '고장수리'].includes(k)) && field('대차 제공', text('loaner', '수리 동안 내준 차 (예: 아반떼 125호5281, 2/26~3/5)'))}
+          {kindsAll.some((k) => ['정기점검', '소모품교환'].includes(k)) && field('바꾼 소모품', (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.2rem 0.7rem', fontSize: '0.78rem' }}>
               {CONSUMABLES.map((c) => (
                 <label key={c} style={{ display: 'flex', gap: '0.25rem', alignItems: 'center', cursor: 'pointer' }}>
@@ -580,7 +641,7 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
               ))}
             </div>
           ))}
-          {form.kind === '자동차검사' && (
+          {kindsAll.includes('자동차검사') && (
             <label style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', fontSize: '0.8rem', fontWeight: 700, color: '#c2410c', cursor: 'pointer' }}>
               <input type="checkbox" checked={form.carAgeExtended} onChange={(e) => set({ carAgeExtended: e.target.checked })} />
               차령 연장도 함께 신청함 (체크한 검사만 차령 1년 연장으로 셉니다)

@@ -1531,6 +1531,7 @@ function VehicleServiceView({ showToast, currentUser }) {
       {formOpen && selectedRow && (
         <VehicleServiceForm
           row={selectedRow}
+          history={detail?.records || []}
           record={formOpen.record}
           preset={formOpen.preset}
           onClose={() => setFormOpen(null)}

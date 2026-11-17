@@ -96,3 +96,30 @@ export const listChangedEvents = async (updatedMin, calendarId = WORK_CALENDAR_I
 export const insertEvent = (event, calendarId = WORK_CALENDAR_ID) => call('POST', eventsPath(calendarId), { body: event });
 export const patchEvent = (eventId, patch, calendarId = WORK_CALENDAR_ID) => call('PATCH', `${eventsPath(calendarId)}/${encodeURIComponent(eventId)}`, { body: patch });
 export const deleteEvent = (eventId, calendarId = WORK_CALENDAR_ID) => call('DELETE', `${eventsPath(calendarId)}/${encodeURIComponent(eventId)}`);
+
+/**
+ * 기간 안의 일정 전부(지운 일정 제외). 예전 일정을 다시 읽어 기록을 보충할 때 쓴다.
+ * @param {Date} timeMin
+ * @param {Date} timeMax
+ * @param {string} [calendarId]
+ * @returns {Promise<object[]>}
+ */
+export const listEventsBetween = async (timeMin, timeMax, calendarId = WORK_CALENDAR_ID) => {
+  const items = [];
+  let pageToken;
+  do {
+    // eslint-disable-next-line no-await-in-loop
+    const data = await call('GET', eventsPath(calendarId), {
+      query: {
+        timeMin: timeMin.toISOString(),
+        timeMax: timeMax.toISOString(),
+        singleEvents: 'true',
+        maxResults: '2500',
+        ...(pageToken ? { pageToken } : {})
+      }
+    });
+    items.push(...(data.items || []));
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+  return items;
+};

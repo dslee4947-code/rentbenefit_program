@@ -31,7 +31,15 @@ const CalendarInboxSchema = new Schema({
     mileageOut: Number,
     fuelIn: String,
     fuelOut: String,
-    kinds: [String] // 짐작한 종류. 첫째가 주 종류, 뒤는 함께 한 정기점검·자동차검사
+    kinds: [String], // 짐작한 종류. 첫째가 주 종류, 뒤는 함께 한 정기점검·자동차검사
+    // 양식 위 연락처·주소 줄과 전화·특이사항 칸 (2026-11-17)
+    contactName: String,
+    contactPhone: String,
+    pickupPlace: String,
+    callAfterIn: String,
+    callGuide: String,
+    callAfterOut: String,
+    notes: String
   },
 
   vehicle: { type: Schema.Types.ObjectId, ref: 'Vehicle' },

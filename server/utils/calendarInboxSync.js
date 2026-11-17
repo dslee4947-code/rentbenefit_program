@@ -54,6 +54,47 @@ const lineValue = (text, label) => {
   return m ? oneLine(m[1]) : '';
 };
 
+/**
+ * 양식 위에 적는 연락처·주소 줄 (2026-11-17).
+ *   유현승 교수님 / 010-4129-1918
+ *   충청북도 증평군 증평읍 송산로 105 … 101동 504호   ← 첫 주소를 픽업지로 본다
+ *   충청북도 증평군 증평읍 송산로1길 17-5(043-…)     ← 정비소 주소일 때가 많다
+ * 다음 정기점검을 새로 적을 때 이 값이 따라온다(화면 VehicleServiceForm).
+ */
+const PHONE = /(0\d{1,2}[-.\s]?\d{3,4}[-.\s]?\d{4})/;
+const ADDRESS = /(특별시|광역시|[가-힣]+도\s|[가-힣]+시\s|[가-힣]+군\s|[가-힣]+구\s).*(로|길|동|리)\s*\d/;
+// 양식 칸 줄·날짜 줄은 연락처가 아니다
+const FORM_LINE = /^(-\.?\s*)?(점검|픽업|인도|입고|특이|AS|비용|고객님|\d{6}\s*\/)/;
+const PLATE_IN_TEXT = /\d{2,3}\s*[가-힣]\s*\d{4}/;
+// 주소 앞 머리말: "-.픽업장소 :", "자택 픽업 :", "차량 픽업지 :" 등. 정비소·검사소 주소는 픽업지가 아니다
+const ADDRESS_LABEL = /^([^:：]{1,14})[:：]\s*/;
+const SHOP_LABEL = /수리|정비|센터|검사|업체|공업사/;
+export const headInfoOf = (text) => {
+  const head = String(text || '').split(/\n[^\n]*<[^>]+>/)[0].split('\n')
+    .map((l) => l.replace(/<[^>]*>/g, '').trim()).filter(Boolean).slice(0, 12);
+  const out = {};
+  const contactLine = head.find((l) => PHONE.test(l) && !ADDRESS.test(l) && !FORM_LINE.test(l));
+  if (contactLine) {
+    // "책임담당자: 이태우이사님 010-…"처럼 머리말이 붙으면 뒤만 쓴다
+    const name = contactLine.replace(PHONE, '').replace(/^[^:：]{1,8}[:：]/, '')
+      .replace(/[\s/,:-]+$/, '').replace(/^[\s/,:.-]+/, '').replace(/^(연락은|안내|연락)\s+/, '').trim();
+    if (name.length >= 2 && name.length <= 20 && !PLATE_IN_TEXT.test(name)) {
+      out.contactPhone = contactLine.match(PHONE)[1];
+      out.contactName = name;
+    }
+  }
+  for (const line of head) {
+    if (!ADDRESS.test(line)) continue;
+    const label = (line.match(ADDRESS_LABEL) || [])[1] || '';
+    if (label && SHOP_LABEL.test(label)) continue;
+    // "정남기 / 010-…서울특별시 …"처럼 연락처와 붙어 있으면 전화번호 뒤만 주소로 본다
+    const addr = PHONE.test(line) ? line.slice(line.search(PHONE) + line.match(PHONE)[1].length).replace(/^[\s/,]+/, '') : line;
+    out.pickupPlace = addr.replace(ADDRESS_LABEL, (m, l) => (/[가-힣]{2,}(시|도|구|군)\s/.test(l) ? m : '')).slice(0, 120);
+    break;
+  }
+  return out;
+};
+
 const kmOf = (line) => {
   const m = String(line || '').match(/([\d,]{3,})\s*km/i);
   const n = m ? Number(m[1].replace(/,/g, '')) : NaN;
@@ -114,7 +155,15 @@ export const parseServiceEvent = (event) => {
   const request = lineValue(text, '점검 의뢰');
   const done = lineValue(text, '점검 내용');
   const costText = lineValue(text, '점검 비용');
+  const head = headInfoOf(text);
   return {
+    contactName: head.contactName || '',
+    contactPhone: head.contactPhone || '',
+    pickupPlace: head.pickupPlace || '',
+    callAfterIn: lineValue(text, '(?:입고|픽업)후 확인전화'),
+    callGuide: lineValue(text, '점검 안내 전화'),
+    callAfterOut: lineValue(text, '인도 확인 전화'),
+    notes: lineValue(text, '특이사항').replace(/^없음\s*(\/\s*)?/, '').trim(),
     header: Boolean(header),
     carModel: header ? header[1].trim() : '',
     plateNo: header ? plateKey(header[2]) : '',
@@ -262,7 +311,9 @@ export const syncCalendarInbox = async ({ since, dryRun = false } = {}) => {
       parsed: {
         carModel: p.carModel, plateNo: vehicle?.plateNo || p.plateNo, staff: p.staff, shop: p.shop,
         request: p.request, done: p.done, costText: p.costText, amount: p.amount,
-        mileageIn: p.mileageIn, mileageOut: p.mileageOut, fuelIn: p.fuelIn, fuelOut: p.fuelOut, kinds: p.kinds
+        mileageIn: p.mileageIn, mileageOut: p.mileageOut, fuelIn: p.fuelIn, fuelOut: p.fuelOut, kinds: p.kinds,
+        contactName: p.contactName, contactPhone: p.contactPhone, pickupPlace: p.pickupPlace,
+        callAfterIn: p.callAfterIn, callGuide: p.callGuide, callAfterOut: p.callAfterOut, notes: p.notes
       },
       vehicle: vehicle?._id
     };

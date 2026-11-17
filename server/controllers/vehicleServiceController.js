@@ -154,7 +154,7 @@ const bodyOf = (req) => {
   return req.body || {};
 };
 
-const DETAIL_TEXT = ['status', 'staff', 'request', 'fuelIn', 'fuelOut', 'payer', 'insurer', 'claimNo', 'fault', 'loaner', 'callAfterIn', 'callGuide', 'callAfterOut', 'mood'];
+const DETAIL_TEXT = ['status', 'staff', 'request', 'fuelIn', 'fuelOut', 'payer', 'insurer', 'claimNo', 'fault', 'loaner', 'callAfterIn', 'callGuide', 'callAfterOut', 'mood', 'contactName', 'contactPhone', 'nextTodo'];
 // person: 픽업 때 차를 넘겨준 사람 / 인도 때 받은 사람
 const LEG_TEXT = ['method', 'from', 'to', 'person', 'vendor'];
 

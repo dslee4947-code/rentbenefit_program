@@ -33,7 +33,7 @@ const emptyLeg = (method = '직원') => ({ method, from: '', to: '', person: '',
  *   status를 주면 그 상태로 연다. 정기점검 목록의 [일정 잡기]는 '예정', [완료 처리]는 잡아 둔 기록을 '완료'로 연다.
  */
 const formOf = (record, preset) => {
-  const blank = { callAfterIn: '', callGuide: '', callAfterOut: '', mood: '' };
+  const blank = { callAfterIn: '', callGuide: '', callAfterOut: '', mood: '', contactName: '', contactPhone: '', nextTodo: '' };
   if (!record) {
     const future = preset?.status === '예정' || (preset?.date && preset.date > new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10));
     return {
@@ -50,6 +50,7 @@ const formOf = (record, preset) => {
   return {
     ...blank,
     callAfterIn: record.callAfterIn || '', callGuide: record.callGuide || '', callAfterOut: record.callAfterOut || '', mood: record.mood || '',
+    contactName: record.contactName || '', contactPhone: record.contactPhone || '', nextTodo: record.nextTodo || '',
     kind: record.kind, status: preset?.status || record.status || '완료', staff: record.staff || '', shop: record.shop || '',
     // 예전 간단 양식 기록은 입고·출고 시각이 없다. 날짜를 출고로 보여 준다.
     // 잡아 둔 일정을 완료로 열면 출고는 오늘로 채운다(받은 날이 다음 점검을 세는 기준이 된다).
@@ -65,6 +66,40 @@ const formOf = (record, preset) => {
     parts: record.parts || [], consumables: record.consumables || [], carAgeExtended: Boolean(record.carAgeExtended),
     lines: (record.lines || []).map((l) => Object.fromEntries(Object.entries(l).map(([k, v]) => [k, v ?? '']))), invoice: record.invoice || null
   };
+};
+
+// ── 지난 기록에서 따라오는 값 ──
+// 새 기록을 열면 같은 종류의 지난 기록에서 연락처·픽업지·정비소를 가져온다(대표님 2026-11-17).
+// 정기점검이면 지난 정기점검의 스피드메이트·블루핸즈 지점, 타이어(소모품교환)면 쌍성처럼 종류마다 다니던 곳이 따라온다.
+// 연락처·픽업지는 같은 종류에 없으면 이 차의 가장 최근 기록에서 가져온다. 비어 있는 칸만 채운다.
+const SHOP_PLACEHOLDER = /^\s*입고지\s*\/\s*담당자\s*$/;
+const isAutoMemo = (m) => /^(구글 캘린더 이관|원장 이관|부가세 줄)/.test(String(m || ''));
+const doneOf = (history) => (history || []).filter((r) => !r.status || r.status === '완료')
+  .sort((a, b) => (String(a.date) < String(b.date) ? 1 : -1));
+const previousOf =(history, kind) => doneOf(history).find((r) => r.kind === kind) || null;
+
+const prefillFrom = (history, kind, f) => {
+  const done = doneOf(history);
+  const same = done.find((r) => r.kind === kind);
+  const latest = (pick) => [same, ...done].find((r) => r && pick(r));
+  const next = { ...f, transport: { in: { ...f.transport.in }, out: { ...f.transport.out } } };
+  const filled = [];
+  const shopRec = latest((r) => r.kind === kind && r.shop && !SHOP_PLACEHOLDER.test(r.shop));
+  if (!f.shop && shopRec) { next.shop = shopRec.shop; filled.push('정비소'); }
+  const contact = latest((r) => r.contactName || r.contactPhone);
+  if (contact && !f.contactName && !f.contactPhone) {
+    next.contactName = contact.contactName || '';
+    next.contactPhone = contact.contactPhone || '';
+    filled.push('연락처');
+  }
+  const pickup = latest((r) => r.transport?.in?.from || r.transport?.out?.to);
+  if (pickup) {
+    const pi = pickup.transport?.in || {};
+    const po = pickup.transport?.out || {};
+    if (!f.transport.in.from && pi.from) { next.transport.in.from = pi.from; next.transport.in.method = pi.method || next.transport.in.method; filled.push('픽업지'); }
+    if (!f.transport.out.to && (po.to || pi.from)) { next.transport.out.to = po.to || pi.from; next.transport.out.method = po.method || pi.method || next.transport.out.method; }
+  }
+  return { next, filled };
 };
 
 // ── 캘린더 AS 서식 붙여 넣기 ──
@@ -98,9 +133,21 @@ const amountOf = (t) => {
 const timeOf = (t) => (String(t || '').match(/(\d{1,2}):(\d{2})/) || []).slice(1).map((x) => x.padStart(2, '0')).join(':');
 
 /** 붙여 넣은 서식 → 양식에 덮을 값. 서식에서 읽은 칸만 돌려준다. */
+const PHONE = /(0\d{1,2}[-.\s]?\d{3,4}[-.\s]?\d{4})/;
+const ADDRESS = /(특별시|광역시|[가-힣]+도\s|[가-힣]+시\s|[가-힣]+군\s|[가-힣]+구\s).*(로|길|동|리)\s*\d/;
 const parseTemplate = (raw, form) => {
-  const text = String(raw || '').replace(/\r/g, '');
+  // 'AS (…)'를 다음 줄에 쓰기도 한다: "…<쏘나타 / 142호9106>\nAS (스피드메이트 …)"
+  const text = String(raw || '').replace(/\r/g, '').replace(/>\s*\n\s*AS/g, '> AS');
   const p = {};
+  // 서식 앞에 적는 연락처·주소 줄. 첫 줄 "유현승 교수님 / 010-4129-1918", 그다음 주소(첫 주소가 픽업지)
+  const head = text.split(/\n[^\n]*<[^>]+>/)[0].split('\n').map((l) => l.trim()).filter(Boolean);
+  const contactLine = head.find((l) => PHONE.test(l) && !ADDRESS.test(l));
+  if (contactLine) {
+    p.contactPhone = contactLine.match(PHONE)[1];
+    p.contactName = contactLine.replace(PHONE, '').replace(/[/,:]+\s*$/, '').replace(/\s*\/\s*$/, '').trim();
+  }
+  const firstAddress = head.find((l) => ADDRESS.test(l));
+  if (firstAddress) p.pickupPlace = firstAddress.replace(/^(픽업|주소)\s*:\s*/, '');
   const header = text.split('\n').find((l) => /<[^>]+>\s*AS/.test(l)) || '';
   if (header) {
     const staff = clean((header.split('<')[0].split('/').pop() || '').replace(/-\s*$/, ''));
@@ -115,7 +162,7 @@ const parseTemplate = (raw, form) => {
     if (ymd.length) p.baseDate = `20${ymd[0]}-${ymd[1]}-${ymd[2]}`;
   }
   [['request', '점검 의뢰'], ['callAfterIn', '(?:입고|픽업)후 확인전화'], ['description', '점검 내용'], ['callGuide', '점검 안내 전화'],
-    ['mood', '고객님\\s*성향\\s*및\\s*기분'], ['callAfterOut', '인도 확인 전화'], ['memo', '특이사항']].forEach(([k, label]) => {
+    ['mood', '고객님\\s*성향\\s*및\\s*기분'], ['callAfterOut', '인도 확인 전화'], ['memo', '특이사항'], ['nextTodo', '다음\\s*(?:점검\\s*때\\s*)?할\\s*일']].forEach(([k, label]) => {
     const v = lineOf(text, label);
     if (v) p[k] = v;
   });
@@ -128,8 +175,15 @@ const parseTemplate = (raw, form) => {
   [['in', '픽업'], ['out', '인도']].forEach(([side, label]) => {
     const v = lineOf(text, label);
     if (!v) return;
-    // 칸 구분은 띄어쓰기가 붙은 '/'. '주유 1/8'처럼 붙여 쓴 '/'는 자르지 않는다
-    const [place, time, person, km, fuel, method] = v.split(/\s+\/\s*|\s*\/\s+/).map(clean);
+    // 칸 구분은 띄어쓰기가 붙은 '/'. '주유 1/8'처럼 붙여 쓴 '/'는 자르지 않는다.
+    // 칸을 빼고 쓰기도 해서("고객 직접방문 / 21,300km / 고객이동") 자리 대신 내용으로 가른다.
+    const parts = v.split(/\s+\/\s*|\s*\/\s+/).map(clean).filter(Boolean);
+    const take = (test) => { const i = parts.findIndex(test); return i < 0 ? '' : parts.splice(i, 1)[0]; };
+    const km = take((x) => /\d\s*km/i.test(x));
+    const time = take((x) => /\d{1,2}:\d{2}/.test(x) && x.length <= 12);
+    const fuel = take((x) => /주유|^\d\/\d$|^\d{1,3}\s*%$|가득|바닥/.test(x));
+    const method = take((x) => /이동|탁송|픽딜|센터|직원|기사|지원/.test(x) && parts.length > 1);
+    const [place = '', person = ''] = parts;
     let base = (side === 'in' ? form.inAt : form.outAt).slice(0, 10) || p.baseDate || '';
     // '25일 화성 근무처'처럼 장소 앞에 날짜가 있으면 그 날로 본다
     const day = (String(place || '').match(/^(\d{1,2})일/) || [])[1];
@@ -137,6 +191,8 @@ const parseTemplate = (raw, form) => {
     const leg = { place, person, km: kmOf(km), fuel: String(fuel || '').replace(/^주유\s*/, ''), method: methodOf(method), at: base && timeOf(time) ? `${base}T${timeOf(time)}` : '' };
     if (Object.values(leg).some(Boolean)) p[side] = leg;
   });
+  // 서식의 픽업 칸이 '고객 직접방문'처럼 장소가 아니면 위에 적힌 주소를 픽업지로 쓴다
+  if (p.pickupPlace && (!p.in || !ADDRESS.test(p.in.place || ''))) p.in = { ...(p.in || {}), place: p.pickupPlace };
   return p;
 };
 
@@ -154,8 +210,22 @@ const parseTemplate = (raw, form) => {
  * @param {object|null} props.record 고칠 기록. 없으면 새로 적는다
  * @param {{kind: string, date: string, status?: string}} [props.preset] 달력·목록에서 날짜·종류를 골라 열 때
  */
-export default function VehicleServiceForm({ row, record, preset, onClose, onSaved, showToast }) {
-  const [form, setForm] = useState(() => formOf(record, preset));
+export default function VehicleServiceForm({ row, record, preset, history = [], onClose, onSaved, showToast }) {
+  // 새 기록이면 지난 같은 종류 기록에서 정비소·연락처·픽업지를 채워 연다
+  const [init] = useState(() => {
+    const f = formOf(record, preset);
+    return record ? { next: f, filled: [] } : prefillFrom(history, f.kind, f);
+  });
+  const [prefilled, setPrefilled] = useState(init.filled);
+  const [form, setForm] = useState(init.next);
+  const previous = previousOf(history.filter((r) => String(r._id) !== String(record?._id) && (!record || String(r.date) < String(record.date))), form.kind);
+  // 새 기록에서 종류를 바꾸면 그 종류의 지난 기록으로 빈칸을 다시 채운다
+  const changeKind = (kind) => setForm((f) => {
+    if (record) return { ...f, kind };
+    const { next, filled } = prefillFrom(history, kind, { ...f, kind });
+    setPrefilled(filled);
+    return next;
+  });
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [reading, setReading] = useState(false);
@@ -176,7 +246,7 @@ export default function VehicleServiceForm({ row, record, preset, onClose, onSav
     const filled = [];
     setForm((f) => {
       const next = { ...f, transport: { in: { ...f.transport.in }, out: { ...f.transport.out } }, costs: { ...f.costs } };
-      ['staff', 'shop', 'request', 'callAfterIn', 'description', 'callGuide', 'mood', 'callAfterOut', 'memo', 'payer'].forEach((k) => {
+      ['staff', 'shop', 'contactName', 'contactPhone', 'request', 'callAfterIn', 'description', 'callGuide', 'mood', 'callAfterOut', 'memo', 'nextTodo', 'payer'].forEach((k) => {
         if (p[k]) { next[k] = p[k]; filled.push(k); }
       });
       if (p.amount !== undefined) { next.costs.repair = p.amount; next.costs.vat = ''; filled.push('amount'); }
@@ -396,15 +466,37 @@ export default function VehicleServiceForm({ row, record, preset, onClose, onSav
           )}
         </div>
 
+        {/* 지난 같은 종류 기록: 다음에 할 일 · 특이사항 */}
+        {previous && (
+          <div style={{ ...card, background: '#fffbeb', borderColor: '#fcd34d' }}>
+            <h3 style={{ ...h2, marginBottom: '0.3rem' }}>
+              지난 {previous.kind} · {String(previous.date).slice(0, 10)}
+              <span style={{ fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.78rem' }}>
+                {[previous.shop, previous.checkRound ? `${previous.checkRound}회차` : '', previous.mileage ? `${Number(previous.mileage).toLocaleString()}km` : ''].filter(Boolean).map((x) => ` · ${x}`).join('')}
+              </span>
+            </h3>
+            {previous.nextTodo && <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#b45309' }}>📌 이번에 할 일: {previous.nextTodo}</div>}
+            {previous.memo && !isAutoMemo(previous.memo) && <div style={{ fontSize: '0.8rem' }}>특이사항: {previous.memo}</div>}
+            {previous.description && <div style={{ ...hint, whiteSpace: 'pre-wrap' }}>지난 점검 내용: {previous.description}</div>}
+            {prefilled.length > 0 && <div style={hint}>지난 기록에서 {prefilled.join(' · ')}을(를) 가져왔습니다. 바뀌었으면 고쳐 주세요.</div>}
+          </div>
+        )}
+
         {/* 1. 접수 */}
         <div style={card}>
           <h3 style={h2}>① 접수</h3>
-          {field('종류', chips(KINDS, form.kind, (v) => v && set({ kind: v })))}
+          {field('종류', chips(KINDS, form.kind, (v) => v && changeKind(v)))}
           {field('진행 상태', chips(STATUSES, form.status, (v) => v && set({ status: v })))}
-          {field('진행자 · 입고지', (
+          {field('진행자 · 정비소', (
             <div style={two}>
               {text('staff', '진행자 (예: 두식)')}
-              {text('shop', '입고지 / 담당자 (예: 분당 백현 / 윤우진)')}
+              {text('shop', '정비소 / 담당자 (예: 스피드메이트 증평점 / 010-…)')}
+            </div>
+          ))}
+          {field('연락할 분', (
+            <div style={two}>
+              {text('contactName', '이름 (예: 유현승 교수님)')}
+              {text('contactPhone', '전화 (예: 010-4129-1918)')}
             </div>
           ))}
         </div>
@@ -456,6 +548,7 @@ export default function VehicleServiceForm({ row, record, preset, onClose, onSav
           <datalist id="vs-fuels">{FUELS.filter(Boolean).map((f) => <option key={f} value={f} />)}</datalist>
           <div style={{ marginTop: '0.45rem' }}>{field('인도 확인 전화', text('callAfterOut', '언제, 누구와'))}</div>
           {field('특이사항', <textarea style={area} value={form.memo} onChange={(e) => set({ memo: e.target.value })} placeholder="없음" />)}
+          {field('다음에 할 일', text('nextTodo', '다음 점검 때 챙길 것 (예: 브레이크 패드 30% 남음, 다음에 교환)'))}
           {['사고수리', '고장수리'].includes(form.kind) && field('대차 제공', text('loaner', '수리 동안 내준 차 (예: 아반떼 125호5281, 2/26~3/5)'))}
           {['정기점검', '소모품교환'].includes(form.kind) && field('바꾼 소모품', (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.2rem 0.7rem', fontSize: '0.78rem' }}>

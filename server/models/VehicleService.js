@@ -45,6 +45,11 @@ const VehicleServiceSchema = new Schema({
   callGuide: { type: String, default: '' }, // 점검 안내 전화
   callAfterOut: { type: String, default: '' }, // 인도 확인 전화
   mood: { type: String, default: '' }, // 고객님 성향 및 기분
+  // 연락할 분·전화. 다음 정기점검을 새로 적을 때 지난 기록에서 따라온다(2026-11-17)
+  contactName: { type: String, default: '' },
+  contactPhone: { type: String, default: '' },
+  // 다음 점검 때 할 일. 다음 기록을 열면 '지난번 메모'로 보여 준다
+  nextTodo: { type: String, default: '' },
 
   // 수리 기간과 주행거리. 나중에 문제가 생겼을 때 증거자료가 된다.
   inAt: Date,

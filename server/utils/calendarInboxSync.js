@@ -153,6 +153,8 @@ export const parseServiceEvent = (event) => {
   const shop = /^\s*입고지\s*\/\s*담당자\s*$/.test(shopRaw) ? '' : shopRaw.replace(/\/\s*$/, '');
   const pickup = lineValue(text, '픽업');
   const deliver = lineValue(text, '인도');
+  // 방문정비는 픽업·인도 대신 '방문 : 27일 근무처 / 10:20 / 고객님 / 6,925km / 방문정비' 한 줄로 쓴다(2026-11-17 142호8391)
+  const visit = lineValue(text, '방문');
   const request = lineValue(text, '점검 의뢰');
   const done = lineValue(text, '점검 내용');
   const costText = lineValue(text, '점검 비용');
@@ -174,9 +176,9 @@ export const parseServiceEvent = (event) => {
     done,
     costText,
     amount: amountOf(costText),
-    mileageIn: kmOf(pickup),
-    mileageOut: kmOf(deliver),
-    fuelIn: fuelOf(pickup),
+    mileageIn: kmOf(pickup) || kmOf(visit),
+    mileageOut: kmOf(deliver) || kmOf(visit),
+    fuelIn: fuelOf(pickup) || fuelOf(visit),
     fuelOut: fuelOf(deliver),
     kinds: guessKinds({ title, request, done, colorId: event.colorId }),
     text

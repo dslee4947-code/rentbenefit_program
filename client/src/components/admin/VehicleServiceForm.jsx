@@ -172,7 +172,9 @@ const parseTemplate = (raw, form) => {
     if (a !== '') p.amount = a;
     if (/무상|보증|리콜/.test(cost)) p.payer = '보증·리콜(무상)';
   }
-  [['in', '픽업'], ['out', '인도']].forEach(([side, label]) => {
+  // 방문정비는 픽업·인도 대신 '방문 :' 한 줄로 쓴다. 픽업 줄이 없을 때만 픽업으로 읽는다
+  [['in', '픽업'], ['out', '인도'], ['in', '방문']].forEach(([side, label]) => {
+    if (label === '방문' && p.in) return;
     const v = lineOf(text, label);
     if (!v) return;
     // 칸 구분은 띄어쓰기가 붙은 '/'. '주유 1/8'처럼 붙여 쓴 '/'는 자르지 않는다.

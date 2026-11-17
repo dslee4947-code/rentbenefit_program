@@ -2,6 +2,7 @@ import 'dotenv/config';
 import fs from 'fs';
 import mongoose from 'mongoose';
 import VehicleService from '../models/VehicleService.js';
+import Vehicle from '../models/Vehicle.js';
 import { listEventsBetween } from '../utils/googleCalendar.js';
 import { parseServiceEvent } from '../utils/calendarInboxSync.js';
 
@@ -38,19 +39,32 @@ for (const r of records) {
   if (p.pickupPlace && !r.transport?.in?.from) set['transport.in.from'] = p.pickupPlace;
   if (p.pickupPlace && !r.transport?.out?.to) set['transport.out.to'] = p.pickupPlace;
   if (p.notes && !String(r.memo || '').includes(p.notes)) set.memo = [`특이사항: ${p.notes}`, r.memo].filter(Boolean).join(' / ');
+  // 주행거리가 빠진 기록(방문정비의 '방문 :' 줄 등, 2026-11-17 142호8391)
+  if (!r.mileage && !r.mileageIn && !r.mileageOut && (p.mileageOut || p.mileageIn)) {
+    set.mileage = p.mileageOut || p.mileageIn;
+    if (p.mileageIn) set.mileageIn = p.mileageIn;
+    if (p.mileageOut) set.mileageOut = p.mileageOut;
+  }
   if (Object.keys(set).length) updates.push({ r, set });
 }
 
 const count = (k) => updates.filter((u) => u.set[k] !== undefined).length;
 console.log(`일정을 못 찾음 ${missing}건 · 고칠 기록 ${updates.length}건`);
-console.log(`연락처 ${count('contactName') || count('contactPhone')} · 픽업지 ${count('transport.in.from')} · 특이사항 ${count('memo')} · 정비소 안내 글자 비움 ${count('shop')}`);
+console.log(`연락처 ${count('contactName') || count('contactPhone')} · 픽업지 ${count('transport.in.from')} · 특이사항 ${count('memo')} · 정비소 안내 글자 비움 ${count('shop')} · 주행거리 ${count('mileage')}`);
+updates.filter((u) => u.set.mileage).forEach(({ r, set }) => console.log('  주행거리', r.plateNo, r.date.toISOString().slice(0, 10), r.kind, set.mileage));
 updates.slice(0, 8).forEach(({ r, set }) => console.log(' ', r.plateNo, String(r.date.toISOString()).slice(0, 10), r.kind, JSON.stringify(set).slice(0, 200)));
 
 if (apply && updates.length) {
   fs.mkdirSync('backups', { recursive: true });
-  const file = `backups/vehicleservices-before-contacts-${new Date().toISOString().slice(0, 10)}.json`;
+  // 같은 날 여러 번 돌려도 앞 백업을 덮어쓰지 않게 시각까지 붙인다
+  const file = `backups/vehicleservices-before-contacts-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}.json`;
   fs.writeFileSync(file, JSON.stringify(updates.map((u) => u.r)));
   await VehicleService.bulkWrite(updates.map(({ r, set }) => ({ updateOne: { filter: { _id: r._id }, update: { $set: set } } })));
   console.log(`반영했습니다. 백업: ${file}`);
+  // 차량의 지금 주행거리는 더 큰 값으로만 올린다
+  for (const { r, set } of updates.filter((u) => u.set.mileage)) {
+    // eslint-disable-next-line no-await-in-loop
+    await Vehicle.updateOne({ _id: r.vehicle, $or: [{ currentMileage: { $lt: set.mileage } }, { currentMileage: null }] }, { $set: { currentMileage: set.mileage } });
+  }
 }
 await mongoose.disconnect();

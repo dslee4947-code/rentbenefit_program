@@ -64,7 +64,7 @@ const defaultSettings = () => ({
   tireUnitCost: USED_QUOTE_DEFAULTS.tireUnitCost
 });
 // 계약 만기 처리 비교표의 입력값(제3자 인수, 반납 예상 수리비)
-const defaultMaturity = () => ({ thirdParty: false, successionFee: SUCCESSION_FEE, repair: '' });
+const defaultMaturity = () => ({ thirdParty: false, successionFee: SUCCESSION_FEE, repair: '', standardValue: '' });
 // 연장 시작일 + 개월 - 1일 = 연장 계약 마지막 날
 const extensionEndOf = (start, months) => {
   if (!start || !(months > 0)) return '';
@@ -158,7 +158,12 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
     thirdParty: maturity.thirdParty, successionFee: maturity.successionFee, repairEstimate: maturity.repair
   });
 
-  const maturityView = maturityTable({ m: maturityData, ext: maturityExt, startDate: car.startDate, thirdParty: maturity.thirdParty, repairKnown: Number(maturity.repair) > 0 });
+  // 인수 시 취득세(예상). 시가표준액을 위택스에서 조회해 넣으면 그 값으로 센다(shared/usedCarTax.js)
+  const maturityTax = car.registrationDate ? {
+    registrationDate: car.registrationDate, model: car.carModel, cc: car.cc, newCarPrice: car.newCarPrice,
+    contractEnd: car.contractEnd, standardValueNow: maturity.standardValue, standardYear: todayYmd()
+  } : null;
+  const maturityView = maturityTable({ m: maturityData, ext: maturityExt, startDate: car.startDate, thirdParty: maturity.thirdParty, repairKnown: Number(maturity.repair) > 0, tax: maturityTax });
 
   /** 지금 계약의 회차표를 읽어 남은 렌트료를 잡는다 */
   const loadSchedule = async (contractId) => {
@@ -586,6 +591,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
               <input type="checkbox" checked={maturity.thirdParty} onChange={(e) => setMaturity((p) => ({ ...p, thirdParty: e.target.checked }))} /> 제3자 인수 (승계 수수료)
             </label>
             {maturity.thirdParty && field('승계 수수료', <MoneyInput value={maturity.successionFee} onChange={(e) => setMaturity((p) => ({ ...p, successionFee: e.target.value }))} style={{ ...input, width: '140px' }} />)}
+            {field('시가표준액 (위택스 조회값, 비우면 신차 공급가로 추정)', <MoneyInput value={maturity.standardValue} onChange={(e) => setMaturity((p) => ({ ...p, standardValue: e.target.value }))} style={{ ...input, width: '200px' }} placeholder="추정" />)}
             {field('반납 예상 수리비 (비우면 반납 뒤 확정)', <MoneyInput value={maturity.repair} onChange={(e) => setMaturity((p) => ({ ...p, repair: e.target.value }))} style={{ ...input, width: '180px' }} placeholder="반납 뒤 확정" />)}
             <button type="button" onClick={printMaturity} style={{ ...btn(true), marginLeft: 'auto' }}><Printer size={15} /> 비교표 인쇄 / PDF</button>
           </div>
@@ -776,7 +782,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
             <div ref={maturityRef} className={`used-rent-print-area print-fit m-doc${maturityFit.outer ? ' m-fitted' : ''}`}
               style={{ width: `${SHEET_WIDTH_PX}px`, height: `${SHEET_HEIGHT_PX}px`, margin: '0 auto', background: '#fff', padding: `${SHEET_MARGIN_PX}px`, color: '#000', fontFamily: "'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif", fontSize: '12.16px', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden', boxShadow: '0 0 0 1px var(--border-color)', ...maturityFit.inner }}>
               <MaturityCompareSheet car={car} m={maturityData} ext={maturityExt} thirdParty={maturity.thirdParty}
-                repairKnown={Number(maturity.repair) > 0} multiCar={schedule.carCount > 1} createdBy={createdBy} />
+                repairKnown={Number(maturity.repair) > 0} multiCar={schedule.carCount > 1} createdBy={createdBy} tax={maturityTax} />
             </div>
           </div>
         </div>

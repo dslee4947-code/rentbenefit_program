@@ -11,6 +11,8 @@
  * 회차표가 만기 전에 끝나 있으면 빠진 결제일을 월 렌트료로 채워 넣고 missing으로 표시한다.
  */
 
+import { acquisitionTaxOf } from './usedCarTax.js';
+
 // 계약서 약관의 제3자 인수 승계 수수료(대표님 2026-11-09)
 export const SUCCESSION_FEE = 330000;
 
@@ -106,11 +108,12 @@ const wonText = (n) => `${Math.round(Number(n) || 0).toLocaleString('ko-KR')}원
  * 만기 정산은 '마지막 렌트료 / 인수 금액 / 보증금 반환'을 따로 적는다. '납부 금액'처럼 합쳐 쓰면 다른 돈을 또 내는 것처럼 보인다.
  *
  * @param {object} p m(compareMaturity 결과), ext(연장 안 [{months, monthlyFee, takeoverPrice, maintenance, endDate}]),
- *   startDate 연장 시작일, thirdParty 제3자 인수, repairKnown 반납 수리비를 넣었는지
+ *   startDate 연장 시작일, thirdParty 제3자 인수, repairKnown 반납 수리비를 넣었는지,
+ *   tax 취득세 계산용 차 정보 {registrationDate, model, cc, newCarPrice, contractEnd, standardValueNow, standardYear}(없으면 줄을 뺀다)
  * @returns {{ cols: {kind: 'ext'|'takeover'|'return', title: string}[], rows: {label: string, section?: 'settle', cells: string[], notes?: string[]}[] }}
  *   notes는 칸 아래, labelNote는 줄 이름 아래에 작게 붙는 설명. 괄호로 덧붙이지 않는다(대표님 2026-11-17)
  */
-export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false, repairKnown = false }) => {
+export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false, repairKnown = false, tax = null }) => {
   const exts = ext.length ? ext : [null];
   const cols = [
     ...exts.map((o, i) => ({ kind: 'ext', o, title: `${i + 1}안 계약 연장` })),
@@ -134,6 +137,17 @@ export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false,
       ...row('인수가', { ext: (o) => (o?.takeoverPrice > 0 ? wonText(o.takeoverPrice) : '없음'), takeover: () => wonText(t.price), return: () => '없음' }),
       notes: cols.map((c) => (c.kind === 'ext' && c.o?.takeoverPrice > 0 ? '연장 만기 때' : ''))
     },
+    // 인수자가 이전등록 때 구청에 내는 취득세(예상). 연장 안은 연장이 끝나는 해 기준(shared/usedCarTax.js)
+    ...(tax ? [(() => {
+      const of = (onDate, price) => acquisitionTaxOf({ ...tax, onDate, takeoverPrice: price });
+      const calc = cols.map((c) => (c.kind === 'takeover' ? of(tax.contractEnd, t.price) : c.kind === 'ext' && c.o?.takeoverPrice > 0 ? of(c.o.endDate, c.o.takeoverPrice) : null));
+      return {
+        label: '인수 시 취득세',
+        labelNote: '구청 납부 · 예상',
+        cells: cols.map((c, i) => (c.kind === 'return' || (c.kind === 'ext' && !(c.o?.takeoverPrice > 0)) ? '없음' : calc[i] ? wonText(calc[i].tax) : '계산 불가')),
+        notes: calc.map((x) => (x ? `${x.year}년 ${x.basis} 과표 ${wonText(x.taxBase)}${x.light ? ' · 경차 감면' : ''}` : ''))
+      };
+    })()] : []),
     ...(thirdParty ? [row('승계 수수료', { ext: () => '없음', takeover: () => wonText(t.fee), return: () => '없음' })] : []),
     row('수리비', { ext: () => '없음', takeover: () => '없음', return: () => (repairKnown ? wonText(m.return.repair) : '반납 후 확정') }),
     { ...row(m.remaining.length > 1 ? '잔여 렌트료' : '마지막 렌트료', {

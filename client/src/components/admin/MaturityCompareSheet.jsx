@@ -19,10 +19,11 @@ const DIM = '#9a948a';
  *
  * @param {object} props
  *   car 견적 화면의 차·계약 정보, m compareMaturity 결과, ext 연장 안들 [{months, monthlyFee, takeoverPrice, maintenance, endDate}],
- *   thirdParty 제3자 인수, repairKnown 반납 수리비를 넣었는지, multiCar 한 계약에 차가 여러 대인지, createdBy 담당자
+ *   thirdParty 제3자 인수, repairKnown 반납 수리비를 넣었는지, multiCar 한 계약에 차가 여러 대인지, createdBy 담당자,
+ *   tax 인수 시 취득세 계산용 차 정보(maturityTable 참고)
  */
-export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKnown, multiCar, createdBy }) {
-  const table = maturityTable({ m, ext, startDate: car.startDate, thirdParty, repairKnown });
+export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKnown, multiCar, createdBy, tax }) {
+  const table = maturityTable({ m, ext, startDate: car.startDate, thirdParty, repairKnown, tax });
   const frame = { width: '100%', borderCollapse: 'collapse', fontSize: '13.6px', borderTop: `2px solid ${NAVY}`, borderBottom: `2px solid ${NAVY}` };
   const label = { background: SOFT, color: '#2b2b2b', fontWeight: '700', padding: '8px 10px', borderBottom: `1px solid ${LINE}`, borderRight: `1px solid ${GOLD}`, textAlign: 'center', whiteSpace: 'nowrap' };
   const value = { padding: '8px 10px', borderBottom: `1px solid ${LINE}`, color: NAVY };
@@ -164,6 +165,7 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
         <div>• 잔여 렌트료는 회차 결제일에 CMS로 출금됩니다. 인수 금액을 한 번에 입금하시면 해당 회차 CMS 출금은 하지 않습니다.</div>
         {multiCar ? <div>• 이 계약은 차량이 여러 대로, 잔여 렌트료는 계약 전체 금액입니다.</div> : null}
         <div>• 위 금액은 작성일 기준이며, 이후 통행료·과태료 고지서가 오면 달라질 수 있습니다.</div>
+        {tax ? <div>• 취득세는 인수하시는 분이 이전등록 때 구청에 납부합니다. 시가표준액 기준 예상액이며, 공채 매입·등록 대행료는 별도입니다.</div> : null}
         <div>• 문의: {createdBy} 팀장 02-547-0303 / 010-9061-3000 · rent@sdibenefit.com</div>
       </div>
     </>

@@ -68,6 +68,13 @@ test('비교표: 한 칸에 한 내용, 다성테크는 1안 24개월 월 268,00
   assert.deepEqual(rows.find((r) => r.label === '보증금').notes, ['연장 계약으로 승계', '인수가와 상계', '반납 후 반환']);
   assert.deepEqual(cell('보증금 반환'), ['없음', '없음', '27,389,000원']);
   assert.equal(rows.some((r) => r.label === '승계 수수료'), false);
+  assert.equal(rows.some((r) => r.label === '인수 시 취득세'), false);
+  // 차 정보를 주면 취득세 줄: 연장 안은 연장이 끝나는 2028년, 인수는 2026년 기준
+  const withTax = maturityTable({ m, ext: [{ months: 24, monthlyFee: 268000, takeoverPrice: 17389000, maintenance: false, endDate: '2028-12-01' }], startDate: '2026-12-02',
+    tax: { registrationDate: '2022-12-01', model: 'G80 2.5T AWD', cc: 2497, newCarPrice: 64000000, contractEnd: '2026-12-02' } });
+  const taxRow = withTax.rows.find((r) => r.label === '인수 시 취득세');
+  assert.deepEqual(taxRow.cells, ['1,266,580원', '1,917,230원', '없음']);
+  assert.deepEqual(taxRow.notes, ['2028년 시가표준액 과표 18,094,000원', '2026년 인수가 과표 27,389,000원', '']);
   // 제3자 인수면 승계 수수료 줄이 생긴다
   const third = maturityTable({ m: compareMaturity({ rounds: ds, contractEnd: '2026-12-02', monthlyRent: 1208000, deposit: 0, takeoverPrice: 2506900, thirdParty: true }), thirdParty: true });
   assert.deepEqual(third.rows.find((r) => r.label === '승계 수수료').cells, ['없음', '330,000원', '없음']);

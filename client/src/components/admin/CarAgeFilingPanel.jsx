@@ -172,7 +172,7 @@ function Editor({ filing, data, canEdit, onSave, onStatus, onDelete, showToast }
 
       <div style={{ ...card, background: 'var(--bg-main)' }}>
         <div style={{ fontSize: '0.84rem', fontWeight: 800, marginBottom: '0.6rem' }}>
-          서울시에 낼 서류 미리보기 <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}>— 신청서 앞쪽 · 뒤쪽{draft.items.length > 1 ? ' · 별첨 차량 목록' : ''}. 검사 합격통지서는 따로 붙입니다.</span>
+          서울시에 낼 서류 미리보기 <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}>— 신청서{draft.items.length > 1 ? ' · 별첨 차량 목록' : ''}. 검사 합격통지서는 따로 붙입니다.</span>
         </div>
         <div ref={docsRef} style={{ display: 'flex', flexDirection: 'column', gap: '18px', alignItems: 'flex-start', overflowX: 'auto', paddingBottom: '6px' }}>
           <CarAgeFilingDocs filing={draft} />

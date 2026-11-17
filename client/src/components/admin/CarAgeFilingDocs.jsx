@@ -1,7 +1,7 @@
 import { targetTextOf } from '../../../../shared/carAgeFiling.js';
 
 /**
- * 사업용자동차 차령조정 신청서 (별지 제55호서식) 앞쪽·뒤쪽 + 별첨 차량 목록.
+ * 사업용자동차 차령조정 신청서 (별지 제55호서식) 앞쪽 + 별첨 차량 목록. 뒤쪽(처리 흐름)은 대표님 2026-11-17 요청으로 뺐다.
  * 2026-10-21에 서울시에 낸 45대 신청서 PDF와 같은 모양. 쪽마다 A4 세로 794×1123px로 그린다.
  * 부모가 .fleet-doc-page를 모아 makeA4PagesPdf로 PDF를 만든다.
  */
@@ -107,42 +107,6 @@ function FrontPage({ filing }) {
   );
 }
 
-const box = (text, extra) => (
-  <div style={{ position: 'absolute', width: '146px', height: '68px', border: b, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px', letterSpacing: '6px', background: '#fff', ...extra }}>{text}</div>
-);
-
-function BackPage() {
-  return (
-    <div className="fleet-doc-page" data-orientation="portrait" style={{ ...pageStyle, paddingTop: '140px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', marginBottom: '8px' }}>
-        <span>이 신청서는 아래와 같이 처리됩니다.</span><span>(뒤 쪽)</span>
-      </div>
-      <div style={{ position: 'relative', border: B, height: '424px' }}>
-        <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, borderLeft: b }} />
-        <div style={{ position: 'absolute', left: 0, right: 0, top: '82px', borderTop: b }} />
-        <div style={{ position: 'absolute', left: 0, width: '50%', top: 0, height: '82px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px', letterSpacing: '6px' }}>신청인</div>
-        <div style={{ position: 'absolute', left: '50%', right: 0, top: 0, height: '37px', borderBottom: b, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px' }}>처리기관(담당 부서)</div>
-        <div style={{ position: 'absolute', left: '50%', right: 0, top: '37px', height: '45px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px' }}>시ㆍ도(여객자동차 운수사업 담당 부서)</div>
-        {box('신청서', { left: '24px', top: '104px' })}
-        {box('접수', { left: '342px', top: '104px' })}
-        {box('검토', { left: '342px', top: '218px' })}
-        {box('차령조정', { left: '342px', top: '330px', letterSpacing: '4px' })}
-        {box('통보', { left: '24px', top: '330px' })}
-        <div style={{ position: 'absolute', left: '170px', width: '146px', top: '138px', borderTop: '1px solid #000' }} />
-        <div style={{ position: 'absolute', left: '316px', top: '131px', width: 0, height: 0, borderTop: '7px solid transparent', borderBottom: '7px solid transparent', borderLeft: '12px solid #000' }} />
-        <div style={{ position: 'absolute', left: '196px', width: '146px', top: '364px', borderTop: '1px solid #000' }} />
-        <div style={{ position: 'absolute', left: '180px', top: '357px', width: 0, height: 0, borderTop: '7px solid transparent', borderBottom: '7px solid transparent', borderRight: '12px solid #000' }} />
-        {[172, 286].map((top) => (
-          <div key={top}>
-            <div style={{ position: 'absolute', left: '415px', top: `${top}px`, height: '22px', borderLeft: '1px solid #000' }} />
-            <div style={{ position: 'absolute', left: '408px', top: `${top + 22}px`, width: 0, height: 0, borderLeft: '7px solid transparent', borderRight: '7px solid transparent', borderTop: '12px solid #000' }} />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 const th = { border: '1px solid #444', background: '#e5e7eb', padding: '3px 6px', fontWeight: 700, textAlign: 'left', fontSize: '12px' };
 const td = { border: '1px solid #444', padding: '2px 6px', fontSize: '12px', height: '17px' };
 
@@ -184,7 +148,6 @@ export default function CarAgeFilingDocs({ filing }) {
   return (
     <>
       <FrontPage filing={filing} />
-      <BackPage />
       <ListPages filing={filing} />
     </>
   );

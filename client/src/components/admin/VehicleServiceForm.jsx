@@ -33,11 +33,12 @@ const emptyLeg = (method = '직원') => ({ method, from: '', to: '', distanceKm:
 
 /**
  * @param {object|null} record 고칠 기록
- * @param {{kind: string, date: string}} [preset] 달력 빈칸을 눌러 새로 적을 때. 앞날이면 '예정'으로 입고 날에, 지난 날·오늘이면 '완료'로 출고 날에 넣는다.
+ * @param {{kind: string, date: string, status?: string}} [preset] 달력 빈칸을 눌러 새로 적을 때. 앞날이면 '예정'으로 입고 날에, 지난 날·오늘이면 '완료'로 출고 날에 넣는다.
+ *   status를 주면 그 상태로 연다. 정기점검 목록의 [일정 잡기]는 '예정', [완료 처리]는 잡아 둔 기록을 '완료'로 연다.
  */
 const formOf = (record, preset) => {
   if (!record) {
-    const future = preset?.date && preset.date > new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+    const future = preset?.status === '예정' || (preset?.date && preset.date > new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10));
     return {
       kind: preset?.kind || '정기점검', status: future ? '예정' : '완료', staff: '', shop: '',
       inAt: future ? `${preset.date}T10:00` : '', outAt: preset?.date && !future ? `${preset.date}T18:00` : '', mileageIn: '', mileageOut: '', fuelIn: '', fuelOut: '',
@@ -49,9 +50,11 @@ const formOf = (record, preset) => {
   }
   const leg = (l) => ({ ...emptyLeg(l?.method || ''), ...Object.fromEntries(Object.entries(l || {}).map(([k, v]) => [k, v ?? ''])) });
   return {
-    kind: record.kind, status: record.status || '완료', staff: record.staff || '', shop: record.shop || '',
+    kind: record.kind, status: preset?.status || record.status || '완료', staff: record.staff || '', shop: record.shop || '',
     // 예전 간단 양식 기록은 입고·출고 시각이 없다. 날짜를 출고로 보여 준다.
-    inAt: toLocalInput(record.inAt), outAt: toLocalInput(record.outAt || (!record.inAt ? record.date : null)),
+    // 잡아 둔 일정을 완료로 열면 출고는 오늘로 채운다(받은 날이 다음 점검을 세는 기준이 된다).
+    inAt: toLocalInput(record.inAt),
+    outAt: toLocalInput(record.outAt || (preset?.status === '완료' && record.status !== '완료' ? new Date() : !record.inAt ? record.date : null)),
     mileageIn: record.mileageIn ?? '', mileageOut: record.mileageOut ?? (record.mileageIn ? '' : record.mileage ?? ''),
     fuelIn: record.fuelIn || '', fuelOut: record.fuelOut || '',
     transport: { in: leg(record.transport?.in), out: leg(record.transport?.out) },
@@ -188,6 +191,11 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
 
   const save = async () => {
     if (!form.inAt && !form.outAt) { showToast?.('입고 또는 출고 날짜를 적어 주세요.', 'error'); return; }
+    // 잡아 둔 검사·점검을 완료로 바꿀 때는 견적서·점검 결과서를 올려야 한다(대표님 2026-11-17).
+    // 완료해야 목록에서 빠지고 다음 일정이 그날부터 다시 잡히므로, 증빙 없이 끝난 것으로 처리되지 않게 한다.
+    const finishing = form.status === '완료' && ['정기점검', '자동차검사'].includes(form.kind) && record && record.status && record.status !== '완료';
+    const hasFile = files.length || (record?.attachments || []).length || record?.fileName;
+    if (finishing && !hasFile) { showToast?.('완료하려면 견적서나 점검 결과서를 올려 주세요.', 'error'); return; }
     setSaving(true);
     try {
       const payload = { ...form };

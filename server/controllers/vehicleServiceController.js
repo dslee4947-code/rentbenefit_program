@@ -46,7 +46,8 @@ const DAY = 24 * 60 * 60 * 1000;
  *   덜 타더라도 1년 넘게 정기점검이 없으면 연 1회 점검 안내가 필요하다.
  */
 const usageOf = (v, records, plan) => {
-  const checks = records.filter((r) => r.kind === '정기점검');
+  // 예정·입고·수리 중은 아직 받은 점검이 아니다
+  const checks = records.filter((r) => r.kind === '정기점검' && (!r.status || r.status === '완료'));
   const termMonths = Number(v.paymentTerm) || Number(v.contract?.termMonths) || 0;
   const intervalMonths = plan.maintenance?.intervalMonths || 12;
   const expected = termMonths ? Math.max(1, Math.floor(termMonths / intervalMonths)) : null;
@@ -68,7 +69,8 @@ const usageOf = (v, records, plan) => {
     for (let d = nextCheck; d <= contractEnd && remaining < 100; d = addMonths(d, intervalMonths)) remaining += 1;
   }
 
-  const lastCheck = checks.map((r) => kstYmd(r.date)).sort().pop() || '';
+  const lastCheckRecord = [...checks].sort((a, b) => (kstYmd(a.date) < kstYmd(b.date) ? -1 : 1)).pop();
+  const lastCheck = lastCheckRecord ? kstYmd(lastCheckRecord.date) : '';
   const sinceLastCheckDays = lastCheck ? Math.floor((Date.now() - new Date(lastCheck).getTime()) / DAY) : null;
   const notices = [];
   if (ratio && ratio > 1.2) {
@@ -79,7 +81,11 @@ const usageOf = (v, records, plan) => {
   }
 
   return {
-    checks: { done: checks.length, expected, remaining, intervalMonths, termMonths: termMonths || null, contractEnd: contractEnd || null, last: lastCheck },
+    checks: {
+      done: checks.length, expected, remaining, intervalMonths, termMonths: termMonths || null, contractEnd: contractEnd || null, last: lastCheck,
+      // 마지막 정기점검 때 주행거리·정비소. 정기점검 목록에서 "언제, 몇 km에, 어디서" 받았는지 보여 준다
+      lastKm: Number(lastCheckRecord?.mileageOut || lastCheckRecord?.mileage) || null, lastShop: lastCheckRecord?.shop || ''
+    },
     usage: { lastKm: lastKm || null, monthsSinceDelivery: Math.round(months * 10) / 10, contractKm, annualizedKm, ratio: ratio ? Math.round(ratio * 100) : null },
     notices
   };

@@ -908,6 +908,86 @@ function Due({ item, color }) {
   );
 }
 
+const MAINT_COLUMNS = ['차량번호', '구분', '차종', '계약자', '약정 주행', '점검 주기', '마지막 정기점검', '지금 주행', '다음 정기점검', '점검 횟수', '진행'];
+// 일정 → 진행 → 완료. 기록의 상태(예정 → 입고·수리 중 → 완료)를 그대로 쓴다.
+const STAGE = {
+  예정: { label: '일정 잡힘', color: '#1d4ed8', bg: '#dbeafe' },
+  입고: { label: '진행 중', color: '#b45309', bg: '#fef3c7' },
+  '수리 중': { label: '진행 중', color: '#b45309', bg: '#fef3c7' }
+};
+const kmText = (km) => (km ? `${Number(km).toLocaleString()}km` : '');
+const manKm = (km) => (km % 10000 === 0 ? `${km / 10000}만km` : kmText(km));
+
+/**
+ * 정기점검 칩을 눌렀을 때의 한 줄. 정기점검을 챙기는 데 필요한 것만 보여 준다:
+ * 약정 주행 → 점검 주기, 마지막으로 받은 날·주행거리·정비소, 지금 주행과 실제 월 주행, 다음 점검일, 받은 횟수.
+ */
+function MaintenanceRow({ r, selected, onOpen, onStep, cell, clip }) {
+  const m = r.maintenance;
+  const c = r.checks || {};
+  const u = r.usage || {};
+  const over = m?.status === '지남';
+  const soon = m?.status === '30일 이내';
+  const tone = over ? 'var(--error)' : soon ? '#d97706' : KIND.정기점검.color;
+  const annual = r.annualKm || null;
+  const perYear = m?.intervalMonths ? Math.round((12 / m.intervalMonths) * 10) / 10 : null;
+  const sub = { fontSize: '0.74rem', color: 'var(--text-muted)' };
+  return (
+    <tr onClick={onOpen} style={{ cursor: 'pointer', background: selected ? 'var(--bg-main)' : over ? '#fef2f2' : undefined }}>
+      <td style={{ ...cell, fontWeight: 800, color: over ? 'var(--error)' : 'var(--text-bright)', borderLeft: `4px solid ${over || soon ? tone : 'transparent'}` }}>{r.plateNo || '-'}</td>
+      <td style={{ ...cell, color: 'var(--text-muted)' }}>{groupText(r)}</td>
+      <td style={{ ...cell, ...clip, maxWidth: '170px' }} title={r.carModel}>{r.carModel}</td>
+      <td style={{ ...cell, ...clip, maxWidth: '150px' }} title={r.partyName}>{r.partyName || '-'}</td>
+      <td style={cell}>{annual ? `연 ${manKm(annual)}` : <span style={sub}>없음(연 2만km로 봄)</span>}</td>
+      <td style={cell} title={m?.basis || ''}>
+        {m ? (<>
+          <b>{m.intervalMonths}개월마다</b>
+          <div style={sub}>{perYear ? `1년에 약 ${perYear}회 · ` : ''}1만km마다</div>
+        </>) : <span style={sub}>-</span>}
+      </td>
+      <td style={cell}>
+        {c.last ? (<>
+          <b>{c.last}</b>
+          <div style={sub}>{[c.done ? `${c.done}회차` : '', kmText(c.lastKm), c.lastShop].filter(Boolean).join(' · ')}</div>
+        </>) : <span style={{ ...sub, color: 'var(--error)', fontWeight: 700 }}>받은 기록 없음</span>}
+      </td>
+      <td style={cell}>
+        {u.lastKm ? <b>{kmText(u.lastKm)}</b> : <span style={sub}>기록 없음</span>}
+        <div style={sub}>
+          {[m?.kmPerMonth ? `월 ${m.kmPerMonth.toLocaleString()}km` : '', u.ratio ? `약정의 ${u.ratio}%` : ''].filter(Boolean).join(' · ')}
+        </div>
+      </td>
+      <td style={cell}>
+        {m ? (<>
+          <b style={{ color: over || soon ? tone : 'var(--text-bright)' }}>{m.date} {ddayText(m.dday)}</b>
+          <div style={sub}>{m.status === '지남' ? '지남' : m.status}{m.baseDate ? ` · ${c.last ? '지난 점검' : '인도일'} ${m.baseDate}부터` : ''}</div>
+        </>) : <span style={sub}>-</span>}
+      </td>
+      <td style={cell}>
+        {c.expected ? <b>{c.done || 0} / {c.expected}회</b> : <b>{c.done || 0}회</b>}
+        <div style={sub}>{c.remaining !== null && c.remaining !== undefined ? `계약 끝까지 ${c.remaining}회 남음` : ''}</div>
+      </td>
+      <td style={cell} onClick={(e) => e.stopPropagation()}>
+        {(() => {
+          const b = (r.bookings || []).filter((x) => x.kind === '정기점검').sort((x, y) => (x.date < y.date ? -1 : 1))[0];
+          const btn = (label, color, onClick) => (
+            <button type="button" onClick={onClick} style={{ border: `1px solid ${color}`, background: '#fff', color, borderRadius: '6px', padding: '0.2rem 0.5rem', fontSize: '0.74rem', fontWeight: 800, cursor: 'pointer' }}>{label}</button>
+          );
+          if (!b) return btn('일정 잡기', KIND.정기점검.color, () => onStep('book', r));
+          const st = STAGE[b.status] || STAGE.예정;
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              <span style={{ background: st.bg, color: st.color, borderRadius: '6px', padding: '0.1rem 0.4rem', fontSize: '0.74rem', fontWeight: 800 }} title={b.shop || ''}>{st.label} {b.date.slice(5)}</span>
+              {b.status === '예정' && btn('진행', '#b45309', () => onStep('start', r, b))}
+              {btn('완료', KIND.정기점검.color, () => onStep('finish', r, b))}
+            </div>
+          );
+        })()}
+      </td>
+    </tr>
+  );
+}
+
 // 위 칩을 누르면 그 상태의 차만 남긴다. 아침에 "오늘 챙길 차"만 보려는 용도다.
 // 칩은 일의 종류로 묶고 달력과 같은 색을 쓴다(자동차검사 파랑, 정기점검 초록. 대표님 2026-11-17).
 // 차령 연장은 자동차검사를 받으면서 신청하므로 자동차검사 묶음 안에 '차령'으로 붙인다.
@@ -1027,16 +1107,45 @@ function VehicleServiceView({ showToast, currentUser }) {
 
   const startEdit = (r) => setFormOpen({ record: r });
   // 달력에서 [수정]을 누르면 그 차 기록을 불러와 그 기록의 양식을 연다
-  const editFromCalendar = async (vehicleId, recordId) => {
+  const editFromCalendar = async (vehicleId, recordId, preset) => {
     try {
       const res = await fetch(`${API_HOST}/api/vehicle-services/vehicle/${vehicleId}`, { cache: 'no-store' });
       const data = await res.json();
       const found = (data.records || []).find((x) => String(x._id) === String(recordId));
-      if (found) setFormOpen({ record: found });
+      if (found) setFormOpen({ record: found, preset });
       else showToast?.('기록을 찾지 못했습니다. 차 상세에서 고쳐 주세요.', 'error');
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
     }
+  };
+
+  // 정기점검 목록의 [일정 잡기] · [진행] · [완료]
+  const maintStep = async (step, r, b) => {
+    if (step === 'book') {
+      // 계산한 날이 지났으면 내일로 잡아 두고, 고객과 정한 날로 고치게 한다
+      const tomorrow = new Date(Date.now() + 33 * 3600e3).toISOString().slice(0, 10);
+      const date = r.maintenance?.date && r.maintenance.date > tomorrow ? r.maintenance.date : tomorrow;
+      openVehicle(r.vehicleId);
+      setFormOpen({ record: null, preset: { kind: '정기점검', date, status: '예정' } });
+      return;
+    }
+    if (step === 'start') {
+      try {
+        const res = await fetch(`${API_HOST}/api/vehicle-services/${b.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: '입고' })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) { showToast?.(data.message || '바꾸지 못했습니다.', 'error'); return; }
+        showToast?.(`${r.plateNo} 정기점검을 진행 중으로 바꿨습니다.`, 'success');
+        load();
+      } catch {
+        showToast?.('서버 통신 오류가 발생했습니다.', 'error');
+      }
+      return;
+    }
+    // 완료: 잡아 둔 기록을 '완료'로 열어 견적서·점검 결과서를 올리게 한다
+    openVehicle(r.vehicleId);
+    editFromCalendar(r.vehicleId, b.id, { status: '완료' });
   };
 
   const afterSave = () => {
@@ -1059,6 +1168,11 @@ function VehicleServiceView({ showToast, currentUser }) {
 
   const q = query.trim().replace(/\s+/g, '').toLowerCase();
   const activeFilter = FILTERS.find((f) => f.id === filter);
+  // 칩 묶음에 맞춰 표를 바꾼다. 정기점검 칩이면 정기점검에 필요한 칸만, 자동차검사 칩이면 검사·차령 칸만 보인다(대표님 2026-11-17).
+  const mode = activeFilter?.group || '';
+  const columns = mode === 'maint' ? MAINT_COLUMNS
+    : mode === 'insp' ? ['차량번호', '구분', '차종', '계약자', '자동차검사', '차령', '최근 기록']
+      : ['차량번호', '구분', '차종', '계약자', '자동차검사', '차령', '정기점검', '최근 기록'];
   const visible = rows
     .filter((r) => !q || [r.plateNo, r.carModel, r.partyName].some((x) => String(x || '').replace(/\s+/g, '').toLowerCase().includes(q)))
     .filter((r) => !activeFilter || activeFilter.test(r))
@@ -1161,14 +1275,14 @@ function VehicleServiceView({ showToast, currentUser }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
           <thead style={{ background: 'var(--bg-main)', color: 'var(--text-muted)' }}>
             <tr>
-              {['차량번호', '구분', '차종', '계약자', '자동차검사', '차령', '정기점검', '최근 기록'].map((h) => (
+              {columns.map((h) => (
                 <th key={h} style={{ ...cell, textAlign: 'left', fontWeight: 700 }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {visible.length === 0 ? (
-              <tr><td colSpan={8} style={{ ...cell, textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>
+              <tr><td colSpan={columns.length} style={{ ...cell, textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>
                 {loading ? '불러오는 중...' : '해당하는 차량이 없습니다.'}
               </td></tr>
             ) : visible.map((r) => {
@@ -1180,6 +1294,7 @@ function VehicleServiceView({ showToast, currentUser }) {
               const urgent = [inspUrgent, age].filter(Boolean).sort((a, b) => a.rank - b.rank)[0] || null;
               const insp = r.inspection;
               const maint = r.maintenance;
+              if (mode === 'maint') return <MaintenanceRow key={r.vehicleId} r={r} cell={cell} clip={clip} onStep={maintStep} selected={selectedId === r.vehicleId} onOpen={() => openVehicle(r.vehicleId)} />;
               return (
                 <tr
                   key={r.vehicleId}
@@ -1212,14 +1327,14 @@ function VehicleServiceView({ showToast, currentUser }) {
                       </span>
                     ) : <span style={small}>-</span>}
                   </td>
-                  <td style={cell}>
+                  {mode !== 'insp' && <td style={cell}>
                     {maint ? (
                       <span title={maint.basis}>
                         {maint.date}{' '}
                         {MAINT_COLOR[maint.status] && <b style={{ color: MAINT_COLOR[maint.status] }}>{ddayText(maint.dday)}</b>}
                       </span>
                     ) : <span style={small}>-</span>}
-                  </td>
+                  </td>}
                   <td style={{ ...cell, color: 'var(--text-muted)' }}>{r.lastRecord ? `${r.lastRecord.date} ${r.lastRecord.kind}` : '-'}</td>
                 </tr>
               );
@@ -1228,6 +1343,13 @@ function VehicleServiceView({ showToast, currentUser }) {
         </table>
       </div>
 
+      {mode === 'maint' ? (
+      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+        <b style={{ color: KIND.정기점검.color }}>정기점검</b>은 1만 km마다 받는 것으로 보고, 약정 주행거리로 주기를 정합니다(예: 연 2만 km → 1년에 2회, 6개월마다 · 연 3만 km → 4개월마다).
+        덜 타더라도 1년에 한 번은 받습니다. 주행거리 기록이 두 번 이상 있으면 실제 월 주행으로 1만 km가 차는 날도 함께 보고 더 이른 날을 씁니다.
+        다음 점검일은 마지막 정기점검일(없으면 인도일)부터 셉니다.
+      </div>
+      ) : (
       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
         {Object.values(INSPECTION_LEVEL).map((l) => (
           <span key={l.label} style={{ background: l.bg, color: l.fg, fontWeight: 800, padding: '0 0.35rem', borderRadius: '4px', marginRight: '0.3rem' }}>{l.label}</span>
@@ -1236,6 +1358,7 @@ function VehicleServiceView({ showToast, currentUser }) {
         차령(렌터카)은 최초등록일부터 배기량 2,000cc 미만 5년, 2,000cc 이상 8년이며, 끝나기 전 2개월 안에 검사를 받고 연장을 신청합니다(1년씩, 최대 2년).
         순서: 검사·차령 급한 차 → 정비 포함·단기렌트 중 점검 급한 차 → 나머지 정비 포함·단기렌트 → 정비 미포함.
       </div>
+      )}
       </>)}
 
       {selectedId && (

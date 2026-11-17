@@ -10,6 +10,7 @@ import {
   uploadFleetNotice,
   getFleetNoticeFile
 } from '../controllers/fleetFilingController.js';
+import { getCarAgeFilings, createCarAgeFiling, updateCarAgeFiling, setCarAgeFilingStatus, deleteCarAgeFiling } from '../controllers/carAgeFilingController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
 import { uploadSingleFile } from '../middleware/uploadMiddleware.js';
 
@@ -19,6 +20,12 @@ const router = express.Router();
 router.use(checkWritePermission);
 
 router.get('/', getFleetFilings);
+// 차령조정(차령 연장) 신청서. '/:id'보다 먼저 둔다.
+router.get('/car-age', getCarAgeFilings);
+router.post('/car-age', createCarAgeFiling);
+router.put('/car-age/:id', updateCarAgeFiling);
+router.post('/car-age/:id/status', setCarAgeFilingStatus);
+router.delete('/car-age/:id', deleteCarAgeFiling);
 router.put('/info', updateFleetInfo);
 router.post('/import', uploadSingleFile(), importFleetWorkbook);
 router.post('/notice', uploadSingleFile(), uploadFleetNotice);

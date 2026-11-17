@@ -81,7 +81,7 @@ export const filingSheetOf = (info, filing = {}) => {
       delta,
       afterArea: delta ? areaOf(t.width, t.length, delta) : 0
     };
-  });
+  }).filter((r) => r.before || r.delta); // 변경 전·후 모두 0대면 없는 차종이라 표에서 뺀다(대표님 2026-11-17)
   // 처음 들이는 차종은 표 끝에 붙인다(엑셀에서 맨 아래 줄을 늘리던 것과 같다)
   deltas.forEach((d) => rows.push({
     name: d.name, width: d.width, length: d.length, before: 0, beforeArea: 0, delta: d.delta, afterArea: areaOf(d.width, d.length, d.delta), isNew: true

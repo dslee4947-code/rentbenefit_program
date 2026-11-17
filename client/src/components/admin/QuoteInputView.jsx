@@ -4273,7 +4273,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                       </td>
                     ) : (
                       displaySelectedOptions.map(({ opt }, idx) => (
-                        <td key={idx} style={getCellStyles(idx, false, { verticalAlign: 'top', whiteSpace: 'pre-wrap', lineHeight: '1.35' })}>
+                        <td key={idx} style={getCellStyles(idx, false, { verticalAlign: 'top', whiteSpace: 'pre-wrap', lineHeight: '1.35', textAlign: 'left' })}>
                           {opt.specialNote?.trim() ? opt.specialNote : '-'}
                         </td>
                       ))

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateUsedQuoteOption, usedOwnCarInsurance, vehicleAgeLimit, monthsLabel } from '../../shared/usedQuoteCalc.js';
+import { calculateUsedQuoteOption, compareUsedQuoteMaintenance, usedOwnCarInsurance, vehicleAgeLimit, monthsLabel } from '../../shared/usedQuoteCalc.js';
 
 // 방기태 변호사님 GLE450 견적(2026-10-26 엑셀 '견적서 보고용'). 수수료·딜러 0%로 낸 견적이다.
 const GLE = { usedPrice: 22105860, newCarPrice: 118600000, cc: 3000, commissionRate: 0, dealerRate: 0 };
@@ -73,4 +73,22 @@ test('개월 표시', () => {
   assert.equal(monthsLabel(47), '3년 11개월');
   assert.equal(monthsLabel(12), '1년');
   assert.equal(monthsLabel(5), '5개월');
+});
+
+test('정비 포함 비교: 목표 이익이면 두 렌트료를 각각 계산하고, 직접 입력이면 정비 원가를 개월로 나눠 더한다', () => {
+  const base = { termMonths: 24, mileage: 30000, deposit: 12360000, takeoverPrice: 12360000 };
+  const on = calculateUsedQuoteOption({ ...base, maintenance: true }, GLE);
+  assert.ok(on.inspectionCost > 0 && on.tireCost > 0);
+
+  const auto = compareUsedQuoteMaintenance({ ...base, calcMode: 'auto', targetProfit: 1000000 }, GLE);
+  assert.equal(auto.cost, on.inspectionCost + on.tireCost);
+  assert.equal(auto.withFee, calculateUsedQuoteOption({ ...base, maintenance: true, calcMode: 'auto', targetProfit: 1000000 }, GLE).monthlyFee);
+  assert.equal(auto.withoutFee, calculateUsedQuoteOption({ ...base, maintenance: false, calcMode: 'auto', targetProfit: 1000000 }, GLE).monthlyFee);
+  assert.ok(auto.diff > 0);
+
+  const perMonth = Math.ceil(auto.cost / 24 / 1000) * 1000;
+  const manualOff = compareUsedQuoteMaintenance({ ...base, calcMode: 'manual', monthlyFee: 1000000, maintenance: false }, GLE);
+  assert.deepEqual([manualOff.withoutFee, manualOff.withFee], [1000000, 1000000 + perMonth]);
+  const manualOn = compareUsedQuoteMaintenance({ ...base, calcMode: 'manual', monthlyFee: 1000000, maintenance: true }, GLE);
+  assert.deepEqual([manualOn.withFee, manualOn.withoutFee], [1000000, 1000000 - perMonth]);
 });

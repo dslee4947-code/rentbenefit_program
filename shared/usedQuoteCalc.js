@@ -114,6 +114,29 @@ export const calculateUsedQuoteOption = (opt = {}, car = {}) => {
   };
 };
 
+/**
+ * 같은 안을 정비 포함·미포함으로 계산해 월 렌트료를 나란히 낸다(대표님 2026-11-17 "정비 포함하면 금액이 어떻게 나오는지").
+ * 정비를 넣으면 원가에 정기점검비 × 개월 + 타이어만 더해진다.
+ *   목표 이익 → 렌트료: 같은 목표 이익으로 두 렌트료를 각각 계산한다.
+ *   렌트료 직접 입력: 입력한 렌트료는 지금 고른 쪽에 두고, 다른 쪽은 같은 영업이익이 나오게 정비 원가를 개월로 나눠(천 원 올림) 더하거나 뺀다.
+ *
+ * @returns {{ withFee: number, withoutFee: number, diff: number, cost: number, tireCount: number }}
+ */
+export const compareUsedQuoteMaintenance = (opt = {}, car = {}) => {
+  const on = calculateUsedQuoteOption({ ...opt, maintenance: true }, car);
+  const off = calculateUsedQuoteOption({ ...opt, maintenance: false }, car);
+  const cost = on.totalCost - off.totalCost;
+  let withFee = on.monthlyFee;
+  let withoutFee = off.monthlyFee;
+  if (opt.calcMode !== 'auto') {
+    const perMonth = on.months > 0 ? Math.ceil(cost / on.months / 1000) * 1000 : 0;
+    const base = Number(opt.monthlyFee) || 0;
+    withFee = opt.maintenance === true ? base : base + perMonth;
+    withoutFee = opt.maintenance === true ? base - perMonth : base;
+  }
+  return { withFee, withoutFee, diff: withFee - withoutFee, cost, tireCount: on.tireCount };
+};
+
 // ───── 렌터카 차령 한도
 
 /**

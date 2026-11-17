@@ -4,7 +4,7 @@ import { printFitted, makeFittedPdf } from '../../utils/printFit.js';
 import usePhoneFit, { phoneFitStyles } from '../../utils/usePhoneFit.js';
 import MoneyInput from './MoneyInput.jsx';
 import ContractExtendDialog from './ContractExtendDialog.jsx';
-import { calculateUsedQuoteOption, vehicleAgeLimit, monthsLabel, USED_QUOTE_DEFAULTS } from '../../../../shared/usedQuoteCalc.js';
+import { calculateUsedQuoteOption, compareUsedQuoteMaintenance, vehicleAgeLimit, monthsLabel, USED_QUOTE_DEFAULTS } from '../../../../shared/usedQuoteCalc.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -121,8 +121,9 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
   const calcCar = carForCalc(car, settings);
   const rows = options.map((o) => {
     const calc = calculateUsedQuoteOption(optForCalc(o), calcCar);
+    const maint = compareUsedQuoteMaintenance(optForCalc(o), calcCar);
     const overAge = ageLimit?.maxMonths !== null && ageLimit?.maxMonths !== undefined && Number(o.termMonths) > ageLimit.maxMonths;
-    return { opt: o, calc, overAge };
+    return { opt: o, calc, maint, overAge };
   });
   const sheetRows = rows.filter((r) => r.opt.include && !r.overAge && r.calc.months > 0);
 
@@ -576,6 +577,28 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
               {calcRow('정비 + 타이어', (c) => (c.inspectionCost + c.tireCost ? `${won(c.inspectionCost + c.tireCost)}${c.tireCount ? ` (타이어 ${c.tireCount}본)` : ''}` : '-'))}
               {calcRow('총구입가 (원가)', (c) => won(c.totalCost), { strong: true })}
               {calcRow('월 렌트료', (c) => `${won(c.monthlyFee)}원`, { strong: true })}
+              <tr>
+                <th style={th}>정비 포함 비교<div style={{ fontSize: '0.7rem', fontWeight: 500 }}>{rows.some((r) => r.opt.calcMode !== 'auto') ? '같은 영업이익 기준' : '같은 목표 이익 기준'}</div></th>
+                {rows.map((r, i) => {
+                  const m = r.maint;
+                  if (!r.calc.months) return <td key={i} style={tdNum}>-</td>;
+                  const line = (on, fee) => (
+                    <div style={{ fontWeight: r.opt.maintenance === on ? 800 : 500, color: r.opt.maintenance === on ? 'var(--text-bright)' : 'var(--text-muted)' }}>
+                      {on ? '포함' : '미포함'} 월 {won(fee)}원{r.opt.maintenance === on ? ' ✓' : ''}
+                    </div>
+                  );
+                  return (
+                    <td key={i} style={{ ...tdNum, lineHeight: 1.5 }}>
+                      {line(false, m.withoutFee)}
+                      {line(true, m.withFee)}
+                      <div style={{ fontSize: '0.75rem', color: '#2563eb', fontWeight: 700 }}>차이 월 +{won(m.diff)}원</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                        정비 원가 {won(m.cost)}원{m.tireCount ? ` (타이어 ${m.tireCount}본 포함)` : ''}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
               {calcRow('총수입 (렌트료 + 인수가 + 선수금)', (c) => won(c.totalRevenue))}
               {calcRow('영업이익', (c) => won(c.profit), { strong: true, sign: true })}
               {calcRow('회사 몫 (이익 + 수수료) / 중고차 가격', (c) => pct(c.profitRate))}

@@ -547,7 +547,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
 
       {/* 계약 만기 처리 비교(대표님 2026-11-17): 1안 연장 · 2안 인수 · 3안 반납을 한 장으로 */}
       {isExt && car.contractId && (
-        <div style={{ ...card, border: '2px solid #1d4ed8' }} className="no-print">
+        <div style={{ ...card, border: '1px solid #ad885c', borderTop: '3px solid #111e38' }} className="no-print">
           <div style={cardTitle}>■ 계약 만기 처리 비교 <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>1안 연장 · 2안 인수 · 3안 반납(만기 반납)</span></div>
           {maturityData.missingCount > 0 && (
             <div style={{ fontSize: '0.8rem', color: '#b91c1c', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '6px', padding: '0.4rem 0.6rem', marginBottom: '0.5rem' }}>
@@ -562,16 +562,16 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
                 <tr>
                   <th style={{ padding: '0.4rem', textAlign: 'left', borderBottom: '1px solid var(--border-color)' }}></th>
                   {maturityView.cols.map((c, i) => (
-                    <th key={i} style={{ padding: '0.4rem', textAlign: 'right', color: { ext: '#1d4ed8', takeover: '#047857', return: '#b45309' }[c.kind], borderBottom: '1px solid var(--border-color)' }}>{c.title}</th>
+                    <th key={i} style={{ padding: '0.4rem', textAlign: 'right', color: '#111e38', borderBottom: '2px solid #ad885c' }}>{c.title}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {maturityView.rows.map((r) => (
-                  <tr key={r.label} style={r.section === 'settle' ? { background: '#fffbeb' } : undefined}>
+                  <tr key={r.label} style={r.section === 'settle' ? { background: '#f9f8f6' } : undefined}>
                     <th style={{ padding: '0.3rem 0.4rem', textAlign: 'left', fontWeight: r.section === 'settle' ? 800 : 700 }}>{r.label}{r.labelNote ? <span style={{ fontSize: '0.72rem', fontWeight: 500, color: 'var(--text-muted)' }}> {r.labelNote}</span> : null}</th>
                     {r.cells.map((v, i) => (
-                      <td key={i} style={{ padding: '0.3rem 0.4rem', textAlign: 'right', fontWeight: r.section === 'settle' && v !== '없음' ? 800 : 500, color: v === '없음' || v === '-' ? 'var(--text-muted)' : r.label === '보증금 반환' ? '#047857' : 'var(--text-bright)' }}>
+                      <td key={i} style={{ padding: '0.3rem 0.4rem', textAlign: 'right', fontWeight: r.section === 'settle' && v !== '없음' ? 800 : 500, color: v === '없음' || v === '-' ? 'var(--text-muted)' : '#111e38' }}>
                         {v}
                         {r.notes?.[i] ? <div style={{ fontSize: '0.72rem', fontWeight: 500, color: 'var(--text-muted)' }}>{r.notes[i]}</div> : null}
                       </td>

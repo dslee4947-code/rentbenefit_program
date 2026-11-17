@@ -3,114 +3,153 @@ import { DEPOSIT_ACCOUNT } from './InvoiceSheet.jsx';
 import { maturityTable } from '../../../../shared/maturityCompare.js';
 
 const won = (n) => Math.round(Number(n) || 0).toLocaleString('ko-KR');
-// 안마다 머리 색: 연장 파랑 · 인수 초록 · 반납 주황
-const TONE = { ext: '#1d4ed8', takeover: '#047857', return: '#b45309' };
 const todayYmd = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 const ymd = (v) => (v ? new Date(new Date(v).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10) : '');
 
+// 비교 견적서와 같은 남색·금색 톤(대표님 2026-11-17 "안마다 색이 유치하다, 고급지게")
+const NAVY = '#111e38';
+const GOLD = '#ad885c';
+const LINE = '#e4dfd6';
+const SOFT = '#f9f8f6';
+const DIM = '#b3ada2';
+
 /**
  * 계약 만기 처리 비교표 한 장(A4). 1안 계약 연장 · 2안 인수 · 3안 반납(만기 반납)을 나란히 보여 준다.
- * 금액 계산은 shared/maturityCompare.js. 화면 모양 그대로 printFitted로 인쇄한다.
+ * 금액 계산과 줄 구성은 shared/maturityCompare.js(maturityTable). 화면 모양 그대로 printFitted로 인쇄한다.
  *
  * @param {object} props
  *   car 견적 화면의 차·계약 정보, m compareMaturity 결과, ext 연장 안들 [{months, monthlyFee, takeoverPrice, maintenance, endDate}],
  *   thirdParty 제3자 인수, repairKnown 반납 수리비를 넣었는지, multiCar 한 계약에 차가 여러 대인지, createdBy 담당자
  */
 export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKnown, multiCar, createdBy }) {
-  const cellHead = { background: '#dcdcdc', padding: '5px 8px', fontWeight: '700', border: '1px solid #000', textAlign: 'center' };
-  const cell = { padding: '5px 8px', border: '1px solid #000' };
-  const col = { ...cell, width: '28%', verticalAlign: 'top', lineHeight: 1.55 };
-  const head = (bg) => ({ ...cellHead, background: bg, color: '#fff', fontSize: '14.4px', padding: '7px 8px' });
-  const rowHead = { ...cellHead, width: '16%', fontSize: '11.84px' };
-  const muted = { fontSize: '11.2px', color: '#555' };
   const table = maturityTable({ m, ext, startDate: car.startDate, thirdParty, repairKnown });
+  const frame = { width: '100%', borderCollapse: 'collapse', fontSize: '12.16px', borderTop: `2px solid ${NAVY}`, borderBottom: `2px solid ${NAVY}` };
+  const label = { background: SOFT, color: '#4b4b4b', fontWeight: '700', padding: '6px 10px', borderBottom: `1px solid ${LINE}`, borderRight: `1px solid ${GOLD}`, textAlign: 'center', whiteSpace: 'nowrap' };
+  const value = { padding: '6px 10px', borderBottom: `1px solid ${LINE}`, color: NAVY };
+  const note = { fontSize: '10.4px', fontWeight: '500', color: '#8a8579', marginTop: '1px' };
+  const sectionTitle = (text, sub) => (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', margin: '14px 0 6px' }}>
+      <span style={{ width: '3px', height: '13px', background: GOLD, display: 'inline-block', alignSelf: 'center' }} />
+      <span style={{ fontSize: '13.6px', fontWeight: '800', color: NAVY }}>{text}</span>
+      {sub ? <span style={{ fontSize: '11.2px', color: '#8a8579' }}>{sub}</span> : null}
+    </div>
+  );
+  // '1안 계약 연장' → 번호와 이름을 나눠 머리에 두 줄로
+  const splitTitle = (t) => { const [no, ...rest] = t.split(' '); return { no, name: rest.join(' ') }; };
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '9.6px', borderBottom: '2.5px double #000', paddingBottom: '9.6px' }}>
-        <div style={{ width: '150px' }}><span style={{ fontSize: '17.6px', fontWeight: '800', color: '#111e38' }}>(주)렌트베네핏</span></div>
-        <h2 style={{ fontSize: '28.8px', fontWeight: '800', color: '#111e38', margin: 0, letterSpacing: '2px', flex: 1, textAlign: 'center' }}>계약 만기 안내</h2>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', width: '150px' }}><img src="/logo.png" alt="RENT BENefit" style={{ maxWidth: '120px', height: 'auto' }} /></div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', paddingBottom: '10px', borderBottom: `2px solid ${GOLD}` }}>
+        <div style={{ width: '170px' }}><span style={{ fontSize: '16.8px', fontWeight: '800', color: NAVY }}>(주)렌트베네핏</span></div>
+        <div style={{ flex: 1, textAlign: 'center' }}>
+          <div style={{ fontSize: '10.4px', fontWeight: '700', color: GOLD, letterSpacing: '3px' }}>CONTRACT MATURITY</div>
+          <h2 style={{ fontSize: '27.2px', fontWeight: '800', color: NAVY, margin: '2px 0 0', letterSpacing: '4px' }}>계약 만기 안내</h2>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', width: '170px' }}><img src="/logo.png" alt="RENT BENefit" style={{ maxWidth: '120px', height: 'auto' }} /></div>
       </div>
 
-      <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '12.16px', marginBottom: '9.6px' }}>
+      <table style={{ ...frame, marginTop: '14px' }}>
         <tbody>
           <tr>
-            <td style={{ ...cellHead, width: '13%' }}>고객명</td><td style={{ ...cell, width: '37%', fontWeight: '700' }}>{car.partyName || '-'} 귀하</td>
-            <td style={{ ...cellHead, width: '13%' }}>작성일</td><td style={{ ...cell, textAlign: 'center' }}>{todayYmd()}</td>
+            <td style={{ ...label, width: '13%' }}>고객명</td><td style={{ ...value, width: '37%', fontWeight: '800' }}>{car.partyName || '-'} 귀하</td>
+            <td style={{ ...label, width: '13%' }}>작성일</td><td style={value}>{todayYmd()}</td>
           </tr>
           <tr>
-            <td style={cellHead}>차량</td><td style={{ ...cell, fontWeight: '600' }}>{car.carModel || '-'} · {car.plateNo || '-'}</td>
-            <td style={cellHead}>담당자</td><td style={{ ...cell, textAlign: 'center' }}>{createdBy} 팀장 · 02-547-0303 / 010-9061-3000</td>
+            <td style={label}>차량</td><td style={{ ...value, fontWeight: '700' }}>{car.carModel || '-'} · {car.plateNo || '-'}</td>
+            <td style={label}>담당자</td><td style={value}>{createdBy} 팀장 · 02-547-0303 / 010-9061-3000</td>
           </tr>
           <tr>
-            <td style={cellHead}>기존 계약</td>
-            <td style={cell}>계약번호 {car.contractNo || '-'} · 월 렌트료 {won(car.currentMonthlyFee)}원</td>
-            <td style={cellHead}>계약 만기</td><td style={{ ...cell, textAlign: 'center', fontWeight: '700', color: '#b91c1c' }}>{car.contractEnd || '-'}</td>
+            <td style={label}>기존 계약</td><td style={value}>계약번호 {car.contractNo || '-'} · 월 렌트료 {won(car.currentMonthlyFee)}원</td>
+            <td style={label}>계약 만기</td><td style={{ ...value, fontWeight: '800' }}>{car.contractEnd || '-'}</td>
           </tr>
           <tr>
-            <td style={cellHead}>보증금</td><td style={cell}>{won(m.deposit)}원</td>
-            <td style={cellHead}>만기 인수가</td><td style={{ ...cell, textAlign: 'center' }}>{won(m.takeover.price)}원</td>
+            <td style={label}>보증금</td><td style={value}>{won(m.deposit)}원</td>
+            <td style={label}>만기 인수가</td><td style={value}>{won(m.takeover.price)}원</td>
           </tr>
         </tbody>
       </table>
 
-      <div style={{ fontSize: '12.8px', lineHeight: 1.6, marginBottom: '9.6px' }}>
-        그동안 이용해 주셔서 감사합니다. 계약 만기에 고르실 수 있는 세 가지 방법과 각 금액을 정리해 드립니다.
-        어느 방법을 선택하시더라도 아래 <b>잔여 렌트료</b>는 계약 기간까지 납부해 주셔야 합니다.
+      <div style={{ fontSize: '12.48px', lineHeight: 1.7, color: '#333', margin: '12px 2px 0' }}>
+        그동안 이용해 주셔서 감사합니다. 계약 만기에 선택하실 수 있는 세 가지 방법과 각 금액을 정리해 드립니다.
+        어느 방법을 선택하시더라도 아래 <b style={{ color: NAVY }}>잔여 렌트료</b>는 계약 기간까지 납부해 주셔야 합니다.
       </div>
 
-      <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '12.16px', marginBottom: '9.6px' }}>
-        <thead>
-          <tr><th colSpan={4} style={{ ...cellHead, textAlign: 'left' }}>잔여 렌트료 (세 방법 공통)</th></tr>
-        </thead>
+      {sectionTitle('잔여 렌트료', '세 방법 공통')}
+      <table style={frame}>
         <tbody>
           {m.remaining.length ? m.remaining.map((r) => (
             <tr key={r.no}>
-              <td style={{ ...cell, width: '16%', textAlign: 'center' }}>{r.no}회차</td>
-              <td style={{ ...cell, width: '24%', textAlign: 'center' }}>{ymd(r.dueDate)} 결제</td>
-              <td style={{ ...cell, color: '#555' }}>{r.status === '미납' ? '미납' : r.status === '청구됨' ? '청구서 발송' : '결제 예정'}{r.no === m.lastNo ? ' · 마지막 회차' : ''}{r.fine ? ` · 통행료·과태료 ${won(r.fine)}원 포함` : ''}</td>
-              <td style={{ ...cell, width: '20%', textAlign: 'right', fontWeight: '700' }}>{won(r.amount)}원</td>
+              <td style={{ ...label, width: '16%' }}>{r.no}회차</td>
+              <td style={{ ...value, width: '22%', textAlign: 'center' }}>{ymd(r.dueDate)} 결제</td>
+              <td style={{ ...value, color: '#6b675f' }}>
+                {r.status === '미납' ? '미납' : r.status === '청구됨' ? '청구서 발송' : '결제 예정'}{r.no === m.lastNo ? ' · 마지막 회차' : ''}
+                {r.fine ? <div style={note}>통행료·과태료 {won(r.fine)}원 포함</div> : null}
+              </td>
+              <td style={{ ...value, width: '20%', textAlign: 'right', fontWeight: '800' }}>{won(r.amount)}원</td>
             </tr>
           )) : (
-            <tr><td colSpan={4} style={{ ...cell, textAlign: 'center', color: '#555' }}>잔여 렌트료가 없습니다.</td></tr>
+            <tr><td colSpan={4} style={{ ...value, textAlign: 'center', color: '#6b675f' }}>잔여 렌트료가 없습니다.</td></tr>
           )}
-          <tr>
-            <td colSpan={3} style={{ ...cell, textAlign: 'right', fontWeight: '700', background: '#f5f5f5' }}>합계</td>
-            <td style={{ ...cell, textAlign: 'right', fontWeight: '800', background: '#f5f5f5' }}>{won(m.remainingSum)}원</td>
-          </tr>
+          {m.remaining.length > 1 && (
+            <tr>
+              <td colSpan={3} style={{ ...value, textAlign: 'right', fontWeight: '700', background: SOFT }}>합계</td>
+              <td style={{ ...value, textAlign: 'right', fontWeight: '800', background: SOFT }}>{won(m.remainingSum)}원</td>
+            </tr>
+          )}
         </tbody>
       </table>
 
-      <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '12.16px', tableLayout: 'fixed' }}>
+      {sectionTitle('만기 시 선택하실 수 있는 방법')}
+      <table style={{ ...frame, tableLayout: 'fixed' }}>
         <thead>
           <tr>
-            <th style={{ ...cellHead, width: '16%' }}>구분</th>
-            {table.cols.map((c, i) => <th key={i} style={head(TONE[c.kind])}>{c.title}</th>)}
+            <th style={{ background: NAVY, color: '#fff', width: '16%', padding: '8px', fontWeight: '700', borderRight: `1px solid ${GOLD}`, borderBottom: `2px solid ${GOLD}` }}>구분</th>
+            {table.cols.map((c, i) => {
+              const t = splitTitle(c.title);
+              return (
+                <th key={i} style={{ background: NAVY, color: '#fff', padding: '7px 8px', borderRight: i < table.cols.length - 1 ? '1px solid rgba(173,136,92,0.5)' : 'none', borderBottom: `2px solid ${GOLD}` }}>
+                  <div style={{ fontSize: '10.4px', fontWeight: '700', color: GOLD, letterSpacing: '1px' }}>{t.no}</div>
+                  <div style={{ fontSize: '13.6px', fontWeight: '800', letterSpacing: '1px' }}>{t.name}</div>
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
-          {table.rows.map((r, ri) => (
-            <React.Fragment key={r.label}>
-              {r.section === 'settle' && table.rows[ri - 1]?.section !== 'settle' && (
-                <tr><td colSpan={table.cols.length + 1} style={{ ...cellHead, background: '#fde68a', textAlign: 'left' }}>만기 정산</td></tr>
-              )}
-              <tr style={r.section === 'settle' ? { background: '#fffbeb' } : undefined}>
-                <td style={rowHead}>{r.label}{r.labelNote ? <div style={{ fontSize: '10.4px', fontWeight: '500', color: '#6b7280' }}>{r.labelNote}</div> : null}</td>
-                {r.cells.map((v, i) => (
-                  <td key={i} style={{ ...cell, textAlign: 'center', verticalAlign: 'middle', fontWeight: r.section === 'settle' && v !== '없음' ? '800' : '500',
-                    color: v === '없음' || v === '-' ? '#9ca3af' : r.label === '보증금 반환' ? '#047857' : '#111' }}>
-                    {v}
-                    {r.notes?.[i] ? <div style={{ fontSize: '10.4px', fontWeight: '500', color: '#6b7280' }}>{r.notes[i]}</div> : null}
+          {table.rows.map((r, ri) => {
+            const firstSettle = r.section === 'settle' && table.rows[ri - 1]?.section !== 'settle';
+            return (
+              <React.Fragment key={r.label}>
+                {firstSettle && (
+                  <tr>
+                    <td colSpan={table.cols.length + 1} style={{ padding: '7px 10px 5px', borderTop: `1.5px solid ${NAVY}`, borderBottom: `1px solid ${GOLD}`, color: NAVY, fontWeight: '800', fontSize: '12.16px', letterSpacing: '1px' }}>
+                      만기 정산 <span style={{ fontWeight: '500', color: '#8a8579', letterSpacing: 0, fontSize: '11.2px' }}>계약 만기 때 오가는 금액</span>
+                    </td>
+                  </tr>
+                )}
+                <tr>
+                  <td style={label}>
+                    {r.label}
+                    {r.labelNote ? <div style={note}>{r.labelNote}</div> : null}
                   </td>
-                ))}
-              </tr>
-            </React.Fragment>
-          ))}
+                  {r.cells.map((v, i) => {
+                    const empty = v === '없음' || v === '-';
+                    return (
+                      <td key={i} style={{ ...value, textAlign: 'center', verticalAlign: 'middle', borderRight: i < r.cells.length - 1 ? `1px solid ${LINE}` : 'none',
+                        color: empty ? DIM : NAVY, fontWeight: r.section === 'settle' && !empty ? '800' : '500' }}>
+                        {v}
+                        {r.notes?.[i] ? <div style={note}>{r.notes[i]}</div> : null}
+                      </td>
+                    );
+                  })}
+                </tr>
+              </React.Fragment>
+            );
+          })}
           <tr>
-            <td style={rowHead}>알아 두실 점</td>
+            <td style={{ ...label, borderTop: `1.5px solid ${NAVY}` }}>알아 두실 점</td>
             {table.cols.map((c, i) => (
-              <td key={i} style={{ ...col, ...muted }}>
+              <td key={i} style={{ ...value, borderTop: `1.5px solid ${NAVY}`, borderRight: i < table.cols.length - 1 ? `1px solid ${LINE}` : 'none', verticalAlign: 'top', fontSize: '11.2px', lineHeight: 1.6, color: '#5b574f' }}>
                 {c.kind === 'ext' && '연장 계약서를 새로 쓰고, 연장 1회차부터 새 렌트료로 청구됩니다.'}
                 {c.kind === 'takeover' && `렌트 종료일부터 1주일 안에 입금과 이전 서류(양도증명서·인감증명서 등)를 마쳐야 합니다.${thirdParty ? ' 제3자 인수는 약관에 따라 승계 수수료가 붙습니다.' : ''}`}
                 {c.kind === 'return' && `반납 시 외관 상태(긁힘·찌그러짐·파손 등)를 확인하며, 수리비가 발생하면 보증금에서 공제한 뒤 반환합니다.${repairKnown ? '' : ' 수리비는 반납 후 확정됩니다.'}`}
@@ -120,7 +159,7 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
         </tbody>
       </table>
 
-      <div style={{ marginTop: 'auto', paddingTop: '12px', borderTop: '1px solid #000', fontSize: '11.52px', lineHeight: 1.7, color: '#333' }}>
+      <div style={{ marginTop: 'auto', paddingTop: '10px', borderTop: `1px solid ${GOLD}`, fontSize: '11.2px', lineHeight: 1.75, color: '#5b574f' }}>
         <div>• 입금 계좌: {DEPOSIT_ACCOUNT.bankName} {DEPOSIT_ACCOUNT.accountNo} (예금주 {DEPOSIT_ACCOUNT.holder})</div>
         <div>• 잔여 렌트료는 회차 결제일에 CMS로 출금됩니다. 인수 금액을 한 번에 입금하시면 해당 회차 CMS 출금은 하지 않습니다.</div>
         {multiCar ? <div>• 이 계약은 차량이 여러 대로, 잔여 렌트료는 계약 전체 금액입니다.</div> : null}

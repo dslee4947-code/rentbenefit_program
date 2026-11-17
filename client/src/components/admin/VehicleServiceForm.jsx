@@ -210,7 +210,7 @@ const parseTemplate = (raw, form) => {
  * @param {object|null} props.record 고칠 기록. 없으면 새로 적는다
  * @param {{kind: string, date: string, status?: string}} [props.preset] 달력·목록에서 날짜·종류를 골라 열 때
  */
-export default function VehicleServiceForm({ row, record, preset, history = [], onClose, onSaved, showToast }) {
+export default function VehicleServiceForm({ row, record, preset, history = [], page = false, onPick, onClose, onSaved, showToast }) {
   // 새 기록이면 지난 같은 종류 기록에서 정비소·연락처·픽업지를 채워 연다
   const [init] = useState(() => {
     const f = formOf(record, preset);
@@ -371,7 +371,7 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
   const row2 = { display: 'grid', gridTemplateColumns: '108px 1fr', gap: '0.5rem', alignItems: 'center', marginBottom: '0.45rem' };
   const lab = { fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 };
   const input = { width: '100%', padding: '0.4rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-bright)', fontSize: '0.82rem', boxSizing: 'border-box' };
-  const area = { ...input, minHeight: '54px', resize: 'vertical', fontFamily: 'inherit' };
+  const area = { ...input, minHeight: '80px', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 };
   const hint = { fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.15rem' };
   const two = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' };
   const btn = { border: '1px solid var(--border-color)', background: '#fff', borderRadius: '7px', padding: '0.4rem 0.8rem', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' };
@@ -417,10 +417,20 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
     );
   };
 
+  // 이 차의 지난 기록 표(최근 것이 위). 줄을 누르면 그 기록을 고친다
+  const historyRows = [...history].sort((a, b) => (String(a.date) < String(b.date) ? 1 : -1));
+  const summaryOf = (r) => {
+    const t = String(r.description || r.request || '').replace(/\s+/g, ' ').trim();
+    return t.length > 60 ? `${t.slice(0, 60)}…` : t;
+  };
+  const th = { textAlign: 'left', padding: '0.4rem 0.5rem', fontWeight: 700, fontSize: '0.76rem', color: 'var(--text-muted)', background: 'var(--bg-main)', whiteSpace: 'nowrap' };
+  const tdc = { padding: '0.4rem 0.5rem', borderTop: '1px solid var(--border-color)', fontSize: '0.8rem', verticalAlign: 'top' };
+
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1100, overflowY: 'auto', padding: '1.5rem 1rem' }}>
-      <div style={{ maxWidth: '880px', margin: '0 auto', background: 'var(--bg-main)', borderRadius: '12px', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+    <div style={page ? { padding: '0.2rem 0' } : { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1100, overflowY: 'auto', padding: '1.5rem 1rem' }}>
+      <div style={{ maxWidth: page ? '1200px' : '880px', margin: '0 auto', background: 'var(--bg-main)', borderRadius: '12px', padding: page ? '0' : '1rem', display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+          {page && <button type="button" onClick={onClose} style={btn}>← 목록으로</button>}
           <div>
             <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-bright)' }}>정비·수리 기록 {record ? '고치기' : '입력'}</div>
             <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
@@ -504,9 +514,18 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
         {/* 2. 점검 */}
         <div style={card}>
           <h3 style={h2}>② 점검</h3>
-          {field('점검 의뢰', <textarea style={area} value={form.request} onChange={(e) => set({ request: e.target.value })} placeholder="고객이 요청한 것" />)}
+          {/* 의뢰·작업 내용은 글이 길어 칸을 크게, 나란히 둔다 */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '0.7rem', marginBottom: '0.6rem' }}>
+            <div>
+              <div style={{ ...lab, marginBottom: '0.25rem' }}>점검 의뢰 (고객 요청)</div>
+              <textarea style={{ ...area, minHeight: '170px' }} value={form.request} onChange={(e) => set({ request: e.target.value })} placeholder={'고객이 요청한 것\n예) 1. 엔진경고등 점등\n2. 브레이크 밟을 때 소리'} />
+            </div>
+            <div>
+              <div style={{ ...lab, marginBottom: '0.25rem' }}>점검 내용 (실제로 한 작업)</div>
+              <textarea style={{ ...area, minHeight: '170px' }} value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder={'실제로 한 작업\n예) 엔진오일·오일필터·에어필터 교환, 와이퍼 교환'} />
+            </div>
+          </div>
           {field('입고후 확인전화', text('callAfterIn', '언제, 누구와 (예: 9월 22일 어드바이저)'))}
-          {field('점검 내용', <textarea style={{ ...area, minHeight: '70px' }} value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="실제로 한 작업" />)}
           {field('점검 안내 전화', text('callGuide', '언제, 누구에게 (예: 25일 13:05 고객님)'))}
           {field('점검 비용', (
             <div>
@@ -600,6 +619,48 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
           )}
           <div style={hint}>파일은 계약자 OneDrive 폴더의 차량번호 폴더에 날짜별로 저장됩니다.</div>
         </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.4rem' }}>
+          <button type="button" onClick={onClose} style={btn}>{page ? '← 목록으로' : '닫기'}</button>
+          <button type="button" onClick={save} disabled={saving} style={{ border: 'none', background: 'var(--primary)', color: '#fff', borderRadius: '7px', padding: '0.5rem 1.4rem', fontWeight: 800, cursor: saving ? 'wait' : 'pointer' }}>{saving ? '저장 중…' : '저장'}</button>
+        </div>
+
+        {/* 5. 이 차의 지난 기록 */}
+        {page && (
+          <div style={card}>
+            <h3 style={{ ...h2, display: 'flex', alignItems: 'center' }}>
+              {row?.plateNo} 지난 정비·검사 기록 {historyRows.length}건
+              <button type="button" onClick={() => onPick?.(null)} style={{ ...btn, marginLeft: 'auto', padding: '0.25rem 0.7rem' }}>+ 새 기록</button>
+            </h3>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '820px' }}>
+                <thead>
+                  <tr>{['날짜', '차량번호', '주행거리', '작업', '작업 내용', '정비소', '금액', '상태', ''].map((h) => <th key={h} style={th}>{h}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {historyRows.length === 0 && <tr><td colSpan={9} style={{ ...tdc, textAlign: 'center', color: 'var(--text-muted)' }}>기록이 없습니다.</td></tr>}
+                  {historyRows.map((r) => {
+                    const current = record && String(r._id) === String(record._id);
+                    const km = r.mileageOut || r.mileage || r.mileageIn;
+                    return (
+                      <tr key={r._id} onClick={() => !current && onPick?.(r)} style={{ cursor: current ? 'default' : 'pointer', background: current ? '#eef3fe' : undefined }}>
+                        <td style={{ ...tdc, whiteSpace: 'nowrap', fontWeight: 700 }}>{String(r.date).slice(0, 10)}</td>
+                        <td style={{ ...tdc, whiteSpace: 'nowrap' }}>{r.plateNo || row?.plateNo}</td>
+                        <td style={{ ...tdc, whiteSpace: 'nowrap', textAlign: 'right' }}>{km ? `${Number(km).toLocaleString()}km` : '-'}</td>
+                        <td style={{ ...tdc, whiteSpace: 'nowrap', fontWeight: 700 }}>{r.kind}{r.checkRound ? ` ${r.checkRound}회차` : ''}{r.carAgeExtended ? ' · 차령연장' : ''}</td>
+                        <td style={{ ...tdc, color: 'var(--text-muted)' }}>{summaryOf(r) || '-'}</td>
+                        <td style={{ ...tdc, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.shop}>{r.shop || '-'}</td>
+                        <td style={{ ...tdc, whiteSpace: 'nowrap', textAlign: 'right' }}>{r.amount ? won(r.amount) : '-'}</td>
+                        <td style={{ ...tdc, whiteSpace: 'nowrap' }}>{r.status || '완료'}</td>
+                        <td style={{ ...tdc, whiteSpace: 'nowrap', color: current ? 'var(--primary)' : 'var(--text-muted)', fontWeight: 700 }}>{current ? '지금 고치는 중' : '고치기 ›'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

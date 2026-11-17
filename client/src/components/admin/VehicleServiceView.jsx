@@ -1083,6 +1083,8 @@ function VehicleServiceView({ showToast, currentUser }) {
   };
 
   useEffect(() => { load(); }, [load]);
+  // 정비 기록 페이지를 열거나 다른 기록으로 바꾸면 맨 위부터 보이게 한다
+  useEffect(() => { if (formOpen) window.scrollTo({ top: 0 }); }, [formOpen]);
   // 다른 창(캘린더 등)에 갔다 돌아오면 목록을 다시 불러온다
   useEffect(() => {
     const onFocus = () => load();
@@ -1184,6 +1186,28 @@ function VehicleServiceView({ showToast, currentUser }) {
   const small = { fontSize: '0.75rem', color: 'var(--text-muted)' };
 
   const selectedRow = detail?.row || rows.find((r) => r.vehicleId === selectedId);
+
+  // 정비 기록 입력·수정은 팝업이 아니라 한 페이지로 연다(대표님 2026-11-17). 아래에 이 차의 지난 기록 표가 붙고, 줄을 누르면 그 기록을 고친다.
+  if (formOpen && selectedRow) {
+    // 지난 기록을 다 불러온 뒤에 연다. 그래야 정비소·연락처·픽업지가 지난 기록에서 채워진다
+    if (String(detail?.row?.vehicleId || '') !== String(selectedId)) {
+      return <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>{selectedRow.plateNo} 지난 기록을 불러오는 중…</div>;
+    }
+    return (
+      <VehicleServiceForm
+        key={formOpen.record?._id || `new-${formOpen.preset?.kind || ''}-${formOpen.preset?.date || ''}`}
+        page
+        row={selectedRow}
+        history={detail?.records || []}
+        record={formOpen.record}
+        preset={formOpen.preset}
+        onPick={(r) => setFormOpen(r ? { record: r } : { record: null })}
+        onClose={() => setFormOpen(null)}
+        onSaved={afterSave}
+        showToast={showToast}
+      />
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
@@ -1528,17 +1552,6 @@ function VehicleServiceView({ showToast, currentUser }) {
         </div>
       )}
 
-      {formOpen && selectedRow && (
-        <VehicleServiceForm
-          row={selectedRow}
-          history={detail?.records || []}
-          record={formOpen.record}
-          preset={formOpen.preset}
-          onClose={() => setFormOpen(null)}
-          onSaved={afterSave}
-          showToast={showToast}
-        />
-      )}
     </div>
   );
 }

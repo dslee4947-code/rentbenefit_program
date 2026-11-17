@@ -5,7 +5,7 @@ import usePhoneFit, { phoneFitStyles } from '../../utils/usePhoneFit.js';
 import MoneyInput from './MoneyInput.jsx';
 import ContractExtendDialog from './ContractExtendDialog.jsx';
 import MaturityCompareSheet from './MaturityCompareSheet.jsx';
-import { compareMaturity, SUCCESSION_FEE } from '../../../../shared/maturityCompare.js';
+import { compareMaturity, settleLabel, SUCCESSION_FEE } from '../../../../shared/maturityCompare.js';
 import { calculateUsedQuoteOption, compareUsedQuoteMaintenance, vehicleAgeLimit, monthsLabel, USED_QUOTE_DEFAULTS } from '../../../../shared/usedQuoteCalc.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -50,7 +50,7 @@ const USED_KINDS = {
   },
   계약연장: {
     title: '계약 연장 견적서', docType: '연장견적서', saved: '계약 연장 견적',
-    priceLabel: '현재 인수가 (연장 차량가격)', startLabel: '연장 시작일 (지금 계약 만기일)', sheetPriceHead: '현재 인수가',
+    priceLabel: '현재 인수가 (연장 차량가격)', startLabel: '연장 시작일 (기존 계약 만기일)', sheetPriceHead: '현재 인수가',
     placeholder: '차량번호 · 계약사 · 계약번호 (지금 장기렌트 중인 차)'
   }
 };
@@ -153,6 +153,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
   }));
   const maturityData = compareMaturity({
     rounds: schedule.contractId === car.contractId ? schedule.rounds : [],
+    contractEnd: car.contractEnd, monthlyRent: car.currentMonthlyFee,
     deposit: car.currentDeposit, takeoverPrice: car.currentTakeover, extensions: maturityExt,
     thirdParty: maturity.thirdParty, successionFee: maturity.successionFee, repairEstimate: maturity.repair
   });
@@ -515,7 +516,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
         </div>
         {isExt && car.contractNo && (
           <div style={{ marginTop: '0.6rem', fontSize: '0.82rem', padding: '0.5rem 0.7rem', background: 'var(--bg-main)', borderRadius: '6px' }}>
-            <b>지금 계약</b> {car.contractNo} · 만기 {car.contractEnd || '-'} · 월 {won(car.currentMonthlyFee)}원 · 인수가 {won(car.currentTakeover)}원 · 보증금 {won(car.currentDeposit)}원 <b>승계</b>
+            <b>기존 계약</b> {car.contractNo} · 만기 {car.contractEnd || '-'} · 월 {won(car.currentMonthlyFee)}원 · 만기 인수가 {won(car.currentTakeover)}원 · 보증금 {won(car.currentDeposit)}원 <b>승계</b>
           </div>
         )}
         {!isExt && car.vehicleId && (
@@ -546,6 +547,12 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
       {isExt && car.contractId && (
         <div style={{ ...card, border: '2px solid #1d4ed8' }} className="no-print">
           <div style={cardTitle}>■ 계약 만기 처리 비교 <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>1안 연장 · 2안 인수 · 3안 반납(만기 반납)</span></div>
+          {maturityData.missingCount > 0 && (
+            <div style={{ fontSize: '0.8rem', color: '#b91c1c', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '6px', padding: '0.4rem 0.6rem', marginBottom: '0.5rem' }}>
+              <AlertTriangle size={13} style={{ verticalAlign: '-2px' }} /> 회차표가 계약 만기({car.contractEnd})보다 먼저 끝나 있습니다. 상환스케줄 기준으로 빠진 {maturityData.missingCount}개 회차
+              ({maturityData.remaining.filter((r) => r.missing).map((r) => `${r.no}회 ${r.dueDate}`).join(', ')})를 월 렌트료로 넣어 계산했습니다. 계약 기간과 회차표를 확인해 주세요.
+            </div>
+          )}
           {schedule.error && <div style={{ fontSize: '0.8rem', color: '#b91c1c', marginBottom: '0.5rem' }}><AlertTriangle size={13} style={{ verticalAlign: '-2px' }} /> {schedule.error} 남은 렌트료 없이 계산합니다.</div>}
           <div style={{ overflowX: 'auto' }}>
             <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.84rem' }}>
@@ -559,24 +566,27 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
               </thead>
               <tbody>
                 <tr>
-                  <th style={{ padding: '0.35rem', textAlign: 'left', fontWeight: 700 }}>남은 렌트료 (공통)</th>
+                  <th style={{ padding: '0.35rem', textAlign: 'left', fontWeight: 700 }}>잔여 렌트료 (공통)</th>
                   <td colSpan={3} style={{ padding: '0.35rem', textAlign: 'right' }}>
-                    {maturityData.remaining.length ? maturityData.remaining.map((r) => `${r.no}회 ${won(r.amount)}`).join(' · ') : '없음'} = <b>{won(maturityData.remainingSum)}원</b>
+                    {maturityData.remaining.length ? maturityData.remaining.map((r) => `${r.no}회${r.no === maturityData.lastNo ? '(마지막)' : ''} ${won(r.amount)}`).join(' · ') : '없음'} = <b>{won(maturityData.remainingSum)}원</b>
                   </td>
                 </tr>
                 <tr>
                   <th style={{ padding: '0.35rem', textAlign: 'left', fontWeight: 700 }}>이후 비용</th>
                   <td style={{ padding: '0.35rem', textAlign: 'right' }}>{maturityExt.length ? maturityExt.map((o) => `${o.months}개월 월 ${won(o.monthlyFee)}원`).join(' / ') : '아래에서 연장 안을 계산해 주세요'}</td>
                   <td style={{ padding: '0.35rem', textAlign: 'right' }}>인수가 {won(maturityData.takeover.price)} − 보증금 {won(maturityData.deposit)}{maturity.thirdParty ? ` + 승계 수수료 ${won(maturityData.takeover.fee)}` : ''}</td>
-                  <td style={{ padding: '0.35rem', textAlign: 'right' }}>보증금 {won(maturityData.deposit)}{Number(maturity.repair) ? ` − 수리비 ${won(maturity.repair)}` : ''} 돌려드림</td>
+                  <td style={{ padding: '0.35rem', textAlign: 'right' }}>보증금 {won(maturityData.deposit)}{Number(maturity.repair) ? ` − 수리비 ${won(maturity.repair)}` : ''} 반환</td>
                 </tr>
                 <tr style={{ background: '#fffbeb' }}>
                   <th style={{ padding: '0.4rem', textAlign: 'left', fontWeight: 800 }}>만기 정산</th>
-                  {[maturityData.extension.settle, maturityData.takeover.settle, maturityData.return.settle].map((n, i) => (
-                    <td key={i} style={{ padding: '0.4rem', textAlign: 'right', fontWeight: 800, color: n < 0 ? '#047857' : 'var(--text-bright)' }}>
-                      {n > 0 ? `내실 ${won(n)}원` : n < 0 ? `돌려드림 ${won(-n)}원` : '0원'}
-                    </td>
-                  ))}
+                  {[['extension', maturityData.extension.settle], ['takeover', maturityData.takeover.settle], ['return', maturityData.return.settle]].map(([k, n]) => {
+                    const l = settleLabel(n, k);
+                    return (
+                      <td key={k} style={{ padding: '0.4rem', textAlign: 'right', fontWeight: 800, color: n < 0 ? '#047857' : 'var(--text-bright)' }}>
+                        {l.title}{l.amount ? ` ${won(l.amount)}원` : ''}
+                      </td>
+                    );
+                  })}
                 </tr>
               </tbody>
             </table>

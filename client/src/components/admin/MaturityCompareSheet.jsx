@@ -1,11 +1,9 @@
 import { DEPOSIT_ACCOUNT } from './InvoiceSheet.jsx';
+import { settleLabel } from '../../../../shared/maturityCompare.js';
 
 const won = (n) => Math.round(Number(n) || 0).toLocaleString('ko-KR');
 const todayYmd = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 const ymd = (v) => (v ? new Date(new Date(v).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10) : '');
-
-/** 내실 돈(+) / 돌려드릴 돈(-)을 한 줄로 */
-const settleText = (n) => (n > 0 ? `내실 금액 ${won(n)}원` : n < 0 ? `돌려드릴 금액 ${won(-n)}원` : '정산할 금액 없음');
 
 /**
  * 계약 만기 처리 비교표 한 장(A4). 1안 계약 연장 · 2안 인수 · 3안 반납(만기 반납)을 나란히 보여 준다.
@@ -42,36 +40,36 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
             <td style={cellHead}>담당자</td><td style={{ ...cell, textAlign: 'center' }}>{createdBy} 팀장 · 02-547-0303 / 010-9061-3000</td>
           </tr>
           <tr>
-            <td style={cellHead}>지금 계약</td>
-            <td style={cell}>{car.contractNo || '-'} · 월 {won(car.currentMonthlyFee)}원</td>
+            <td style={cellHead}>기존 계약</td>
+            <td style={cell}>계약번호 {car.contractNo || '-'} · 월 렌트료 {won(car.currentMonthlyFee)}원</td>
             <td style={cellHead}>계약 만기</td><td style={{ ...cell, textAlign: 'center', fontWeight: '700', color: '#b91c1c' }}>{car.contractEnd || '-'}</td>
           </tr>
           <tr>
             <td style={cellHead}>보증금</td><td style={cell}>{won(m.deposit)}원</td>
-            <td style={cellHead}>지금 인수가</td><td style={{ ...cell, textAlign: 'center' }}>{won(m.takeover.price)}원</td>
+            <td style={cellHead}>만기 인수가</td><td style={{ ...cell, textAlign: 'center' }}>{won(m.takeover.price)}원</td>
           </tr>
         </tbody>
       </table>
 
       <div style={{ fontSize: '12.8px', lineHeight: 1.6, marginBottom: '9.6px' }}>
         그동안 이용해 주셔서 감사합니다. 계약 만기에 고르실 수 있는 세 가지 방법과 각 금액을 정리해 드립니다.
-        어느 방법이든 아래 <b>남은 렌트료</b>는 그대로 납부해 주셔야 합니다.
+        어느 방법을 선택하시더라도 아래 <b>잔여 렌트료</b>는 계약 기간까지 납부해 주셔야 합니다.
       </div>
 
       <table style={{ width: '100%', borderCollapse: 'collapse', border: '1.5px solid #000', fontSize: '12.16px', marginBottom: '9.6px' }}>
         <thead>
-          <tr><th colSpan={4} style={{ ...cellHead, textAlign: 'left' }}>남은 렌트료 (세 방법 공통)</th></tr>
+          <tr><th colSpan={4} style={{ ...cellHead, textAlign: 'left' }}>잔여 렌트료 (세 방법 공통)</th></tr>
         </thead>
         <tbody>
           {m.remaining.length ? m.remaining.map((r) => (
             <tr key={r.no}>
               <td style={{ ...cell, width: '16%', textAlign: 'center' }}>{r.no}회차</td>
               <td style={{ ...cell, width: '24%', textAlign: 'center' }}>{ymd(r.dueDate)} 결제</td>
-              <td style={{ ...cell, color: '#555' }}>{r.status === '미납' ? '미납' : r.status === '청구됨' ? '청구서 발송' : '예정'}{r.fine ? ` · 통행료·과태료 ${won(r.fine)}원 포함` : ''}</td>
+              <td style={{ ...cell, color: '#555' }}>{r.status === '미납' ? '미납' : r.status === '청구됨' ? '청구서 발송' : '결제 예정'}{r.no === m.lastNo ? ' · 마지막 회차' : ''}{r.fine ? ` · 통행료·과태료 ${won(r.fine)}원 포함` : ''}</td>
               <td style={{ ...cell, width: '20%', textAlign: 'right', fontWeight: '700' }}>{won(r.amount)}원</td>
             </tr>
           )) : (
-            <tr><td colSpan={4} style={{ ...cell, textAlign: 'center', color: '#555' }}>남은 렌트료가 없습니다.</td></tr>
+            <tr><td colSpan={4} style={{ ...cell, textAlign: 'center', color: '#555' }}>잔여 렌트료가 없습니다.</td></tr>
           )}
           <tr>
             <td colSpan={3} style={{ ...cell, textAlign: 'right', fontWeight: '700', background: '#f5f5f5' }}>합계</td>
@@ -100,7 +98,7 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
             <td style={rowHead}>보증금</td>
             <td style={col}>연장 계약으로 그대로 승계</td>
             <td style={col}>인수가에서 차감</td>
-            <td style={col}>반납 뒤 돌려드림</td>
+            <td style={col}>차량 확인 후 반환</td>
           </tr>
           <tr>
             <td style={rowHead}>이후 비용</td>
@@ -116,21 +114,25 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
               인수가 {won(m.takeover.price)}원<br />
               − 보증금 {won(m.deposit)}원<br />
               {thirdParty ? <>+ 승계 수수료 {won(m.takeover.fee)}원<br /></> : null}
-              = <b>{m.takeover.pay >= 0 ? `${won(m.takeover.pay)}원` : `${won(-m.takeover.pay)}원 돌려드림`}</b>
+              = <b>{m.takeover.pay >= 0 ? `인수 금액 ${won(m.takeover.pay)}원` : `보증금 차액 반환 ${won(-m.takeover.pay)}원`}</b>
             </td>
             <td style={col}>
               보증금 {won(m.deposit)}원<br />
               {repairKnown ? <>− 수리비 {won(m.return.repair)}원<br /></> : null}
-              = <b>{won(m.return.depositBack)}원 돌려드림</b>
+              = <b>보증금 반환 {won(m.return.depositBack)}원</b>
             </td>
           </tr>
           <tr style={{ background: '#fffbeb' }}>
-            <td style={{ ...rowHead, background: '#fde68a' }}>만기 정산<div style={{ fontSize: '10.4px', fontWeight: 500 }}>남은 렌트료 포함</div></td>
-            {[m.extension.settle, m.takeover.settle, m.return.settle].map((n, i) => (
-              <td key={i} style={{ ...col, fontSize: '14.4px', fontWeight: '800', textAlign: 'center', verticalAlign: 'middle', color: n < 0 ? '#047857' : '#111e38' }}>
-                {settleText(n)}
-              </td>
-            ))}
+            <td style={{ ...rowHead, background: '#fde68a' }}>만기 정산<div style={{ fontSize: '10.4px', fontWeight: 500 }}>잔여 렌트료 포함</div></td>
+            {[['extension', m.extension.settle], ['takeover', m.takeover.settle], ['return', m.return.settle]].map(([kind, n]) => {
+              const l = settleLabel(n, kind);
+              return (
+                <td key={kind} style={{ ...col, textAlign: 'center', verticalAlign: 'middle', color: n < 0 ? '#047857' : '#111e38' }}>
+                  <div style={{ fontSize: '11.84px', fontWeight: '700' }}>{l.title}</div>
+                  {l.amount ? <div style={{ fontSize: '15.2px', fontWeight: '800' }}>{won(l.amount)}원</div> : null}
+                </td>
+              );
+            })}
           </tr>
           <tr>
             <td style={rowHead}>알아 두실 점</td>
@@ -142,8 +144,8 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
               {thirdParty ? ' 제3자 인수는 약관에 따라 승계 수수료가 붙습니다.' : ''}
             </td>
             <td style={{ ...col, ...muted }}>
-              반납 뒤 외관 상태(긁힘·찌그러짐·파손 등)를 확인해 수리비가 생기면 보증금에서 빼고 돌려드립니다.
-              {repairKnown ? '' : ' 수리비는 반납 뒤 확정됩니다.'}
+              반납 시 외관 상태(긁힘·찌그러짐·파손 등)를 확인하며, 수리비가 발생하면 보증금에서 공제한 뒤 반환합니다.
+              {repairKnown ? '' : ' 수리비는 반납 후 확정됩니다.'}
             </td>
           </tr>
         </tbody>
@@ -151,8 +153,8 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
 
       <div style={{ marginTop: 'auto', paddingTop: '12px', borderTop: '1px solid #000', fontSize: '11.52px', lineHeight: 1.7, color: '#333' }}>
         <div>• 입금 계좌: {DEPOSIT_ACCOUNT.bankName} {DEPOSIT_ACCOUNT.accountNo} (예금주 {DEPOSIT_ACCOUNT.holder})</div>
-        <div>• 남은 렌트료는 회차 결제일에 CMS로 출금됩니다. 인수 금액을 한 번에 입금하시면 해당 회차 CMS 출금은 하지 않습니다.</div>
-        {multiCar ? <div>• 이 계약은 차가 여러 대라 남은 렌트료는 계약 전체 금액입니다.</div> : null}
+        <div>• 잔여 렌트료는 회차 결제일에 CMS로 출금됩니다. 인수 금액을 한 번에 입금하시면 해당 회차 CMS 출금은 하지 않습니다.</div>
+        {multiCar ? <div>• 이 계약은 차량이 여러 대로, 잔여 렌트료는 계약 전체 금액입니다.</div> : null}
         <div>• 위 금액은 작성일 기준이며, 이후 통행료·과태료 고지서가 오면 달라질 수 있습니다.</div>
         <div>• 문의: {createdBy} 팀장 02-547-0303 / 010-9061-3000 · rent@sdibenefit.com</div>
       </div>

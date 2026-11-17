@@ -23,7 +23,7 @@ const DOC_KIND_OF = {
   기타: 'repair'
 };
 
-const VEHICLE_FIELDS = 'plateNo carModel status registrationDate inspectionValidity cc fuelType deliveryDate rentBillingDate maintenance contract company contractorName currentMileage paymentTerm driver driverInfo';
+const VEHICLE_FIELDS = 'plateNo carModel status registrationDate inspectionValidity cc fuelType deliveryDate rentBillingDate maintenance contract company contractorName currentMileage paymentTerm driver driverInfo serviceNotes';
 
 // 계약 만료일(차마다 인도일 기준)을 세는 데 필요한 칸까지. 담당자 연락처는 운전자가 비어 있을 때 대신 보여 준다
 const CONTRACT_FIELDS = 'leaseCompany termMonths contractNo contractKind contractDate deliveryDate status managerMain managerMainPhone managerOps managerOpsPhone';
@@ -107,6 +107,24 @@ const usageOf = (v, records, plan) => {
   };
 };
 
+/**
+ * 스노우 타이어 고객의 이번 철 교체 안내.
+ * 10~12월: 스노우 타이어로 교체 / 3~4월: 일반 타이어로 되돌리기. 그 철에 타이어를 바꾼 기록이 있으면 done.
+ * 그 밖의 달이나 스노우 타이어 고객이 아니면 null.
+ */
+export const snowTireSeasonOf = (snowTire, records, today = kstYmd(new Date())) => {
+  if (!snowTire) return null;
+  const [y, m] = today.split('-').map(Number);
+  let season;
+  if (m >= 10) season = { type: 'winter', label: '스노우 타이어 교체', start: `${y}-10-01`, re: /스노우|윈터/ };
+  else if (m >= 3 && m <= 4) season = { type: 'spring', label: '일반 타이어로 교체', start: `${y}-03-01`, re: /일반s*타이어|사계절|썸머|스노우[^/]*보관/ };
+  else return null;
+  const done = records
+    .filter((r) => kstYmd(r.date) >= season.start && kstYmd(r.date) <= today && season.re.test(String(r.description || '')))
+    .map((r) => kstYmd(r.date)).sort().pop() || '';
+  return { type: season.type, label: season.label, done };
+};
+
 /** 화면 한 줄. 목록과 차량 상세가 같은 모양을 쓴다. */
 const rowOf = (v, records) => {
   const plan = planVehicle(v, records);
@@ -117,6 +135,8 @@ const rowOf = (v, records) => {
     status: v.status,
     partyName: partyNameOf(v),
     driver: driverOf(v),
+    notes: { pinned: v.serviceNotes?.pinned || '', next: v.serviceNotes?.next || '', snowTire: Boolean(v.serviceNotes?.snowTire), updatedAt: v.serviceNotes?.updatedAt || null, updatedBy: v.serviceNotes?.updatedBy || '' },
+    snowSeason: snowTireSeasonOf(v.serviceNotes?.snowTire, records),
     registrationDate: kstYmd(v.registrationDate),
     deliveryDate: kstYmd(v.deliveryDate),
     annualKm: v.maintenance?.mileage || null,
@@ -490,6 +510,29 @@ export const getVehicleServices = async (req, res) => {
     if (!vehicle) return res.status(404).json({ success: false, message: '차량을 찾을 수 없습니다.' });
     const records = (await loadServiceRecords([vehicle])).get(String(vehicle._id)) || [];
     res.json({ success: true, records, row: rowOf(vehicle, records), transportRates: await transportRates() });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * 차 메모(고정 메모·다음에 할 일·스노우 타이어 고객) 저장.
+ *
+ * @route PATCH /api/vehicle-services/vehicle/:vehicleId/notes
+ */
+export const updateServiceNotes = async (req, res) => {
+  try {
+    const b = req.body || {};
+    const notes = {
+      pinned: String(b.pinned || '').trim().slice(0, 1000),
+      next: String(b.next || '').trim().slice(0, 1000),
+      snowTire: Boolean(b.snowTire),
+      updatedAt: new Date(),
+      updatedBy: req.user?.name || req.user?.email || ''
+    };
+    const vehicle = await Vehicle.findByIdAndUpdate(req.params.vehicleId, { $set: { serviceNotes: notes } }, { new: true }).select('plateNo').lean();
+    if (!vehicle) return res.status(404).json({ success: false, message: '차량을 찾을 수 없습니다.' });
+    res.json({ success: true, notes });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

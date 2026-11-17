@@ -998,7 +998,7 @@ function Due({ item, color }) {
 }
 
 // '진행'(예약·진행 상태)은 맨 끝에 있으면 잘 안 보여 차량번호 바로 옆에 둔다(대표님 2026-11-17)
-const MAINT_COLUMNS = ['차량번호', '진행', '구분', '차종', '계약자', '약정 주행', '점검 주기', '마지막 정기점검', '지금 주행', '다음 정기점검', '점검 횟수'];
+const MAINT_COLUMNS = ['차량번호', '진행', '메모', '구분', '차종', '계약자', '약정 주행', '점검 주기', '마지막 정기점검', '지금 주행', '다음 정기점검', '점검 횟수'];
 // 일정 → 진행 → 완료. 기록의 상태(예정 → 입고·수리 중 → 완료)를 그대로 쓴다.
 const STAGE = {
   예정: { label: '일정 잡힘', color: '#1d4ed8', bg: '#dbeafe' },
@@ -1030,6 +1030,89 @@ function ProgressCell({ r, kind, onStep, cell }) {
   );
 }
 
+/**
+ * 목록의 '메모' 칸. 예약 전화할 때 보는 것만: 📌 고정 메모, ➡ 다음에 할 일, ❄ 스노우 타이어 고객(철마다 교체 안내).
+ * 고치기는 차를 눌러 상세 패널의 '메모'에서 한다.
+ */
+function NotesCell({ r, cell }) {
+  const n = r.notes || {};
+  const snow = r.snowSeason;
+  const line = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.76rem', lineHeight: 1.45 };
+  return (
+    <td style={{ ...cell, maxWidth: '240px', whiteSpace: 'normal' }} title={[n.pinned && `고정: ${n.pinned}`, n.next && `다음에 할 일: ${n.next}`].filter(Boolean).join('\n')}>
+      {n.pinned && <div style={{ ...line, color: '#6d28d9', fontWeight: 700 }}>📌 {n.pinned}</div>}
+      {n.next && <div style={{ ...line, color: '#b45309', fontWeight: 700 }}>➡ {n.next}</div>}
+      {n.snowTire && (
+        <div style={{ ...line, color: snow && !snow.done ? '#0369a1' : 'var(--text-muted)', fontWeight: snow && !snow.done ? 800 : 400 }}>
+          ❄ 스노우 타이어{snow ? (snow.done ? ` · ${snow.label} 완료 ${snow.done.slice(5)}` : ` · ${snow.label} 안내할 때`) : ''}
+        </div>
+      )}
+      {!n.pinned && !n.next && !n.snowTire && <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>-</span>}
+    </td>
+  );
+}
+
+/**
+ * 상세 패널의 메모. 고정 메모는 계속 남기고(보증연장 등), 다음에 할 일은 끝나면 지운다.
+ * 스노우 타이어 고객을 체크하면 10월부터 교체, 3월부터 일반 타이어로 되돌리기를 목록에 띄운다.
+ */
+function ServiceNotesEditor({ row, canWrite, onSaved, showToast }) {
+  // 부모가 차·저장 시각을 key로 줘서, 차를 바꾸거나 저장하면 새로 그려 저장된 값으로 시작한다
+  const n = row?.notes || {};
+  const [form, setForm] = useState({ pinned: n.pinned || '', next: n.next || '', snowTire: Boolean(n.snowTire) });
+  const [saving, setSaving] = useState(false);
+  const dirty = form.pinned !== (n.pinned || '') || form.next !== (n.next || '') || form.snowTire !== Boolean(n.snowTire);
+  const save = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_HOST}/api/vehicle-services/vehicle/${row.vehicleId}/notes`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) { showToast?.(data.message || '메모를 저장하지 못했습니다.', 'error'); return; }
+      showToast?.(`${row.plateNo} 메모를 저장했습니다.`, 'success');
+      onSaved?.();
+    } catch {
+      showToast?.('서버 통신 오류가 발생했습니다.', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+  const area = { width: '100%', padding: '0.4rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.82rem', fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box' };
+  const lab = { fontSize: '0.76rem', fontWeight: 800, marginBottom: '0.2rem' };
+  const hint = { fontWeight: 400, color: 'var(--text-muted)' };
+  return (
+    <div style={{ border: '1px solid #ddd6fe', background: '#faf5ff', borderRadius: '8px', padding: '0.6rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      <div>
+        <div style={{ ...lab, color: '#6d28d9' }}>📌 고정 메모 <span style={hint}>늘 알아야 할 것 (예: 보증연장 함)</span></div>
+        <textarea rows={2} value={form.pinned} disabled={!canWrite} onChange={(e) => setForm({ ...form, pinned: e.target.value })} style={area} />
+      </div>
+      <div>
+        <div style={{ ...lab, color: '#b45309' }}>➡ 다음에 할 일 <span style={hint}>다음 입고 때 챙길 것, 끝나면 지우기</span></div>
+        <textarea rows={2} value={form.next} disabled={!canWrite} onChange={(e) => setForm({ ...form, next: e.target.value })} style={area} />
+      </div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: canWrite ? 'pointer' : 'default' }}>
+        <input type="checkbox" checked={form.snowTire} disabled={!canWrite} onChange={(e) => setForm({ ...form, snowTire: e.target.checked })} />
+        <b style={{ color: '#0369a1' }}>❄ 스노우 타이어 고객</b>
+        <span style={{ color: 'var(--text-muted)', fontSize: '0.74rem' }}>10월부터 스노우로 교체, 3월부터 일반 타이어로 되돌리기를 미리 안내</span>
+      </label>
+      {row?.snowSeason && (
+        <div style={{ fontSize: '0.76rem', color: row.snowSeason.done ? 'var(--text-muted)' : '#0369a1', fontWeight: 700 }}>
+          이번 철: {row.snowSeason.label} {row.snowSeason.done ? `완료 (${row.snowSeason.done})` : '— 아직 기록 없음, 고객에게 안내할 때'}
+        </div>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        {n.updatedAt && <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{kstYmd(n.updatedAt)} {n.updatedBy} 저장</span>}
+        {canWrite && (
+          <button type="button" disabled={!dirty || saving} onClick={save} style={{ marginLeft: 'auto', border: 'none', background: dirty ? '#6d28d9' : '#c4b5fd', color: '#fff', borderRadius: '6px', padding: '0.3rem 0.8rem', fontSize: '0.78rem', fontWeight: 800, cursor: dirty ? 'pointer' : 'default' }}>
+            {saving ? '저장 중…' : '메모 저장'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const kmText = (km) => (km ? `${Number(km).toLocaleString()}km` : '');
 const manKm = (km) => (km % 10000 === 0 ? `${km / 10000}만km` : kmText(km));
 
@@ -1053,6 +1136,7 @@ function MaintenanceRow({ r, selected, onOpen, onStep, cell, clip }) {
     <tr onClick={onOpen} style={{ cursor: 'pointer', background: selected ? 'var(--bg-main)' : st ? st.bg : over ? '#fef2f2' : undefined }}>
       <td style={{ ...cell, fontWeight: 800, color: st ? st.color : over ? 'var(--error)' : 'var(--text-bright)', borderLeft: `4px solid ${st ? st.color : over || soon ? tone : 'transparent'}` }}>{r.plateNo || '-'}</td>
       <ProgressCell r={r} kind="정기점검" onStep={onStep} cell={cell} />
+      <NotesCell r={r} cell={cell} />
       <td style={{ ...cell, color: 'var(--text-muted)' }}>{groupText(r)}</td>
       <td style={{ ...cell, ...clip, maxWidth: '170px' }} title={r.carModel}>{r.carModel}</td>
       <td style={{ ...cell, ...clip, maxWidth: '150px' }} title={r.partyName}>{r.partyName || '-'}</td>
@@ -1104,7 +1188,9 @@ const FILTERS = [
   { id: 'age-now', group: 'insp', sub: '차령', urgent: true, label: '연장 신청', test: (r) => ['end', 'expired', 'confirm', 'last', 'apply'].includes(carAgeLevelOf(r)) },
   { id: 'age-soon', group: 'insp', sub: '차령', label: '6개월 이내', test: (r) => carAgeLevelOf(r) === 'soon' },
   { id: 'maint-over', group: 'maint', urgent: true, label: '정기점검 지남', test: (r) => r.maintenance?.status === '지남' },
-  { id: 'maint-soon', group: 'maint', label: '정기점검 30일 이내', test: (r) => r.maintenance?.status === '30일 이내' }
+  { id: 'maint-soon', group: 'maint', label: '정기점검 30일 이내', test: (r) => r.maintenance?.status === '30일 이내' },
+  // 스노우 타이어 고객 중 이번 철(10~12월 스노우로, 3~4월 일반으로) 교체 기록이 아직 없는 차
+  { id: 'snow', group: 'maint', urgent: true, label: '❄ 타이어 교체 안내', test: (r) => Boolean(r.snowSeason && !r.snowSeason.done) }
 ];
 const filterLabel = (f) => (f.sub ? `${f.sub} ${f.label}` : f.label);
 
@@ -1273,8 +1359,8 @@ function VehicleServiceView({ showToast, currentUser }) {
   // 칩 묶음에 맞춰 표를 바꾼다. 정기점검 칩이면 정기점검에 필요한 칸만, 자동차검사 칩이면 검사·차령 칸만 보인다(대표님 2026-11-17).
   const mode = activeFilter?.group || '';
   const columns = mode === 'maint' ? MAINT_COLUMNS
-    : mode === 'insp' ? ['차량번호', '진행', '구분', '차종', '계약자', '자동차검사', '차령', '최근 기록']
-      : ['차량번호', '구분', '차종', '계약자', '자동차검사', '차령', '정기점검', '최근 기록'];
+    : mode === 'insp' ? ['차량번호', '진행', '메모', '구분', '차종', '계약자', '자동차검사', '차령', '최근 기록']
+      : ['차량번호', '메모', '구분', '차종', '계약자', '자동차검사', '차령', '정기점검', '최근 기록'];
   const modeKind = mode === 'maint' ? '정기점검' : mode === 'insp' ? '자동차검사' : '';
   const bookedRank = (r) => {
     const b = modeKind && bookingOf(r, modeKind);
@@ -1436,6 +1522,7 @@ function VehicleServiceView({ showToast, currentUser }) {
                 >
                   <td style={{ ...cell, fontWeight: 800, color: urgent?.fg || 'var(--text-bright)', borderLeft: `4px solid ${urgent?.fg || 'transparent'}` }}>{r.plateNo || '-'}</td>
                   {mode === 'insp' && <ProgressCell r={r} kind="자동차검사" onStep={progressStep} cell={cell} />}
+                  <NotesCell r={r} cell={cell} />
                   <td style={{ ...cell, color: 'var(--text-muted)' }}>{groupText(r)}</td>
                   <td style={{ ...cell, ...clip, maxWidth: '200px' }} title={r.carModel}>{r.carModel}</td>
                   <td style={{ ...cell, ...clip, maxWidth: '170px' }} title={r.partyName}>{r.partyName || '-'}</td>
@@ -1513,6 +1600,7 @@ function VehicleServiceView({ showToast, currentUser }) {
           </div>
 
           <div style={{ overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {selectedRow && <ServiceNotesEditor key={`${selectedRow.vehicleId}-${selectedRow.notes?.updatedAt || ""}`} row={selectedRow} canWrite={canWrite} showToast={showToast} onSaved={() => { loadDetail(selectedId); load(); }} />}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
               <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.6rem' }}>
                 <div style={{ ...small, fontWeight: 800 }}>다음 자동차검사</div>

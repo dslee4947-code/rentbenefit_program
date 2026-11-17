@@ -86,6 +86,17 @@ const VehicleSchema = new Schema({
     generalMaintenance: String
   },
 
+  // 렌트 차량 AS 메모(대표님 2026-11-17). 정기점검·검사 예약 전화할 때 보는 내용
+  // pinned: 늘 알아야 할 것(예: 보증연장 함), next: 다음 입고 때 할 일(끝나면 지운다),
+  // snowTire: 겨울마다 스노우 타이어로 바꾸는 고객 → 10월부터 교체 안내, 3월부터 일반 타이어로 되돌리기 안내
+  serviceNotes: {
+    pinned: { type: String, default: '' },
+    next: { type: String, default: '' },
+    snowTire: { type: Boolean, default: false },
+    updatedAt: Date,
+    updatedBy: String
+  },
+
   // 5-1. 계약자 정보
   //
   // 계약서로 등록된 차량은 contract가 정본이다(contract -> customer/companyId).

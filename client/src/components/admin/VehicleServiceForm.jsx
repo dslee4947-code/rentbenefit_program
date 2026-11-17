@@ -81,6 +81,8 @@ const doneOf = (history) => (history || []).filter((r) => !r.status || r.status 
 const previousOf =(history, kind) => doneOf(history).find((r) => r.kind === kind) || null;
 
 // 연락처는 렌트차량 DB의 운전자가 먼저다(대표님 2026-11-17). 없으면 지난 기록, 그것도 없으면 계약 담당자(driver.source가 계약…).
+const KIND_COLOR_MAINT = '#047857'; // 정기점검 초록 (VehicleServiceView KIND와 같은 색)
+
 const prefillFrom = (history, kind, f, driver) => {
   const done = doneOf(history);
   const same = done.find((r) => r.kind === kind);
@@ -495,10 +497,19 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
           {page && <button type="button" onClick={onClose} style={btn}>← 목록으로</button>}
           <div>
             <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-bright)' }}>정비·수리 기록 {record ? '고치기' : '입력'}</div>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-              {row?.plateNo} · {row?.carModel} · {row?.partyName || '-'}
-              {form.kind === '정기점검' && nextRound ? ` · 정기점검 ${nextRound}회차` : ''}
+            {/* 차 정보도 제목만큼 크게: 운전자 · 계약사 · 차종 · 차량번호 (대표님 2026-11-17) */}
+            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-bright)', marginTop: '0.15rem' }}>
+              {[row?.driver?.source === '운전자' ? row.driver.name : '', row?.partyName, row?.carModel, row?.plateNo].filter(Boolean).join(' · ') || '-'}
+              {form.kind === '정기점검' && nextRound ? <span style={{ color: KIND_COLOR_MAINT }}> · 정기점검 {nextRound}회차</span> : ''}
             </div>
+            {/* 상세 패널의 메모: 예약·입고 때 꼭 볼 것 */}
+            {(row?.notes?.pinned || row?.notes?.next || row?.notes?.snowTire) && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem 0.9rem', marginTop: '0.25rem', fontSize: '0.86rem', fontWeight: 700 }}>
+                {row.notes.pinned && <span style={{ color: '#6d28d9' }}>📌 {row.notes.pinned}</span>}
+                {row.notes.next && <span style={{ color: '#b45309' }}>➡ {row.notes.next}</span>}
+                {row.notes.snowTire && <span style={{ color: '#0369a1' }}>❄ 스노우 타이어 고객{row.snowSeason && !row.snowSeason.done ? ` · ${row.snowSeason.label} 안내` : ''}</span>}
+              </div>
+            )}
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem' }}>
             <button type="button" onClick={onClose} style={btn}>닫기</button>

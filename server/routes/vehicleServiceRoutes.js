@@ -11,7 +11,8 @@ import {
   readServiceDocument,
   matchServiceTarget,
   addVehicleServiceFiles,
-  moveVehicleServices
+  moveVehicleServices,
+  updateServiceNotes
 } from '../controllers/vehicleServiceController.js';
 import {
   getCalendarInbox,
@@ -29,6 +30,7 @@ const router = express.Router();
 router.get('/plan', getServicePlan);
 router.get('/match', matchServiceTarget);
 router.get('/vehicle/:vehicleId', getVehicleServices);
+router.patch('/vehicle/:vehicleId/notes', checkWritePermission, updateServiceNotes);
 // 구글 업무캘린더에서 읽어 온 정비 일정 '확인 대기' → 정비 기록으로 옮기기
 router.get('/calendar-inbox', getCalendarInbox);
 router.post('/calendar-inbox/sync', checkWritePermission, syncCalendarInboxNow);

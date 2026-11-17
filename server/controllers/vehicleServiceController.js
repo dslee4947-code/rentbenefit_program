@@ -183,6 +183,7 @@ const applyDetail = (record, b) => {
     record.lines = b.lines.filter((l) => String(l?.name || '').trim())
       .map((l) => ({ name: String(l.name).trim(), ...Object.fromEntries(['qty', 'unitPrice', 'parts', 'labor', 'amount'].map((k) => [k, numberOrUndefined(l[k])])) }));
   }
+  if (b.carAgeExtended !== undefined) record.carAgeExtended = b.carAgeExtended === true || b.carAgeExtended === 'true';
   if (b.inspection) record.inspection = { result: String(b.inspection.result || ''), nextDate: String(b.inspection.nextDate || '') };
   if (b.invoice) {
     const inv = b.invoice;
@@ -431,7 +432,7 @@ export const getServicePlan = async (req, res) => {
       .populate('company', 'name')
       .lean();
     // 같은 번호판의 예전 차량 문서에 붙은 기록도 함께 센다(loadServiceRecords 설명)
-    const byVehicle = await loadServiceRecords(vehicles, 'vehicle kind date mileage amount description status shop');
+    const byVehicle = await loadServiceRecords(vehicles, 'vehicle kind date mileage amount description status shop carAgeExtended');
 
     const rows = vehicles.map((v) => rowOf(v, byVehicle.get(String(v._id)) || []));
 

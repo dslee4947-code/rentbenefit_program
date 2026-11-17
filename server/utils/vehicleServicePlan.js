@@ -304,7 +304,9 @@ export const nextMaintenance = (vehicle, records, today = new Date()) => {
  * 전기차는 배기량이 없어 크기로 정하는데, 대형은 길이·너비·높이가 모두 소형을 넘어야 해서(높이 2m) 승용 전기차는 중형 이하로 본다.
  *
  * 차령 연장: 차령이 끝나기 전 2개월 안에 검사(대여 승용차는 정기검사로 갈음)를 받으면서 함께 신청한다.
- * 그래서 그 기간 안(또는 그 뒤)에 자동차검사를 받았으면 연장도 끝난 것으로 본다(대표님 2026-10-29).
+ * 검사를 받았다고 연장까지 한 것은 아니다(2026-11-17 대표님: E350 125호2370은 검사만 받고 연장은 안 함).
+ * 그래서 자동차검사 기록에 '차령 연장 신청함'(carAgeExtended)이 체크된 것만 연장으로 센다.
+ * 사이버검사소 유효기간이나 검사 기록만 있으면 inspectedInWindow로 알려만 준다.
  * 연장은 1년씩, 모두 합쳐 2년을 넘을 수 없다. 연장 기간에는 1년마다 다시 검사를 받는다.
  * 환경친화적자동차는 시·도 조례로 2년을 더 주는 곳이 있어 따로 확인한다.
  */
@@ -327,9 +329,9 @@ const sizeClassOf = (vehicle) => {
 
 /**
  * @param {object} vehicle registrationDate, cc, fuelType, inspectionValidity
- * @param {object[]} records 끝난 정비·검사 기록. 자동차검사 날짜로 연장을 센다.
+ * @param {object[]} records 끝난 정비·검사 기록. carAgeExtended가 체크된 자동차검사로 연장을 센다.
  * @returns {object|null} {size, years, expiry, limit, maxLimit, applyStart, dday, level, extendedOn} 등록일이 없으면 null
- *   level: 'end' 연장 한도까지 지남 · 'expired' 차령(연장분 포함) 지남 · 'apply' 연장 신청 기간 · 'last' 더 연장 못 함(만료 2개월 이내) · 'soon' 6개월 이내
+ *   level: 'end' 연장 한도까지 지남 · 'expired' 차령(연장분 포함) 지남 · 'confirm' 지났지만 검사 흔적이 있어 연장 여부 확인 필요 · 'apply' 연장 신청 기간 · 'last' 더 연장 못 함(만료 2개월 이내) · 'soon' 6개월 이내
  */
 export const carAgeOf = (vehicle, records, today = new Date()) => {
   const reg = kstYmd(vehicle?.registrationDate);
@@ -339,25 +341,27 @@ export const carAgeOf = (vehicle, records, today = new Date()) => {
   const years = large ? R.largeYears : R.baseYears;
   const expiry = addDays(addMonths(reg, years * 12), -1);
   const maxLimit = addDays(addMonths(reg, (years + R.maxExtendYears) * 12), -1);
-  // 사이버검사소 유효기간 시작일도 검사 받은 날로 본다(기록을 안 남긴 검사)
-  const inspected = [...sortedDates(records, '자동차검사'), kstYmd(vehicle?.inspectionValidity?.from)].filter(Boolean).sort();
+  const extended = (records || []).filter((r) => r.kind === '자동차검사' && r.carAgeExtended)
+    .map((r) => kstYmd(r.date)).filter(Boolean).sort();
   let limit = expiry;
   const extendedOn = [];
-  for (const d of inspected) {
+  for (const d of extended) {
     if (limit >= maxLimit) break;
-    if (d >= addMonths(limit, -R.applyBeforeMonths)) {
-      const next = addMonths(limit, 12);
-      limit = next > maxLimit ? maxLimit : next;
-      extendedOn.push(d);
-    }
+    const next = addMonths(limit, 12);
+    limit = next > maxLimit ? maxLimit : next;
+    extendedOn.push(d);
   }
   const applyStart = addMonths(limit, -R.applyBeforeMonths);
+  // 연장 신청 기간 안(또는 뒤)에 검사는 받았는데 연장 표시가 없는 경우. 사이버검사소 유효기간 시작일도 검사 받은 흔적으로 본다.
+  const inspected = [...sortedDates(records, '자동차검사'), kstYmd(vehicle?.inspectionValidity?.from)].filter(Boolean).sort();
+  const inspectedInWindow = limit < maxLimit ? inspected.find((d) => d >= applyStart) || '' : '';
   const todayYmd = kstYmd(today);
   const dday = ddayOf(limit, todayYmd);
 
   let level = null;
   if (maxLimit < todayYmd) level = 'end';
-  else if (limit < todayYmd) level = 'expired';
+  // 차령은 지났는데 기간 안에 검사 받은 흔적이 있으면 연장했을 수도 있다. 지남으로 단정하지 않고 확인을 부탁한다.
+  else if (limit < todayYmd) level = inspectedInWindow ? 'confirm' : 'expired';
   else if (applyStart <= todayYmd) level = limit >= maxLimit ? 'last' : 'apply';
   else if (dday <= R.noticeDays) level = 'soon';
 
@@ -372,7 +376,8 @@ export const carAgeOf = (vehicle, records, today = new Date()) => {
     applyStart,
     dday,
     level,
-    extendedOn // 연장으로 본 검사 날짜(1년씩)
+    extendedOn, // 연장으로 본 검사 날짜(1년씩)
+    inspectedInWindow // 연장 신청 기간에 검사는 받았는데 연장 표시가 없으면 그 날짜
   };
 };
 

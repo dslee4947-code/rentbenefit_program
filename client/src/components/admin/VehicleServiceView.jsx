@@ -63,13 +63,14 @@ const MAINT_COLOR = { 지남: 'var(--error)', '30일 이내': '#d97706' };
 /**
  * 렌터카 차령(서버 utils/vehicleServicePlan.js carAgeOf).
  * 배기량 2,000cc 미만 5년, 2,000cc 이상 8년. 끝나기 전 2개월 안에 자동차검사를 받으면서 연장을 신청한다(1년씩, 최대 2년).
- * 그래서 그 기간에 자동차검사 기록이 있으면 연장 완료로 본다.
+ * 검사만으로는 연장으로 보지 않는다. 검사 기록에 '차령 연장도 함께 신청함'이 체크된 것만 연장 완료다(2026-11-17).
  */
 const CAR_AGE_LEVEL = {
   end: { rank: 0, label: '연장 한도 지남', bg: '#fee2e2', fg: '#b91c1c', tip: '연장 2년까지 다 썼습니다. 운행할 수 없어 매각·말소해야 합니다.' },
-  expired: { rank: 0, label: '차령 지남', bg: '#fee2e2', fg: '#b91c1c', tip: '차령이 지났는데 그 뒤 자동차검사 기록이 없습니다. 검사를 받았으면 기록을 남기고, 아니면 바로 검사·연장 신청(또는 운행 중지)해야 합니다.' },
+  expired: { rank: 0, label: '차령 지남', bg: '#fee2e2', fg: '#b91c1c', tip: "차령이 지났는데 연장 신청 표시가 없습니다. 연장했으면 그 자동차검사 기록에 '차령 연장도 함께 신청함'을 체크하고, 아니면 바로 연장 신청(또는 운행 중지)해야 합니다." },
+  confirm: { rank: 1, label: '연장 여부 확인', bg: '#ffedd5', fg: '#c2410c', tip: "차령이 지났지만 연장 신청 기간에 검사 받은 흔적이 있습니다. 연장했으면 그 자동차검사 기록에 '차령 연장도 함께 신청함'을 체크하고, 안 했으면 바로 연장 신청(또는 운행 중지)해야 합니다." },
   last: { rank: 1, label: '연장 불가·만료 임박', bg: '#ffedd5', fg: '#c2410c', tip: '더 연장할 수 없습니다. 만료 전에 매각·반납을 정해야 합니다.' },
-  apply: { rank: 1, label: '연장 신청 기간', bg: '#ffedd5', fg: '#c2410c', tip: '자동차검사를 받으면서 연장 신청할 기간입니다. 검사 기록을 남기면 연장 완료로 바뀝니다.' },
+  apply: { rank: 1, label: '연장 신청 기간', bg: '#ffedd5', fg: '#c2410c', tip: "자동차검사를 받으면서 연장 신청할 기간입니다. 검사 기록에 '차령 연장도 함께 신청함'을 체크하면 연장 완료로 바뀝니다." },
   soon: { rank: 2, label: '6개월 이내', bg: '#fef9c3', fg: '#a16207', tip: '곧 연장 신청 기간입니다. 계약 기간과 매각 여부를 미리 정하세요.' }
 };
 const carAgeLevelOf = (r) => r.carAge?.level || null;
@@ -913,7 +914,7 @@ const FILTERS = [
   { id: 'insp-due', label: '검사 2개월 이내', color: '#a16207', test: (r) => inspectionLevelOf(r) === 'due' },
   { id: 'maint-over', label: '점검 지남', color: 'var(--error)', test: (r) => r.maintenance?.status === '지남' },
   { id: 'maint-soon', label: '점검 30일 이내', color: '#d97706', test: (r) => r.maintenance?.status === '30일 이내' },
-  { id: 'age-now', label: '차령 연장 신청', color: '#c2410c', test: (r) => ['end', 'expired', 'last', 'apply'].includes(carAgeLevelOf(r)) },
+  { id: 'age-now', label: '차령 연장 신청', color: '#c2410c', test: (r) => ['end', 'expired', 'confirm', 'last', 'apply'].includes(carAgeLevelOf(r)) },
   { id: 'age-soon', label: '차령 6개월 이내', color: '#a16207', test: (r) => carAgeLevelOf(r) === 'soon' },
   { id: 'insp-unverified', label: '검사 기록 없음', color: '#6d28d9', test: (r) => Boolean(r.inspection?.unverified) }
 ];
@@ -1182,6 +1183,7 @@ function VehicleServiceView({ showToast, currentUser }) {
                         <span>{r.carAge.limit}</span>
                         <span style={small}>{r.carAge.years}년{r.carAge.extendedOn?.length ? ` · 연장 ${r.carAge.extendedOn.length}회 완료` : ''}</span>
                         {age && <b style={{ color: age.fg }}>{ddayText(r.carAge.dday)} {age.label}</b>}
+                        {age && r.carAge.inspectedInWindow && <span style={{ ...small, color: '#c2410c' }}>검사는 받음 · 연장 신청 표시 없음</span>}
                         {!age && needsExtensionForContract(r) && <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#a16207' }}>계약 중 만료</span>}
                       </span>
                     ) : <span style={small}>-</span>}
@@ -1270,6 +1272,11 @@ function VehicleServiceView({ showToast, currentUser }) {
                     {a.size}{a.cc && a.byCc ? ` (${a.cc.toLocaleString()}cc)` : ''} → 기본 차령 {a.years}년, 기본 만료 {a.expiry}
                     {a.extendedOn?.length ? ` · 연장 완료(자동차검사 ${a.extendedOn.join(', ')})` : ''}
                   </div>
+                  {a.inspectedInWindow && (
+                    <div style={{ ...small, color: '#c2410c', fontWeight: 700 }}>
+                      검사 받은 흔적({a.inspectedInWindow}, 기록 또는 사이버검사소 유효기간)은 있지만 차령 연장 신청 표시가 없습니다. 연장을 신청했으면 그 자동차검사 기록을 열어 '차령 연장도 함께 신청함'을 체크하세요.
+                    </div>
+                  )}
                   <div style={small}>{a.limit < a.maxLimit ? `다음 연장: ${a.applyStart} ~ ${a.limit}에 자동차검사를 받으면서 신청 · ` : '더 연장할 수 없음 · '}연장 한도 {a.maxLimit}</div>
                   {lv && <div style={{ ...small, color: lv.fg, fontWeight: 700 }}>{lv.tip}</div>}
                   {needsExtensionForContract(selectedRow) && (

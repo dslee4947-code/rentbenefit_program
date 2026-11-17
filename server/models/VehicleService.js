@@ -83,6 +83,8 @@ const VehicleServiceSchema = new Schema({
 
   // 자동차검사 서류에서 읽은 판정과 다음 검사일. 다음 검사일 계산은 기록 날짜와 사이버검사소 값으로 한다(utils/vehicleServicePlan.js)
   inspection: { result: String, nextDate: String },
+  // 자동차검사 때 차령 연장도 신청했는지. 이것이 체크된 검사만 차령 연장으로 센다(utils/vehicleServicePlan.js carAgeOf).
+  carAgeExtended: { type: Boolean, default: false },
 
   // 수리 내역서·견적서·사진 여러 장
   attachments: [{ _id: false, fileName: String, savedPath: String, label: String }]

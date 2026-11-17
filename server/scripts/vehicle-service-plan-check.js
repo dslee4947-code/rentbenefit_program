@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { nextInspection, nextMaintenance, maintenanceIntervalMonths, addMonths } from '../utils/vehicleServicePlan.js';
+import { nextInspection, nextMaintenance, maintenanceIntervalMonths, addMonths, carAgeOf } from '../utils/vehicleServicePlan.js';
 
 /**
  * 정비·검사 계획 계산(utils/vehicleServicePlan.js)이 정한 규칙대로 나오는지 확인한다.
@@ -100,6 +100,28 @@ check('검사: 조회 뒤에 검사 기록을 적으면 다음 해로 넘어간�
   const v = { registrationDate: '2023-10-20', inspectionValidity: { from: '2025-10-20', to: '2026-10-19', checkedAt: '2026-10-28' } };
   assert.equal(nextInspection(v, [], '2026-10-29').date, '2026-10-19');
   assert.equal(nextInspection(v, [{ kind: '자동차검사', date: '2026-10-30' }], '2026-10-30').date, '2027-10-19');
+});
+
+check('차령: 검사만 받고 연장 표시가 없으면 연장으로 치지 않는다 (E350 125호2370)', () => {
+  const v = { registrationDate: '2021-12-16', cc: 1991, fuelType: '가솔린', inspectionValidity: { from: '2026-12-16', to: '2027-12-15' } };
+  const a = carAgeOf(v, [], '2026-11-17');
+  assert.equal(a.limit, '2026-12-15');
+  assert.equal(a.level, 'apply');
+  assert.deepEqual(a.extendedOn, []);
+  assert.equal(a.inspectedInWindow, '2026-12-16');
+});
+
+check('차령: 연장 신청함이 체크된 검사만 1년 늘린다', () => {
+  const v = { registrationDate: '2021-10-25', cc: 998, fuelType: '가솔린' };
+  const a = carAgeOf(v, [{ kind: '자동차검사', date: '2026-10-06', carAgeExtended: true }], '2026-11-17');
+  assert.equal(a.limit, '2027-10-24');
+  assert.equal(a.level, null);
+  assert.equal(a.inspectedInWindow, '');
+  const b = carAgeOf(v, [{ kind: '자동차검사', date: '2026-10-06' }], '2026-11-17');
+  assert.equal(b.limit, '2026-10-24');
+  assert.equal(b.level, 'confirm'); // 검사 흔적이 있으면 지남 대신 연장 여부 확인
+  assert.equal(b.inspectedInWindow, '2026-10-06');
+  assert.equal(carAgeOf(v, [], '2026-11-17').level, 'expired');
 });
 
 console.log('\n모두 통과했습니다.');

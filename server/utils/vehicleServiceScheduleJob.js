@@ -118,7 +118,7 @@ export const syncVehicleServiceSchedules = async ({ dryRun = false } = {}) => {
     .populate('contract', 'leaseCompany')
     .populate('company', 'name')
     .lean();
-  const recordsByVehicle = await loadServiceRecords(vehicles, 'vehicle kind date mileage amount description status');
+  const recordsByVehicle = await loadServiceRecords(vehicles, 'vehicle kind date mileage amount description status carAgeExtended');
 
   const existing = await Schedule.find({ 'source.key': { $regex: '^svc:' } }).lean();
   const existingByKey = new Map(existing.map((s) => [s.source.key, s]));

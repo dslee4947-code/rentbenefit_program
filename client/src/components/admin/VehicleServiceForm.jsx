@@ -44,7 +44,7 @@ const formOf = (record, preset) => {
       transport: { in: emptyLeg(), out: emptyLeg() },
       payer: '', insurer: '', claimNo: '', fault: '', deductible: '', loaner: '',
       costs: { repair: '', vat: '', insurancePaid: '' },
-      request: '', description: '', memo: '', parts: [], consumables: [], lines: [], invoice: null
+      request: '', description: '', memo: '', parts: [], consumables: [], lines: [], invoice: null, carAgeExtended: false
     };
   }
   const leg = (l) => ({ ...emptyLeg(l?.method || ''), ...Object.fromEntries(Object.entries(l || {}).map(([k, v]) => [k, v ?? ''])) });
@@ -59,7 +59,7 @@ const formOf = (record, preset) => {
     deductible: record.deductible ?? '', loaner: record.loaner || '',
     costs: { repair: record.costs?.repair ?? (record.costs ? '' : record.amount || ''), vat: record.costs?.vat ?? '', insurancePaid: record.costs?.insurancePaid ?? '' },
     request: record.request || '', description: record.description || '', memo: record.memo || '',
-    parts: record.parts || [], consumables: record.consumables || [],
+    parts: record.parts || [], consumables: record.consumables || [], carAgeExtended: Boolean(record.carAgeExtended),
     lines: (record.lines || []).map((l) => Object.fromEntries(Object.entries(l).map(([k, v]) => [k, v ?? '']))), invoice: record.invoice || null
   };
 };
@@ -517,6 +517,12 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
                     </label>
                   ))}
                 </div>
+                {form.kind === '자동차검사' && (
+                  <label style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', marginTop: '0.5rem', fontSize: '0.8rem', fontWeight: 700, color: '#c2410c', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={form.carAgeExtended} onChange={(e) => set({ carAgeExtended: e.target.checked })} />
+                    차령 연장도 함께 신청함 (체크한 검사만 차령 1년 연장으로 셉니다)
+                  </label>
+                )}
                 <div style={{ ...row2, marginTop: '0.5rem' }}><span style={lab}>메모</span><input style={input} value={form.memo} onChange={(e) => set({ memo: e.target.value })} /></div>
               </div>
             </div>

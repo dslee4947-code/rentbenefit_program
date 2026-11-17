@@ -55,6 +55,8 @@ const toService = (entry) => {
     date: entry.date,
     amount: Number(entry.amount),
     description: label,
+    // 원장에 '자동차검사,연장'처럼 적힌 검사비는 차령 연장도 함께 한 것이다
+    carAgeExtended: kind === '자동차검사' && /연장/.test(`${label} ${entry.memo || ''}`),
     memo: vat ? '부가세 줄 (원장 이관, 본 금액은 다른 줄)' : '원장 이관'
   };
 };
@@ -114,6 +116,7 @@ const main = async () => {
         date: svc.date,
         amount: svc.amount,
         description: svc.description,
+        carAgeExtended: svc.carAgeExtended,
         memo: `${svc.memo} · ${ledger.ledgerNo}`,
         source: 'ledger',
         ledgerEntryId: entry._id,
@@ -143,7 +146,7 @@ const main = async () => {
   }
 
   // 옮긴 뒤 운행 중인 차의 다음 검사·점검이 어떻게 보일지 미리 센다.
-  const current = await VehicleService.find({}).select('vehicle kind date mileage amount description').lean();
+  const current = await VehicleService.find({}).select('vehicle kind date mileage amount description carAgeExtended').lean();
   const recordsOf = new Map();
   for (const r of [...current, ...toCreate]) {
     const k = String(r.vehicle);

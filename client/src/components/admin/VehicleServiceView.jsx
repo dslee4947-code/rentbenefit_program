@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { RefreshCw, X, ExternalLink, Trash2, Pencil, Search } from 'lucide-react';
 import VehicleServiceForm from './VehicleServiceForm.jsx';
 import ServiceDocUpload from './ServiceDocUpload.jsx';
@@ -380,7 +380,10 @@ function DayPicker({ date, rows, onPick, onClose }) {
  */
 const DAY_STATUSES = ['예정', '입고', '수리 중', '완료'];
 
-function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, place, left, width }) {
+function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, place, left, width, inline = false }) {
+  const rootRef = useRef(null);
+  // 달력 아래에 펼칠 때는 그 자리로 내려가 보여 준다
+  useEffect(() => { if (inline) rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, [inline]);
   const r = list[0].r;
   const date = list[0].date;
   const [records, setRecords] = useState(null); // 이 차 기록 전부(칸을 채울 값)
@@ -413,7 +416,10 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
             date: ymd(rec.date), status: rec.status || '완료', shop: rec.shop || '', staff: rec.staff || '',
             mileage: rec.mileageOut || rec.mileage || '', amount: rec.amount || '', request: rec.request || '', description: rec.description || '', memo: rec.memo || ''
           } : {
-            date, status: sec.e.inboxId ? (date > today ? '예정' : '완료') : '예정', shop: p.shop || '', staff: p.staff || '',
+            // 정비소가 비어 있으면 같은 종류 지난 기록의 정비소를 쓴다(정기점검=스피드메이트 OO점 등)
+            date, status: sec.e.inboxId ? (date > today ? '예정' : '완료') : '예정',
+            shop: p.shop || recs.filter((x) => x.kind === sec.kind && x.shop && (!x.status || x.status === '완료')).sort((a, b) => (String(a.date) < String(b.date) ? 1 : -1))[0]?.shop || '',
+            staff: p.staff || '',
             mileage: p.mileage || '', amount: i === 0 ? p.amount || '' : '', request: p.request || '', description: p.done && p.done !== '1.' ? p.done : '', memo: ''
           }];
         })));
@@ -539,10 +545,15 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
   const pendingRow = pendingOf ? (r.pending || []).find((w) => String(w.id) === String(pendingOf.inboxId)) : null;
   const dirtyCount = forms ? sections.filter((x) => forms[x.key]?.dirty).length : 0;
 
+  const big = inline; // 달력 아래 페이지로 펼치면 칸을 크게
+  const tdh = { padding: '0.35rem 0.5rem', borderTop: '1px solid var(--border-color)', fontSize: '0.8rem', verticalAlign: 'top' };
+  const history = [...(records || [])].sort((a, b) => (String(a.date) < String(b.date) ? 1 : -1));
   return (
     <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 900 }} />
-      <div style={{ position: 'fixed', left, ...place, width, maxHeight: '85vh', overflowY: 'auto', zIndex: 901, background: '#fff', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '0.8rem 0.9rem', boxShadow: '0 12px 32px rgba(0,0,0,0.22)' }}>
+      {!inline && <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 900 }} />}
+      <div ref={rootRef} style={inline
+        ? { marginTop: '0.8rem', background: '#fff', border: '2px solid var(--primary)', borderRadius: '12px', padding: '1rem 1.1rem', scrollMarginTop: '1rem' }
+        : { position: 'fixed', left, ...place, width, maxHeight: '85vh', overflowY: 'auto', zIndex: 901, background: '#fff', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '0.8rem 0.9rem', boxShadow: '0 12px 32px rgba(0,0,0,0.22)' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-bright)' }}>
@@ -609,12 +620,14 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
                 <div><div style={lab}>주행거리(km)</div><MoneyInput style={input} disabled={!canWrite} value={f.mileage} onChange={(ev) => setF(sec.key, { mileage: ev.target.value })} placeholder="39,608" /></div>
                 <div style={{ gridColumn: 'span 2' }}><div style={lab}>금액(합계)</div><MoneyInput style={input} disabled={!canWrite} value={f.amount} onChange={(ev) => setF(sec.key, { amount: ev.target.value })} placeholder="0" /></div>
               </div>
-              <div style={{ marginTop: '0.35rem' }}><div style={lab}>요청(점검 의뢰)</div>
-                <textarea style={{ ...input, minHeight: '40px', resize: 'vertical' }} disabled={!canWrite} value={f.request} onChange={(ev) => setF(sec.key, { request: ev.target.value })} /></div>
-              <div style={{ marginTop: '0.35rem' }}><div style={lab}>작업 내용</div>
-                <textarea style={{ ...input, minHeight: '52px', resize: 'vertical' }} disabled={!canWrite} value={f.description} onChange={(ev) => setF(sec.key, { description: ev.target.value })} placeholder={sec.kind === '사고수리' ? '예: 조수석 뒷문짝 판금·도색' : '실제로 한 작업'} /></div>
-              <div style={{ marginTop: '0.35rem' }}><div style={lab}>메모</div>
-                <input style={input} disabled={!canWrite} value={f.memo} onChange={(ev) => setF(sec.key, { memo: ev.target.value })} /></div>
+              <div style={{ display: 'grid', gridTemplateColumns: big ? 'repeat(auto-fit, minmax(300px, 1fr))' : '1fr', gap: '0.5rem', marginTop: '0.35rem' }}>
+                <div><div style={lab}>요청(점검 의뢰)</div>
+                  <textarea style={{ ...input, minHeight: big ? '150px' : '40px', resize: 'vertical', lineHeight: 1.5 }} disabled={!canWrite} value={f.request} onChange={(ev) => setF(sec.key, { request: ev.target.value })} placeholder="고객이 요청한 것" /></div>
+                <div><div style={lab}>작업 내용</div>
+                  <textarea style={{ ...input, minHeight: big ? '150px' : '52px', resize: 'vertical', lineHeight: 1.5 }} disabled={!canWrite} value={f.description} onChange={(ev) => setF(sec.key, { description: ev.target.value })} placeholder={sec.kind === '사고수리' ? '예: 조수석 뒷문짝 판금·도색' : '실제로 한 작업'} /></div>
+              </div>
+              <div style={{ marginTop: '0.35rem' }}><div style={lab}>메모 · 특이사항</div>
+                <textarea style={{ ...input, minHeight: big ? '60px' : '30px', resize: 'vertical' }} disabled={!canWrite} value={f.memo} onChange={(ev) => setF(sec.key, { memo: ev.target.value })} /></div>
               {/* 서류: 올리면 글자를 읽어 위 칸을 채운다 */}
               <div style={{ marginTop: '0.45rem', background: 'var(--bg-main)', borderRadius: '6px', padding: '0.4rem 0.5rem', fontSize: '0.75rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
@@ -647,12 +660,47 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
         })}
 
         {canWrite && forms && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.7rem', position: 'sticky', bottom: '-0.8rem', background: '#fff', padding: '0.5rem 0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.7rem', ...(inline ? {} : { position: 'sticky', bottom: '-0.8rem' }), background: '#fff', padding: '0.5rem 0' }}>
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
               {pendingOf ? `저장하면 ${sections.filter((x) => x.e.inboxId).length}건이 기록으로 만들어지고 확인 대기가 끝납니다.` : dirtyCount ? `${dirtyCount}칸을 고쳤습니다.` : '칸을 고친 뒤 저장하세요.'}
             </span>
             <button type="button" onClick={onClose} style={{ marginLeft: 'auto', border: '1px solid var(--border-color)', background: '#fff', borderRadius: '7px', padding: '0.4rem 0.9rem', fontWeight: 700, cursor: 'pointer' }}>닫기</button>
             <button type="button" onClick={saveAll} disabled={saving || (!pendingOf && !dirtyCount)} style={{ border: 'none', background: 'var(--primary)', color: '#fff', borderRadius: '7px', padding: '0.4rem 1.1rem', fontWeight: 800, cursor: saving ? 'wait' : 'pointer', opacity: !pendingOf && !dirtyCount ? 0.5 : 1 }}>{saving ? '저장 중…' : '저장'}</button>
+          </div>
+        )}
+
+        {/* 이 차의 지난 이력. 줄을 누르면 그 기록을 상세 페이지로 고친다 */}
+        {inline && records && (
+          <div style={{ marginTop: '0.8rem' }}>
+            <div style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--text-bright)', marginBottom: '0.3rem' }}>{r.plateNo} 지난 이력 {history.length}건</div>
+            <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '780px' }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-main)' }}>
+                    {['날짜', '차량번호', '주행거리', '작업', '작업 내용', '정비소', '금액', '상태'].map((h) => <th key={h} style={{ textAlign: 'left', padding: '0.4rem 0.5rem', fontSize: '0.76rem', color: 'var(--text-muted)', fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.length === 0 && <tr><td colSpan={8} style={{ ...tdh, textAlign: 'center', color: 'var(--text-muted)' }}>기록이 없습니다.</td></tr>}
+                  {history.map((h) => {
+                    const km = h.mileageOut || h.mileage || h.mileageIn;
+                    const text = String(h.description || h.request || '').replace(/\s+/g, ' ').trim();
+                    return (
+                      <tr key={h._id} onClick={() => onOpenFull(r.vehicleId, h._id)} title="누르면 이 기록을 고칩니다" style={{ cursor: 'pointer' }}>
+                        <td style={{ ...tdh, whiteSpace: 'nowrap', fontWeight: 700 }}>{ymd(h.date)}</td>
+                        <td style={{ ...tdh, whiteSpace: 'nowrap' }}>{h.plateNo || r.plateNo}</td>
+                        <td style={{ ...tdh, whiteSpace: 'nowrap', textAlign: 'right' }}>{km ? `${Number(km).toLocaleString()}km` : '-'}</td>
+                        <td style={{ ...tdh, whiteSpace: 'nowrap', fontWeight: 700, color: KIND[h.kind]?.color }}>{h.kind}{h.checkRound ? ` ${h.checkRound}회차` : ''}</td>
+                        <td style={{ ...tdh, color: 'var(--text-muted)' }}>{text.length > 60 ? `${text.slice(0, 60)}…` : text || '-'}</td>
+                        <td style={{ ...tdh, maxWidth: '170px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.shop}>{h.shop || '-'}</td>
+                        <td style={{ ...tdh, whiteSpace: 'nowrap', textAlign: 'right' }}>{h.amount ? `${Number(h.amount).toLocaleString()}원` : '-'}</td>
+                        <td style={{ ...tdh, whiteSpace: 'nowrap' }}>{h.status || '완료'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>
@@ -801,16 +849,13 @@ function ServiceCalendar({ rows, onOpen, onAdd, onEdit, onMoved, canWrite, showT
         })}
       </div>
 
+      {/* 차 한 대·하루를 누르면 팝업 대신 달력 아래에 펼친다(대표님 2026-11-17) */}
       {picked && new Set(picked.list.map((e) => e.r.vehicleId)).size === 1 && new Set(picked.list.map((e) => e.date)).size === 1 && (() => {
-        const W = Math.min(560, window.innerWidth - 32);
-        const left = Math.max(16, Math.min(picked.rect?.left ?? 16, window.innerWidth - W - 16));
         return (
           <CarDayCard
             key={picked.title}
+            inline
             list={picked.list}
-            width={W}
-            left={left}
-            place={{ top: Math.max(16, Math.min((picked.rect?.top ?? 80) - 40, window.innerHeight * 0.12)) }}
             canWrite={canWrite}
             showToast={showToast}
             onClose={() => setPicked(null)}

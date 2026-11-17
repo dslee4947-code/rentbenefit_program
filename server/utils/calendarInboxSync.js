@@ -143,7 +143,8 @@ export const guessKinds = ({ title, request, done, colorId }) => {
  */
 export const parseServiceEvent = (event) => {
   const title = String(event.summary || '');
-  const text = plainText(event.description);
+  // 'AS (…)'를 다음 줄에 쓰기도 한다: "…<쏘나타 / 142호9106>\nAS (SK스피드메이트 …)"
+  const text = plainText(event.description).replace(/>\s*\n\s*AS/g, '> AS');
   const header = text.match(HEADER);
   const headerLine = header ? text.split('\n').find((l) => l.includes(header[0])) || '' : '';
   const staff = headerLine ? oneLine((headerLine.split('<')[0].split('/').pop() || '').replace(/-\s*$/, '')) : '';

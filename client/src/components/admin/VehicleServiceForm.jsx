@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import MoneyInput from './MoneyInput.jsx';
 import { READ_SOURCE, consumablesOf } from './serviceDocs.js';
+import { HistoryFilterRow, FilterBadge } from './ServiceHistoryFilter.jsx';
+import { filterHistory, filterActive, kstYmd } from './serviceHistoryFilter.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -237,6 +239,7 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
   const setWork = (k, patch) => setExtraWork((w) => ({ ...w, [k]: { ...(w[k] || {}), ...patch } }));
   const kindsAll = [form.kind, ...extras.filter((k) => k !== form.kind)];
   const [files, setFiles] = useState([]);
+  const [histFilterValue, setHistFilterValue] = useState({}); // 지난 기록 칸별 필터
   const [saving, setSaving] = useState(false);
   const [reading, setReading] = useState(false);
   const [readInfo, setReadInfo] = useState(null); // { source, parsed, filled: [] } 마지막으로 읽은 결과
@@ -452,6 +455,20 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
 
   // 이 차의 지난 기록 표(최근 것이 위). 줄을 누르면 그 기록을 고친다
   const historyRows = [...history].sort((a, b) => (String(a.date) < String(b.date) ? 1 : -1));
+  // 지난 기록 칸별 필터. 칸 순서는 표 머리와 같다(마지막 '고치기' 칸은 필터 없음)
+  const histCols = [
+    { key: '날짜', type: 'date', get: (r) => kstYmd(r.date) },
+    { key: '차량번호', type: 'select', get: (r) => r.plateNo || row?.plateNo },
+    { key: '주행거리', type: 'range', get: (r) => r.mileageOut || r.mileage || r.mileageIn },
+    { key: '작업', type: 'select', get: (r) => r.kind },
+    { key: '작업 내용', type: 'text', get: (r) => `${r.description || ''} ${r.request || ''}` },
+    { key: '정비소', type: 'text', get: (r) => r.shop },
+    { key: '금액', type: 'range', get: (r) => r.amount },
+    { key: '상태', type: 'select', get: (r) => r.status || '완료' },
+    { key: '고치기' }
+  ];
+  const shownRows = filterHistory(historyRows, histCols, histFilterValue);
+  const histFilterOn = filterActive(histFilterValue);
   const summaryOf = (r) => {
     const t = String(r.description || r.request || '').replace(/\s+/g, ' ').trim();
     return t.length > 60 ? `${t.slice(0, 60)}…` : t;
@@ -702,21 +719,24 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
           <div style={card}>
             <h3 style={{ ...h2, display: 'flex', alignItems: 'center' }}>
               {row?.plateNo} 지난 정비·검사 기록 {historyRows.length}건
+              <FilterBadge active={histFilterOn} shown={shownRows.length} total={historyRows.length} onReset={() => setHistFilterValue({})} />
               <button type="button" onClick={() => onPick?.(null)} style={{ ...btn, marginLeft: 'auto', padding: '0.25rem 0.7rem' }}>+ 새 기록</button>
             </h3>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '820px' }}>
                 <thead>
                   <tr>{['날짜', '차량번호', '주행거리', '작업', '작업 내용', '정비소', '금액', '상태', ''].map((h) => <th key={h} style={th}>{h}</th>)}</tr>
+                  {historyRows.length > 0 && <HistoryFilterRow rows={historyRows} columns={histCols} value={histFilterValue} onChange={setHistFilterValue} />}
                 </thead>
                 <tbody>
                   {historyRows.length === 0 && <tr><td colSpan={9} style={{ ...tdc, textAlign: 'center', color: 'var(--text-muted)' }}>기록이 없습니다.</td></tr>}
-                  {historyRows.map((r) => {
+                  {historyRows.length > 0 && shownRows.length === 0 && <tr><td colSpan={9} style={{ ...tdc, textAlign: 'center', color: 'var(--text-muted)' }}>필터에 맞는 기록이 없습니다.</td></tr>}
+                  {shownRows.map((r) => {
                     const current = record && String(r._id) === String(record._id);
                     const km = r.mileageOut || r.mileage || r.mileageIn;
                     return (
                       <tr key={r._id} onClick={() => !current && onPick?.(r)} style={{ cursor: current ? 'default' : 'pointer', background: current ? '#eef3fe' : undefined }}>
-                        <td style={{ ...tdc, whiteSpace: 'nowrap', fontWeight: 700 }}>{String(r.date).slice(0, 10)}</td>
+                        <td style={{ ...tdc, whiteSpace: 'nowrap', fontWeight: 700 }}>{kstYmd(r.date)}</td>
                         <td style={{ ...tdc, whiteSpace: 'nowrap' }}>{r.plateNo || row?.plateNo}</td>
                         <td style={{ ...tdc, whiteSpace: 'nowrap', textAlign: 'right' }}>{km ? `${Number(km).toLocaleString()}km` : '-'}</td>
                         <td style={{ ...tdc, whiteSpace: 'nowrap', fontWeight: 700 }}>{r.kind}{r.checkRound ? ` ${r.checkRound}회차` : ''}{r.carAgeExtended ? ' · 차령연장' : ''}</td>

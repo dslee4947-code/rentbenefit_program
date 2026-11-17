@@ -5,6 +5,8 @@ import ServiceDocUpload from './ServiceDocUpload.jsx';
 import { DOC_LABEL, attachServiceFiles, fieldsFromDoc, openServiceFile, readServiceDoc } from './serviceDocs.js';
 import CalendarInboxPanel from './CalendarInboxPanel.jsx';
 import MoneyInput from './MoneyInput.jsx';
+import { HistoryFilterRow, FilterBadge } from './ServiceHistoryFilter.jsx';
+import { filterHistory, filterActive, kstYmd } from './serviceHistoryFilter.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -391,6 +393,7 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
   const [saving, setSaving] = useState(false);
   const [showText, setShowText] = useState(true);
   const [docs, setDocs] = useState({}); // 칸마다 올린 서류 { key: { files: [], reading, note, warnings } }
+  const [histFilterValue, setHistFilterValue] = useState({}); // 지난 이력 칸별 필터
 
   // 칸 목록. 검사+점검은 두 칸으로 편다
   const sections = list.flatMap((e) => {
@@ -548,6 +551,19 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
   const big = inline; // 달력 아래 페이지로 펼치면 칸을 크게
   const tdh = { padding: '0.35rem 0.5rem', borderTop: '1px solid var(--border-color)', fontSize: '0.8rem', verticalAlign: 'top' };
   const history = [...(records || [])].sort((a, b) => (String(a.date) < String(b.date) ? 1 : -1));
+  // 지난 이력 칸별 필터. 칸 순서는 표 머리와 같다
+  const histCols = [
+    { key: '날짜', type: 'date', get: (h) => kstYmd(h.date) },
+    { key: '차량번호', type: 'select', get: (h) => h.plateNo || r.plateNo },
+    { key: '주행거리', type: 'range', get: (h) => h.mileageOut || h.mileage || h.mileageIn },
+    { key: '작업', type: 'select', get: (h) => h.kind },
+    { key: '작업 내용', type: 'text', get: (h) => `${h.description || ''} ${h.request || ''}` },
+    { key: '정비소', type: 'text', get: (h) => h.shop },
+    { key: '금액', type: 'range', get: (h) => h.amount },
+    { key: '상태', type: 'select', get: (h) => h.status || '완료' }
+  ];
+  const shownHistory = filterHistory(history, histCols, histFilterValue);
+  const histFilterOn = filterActive(histFilterValue);
   return (
     <>
       {!inline && <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 900 }} />}
@@ -672,17 +688,19 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
         {/* 이 차의 지난 이력. 줄을 누르면 그 기록을 상세 페이지로 고친다 */}
         {inline && records && (
           <div style={{ marginTop: '0.8rem' }}>
-            <div style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--text-bright)', marginBottom: '0.3rem' }}>{r.plateNo} 지난 이력 {history.length}건</div>
+            <div style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--text-bright)', marginBottom: '0.3rem' }}>{r.plateNo} 지난 이력 {history.length}건<FilterBadge active={histFilterOn} shown={shownHistory.length} total={history.length} onReset={() => setHistFilterValue({})} /></div>
             <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '780px' }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-main)' }}>
                     {['날짜', '차량번호', '주행거리', '작업', '작업 내용', '정비소', '금액', '상태'].map((h) => <th key={h} style={{ textAlign: 'left', padding: '0.4rem 0.5rem', fontSize: '0.76rem', color: 'var(--text-muted)', fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</th>)}
                   </tr>
+                  {history.length > 0 && <HistoryFilterRow rows={history} columns={histCols} value={histFilterValue} onChange={setHistFilterValue} />}
                 </thead>
                 <tbody>
                   {history.length === 0 && <tr><td colSpan={8} style={{ ...tdh, textAlign: 'center', color: 'var(--text-muted)' }}>기록이 없습니다.</td></tr>}
-                  {history.map((h) => {
+                  {history.length > 0 && shownHistory.length === 0 && <tr><td colSpan={8} style={{ ...tdh, textAlign: 'center', color: 'var(--text-muted)' }}>필터에 맞는 기록이 없습니다.</td></tr>}
+                  {shownHistory.map((h) => {
                     const km = h.mileageOut || h.mileage || h.mileageIn;
                     const text = String(h.description || h.request || '').replace(/\s+/g, ' ').trim();
                     return (

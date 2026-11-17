@@ -119,6 +119,53 @@ export const amountOf = (text) => {
 };
 
 /**
+ * 비용 칸에서 회사(렌트베네핏)가 낸 금액 (2026-11-17 대표님: 정비포함이라도 우리가 냈으면 금액에 넣는다).
+ *   "76,000원, 48,000원 = 124,000원"                  → 124,000 (합계가 있으면 합계)
+ *   "정비포함으로 베네핏 납부 120,175원"               → 120,175
+ *   "무상-풀정비 장기렌트(767,216원)"                  → 767,216
+ *   "1.부가세포함 1,111,000원 / 2.자동차종합검사 6만원" → 1,171,000 (번호·'/'로 나뉜 항목을 더한다)
+ *   "3,405,027원 (공임 2,260,769원 + 부품 …)"         → 3,405,027 (한 항목 안에서는 가장 큰 값)
+ *   "1.부가세포함 338,800원 -카드결제 2. 6만원 …"      → 항목마다 따로 센다
+ *   "110만원 / 고객 55만원 현장 결제 / 베네핏 55만원 결제" → 550,000 (고객·베네핏으로 나눠 냈으면 베네핏 몫만)
+ *   "수리비용 : 1,153,339 / … / 총금액 : 461,336"     → 461,336 (총금액·합계가 적혀 있으면 그 값)
+ * 고객이 낸 항목과 자기부담금·면책금만 적힌 항목은 뺀다. 못 읽으면 undefined.
+ */
+const MONEY = /(\d{1,3}(?:,\d{3})+|\d{4,7})\s*원|(\d+(?:\.\d+)?)\s*만\s*원|(?:^|[^\d,])(\d{1,3}(?:,\d{3})+)(?![\d,]*\s*(?:km|원))/gi;
+// 고객이 낸 항목은 회사 비용이 아니다. "업체로 직접 입금 및 계산서 발행"은 회사가 업체에 낸 것이라 넣는다
+const CUSTOMER_PAID = /고객[^/]{0,12}?(결제|입금|납부)|고객입금|현장\s*결제/;
+const OURS = /베네핏|베넷핏|우리|회사/;
+// 자기부담금·면책금은 고객이 내는 몫일 뿐 전체 비용은 회사가 낸다. 그것만 적힌 항목만 뺀다
+const DEDUCTIBLE = /자기\s*부담금?|자부담금?|면책금/;
+export const costPaidOf = (text) => {
+  const t = String(text || '').replace(/[\d,]+\s*km/gi, ' ')
+    // "1.182만원", "3.10만원"처럼 번호 뒤에 붙여 쓴 금액을 띄운다
+    .replace(/(^|[\s/])(\d)\.(?=\d)/g, '$1$2. ');
+  if (!t.trim()) return undefined;
+  const total = t.match(/=\s*(\d{1,3}(?:,\d{3})+|\d{4,})\s*원/) || t.match(/(?:총\s*금액|총액|합계|총\s*정산\s*금액)\s*:?\s*(\d{1,3}(?:,\d{3})+|\d{4,})/);
+  if (total) return Number(total[1].replace(/,/g, ''));
+  const parts = t.split(/\s+\/\s+|\/(?=\s*\d\s*[.)])|(?:^|\s)(?=\d\s*[.)]\s*\S)|,\s+/).filter((x) => x && x.trim());
+  // 고객과 회사가 나눠 냈으면 회사(베네핏) 항목만 센다
+  const split = parts.some((x) => CUSTOMER_PAID.test(x)) && parts.some((x) => OURS.test(x) && /\d/.test(x));
+  let sum = 0;
+  let found = false;
+  const valuesOf = (s) => [...s.matchAll(MONEY)].map((m) => (m[2] ? Math.round(Number(m[2]) * 10000) : Number(String(m[1] || m[3]).replace(/,/g, ''))));
+  for (const part of parts) {
+    const values = valuesOf(part);
+    if (!values.length) continue;
+    if (CUSTOMER_PAID.test(part)) continue;
+    if (split && !OURS.test(part)) continue;
+    if (DEDUCTIBLE.test(part) && values.length === 1) continue;
+    // 괄호 밖에 '+'가 있으면 더한다("776,536원 + 45,000"). 괄호 안 '+'는 내역 설명이라 큰 값(합계)을 쓴다
+    const outside = part.replace(/\([^)]*\)/g, ' ');
+    sum += /\+/.test(outside) ? valuesOf(outside).reduce((a, b) => a + b, 0) : Math.max(...values);
+    found = true;
+  }
+  if (found) return sum;
+  if (/무상|무료/.test(t)) return 0;
+  return undefined;
+};
+
+/**
  * 종류 짐작. 첫째가 주 종류, 뒤는 같은 방문에 함께 한 정기점검·자동차검사(일괄 이관과 같은 규칙).
  * 직원이 옮길 때 고칠 수 있다.
  */
@@ -175,7 +222,8 @@ export const parseServiceEvent = (event) => {
     request,
     done,
     costText,
-    amount: amountOf(costText),
+    // 회사가 낸 금액(고객이 직접 낸 항목 제외). 못 읽으면 예전처럼 첫 금액
+    amount: costPaidOf(costText) ?? amountOf(costText),
     mileageIn: kmOf(pickup) || kmOf(visit),
     mileageOut: kmOf(deliver) || kmOf(visit),
     fuelIn: fuelOf(pickup) || fuelOf(visit),

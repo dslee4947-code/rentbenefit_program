@@ -145,7 +145,8 @@ export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false,
         label: '인수 시 취득세',
         labelNote: '구청 납부 · 예상',
         cells: cols.map((c, i) => (c.kind === 'return' || (c.kind === 'ext' && !(c.o?.takeoverPrice > 0)) ? '없음' : calc[i] ? wonText(calc[i].tax) : '계산 불가')),
-        notes: calc.map((x) => (x ? `${x.year}년 ${x.basis} 과표 ${wonText(x.taxBase)}${x.light ? ' · 경차 감면' : ''}` : ''))
+        // 구청 과표율(경과연수별 잔가율)을 함께 적는다(대표님 2026-11-17). 두 줄: 연도·과표율 / 과표
+        notes: calc.map((x) => (x ? `${x.year}년 ${x.years}년차 과표율 ${(x.rate * 100).toFixed(1)}%\n${x.basis} 과표 ${wonText(x.taxBase)}${x.light ? ' · 경차 감면' : ''}` : ''))
       };
     })()] : []),
     ...(thirdParty ? [row('승계 수수료', { ext: () => '없음', takeover: () => wonText(t.fee), return: () => '없음' })] : []),

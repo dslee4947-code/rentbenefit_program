@@ -578,7 +578,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
                     {r.cells.map((v, i) => (
                       <td key={i} style={{ padding: '0.3rem 0.4rem', textAlign: 'right', fontWeight: r.section === 'settle' && v !== '없음' ? 800 : 500, color: v === '없음' || v === '-' ? 'var(--text-muted)' : '#111e38' }}>
                         {v}
-                        {r.notes?.[i] ? <div style={{ fontSize: '0.72rem', fontWeight: 500, color: 'var(--text-muted)' }}>{r.notes[i]}</div> : null}
+                        {r.notes?.[i] ? <div style={{ fontSize: '0.72rem', fontWeight: 500, color: 'var(--text-muted)', whiteSpace: 'pre-line' }}>{r.notes[i]}</div> : null}
                       </td>
                     ))}
                   </tr>

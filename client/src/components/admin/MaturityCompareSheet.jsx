@@ -27,7 +27,7 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
   const frame = { width: '100%', borderCollapse: 'collapse', fontSize: '13.6px', borderTop: `2px solid ${NAVY}`, borderBottom: `2px solid ${NAVY}` };
   const label = { background: SOFT, color: '#2b2b2b', fontWeight: '700', padding: '8px 10px', borderBottom: `1px solid ${LINE}`, borderRight: `1px solid ${GOLD}`, textAlign: 'center', whiteSpace: 'nowrap' };
   const value = { padding: '8px 10px', borderBottom: `1px solid ${LINE}`, color: NAVY };
-  const note = { fontSize: '11.84px', fontWeight: '500', color: '#5f5a51', marginTop: '2px' };
+  const note = { fontSize: '11.84px', fontWeight: '500', color: '#5f5a51', marginTop: '2px', whiteSpace: 'pre-line' };
   const sectionTitle = (text, sub) => (
     <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', margin: '14px 0 6px' }}>
       <span style={{ width: '3px', height: '13px', background: GOLD, display: 'inline-block', alignSelf: 'center' }} />

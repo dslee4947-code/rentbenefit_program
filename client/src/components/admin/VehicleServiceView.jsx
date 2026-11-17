@@ -1115,6 +1115,17 @@ function ServiceNotesEditor({ row, canWrite, onSaved, showToast }) {
 
 const kmText = (km) => (km ? `${Number(km).toLocaleString()}km` : '');
 const manKm = (km) => (km % 10000 === 0 ? `${km / 10000}만km` : kmText(km));
+// 계약 대비 주행 판정 색 (서버 mileageUsageOf: 계약 끝 예상 주행 ÷ 약정 총량, 90% 밑 짧음 · 110% 넘으면 김)
+const USAGE_TONE = { 짧음: { fg: '#1d4ed8', bg: '#dbeafe' }, 적정: { fg: '#15803d', bg: '#dcfce7' }, 김: { fg: '#b91c1c', bg: '#fee2e2' } };
+const UsageBadge = ({ mileage }) => {
+  const t = mileage?.verdict && USAGE_TONE[mileage.verdict];
+  if (!t) return null;
+  return (
+    <span title={mileage.reliable ? '' : '주행거리 기록이 적어 참고용입니다'} style={{ fontSize: '0.72rem', fontWeight: 800, color: t.fg, background: t.bg, borderRadius: '4px', padding: '0 0.3rem', marginLeft: '0.25rem' }}>
+      {mileage.verdict}{mileage.projectedRatio ? ` ${mileage.projectedRatio}%` : ''}{mileage.reliable ? '' : '?'}
+    </span>
+  );
+};
 
 /**
  * 정기점검 칩을 눌렀을 때의 한 줄. 정기점검을 챙기는 데 필요한 것만 보여 준다:
@@ -1155,14 +1166,15 @@ function MaintenanceRow({ r, selected, onOpen, onStep, cell, clip }) {
       </td>
       <td style={cell}>
         {u.lastKm ? <b>{kmText(u.lastKm)}</b> : <span style={sub}>기록 없음</span>}
+        <UsageBadge mileage={u.mileage} />
         <div style={sub}>
-          {[m?.kmPerMonth ? `월 ${m.kmPerMonth.toLocaleString()}km` : '', u.ratio ? `약정의 ${u.ratio}%` : ''].filter(Boolean).join(' · ')}
+          {[u.mileage?.kmPerMonth ? `월 ${u.mileage.kmPerMonth.toLocaleString()}km` : '', u.ratio ? `약정의 ${u.ratio}%` : ''].filter(Boolean).join(' · ')}
         </div>
       </td>
       <td style={cell}>
         {m ? (<>
           <b style={{ color: over || soon ? tone : 'var(--text-bright)' }}>{m.date} {ddayText(m.dday)}</b>
-          <div style={sub}>{m.status === '지남' ? '지남' : m.status}{m.baseDate ? ` · ${c.last ? '지난 점검' : '인도일'} ${m.baseDate}부터` : ''}</div>
+          <div style={sub}>{m.status === '지남' ? '지남' : m.status}{m.nextKm ? ` · ${kmText(m.nextKm)}쯤` : ''}{m.baseDate ? ` · ${c.last ? '지난 점검' : '인도일'} ${m.baseDate}부터` : ''}</div>
         </>) : <span style={sub}>-</span>}
       </td>
       <td style={cell}>
@@ -1669,11 +1681,32 @@ function VehicleServiceView({ showToast, currentUser }) {
                 </div>
                 <div style={small}>{selectedRow?.checks?.last ? `마지막 ${selectedRow.checks.last}` : '정기점검 기록 없음'}</div>
                 <div style={{ ...small, fontWeight: 800, marginTop: '0.5rem' }}>계약 대비 주행</div>
-                <div style={small}>
-                  {selectedRow?.usage?.annualizedKm
-                    ? <>연 환산 <b style={{ color: 'var(--text-bright)' }}>{selectedRow.usage.annualizedKm.toLocaleString()}km</b>{selectedRow.usage.ratio ? ` (약정의 ${selectedRow.usage.ratio}%)` : ''}</>
-                    : '주행거리 기록이 쌓이면 계산합니다'}
-                </div>
+                {(() => {
+                  const mu = selectedRow?.usage?.mileage;
+                  if (!mu) return <div style={small}>정비·검사·수리 기록에 주행거리가 두 번 이상(30일 넘게 떨어져) 적히면 계산합니다</div>;
+                  const strong = { color: 'var(--text-bright)' };
+                  return (<>
+                    <div style={small}>
+                      월 <b style={strong}>{mu.kmPerMonth.toLocaleString()}km</b> · 연 환산 <b style={strong}>{mu.annualizedKm.toLocaleString()}km</b>
+                      {mu.contractKm ? ` (약정 연 ${mu.contractKm.toLocaleString()}km의 ${mu.ratio}%)` : ' (약정 미기재)'}
+                      <UsageBadge mileage={mu} />
+                    </div>
+                    <div style={small}>
+                      근거: {mu.scope} 기록 {mu.readings}건 {mu.from.ymd} {kmText(mu.from.km)} → {mu.to.ymd} {kmText(mu.to.km)}
+                      {mu.reliable ? '' : ' · 기록이 적어 참고용'}
+                    </div>
+                    {mu.allowedKm && mu.projectedKm !== null && (
+                      <div style={small}>
+                        계약 전체({mu.contractEnd}까지) 약정 <b style={strong}>{kmText(mu.allowedKm)}</b> · 예상 <b style={strong}>{kmText(mu.projectedKm)}</b>
+                        {' '}({mu.diffKm >= 0 ? `${kmText(mu.diffKm)} 초과 예상` : `${kmText(-mu.diffKm)} 덜 탐`})
+                        {mu.startKm !== null ? ` · 인도 뒤 ${kmText(mu.drivenKm)} 탐` : ''}
+                      </div>
+                    )}
+                    {selectedRow?.maintenance?.nextKm && (
+                      <div style={small}>다음 정기점검: <b style={strong}>{kmText(selectedRow.maintenance.nextKm)}쯤 · {selectedRow.maintenance.date}</b>{selectedRow.maintenance.baseKmEstimated ? ' (지난 점검 주행거리는 짐작한 값)' : ''}</div>
+                    )}
+                  </>);
+                })()}
                 {(selectedRow?.notices || []).map((n) => (
                   <div key={n.type} style={{ ...small, color: '#b45309', marginTop: '0.3rem' }}>⚠ {n.text}</div>
                 ))}

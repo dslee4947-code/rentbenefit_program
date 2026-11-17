@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { nextInspection, nextMaintenance, maintenanceIntervalMonths, addMonths, carAgeOf } from '../utils/vehicleServicePlan.js';
+import { nextInspection, nextMaintenance, mileageUsageOf, mileageReadings, maintenanceIntervalMonths, addMonths, carAgeOf } from '../utils/vehicleServicePlan.js';
 
 /**
  * 정비·검사 계획 계산(utils/vehicleServicePlan.js)이 정한 규칙대로 나오는지 확인한다.
@@ -100,6 +100,46 @@ check('점검: 지난 점검 주행거리가 앞선 기록을 옮겨 적은 값�
   assert.equal(r.lastDone, '2026-09-15');
   assert.ok(r.date > '2026-12-31', `9/15 점검 뒤 1만km는 아직이어야 한다: ${r.date}`);
   assert.notEqual(r.status, '지남');
+});
+
+check('주행: 옮겨 적은 숫자와 거꾸로 간 숫자는 읽지 않는다', () => {
+  const rs = mileageReadings([
+    { kind: '정기점검', date: '2026-06-10', mileage: 143242 },
+    { kind: '사고수리', date: '2026-07-20', mileage: 143242 },
+    { kind: '고장수리', date: '2026-08-01', mileage: 14300 },
+    { kind: '자동차검사', date: '2026-10-27', mileage: 153233 },
+    { kind: '정기점검', date: '2026-11-01', mileage: 160000, status: '예정' }
+  ]);
+  assert.deepEqual(rs.map((r) => r.km), [143242, 153233]);
+});
+
+check('주행: 중고로 다시 내보낸 차는 인도 뒤 탄 거리로 약정과 견준다', () => {
+  // 인도 때 이미 10만 km, 1년 약정 2만 km, 월 1,000km씩 → 계약 끝 예상 1.2만 km = 짧음
+  const records = [
+    { kind: '정기점검', date: '2026-01-01', mileage: 100000 },
+    { kind: '고장수리', date: '2026-04-01', mileage: 102958 },
+    { kind: '자동차검사', date: '2026-07-01', mileage: 105950 }
+  ];
+  const u = mileageUsageOf({ records, deliveryDate: '2026-01-01', contractEnd: '2026-12-31', annualKm: 20000, termMonths: 12, today: '2026-07-02' });
+  assert.ok(Math.abs(u.kmPerMonth - 1000) < 20, String(u.kmPerMonth));
+  assert.equal(u.allowedKm, 20000);
+  assert.ok(u.projectedKm > 11000 && u.projectedKm < 13000, String(u.projectedKm));
+  assert.equal(u.verdict, '짧음');
+  assert.equal(u.reliable, true);
+  assert.equal(u.scope, '계약 중');
+});
+
+check('주행: 약정보다 많이 타면 김, 단기렌트는 판정하지 않는다', () => {
+  const records = [
+    { kind: '정기점검', date: '2026-01-01', mileage: 10000 },
+    { kind: '고장수리', date: '2026-07-01', mileage: 25000 } // 월 2,500km
+  ];
+  const long = mileageUsageOf({ records, deliveryDate: '2026-01-01', contractEnd: '2026-12-31', annualKm: 20000, termMonths: 12 });
+  assert.equal(long.verdict, '김');
+  assert.equal(long.reliable, false); // 기록 2건
+  const short = mileageUsageOf({ records, deliveryDate: '2026-01-01', contractEnd: '2026-12-31', annualKm: 20000, termMonths: 12, longTerm: false });
+  assert.equal(short.verdict, null);
+  assert.ok(short.kmPerMonth > 2400);
 });
 
 check('검사: 사이버검사소 만료일이 있으면 기록이 빠져도 그 날짜가 다음 검사일', () => {

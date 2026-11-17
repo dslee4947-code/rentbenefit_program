@@ -7,7 +7,7 @@ import { logActivity, ACTIONS } from '../utils/activityLog.js';
 import { vehicleEndOf, lastDayOf } from '../utils/contractTerm.js';
 import { readInvoiceText, parseRepairInvoice } from '../utils/repairInvoice.js';
 import { parseServiceDocument, pickServiceTarget } from '../utils/serviceDocument.js';
-import { planVehicle, kstYmd, addMonths, SERVICE_KINDS, REPAIR_KINDS, INSPECTION_RULE, MAINTENANCE_RULE, CAR_AGE_RULE } from '../utils/vehicleServicePlan.js';
+import { planVehicle, mileageUsageOf, kstYmd, addMonths, SERVICE_KINDS, REPAIR_KINDS, INSPECTION_RULE, MAINTENANCE_RULE, CAR_AGE_RULE } from '../utils/vehicleServicePlan.js';
 import { SERVICE_ACTIVE_STATUSES, partyNameOf, syncVehicleServiceSchedules, loadServiceRecords } from '../utils/vehicleServiceScheduleJob.js';
 
 // 화면에서 고칠 수 있는 항목. 차량과 파일은 올릴 때만 정해진다.
@@ -57,8 +57,8 @@ const DAY = 24 * 60 * 60 * 1000;
  *
  * - 정기점검: 계약 기간 동안 몇 번 받아야 하는지(계약 개월 ÷ 점검 주기), 몇 번 받았는지, 남은 횟수.
  *   점검 주기는 정기점검 계획(nextMaintenance)의 개월 수를 쓰고, 미가입 차는 연 1회로 센다.
- * - 주행: 인도일부터 지금까지 주행거리를 1년으로 환산해 약정과 비교한다.
- *   약정의 120%를 넘으면 정비 주기를 당기고 고객에게 안내해야 한다(대표님 2026-10).
+ * - 주행: 기록에 적은 주행거리로 월 주행을 구해 약정과 견준다(mileageUsageOf).
+ *   계약 끝날 때 예상 주행이 약정 총량보다 짧은지 긴지도 본다. 연 환산이 약정의 120%를 넘으면 정비 주기를 당기고 고객에게 안내해야 한다(대표님 2026-10).
  *   덜 타더라도 1년 넘게 정기점검이 없으면 연 1회 점검 안내가 필요하다.
  */
 const usageOf = (v, records, plan) => {
@@ -72,12 +72,21 @@ const usageOf = (v, records, plan) => {
   const lastKm = Math.max(Number(v.currentMileage) || 0, ...records.map((r) => Number(r.mileageOut || r.mileage) || 0));
   const months = delivered ? (Date.now() - delivered.getTime()) / DAY / 30.44 : 0;
   const contractKm = Number(v.maintenance?.mileage) || null;
-  const annualizedKm = months >= 1 && lastKm ? Math.round((lastKm / months) * 12) : null;
-  const ratio = annualizedKm && contractKm ? annualizedKm / contractKm : null;
 
   // 남은 횟수: 전체 예정 - 받은 횟수로 세면 계약 끝 무렵 차가 "10회 남음"처럼 나온다.
   // 다음 점검일부터 계약 끝나는 날까지 주기마다 몇 번 돌아오는지로 센다.
   const contractEnd = delivered && termMonths ? addMonths(kstYmd(delivered), termMonths) : '';
+  // 계기판 숫자 ÷ 인도 뒤 개월로 연 환산하면 중고로 다시 내보낸 차가 약정의 10배로 나왔다. 기록 사이 주행으로 센다.
+  const mileage = mileageUsageOf({
+    records,
+    deliveryDate: v.deliveryDate,
+    contractEnd: v.status === '장기렌트' && v.contract?.termMonths ? kstYmd(lastDayOf(vehicleEndOf(v.contract, v))) : contractEnd,
+    annualKm: contractKm,
+    termMonths,
+    longTerm: v.status === '장기렌트'
+  });
+  const annualizedKm = mileage?.annualizedKm || null;
+  const ratio = annualizedKm && contractKm ? annualizedKm / contractKm : null;
   const nextCheck = plan.maintenance?.date || '';
   let remaining = null;
   if (contractEnd && nextCheck) {
@@ -102,7 +111,7 @@ const usageOf = (v, records, plan) => {
       // 마지막 정기점검 때 주행거리·정비소. 정기점검 목록에서 "언제, 몇 km에, 어디서" 받았는지 보여 준다
       lastKm: Number(lastCheckRecord?.mileageOut || lastCheckRecord?.mileage) || null, lastShop: lastCheckRecord?.shop || ''
     },
-    usage: { lastKm: lastKm || null, monthsSinceDelivery: Math.round(months * 10) / 10, contractKm, annualizedKm, ratio: ratio ? Math.round(ratio * 100) : null },
+    usage: { lastKm: lastKm || null, monthsSinceDelivery: Math.round(months * 10) / 10, contractKm, annualizedKm, ratio: ratio ? Math.round(ratio * 100) : null, mileage },
     notices
   };
 };

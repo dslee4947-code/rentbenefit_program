@@ -222,17 +222,109 @@ export const maintenanceIntervalMonths = (annualKm) => {
  *
  * @returns {{kmPerMonth: number, lastYmd: string, lastKm: number}|null}
  */
-export const estimateMonthlyKm = (records) => {
-  const readings = (records || [])
-    .filter((r) => Number(r.mileage) > 0 && kstYmd(r.date))
-    .map((r) => ({ ymd: kstYmd(r.date), km: Number(r.mileage) }))
+export const estimateMonthlyKm = (records, sinceYmd = '') => {
+  const all = mileageReadings(records);
+  const pick = (rs) => {
+    if (rs.length < 2) return null;
+    const first = rs[0];
+    const last = rs[rs.length - 1];
+    const days = dayNo(last.ymd) - dayNo(first.ymd);
+    if (days < 30 || last.km <= first.km) return null;
+    return {
+      kmPerMonth: Math.round(((last.km - first.km) / days) * 30.44),
+      firstYmd: first.ymd, firstKm: first.km, lastYmd: last.ymd, lastKm: last.km, count: rs.length
+    };
+  };
+  // 이번 계약(인도일 뒤) 기록으로 셀 수 있으면 그것을 쓴다. 예전 계약 때와 타는 사람이 달라 속도가 다르다.
+  const since = sinceYmd ? pick(all.filter((r) => r.ymd >= sinceYmd)) : null;
+  if (since) return { ...since, scope: '계약 중' };
+  const whole = pick(all);
+  return whole ? { ...whole, scope: '전체 기록' } : null;
+};
+
+const kmOf = (r) => Number(r?.mileageOut || r?.mileage) || 0;
+
+/**
+ * 정기점검·자동차검사·사고수리·고장수리 등 끝난 기록에 적힌 계기판 주행거리를 날짜순으로.
+ * 앞선 날과 같은 숫자는 옮겨 적은 값이라 빼고(101하5040, 2026-11-17),
+ * 앞 기록보다 작은 숫자도 계기판이 줄 수 없으니 뺀다.
+ * @returns {{ymd: string, km: number, kind: string}[]}
+ */
+export const mileageReadings = (records) => {
+  const raw = (records || [])
+    .filter((r) => kmOf(r) > 0 && kstYmd(r.date) && (!r.status || r.status === '완료'))
+    .map((r) => ({ ymd: kstYmd(r.date), km: kmOf(r), kind: r.kind || '' }))
     .sort((a, b) => (a.ymd < b.ymd ? -1 : a.ymd > b.ymd ? 1 : a.km - b.km));
-  if (readings.length < 2) return null;
-  const first = readings[0];
-  const last = readings[readings.length - 1];
-  const days = dayNo(last.ymd) - dayNo(first.ymd);
-  if (days < 30 || last.km <= first.km) return null;
-  return { kmPerMonth: Math.round(((last.km - first.km) / days) * 30.44), lastYmd: last.ymd, lastKm: last.km };
+  const seen = new Set();
+  const out = [];
+  for (const x of raw) {
+    if (seen.has(x.km)) continue;
+    seen.add(x.km);
+    if (out.length && x.km < out[out.length - 1].km) continue;
+    out.push(x);
+  }
+  return out;
+};
+
+// 계약 대비 주행 판정 기준: 계약 끝 예상 주행이 약정 총량의 이 비율 밑이면 '짧음', 넘으면 '김'
+export const USAGE_RULE = Object.freeze({ shortBelow: 0.9, longAbove: 1.1 });
+
+/**
+ * 계약 기간 대비 주행 분석. 기록의 주행거리로 월 주행을 구해 약정과 견준다.
+ *
+ * - 연 환산: 이번 계약 기록(없으면 전체 기록)으로 구한 월 주행 × 12. 계기판 숫자 ÷ 인도 뒤 개월로 나누면
+ *   중고로 다시 내보낸 차(101하5040, 인도 때 이미 13만 km)가 약정의 10배로 나와서 쓰지 않는다.
+ * - 계약 전체: 약정 총량(연 약정 × 계약 개월 ÷ 12)과 계약 끝날 때 예상 주행(인도 뒤 탄 거리 + 남은 개월 × 월 주행).
+ * - 판정: 예상이 약정의 90% 밑이면 '짧음', 110% 넘으면 '김', 그 사이 '적정'.
+ *
+ * @returns {object|null} 주행거리 기록으로 월 주행을 못 구하면 null
+ */
+export const mileageUsageOf = ({ records, deliveryDate, contractEnd, annualKm, termMonths, longTerm = true, today = new Date() }) => {
+  const delivered = kstYmd(deliveryDate);
+  const pace = estimateMonthlyKm(records, delivered);
+  if (!pace) return null;
+  const contractKm = Number(annualKm) > 0 ? Number(annualKm) : null;
+  const annualizedKm = pace.kmPerMonth * 12;
+  const ratio = contractKm ? annualizedKm / contractKm : null;
+
+  // 인도일 계기판: 기록이 있으면 그 사이를 월 주행으로 거꾸로 짐작한다
+  const startKm = delivered
+    ? Math.max(0, Math.round(pace.firstKm - (pace.kmPerMonth * (dayNo(pace.firstYmd) - dayNo(delivered))) / 30.44))
+    : null;
+  const drivenKm = startKm !== null ? Math.max(0, pace.lastKm - startKm) : null;
+  const end = kstYmd(contractEnd);
+  const allowedKm = contractKm && Number(termMonths) > 0 ? Math.round((contractKm * Number(termMonths)) / 12) : null;
+  let projectedKm = null;
+  if (drivenKm !== null && end) {
+    const daysLeft = Math.max(0, dayNo(end) - dayNo(pace.lastYmd));
+    projectedKm = Math.round(drivenKm + (pace.kmPerMonth * daysLeft) / 30.44);
+  }
+  const projectedRatio = projectedKm !== null && allowedKm ? projectedKm / allowedKm : ratio;
+  // 단기렌트·사고대차는 하루·주 단위 약정이라 연 약정과 견주지 않는다. 월 주행만 보여 준다.
+  let verdict = null;
+  if (longTerm && projectedRatio) verdict = projectedRatio < USAGE_RULE.shortBelow ? '짧음' : projectedRatio > USAGE_RULE.longAbove ? '김' : '적정';
+
+  return {
+    kmPerMonth: pace.kmPerMonth,
+    scope: pace.scope, // '계약 중' | '전체 기록'
+    from: { ymd: pace.firstYmd, km: pace.firstKm },
+    to: { ymd: pace.lastYmd, km: pace.lastKm },
+    readings: pace.count,
+    // 기록 3건 이상, 90일 넘게 떨어져 있어야 믿을 만하다고 본다. 아니면 화면에 '기록 적음'으로 참고만
+    reliable: pace.count >= 3 && dayNo(pace.lastYmd) - dayNo(pace.firstYmd) >= 90,
+    contractKm,
+    annualizedKm,
+    ratio: ratio ? Math.round(ratio * 100) : null,
+    startKm,
+    drivenKm,
+    allowedKm: longTerm ? allowedKm : null,
+    projectedKm: longTerm ? projectedKm : null,
+    projectedRatio: longTerm && projectedRatio ? Math.round(projectedRatio * 100) : null,
+    diffKm: longTerm && projectedKm !== null && allowedKm ? projectedKm - allowedKm : null,
+    contractEnd: end || null,
+    verdict,
+    checkedAt: kstYmd(today)
+  };
 };
 
 /**
@@ -244,8 +336,8 @@ const lastCheckKm = (lastCheck, records) => {
   if (!lastCheck) return null;
   const day = kstYmd(lastCheck.date);
   const kms = (records || [])
-    .filter((r) => r.kind === '정기점검' && kstYmd(r.date) === day && Number(r.mileage) > 0)
-    .map((r) => Number(r.mileage))
+    .filter((r) => r.kind === '정기점검' && kstYmd(r.date) === day && kmOf(r) > 0)
+    .map((r) => kmOf(r))
     .filter((km) => !(records || []).some((o) => Number(o.mileage) === km && kstYmd(o.date) && kstYmd(o.date) < day));
   return kms.length ? Math.max(...kms) : null;
 };
@@ -283,19 +375,29 @@ export const nextMaintenance = (vehicle, records, today = new Date()) => {
   let date = addMonths(baseDate, intervalMonths);
   let basis = `${baseLabel} + 약정 ${((annualKm || M.defaultAnnualKm) / 10000)}만km/년 → ${intervalMonths}개월${annualKm ? '' : ' (약정 미기재, 2만km 가정)'}`;
 
-  const pace = estimateMonthlyKm(records);
+  // 정기점검·자동차검사·사고수리·고장수리 때 적은 주행거리로 실제 월 주행을 구한다(대표님 2026-11-17).
+  // 이번 계약(인도일 뒤) 기록을 먼저 쓴다.
+  const pace = estimateMonthlyKm(records, kstYmd(vehicle.deliveryDate));
   let kmDate = '';
+  let baseKm = null;
+  let baseKmEstimated = false;
+  let nextKm = null;
   if (pace && pace.kmPerMonth > 0) {
     // 기준일의 주행거리: 지난 점검에 적혀 있으면 그 값, 없으면 실제 주행 속도로 거꾸로 짐작한다.
     // 앞선 다른 날 기록과 같은 숫자는 옮겨 적은 값으로 보고 쓰지 않는다
     // (101하5040: 6/10·7/20·9/15 모두 143,242km라 9/15 점검이 10/27에 벌써 '지남'으로 나왔다, 2026-11-17).
-    const baseKm = lastCheckKm(lastCheck, records)
-      ?? pace.lastKm - (pace.kmPerMonth * (dayNo(pace.lastYmd) - dayNo(baseDate))) / 30.44;
-    const remainKm = baseKm + M.everyKm - pace.lastKm;
+    const written = lastCheckKm(lastCheck, records);
+    baseKmEstimated = written === null;
+    baseKm = Math.max(0, Math.round(written ?? pace.lastKm - (pace.kmPerMonth * (dayNo(pace.lastYmd) - dayNo(baseDate))) / 30.44));
+    nextKm = baseKm + M.everyKm;
+    const remainKm = nextKm - pace.lastKm;
     kmDate = addDays(pace.lastYmd, Math.round((remainKm / pace.kmPerMonth) * 30.44));
     if (kmDate < date) {
       date = kmDate;
-      basis = `실제 주행 월 ${pace.kmPerMonth.toLocaleString()}km 기준 1만km 도달 예상 (약정 기준이면 ${addMonths(baseDate, intervalMonths)})`;
+      basis = `${baseLabel} ${baseDate} ${baseKm.toLocaleString()}km${baseKmEstimated ? '(추정)' : ''} + 1만km = ${nextKm.toLocaleString()}km, `
+        + `실제 주행 월 ${pace.kmPerMonth.toLocaleString()}km(${pace.scope} ${pace.firstYmd}~${pace.lastYmd})로 도달 예상 (약정 기준이면 ${addMonths(baseDate, intervalMonths)})`;
+    } else {
+      basis += ` · 실제 주행 월 ${pace.kmPerMonth.toLocaleString()}km로는 ${kmDate} (${nextKm.toLocaleString()}km)`;
     }
   }
 
@@ -308,6 +410,10 @@ export const nextMaintenance = (vehicle, records, today = new Date()) => {
     basis,
     baseDate,
     kmPerMonth: pace?.kmPerMonth || null,
+    baseKm, // 지난 점검(없으면 인도일) 때 주행거리
+    baseKmEstimated, // 기록에 없어 월 주행으로 짐작한 값
+    nextKm, // 다음 점검 주행거리
+    kmDate: kmDate || null, // 실제 주행으로 본 날(약정 기준과 다를 수 있다)
     lastDone: lastCheck ? kstYmd(lastCheck.date) : ''
   };
 };

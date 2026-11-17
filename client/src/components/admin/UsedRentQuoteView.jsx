@@ -4,6 +4,8 @@ import { printFitted, makeFittedPdf } from '../../utils/printFit.js';
 import usePhoneFit, { phoneFitStyles } from '../../utils/usePhoneFit.js';
 import MoneyInput from './MoneyInput.jsx';
 import ContractExtendDialog from './ContractExtendDialog.jsx';
+import MaturityCompareSheet from './MaturityCompareSheet.jsx';
+import { compareMaturity, SUCCESSION_FEE } from '../../../../shared/maturityCompare.js';
 import { calculateUsedQuoteOption, compareUsedQuoteMaintenance, vehicleAgeLimit, monthsLabel, USED_QUOTE_DEFAULTS } from '../../../../shared/usedQuoteCalc.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -61,6 +63,17 @@ const defaultSettings = () => ({
   inspectionMonthly: USED_QUOTE_DEFAULTS.inspectionMonthly,
   tireUnitCost: USED_QUOTE_DEFAULTS.tireUnitCost
 });
+// 계약 만기 처리 비교표의 입력값(제3자 인수, 반납 예상 수리비)
+const defaultMaturity = () => ({ thirdParty: false, successionFee: SUCCESSION_FEE, repair: '' });
+// 연장 시작일 + 개월 - 1일 = 연장 계약 마지막 날
+const extensionEndOf = (start, months) => {
+  if (!start || !(months > 0)) return '';
+  const d = new Date(`${start}T00:00:00Z`);
+  const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + months, 1));
+  x.setUTCDate(Math.min(d.getUTCDate(), new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth() + 1, 0)).getUTCDate()));
+  x.setUTCDate(x.getUTCDate() - 1);
+  return x.toISOString().slice(0, 10);
+};
 const newOption = (termMonths = 12, deposit = '') => ({
   termMonths, mileage: 20000, deposit, advancePayment: 0, takeoverPrice: '', discountRate: 0, consignmentFee: 0,
   maintenance: false, calcMode: 'auto', monthlyFee: '', targetProfit: 0, include: true
@@ -108,6 +121,12 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
   const [list, setList] = useState([]);
   const [docBusy, setDocBusy] = useState(-1);
   const [extendWith, setExtendWith] = useState(null);
+  // 계약 만기 처리: 지금 계약의 회차표(남은 렌트료)와 비교표 입력값
+  const [schedule, setSchedule] = useState({ contractId: '', rounds: [], carCount: 0, error: '' });
+  const [maturity, setMaturity] = useState(defaultMaturity);
+  const maturityOuterRef = useRef(null);
+  const maturityRef = useRef(null);
+  const maturityFit = phoneFitStyles(usePhoneFit(maturityOuterRef, maturityRef, SHEET_WIDTH_PX, []), SHEET_WIDTH_PX);
   const canWrite = currentUser?.role !== 'viewer';
 
   const sheetOuterRef = useRef(null);
@@ -126,6 +145,29 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
     return { opt: o, calc, maint, overAge };
   });
   const sheetRows = rows.filter((r) => r.opt.include && !r.overAge && r.calc.months > 0);
+
+  // 만기 비교: 1안은 견적서에 넣는 연장 안들, 2안·3안은 지금 계약의 인수가·보증금
+  const maturityExt = sheetRows.map((r) => ({
+    months: r.calc.months, monthlyFee: r.calc.monthlyFee, takeoverPrice: r.calc.takeoverPrice,
+    maintenance: r.opt.maintenance === true, endDate: extensionEndOf(car.startDate, r.calc.months)
+  }));
+  const maturityData = compareMaturity({
+    rounds: schedule.contractId === car.contractId ? schedule.rounds : [],
+    deposit: car.currentDeposit, takeoverPrice: car.currentTakeover, extensions: maturityExt,
+    thirdParty: maturity.thirdParty, successionFee: maturity.successionFee, repairEstimate: maturity.repair
+  });
+
+  /** 지금 계약의 회차표를 읽어 남은 렌트료를 잡는다 */
+  const loadSchedule = async (contractId) => {
+    if (!contractId) { setSchedule({ contractId: '', rounds: [], carCount: 0, error: '' }); return; }
+    try {
+      const res = await fetch(`${API_HOST}/api/billing-schedules/contract/${contractId}`, { cache: 'no-store' });
+      const data = await res.json();
+      setSchedule({ contractId, rounds: data.schedule?.rounds || [], carCount: (data.vehicles || []).length, error: data.success ? '' : (data.message || '회차표를 읽지 못했습니다.') });
+    } catch {
+      setSchedule({ contractId, rounds: [], carCount: 0, error: '회차표를 읽지 못했습니다.' });
+    }
+  };
 
   /** 렌트차량 DB에서 차를 찾는다(차량번호·차종·계약사·계약번호) */
   const runSearch = async () => {
@@ -179,6 +221,8 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
     });
     // 연장은 계약자가 같아 보증금을 그대로 승계한다(대표님 결정 2026-10-05). 중고렌트는 새로 정한다.
     setOptions((prev) => prev.map((o) => ({ ...o, deposit: isExt ? v.deposit || 0 : '' })));
+    setMaturity(defaultMaturity());
+    if (isExt) loadSchedule(contract?._id || '');
     setResults([]);
     setQuoteId('');
     showToast?.(`${v.plateNo || ''} ${v.carModel || ''}을(를) 불러왔습니다.`, 'success');
@@ -201,7 +245,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
 
   const payload = () => ({
     quoteKind: kind,
-    usedRent: { car, settings, options, remark },
+    usedRent: { car, settings, options, remark, ...(isExt ? { maturity } : {}) },
     sourceVehicle: car.vehicleId || undefined,
     sourceContract: car.contractId || undefined,
     customerId: car.customerId || undefined,
@@ -258,6 +302,8 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
     setSettings({ ...defaultSettings(), ...(u.settings || {}) });
     setOptions(u.options?.length ? u.options : [newOption(12)]);
     setRemark(u.remark || '');
+    setMaturity({ ...defaultMaturity(), ...(u.maturity || {}) });
+    if (isExt) loadSchedule(u.car?.contractId || '');
     setCreatedBy(q.createdBy || createdBy);
     setQuoteId(q._id);
     setListOpen(false);
@@ -291,6 +337,15 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
     } finally {
       document.body.classList.remove('pdf-making');
     }
+  };
+
+  /** 만기 비교표만 A4 한 장으로 인쇄한다. 견적서와 같은 인쇄 틀이라 찍는 동안 견적서는 숨긴다 */
+  const printMaturity = () => {
+    if (!car.contractId) { showToast?.('지금 계약 중인 차를 [찾기]로 골라 주세요.', 'error'); return; }
+    document.body.classList.add('print-maturity');
+    const done = () => { document.body.classList.remove('print-maturity'); window.removeEventListener('afterprint', done); };
+    window.addEventListener('afterprint', done);
+    printFitted(maturityRef.current, { orientation: 'portrait', marginMm: 0, title: `계약만기안내_${car.partyName || '고객'}_${car.plateNo || ''}_${todayYmd()}` });
   };
 
   // 연장 계약서·연장 반영에 넘기는 한 안의 조건
@@ -487,6 +542,59 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
         </div>
       </div>
 
+      {/* 계약 만기 처리 비교(대표님 2026-11-17): 1안 연장 · 2안 인수 · 3안 반납을 한 장으로 */}
+      {isExt && car.contractId && (
+        <div style={{ ...card, border: '2px solid #1d4ed8' }} className="no-print">
+          <div style={cardTitle}>■ 계약 만기 처리 비교 <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>1안 연장 · 2안 인수 · 3안 반납(만기 반납)</span></div>
+          {schedule.error && <div style={{ fontSize: '0.8rem', color: '#b91c1c', marginBottom: '0.5rem' }}><AlertTriangle size={13} style={{ verticalAlign: '-2px' }} /> {schedule.error} 남은 렌트료 없이 계산합니다.</div>}
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.84rem' }}>
+              <thead>
+                <tr>
+                  <th style={{ padding: '0.4rem', textAlign: 'left', borderBottom: '1px solid var(--border-color)' }}></th>
+                  {[['1안 계약 연장', '#1d4ed8'], ['2안 인수', '#047857'], ['3안 반납', '#b45309']].map(([t, c]) => (
+                    <th key={t} style={{ padding: '0.4rem', textAlign: 'right', color: c, borderBottom: '1px solid var(--border-color)' }}>{t}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th style={{ padding: '0.35rem', textAlign: 'left', fontWeight: 700 }}>남은 렌트료 (공통)</th>
+                  <td colSpan={3} style={{ padding: '0.35rem', textAlign: 'right' }}>
+                    {maturityData.remaining.length ? maturityData.remaining.map((r) => `${r.no}회 ${won(r.amount)}`).join(' · ') : '없음'} = <b>{won(maturityData.remainingSum)}원</b>
+                  </td>
+                </tr>
+                <tr>
+                  <th style={{ padding: '0.35rem', textAlign: 'left', fontWeight: 700 }}>이후 비용</th>
+                  <td style={{ padding: '0.35rem', textAlign: 'right' }}>{maturityExt.length ? maturityExt.map((o) => `${o.months}개월 월 ${won(o.monthlyFee)}원`).join(' / ') : '아래에서 연장 안을 계산해 주세요'}</td>
+                  <td style={{ padding: '0.35rem', textAlign: 'right' }}>인수가 {won(maturityData.takeover.price)} − 보증금 {won(maturityData.deposit)}{maturity.thirdParty ? ` + 승계 수수료 ${won(maturityData.takeover.fee)}` : ''}</td>
+                  <td style={{ padding: '0.35rem', textAlign: 'right' }}>보증금 {won(maturityData.deposit)}{Number(maturity.repair) ? ` − 수리비 ${won(maturity.repair)}` : ''} 돌려드림</td>
+                </tr>
+                <tr style={{ background: '#fffbeb' }}>
+                  <th style={{ padding: '0.4rem', textAlign: 'left', fontWeight: 800 }}>만기 정산</th>
+                  {[maturityData.extension.settle, maturityData.takeover.settle, maturityData.return.settle].map((n, i) => (
+                    <td key={i} style={{ padding: '0.4rem', textAlign: 'right', fontWeight: 800, color: n < 0 ? '#047857' : 'var(--text-bright)' }}>
+                      {n > 0 ? `내실 ${won(n)}원` : n < 0 ? `돌려드림 ${won(-n)}원` : '0원'}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end', marginTop: '0.7rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.84rem' }}>
+              <input type="checkbox" checked={maturity.thirdParty} onChange={(e) => setMaturity((p) => ({ ...p, thirdParty: e.target.checked }))} /> 제3자 인수 (승계 수수료)
+            </label>
+            {maturity.thirdParty && field('승계 수수료', <MoneyInput value={maturity.successionFee} onChange={(e) => setMaturity((p) => ({ ...p, successionFee: e.target.value }))} style={{ ...input, width: '140px' }} />)}
+            {field('반납 예상 수리비 (비우면 반납 뒤 확정)', <MoneyInput value={maturity.repair} onChange={(e) => setMaturity((p) => ({ ...p, repair: e.target.value }))} style={{ ...input, width: '180px' }} placeholder="반납 뒤 확정" />)}
+            <button type="button" onClick={printMaturity} style={{ ...btn(true), marginLeft: 'auto' }}><Printer size={15} /> 비교표 인쇄 / PDF</button>
+          </div>
+          <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            1안은 아래 [안별 조건 · 계산]에서 견적서에 넣은 연장 안으로 채워집니다. 비교표는 맨 아래에서 미리 볼 수 있습니다.
+          </div>
+        </div>
+      )}
+
       {/* 3. 공통 조건 */}
       <div style={card} className="no-print">
         <div style={cardTitle}>■ 공통 조건 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>엑셀 '견적서 보고용' 기본값</span></div>
@@ -660,6 +768,23 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
           </div>
         </div>
       )}
+
+      {/* 계약 만기 안내 비교표 (A4 한 장). 견적서와 같은 인쇄 틀을 쓰고, [비교표 인쇄]일 때만 이것을 찍는다 */}
+      {isExt && car.contractId && (
+        <div className="comparison-sheet-section maturity-sheet-section">
+          <div className="print-fit-scroll m-fit-outer" ref={maturityOuterRef} style={{ overflowX: 'auto', ...maturityFit.outer }}>
+            <div ref={maturityRef} className={`used-rent-print-area print-fit m-doc${maturityFit.outer ? ' m-fitted' : ''}`}
+              style={{ width: `${SHEET_WIDTH_PX}px`, height: `${SHEET_HEIGHT_PX}px`, margin: '0 auto', background: '#fff', padding: `${SHEET_MARGIN_PX}px`, color: '#000', fontFamily: "'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif", fontSize: '12.16px', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden', boxShadow: '0 0 0 1px var(--border-color)', ...maturityFit.inner }}>
+              <MaturityCompareSheet car={car} m={maturityData} ext={maturityExt} thirdParty={maturity.thirdParty}
+                repairKnown={Number(maturity.repair) > 0} multiCar={schedule.carCount > 1} createdBy={createdBy} />
+            </div>
+          </div>
+        </div>
+      )}
+      <style>{`@media print {
+        body:not(.print-maturity) .maturity-sheet-section { display: none !important; }
+        body.print-maturity .used-quote-view > .comparison-sheet-section:not(.maturity-sheet-section) { display: none !important; }
+      }`}</style>
 
       {/* 7. 고객용 견적서 (A4 한 장) */}
       {/* comparison-sheet-section: 인쇄 때 이것만 남기는 견적서 공통 틀(QuoteInputView의 인쇄 규칙) */}

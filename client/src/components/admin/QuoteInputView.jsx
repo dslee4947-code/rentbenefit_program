@@ -1791,7 +1791,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
               <button key={k} type="button" onClick={() => setQuoteKind(k)}
                 style={{ padding: '0.35rem 0.8rem', borderRadius: '6px', border: 'none', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer',
                   background: quoteKind === k ? 'var(--primary)' : 'transparent', color: quoteKind === k ? '#fff' : 'var(--text-muted)' }}>
-                {k === '신차' ? '🚗 신차 견적' : k === '중고렌트' ? '🔁 중고렌트 견적' : '📅 계약 연장 견적'}
+                {k === '신차' ? '🚗 신차 견적' : k === '중고렌트' ? '🔁 중고렌트 견적' : '📅 계약 만기 처리'}
               </button>
             ))}
           </span>

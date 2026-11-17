@@ -107,7 +107,8 @@ const wonText = (n) => `${Math.round(Number(n) || 0).toLocaleString('ko-KR')}원
  *
  * @param {object} p m(compareMaturity 결과), ext(연장 안 [{months, monthlyFee, takeoverPrice, maintenance, endDate}]),
  *   startDate 연장 시작일, thirdParty 제3자 인수, repairKnown 반납 수리비를 넣었는지
- * @returns {{ cols: {kind: 'ext'|'takeover'|'return', title: string}[], rows: {label: string, section?: 'settle', cells: string[]}[] }}
+ * @returns {{ cols: {kind: 'ext'|'takeover'|'return', title: string}[], rows: {label: string, section?: 'settle', cells: string[], notes?: string[]}[] }}
+ *   notes는 칸 아래에 작게 붙는 설명(보증금: 금액 아래 '연장 계약으로 승계' 등)
  */
 export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false, repairKnown = false }) => {
   const exts = ext.length ? ext : [null];
@@ -123,7 +124,11 @@ export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false,
     row('기간', { ext: (o) => (o ? `${startDate} ~ ${o.endDate}` : '-'), takeover: () => '만기 종료', return: () => '만기 종료' }),
     row('월 렌트료', { ext: (o) => (o ? wonText(o.monthlyFee) : '-'), takeover: () => '없음', return: () => '없음' }),
     row('정비', { ext: (o) => (o ? (o.maintenance ? '포함' : '미포함') : '-'), takeover: () => '없음', return: () => '없음' }),
-    row('보증금', { ext: () => '승계', takeover: () => '인수가에서 차감', return: () => '반납 후 반환' }),
+    // 보증금은 금액을 적고, 어떻게 처리되는지는 아래에 작게(대표님 2026-11-17)
+    {
+      ...row('보증금', { ext: () => (m.deposit ? wonText(m.deposit) : '없음'), takeover: () => (m.deposit ? wonText(m.deposit) : '없음'), return: () => (m.deposit ? wonText(m.deposit) : '없음') }),
+      notes: cols.map((c) => (!m.deposit ? '' : { ext: '연장 계약으로 승계', takeover: '인수가와 상계', return: '반납 후 반환' }[c.kind]))
+    },
     row('인수가', { ext: (o) => (o?.takeoverPrice > 0 ? `${wonText(o.takeoverPrice)} (연장 만기 때)` : '없음'), takeover: () => wonText(t.price), return: () => '없음' }),
     ...(thirdParty ? [row('승계 수수료', { ext: () => '없음', takeover: () => wonText(t.fee), return: () => '없음' })] : []),
     row('수리비', { ext: () => '없음', takeover: () => '없음', return: () => (repairKnown ? wonText(m.return.repair) : '반납 후 확정') }),

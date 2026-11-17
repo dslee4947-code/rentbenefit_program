@@ -417,6 +417,68 @@ export const parseRepairInvoice = (text) => {
 
   return {
     plateNo, shop, bizNo, inDate, outDate, issuedDate, mileage, insurer, claimNo, kindGuess,
-    lines: items, partsTotal, laborTotal, supply, vat, discount, total, warnings
+    lines: items, partsTotal, laborTotal, supply, vat, discount, total, warnings,
+    summary: summarizeRepairLines(items)
   };
+};
+
+/**
+ * 작업 줄을 '어디를 어떻게 했는지' 한 줄로 줄인다. 작업 내용 칸에 넣는 값이다(줄 전체는 내역서 표에 남는다).
+ * 대표님 2026-11-17: 견적서 12줄을 그대로 넣으면 읽기 어렵다. '운전석 뒷문·뒤 휀더 판금·도장, 조수석 사이드스텝 몰딩 교환'처럼.
+ *
+ * - 다른 작업을 하려고 뗐다 붙인 '탈착', 가열건조·컬러매칭 같은 딸린 공임, 부품 묶음 줄은 뺀다
+ * - (좌)는 운전석, (우)는 조수석 (국내 차 기준)
+ * - 같은 부위는 작업을 합치고, 같은 작업끼리 부위를 묶는다
+ * 작업 이름(교환·판금·도장…)이 붙은 줄이 없으면 줄 이름을 그대로 잇는다(일반 정비 명세서)
+ */
+const WORK_ORDER = ['교환', '판금', '도장', '수리', '조정', '점검'];
+const PART_WORDS = [
+  [/리어\s*쿼터\s*패널|리어\s*펜더|리어\s*휀더|뒤\s*휀더/, '뒤 휀더'],
+  [/프론트\s*펜더|프론트\s*휀더|앞\s*휀더/, '앞 휀더'],
+  [/리어\s*도어/, '뒷문'],
+  [/프론트\s*도어/, '앞문'],
+  [/사이드\s*스[텝템]\s*몰딩/, '사이드스텝 몰딩'],
+  [/프론트\s*범퍼|앞\s*범퍼/, '앞범퍼'],
+  [/리어\s*범퍼|뒤\s*범퍼/, '뒤범퍼'],
+  [/트렁크\s*리드|트렁크/, '트렁크'],
+  [/후드|본넷|보닛/, '본넷'],
+  [/헤드\s*램프/, '헤드램프'],
+  [/리어\s*컴비네이션\s*램프|테일\s*램프/, '뒤 램프'],
+  [/사이드\s*미러|아웃사이드\s*미러/, '사이드미러'],
+  [/루프/, '지붕'],
+  [/휠/, '휠']
+];
+export const summarizeRepairLines = (lines) => {
+  const list = (lines || []).map((l) => String(l.name || '').trim()).filter(Boolean);
+  const worked = list.map((name) => {
+    const work = WORK_ORDER.find((w) => new RegExp(`${w}$`).test(name)) || (/탈착$/.test(name) ? '탈착' : '');
+    return { name, work };
+  });
+  if (!worked.some((w) => WORK_ORDER.includes(w.work))) return list.join(', ');
+
+  const byPart = new Map(); // '운전석|뒷문' → Set(작업)
+  for (const { name, work } of worked) {
+    if (work === '탈착') continue; // 다른 작업을 하려고 뗐다 붙인 것
+    if (/가열\s*건조|컬러\s*매칭|부품\s*\(|^부품/.test(name)) continue;
+    // 작업 이름이 없는 줄(헤드램프(좌) 등)은 부위만 남긴다
+    const side = /\(\s*좌\s*\)/.test(name) ? '운전석' : /\(\s*우\s*\)/.test(name) ? '조수석' : '';
+    const hit = PART_WORDS.find(([re]) => re.test(name));
+    const part = hit ? hit[1] : name.replace(work ? new RegExp(`\\s*${work}$`) : /$^/, '').replace(/\([^)]*\)/g, '').replace(/표[면연]\s*[판핀]금\s*보수/, '').trim();
+    const key = `${side}|${part}`;
+    if (!byPart.has(key)) byPart.set(key, new Set());
+    byPart.get(key).add(work);
+  }
+  // 같은 쪽·같은 작업 묶음끼리 부위를 모은다: 운전석 뒷문·뒤 휀더 판금·도장
+  const groups = new Map();
+  for (const [key, works] of byPart) {
+    const [side, part] = key.split('|');
+    const w = WORK_ORDER.filter((x) => works.has(x)).join('·');
+    const gk = `${side}|${w}`;
+    if (!groups.has(gk)) groups.set(gk, []);
+    groups.get(gk).push(part);
+  }
+  return [...groups.entries()].map(([gk, parts]) => {
+    const [side, w] = gk.split('|');
+    return `${side ? `${side} ` : ''}${parts.join('·')}${w ? ` ${w}` : ''}`;
+  }).join(', ') || list.join(', ');
 };

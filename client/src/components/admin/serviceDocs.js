@@ -54,7 +54,7 @@ export const fieldsFromDoc = ({ parsed, text }) => {
   const isInspection = parsed.docType === 'inspection';
   const summary = isInspection
     ? ['자동차검사', parsed.result, parsed.nextDate ? `다음 검사 ${parsed.nextDate}` : ''].filter(Boolean).join(' · ')
-    : (parsed.lines || []).map((l) => l.name).join(', ');
+    : parsed.summary || (parsed.lines || []).map((l) => l.name).join(', '); // 줄 전체가 아니라 '어디를 어떻게'만
   const extra = isInspection
     ? { inspection: { result: parsed.result || '', nextDate: parsed.nextDate || '' } }
     : {

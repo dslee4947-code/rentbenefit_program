@@ -298,7 +298,7 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
     const out = p.outDate || p.issuedDate;
     if (!f.outAt && out) { next.outAt = `${out}T18:00`; filled.push('인도일'); }
     if (p.mileage && !f.mileageOut && !f.mileageIn) { next.mileageOut = String(p.mileage); filled.push('주행거리'); }
-    if (!f.description && p.lines.length) { next.description = p.lines.map((l) => l.name).join(', '); filled.push('점검 내용'); }
+    if (!f.description && p.lines.length) { next.description = p.summary || p.lines.map((l) => l.name).join(', '); filled.push('점검 내용'); }
     if (!f.insurer && p.insurer) { next.insurer = p.insurer; filled.push('보험사'); }
     if (!f.claimNo && p.claimNo) { next.claimNo = p.claimNo; filled.push('접수번호'); }
     const added = consumablesOf(p.lines).filter((c) => !f.consumables.includes(c));

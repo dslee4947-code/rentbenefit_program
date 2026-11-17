@@ -82,5 +82,7 @@ test("보험 수리비 견적서: 정산표 합계와 작업 표를 읽는다", 
   assert.equal(r.lines[9].parts, 214100);
   assert.equal(r.lines.reduce((s, l) => s + l.amount, 0), 909849);
   assert.ok(!r.lines.some((l) => /차\s*량\s*번호/.test(l.name)));
+  // 작업 내용 칸에는 12줄 대신 부위·작업만. (좌)=운전석, (우)=조수석. 탈착·가열건조·컬러매칭·부품 묶음은 뺀다
+  assert.equal(r.summary, '운전석 뒷문·뒤 휀더 판금·도장, 조수석 사이드스텝 몰딩 교환');
   assert.deepEqual(r.warnings, []);
 });

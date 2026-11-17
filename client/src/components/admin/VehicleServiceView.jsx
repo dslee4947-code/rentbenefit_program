@@ -119,6 +119,29 @@ const isLong = (r) => r.status === '장기렌트';
 // 달력 칸의 이름: 장기렌트는 계약사, 단기렌트·사고대차는 '단기'(한 대뿐이면 뒤에 차량번호)
 const whoOf = (r) => (isLong(r) ? (r.partyName || r.plateNo || '-') : '단기');
 
+/**
+ * 예약·검사 때 연락할 사람(렌트차량 DB 운전자, 없으면 계약 담당자). 전화번호는 누르면 걸린다.
+ * 운전자가 비어 있어 계약 담당자를 보여 줄 때는 어디서 왔는지 함께 적는다.
+ */
+function DriverLine({ r, style }) {
+  const d = r?.driver;
+  if (!d || (!d.name && !d.phone)) {
+    // 단기렌트·사고대차 차는 우리 회사 차라 운전자를 따로 두지 않는다
+    if (!r || !isLong(r)) return null;
+    return <div style={{ fontSize: '0.75rem', color: '#b45309', ...style }}>운전자 미입력 — 렌트차량 DB에서 넣어 주세요</div>;
+  }
+  const fromVehicle = d.source === '운전자';
+  return (
+    <div style={{ fontSize: '0.78rem', color: 'var(--text-bright)', ...style }}>
+      <b>{fromVehicle ? '운전자' : d.source}</b> {d.name || '-'}
+      {d.phone ? <> · <a href={`tel:${d.phone.replace(/[^0-9+]/g, '')}`} style={{ color: 'var(--primary)', fontWeight: 700 }}>{d.phone}</a></> : ' · 전화 없음'}
+      {fromVehicle && d.relation ? <span style={{ color: 'var(--text-muted)' }}> ({d.relation})</span> : null}
+      {!fromVehicle && <span style={{ color: '#b45309' }}> · 운전자 미입력</span>}
+      {d.note ? <span style={{ color: 'var(--text-muted)' }}> · {d.note}</span> : null}
+    </div>
+  );
+}
+
 /** 검사와 점검을 같이 할 날. 같이 못 하면 null */
 const togetherDateOf = (r) => {
   const i = r.inspection;
@@ -583,6 +606,7 @@ function CarDayCard({ list, onClose, onSaved, onOpenFull, showToast, canWrite, p
             <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
               {date} · {r.plateNo}{pendingRow ? ` · ⏳ 구글 캘린더 확인 대기` : ''}
             </div>
+            <DriverLine r={r} style={{ marginTop: '0.15rem' }} />
           </div>
           <button type="button" onClick={() => onOpenFull(r.vehicleId)} title="차 상세" style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.2rem 0.5rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>차 상세</button>
           <button type="button" onClick={onClose} title="닫기" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={16} /></button>
@@ -914,6 +938,9 @@ function ServiceCalendar({ rows, onOpen, onAdd, onEdit, onMoved, canWrite, showT
                 <b style={{ color: KIND[e.kind].color }}>{STATE[e.state] ? `${STATE[e.state].icon} ` : ''}{e.label || e.kind}</b> <b>{e.r.plateNo || '-'}</b>{' '}
                 {STATE[e.state] && <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>[{STATE[e.state].label}]</span>}{' '}
                 <span style={{ color: 'var(--text-muted)' }}>{isLong(e.r) ? `${e.r.partyName} · ` : ''}{e.r.carModel} · {e.date}</span>
+                {e.r.driver && (e.r.driver.name || e.r.driver.phone) && (
+                  <span style={{ color: 'var(--text-bright)' }}> · {e.r.driver.source === '운전자' ? '운전자' : '담당'} {e.r.driver.name} {e.r.driver.phone}</span>
+                )}
                 {e.note && <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{e.note}</div>}
                 {e.age && <b style={{ color: '#c2410c' }}> · 차령 연장 함께 신청</b>}
                 {canWrite && (e.recordId || e.state === 'plan' || e.inboxId) && (
@@ -1478,6 +1505,7 @@ function VehicleServiceView({ showToast, currentUser }) {
                 {selectedRow?.annualKm ? ` · 약정 ${Number(selectedRow.annualKm).toLocaleString()}km/년` : ''}
                 {selectedRow?.currentMileage ? ` · 주행 ${Number(selectedRow.currentMileage).toLocaleString()}km` : ''}
               </div>
+              {selectedRow && <DriverLine r={selectedRow} style={{ marginTop: '0.2rem' }} />}
             </div>
             <button type="button" onClick={closePanel} title="닫기" style={{ marginLeft: 'auto', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
               <X size={18} />

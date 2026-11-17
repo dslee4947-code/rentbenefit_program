@@ -219,6 +219,8 @@ const EMPTY_FORM = {
   dealerCommission: '',
   sellingAdminExpense: '',
   driver: '',
+  // 운전자(렌트 차량 AS 예약·검사 때 연락할 사람). 출고 준비의 운전자 등록과 같은 칸이다
+  driverInfo: { relation: '', name: '', phone: '', note: '' },
   vehicleManager: '',
   accessories: {
     blackboxPrice: '',
@@ -429,6 +431,13 @@ function VehicleManagementView({ showToast, currentUser }) {
       dealerCommission: vehicle.dealerCommission ?? '',
       sellingAdminExpense: vehicle.sellingAdminExpense ?? '',
       driver: vehicle.driver || '',
+      driverInfo: {
+        ...(vehicle.driverInfo || {}),
+        relation: vehicle.driverInfo?.relation || '',
+        name: vehicle.driverInfo?.name || vehicle.driver || '',
+        phone: vehicle.driverInfo?.phone || '',
+        note: vehicle.driverInfo?.note || ''
+      },
       vehicleManager: vehicle.vehicleManager || '',
       accessories: {
         blackboxPrice: vehicle.accessories?.blackboxPrice ?? '',
@@ -618,7 +627,10 @@ function VehicleManagementView({ showToast, currentUser }) {
         },
         gifts: formData.gifts
           .filter(g => g.name.trim() !== '')
-          .map(g => ({ name: g.name, price: g.price === '' ? 0 : Number(g.price) }))
+          .map(g => ({ name: g.name, price: g.price === '' ? 0 : Number(g.price) })),
+        // 목록과 예전 화면이 driver(이름)를 쓰므로 운전자명을 그쪽에도 맞춰 둔다(출고 준비와 같다)
+        driverInfo: { ...formData.driverInfo, name: formData.driverInfo.name.trim(), phone: formData.driverInfo.phone.trim() },
+        driver: formData.driverInfo.name.trim()
       };
 
       const res = editingVehicle
@@ -832,7 +844,7 @@ function VehicleManagementView({ showToast, currentUser }) {
     { key: 'profitAmount', label: '이익금', render: (v) => formatMoney(v.profitAmount) },
     { key: 'dealerCommission', label: '타딜러수수료', render: (v) => formatMoney(v.dealerCommission) },
     { key: 'sellingAdminExpense', label: '판관비', render: (v) => formatMoney(v.sellingAdminExpense) },
-    { key: 'driver', label: '운전자', render: (v) => v.driver || '-' },
+    { key: 'driver', label: '운전자', render: (v) => [v.driverInfo?.name || v.driver, v.driverInfo?.phone].filter(Boolean).join(' ') || '-' },
     { key: 'vehicleManager', label: '차량관리자', render: (v) => v.vehicleManager || '-' },
     { key: 'blackboxPrice', label: '블랙박스금액', render: (v) => formatMoney(v.accessories?.blackboxPrice) },
     { key: 'blackboxInfo', label: '블랙박스정보', render: (v) => v.accessories?.blackboxInfo || '-' },
@@ -1582,9 +1594,25 @@ function VehicleManagementView({ showToast, currentUser }) {
                     <label style={labelStyle}>판관비 (원)</label>
                     <MoneyInput value={formData.sellingAdminExpense} onChange={(e) => setFormData({ ...formData, sellingAdminExpense: e.target.value })} style={inputStyle} />
                   </div>
+                  {/* 운전자: 렌트 차량 AS에서 예약·자동차검사 때 이 이름과 전화로 연락한다 */}
                   <div>
-                    <label style={labelStyle}>운전자 (대표가 아닐 시)</label>
-                    <input value={formData.driver} onChange={(e) => setFormData({ ...formData, driver: e.target.value })} style={inputStyle} />
+                    <label style={labelStyle}>운전자 구분</label>
+                    <select value={formData.driverInfo.relation} onChange={(e) => setFormData({ ...formData, driverInfo: { ...formData.driverInfo, relation: e.target.value } })} style={inputStyle}>
+                      <option value="">선택</option>
+                      {['대표자', '책임담당자', '실무담당자', '직원', '기타'].map((x) => <option key={x} value={x}>{x}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>운전자 이름</label>
+                    <input value={formData.driverInfo.name} onChange={(e) => setFormData({ ...formData, driverInfo: { ...formData.driverInfo, name: e.target.value } })} style={inputStyle} placeholder="예: 홍길동 과장" />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>운전자 전화번호</label>
+                    <input value={formData.driverInfo.phone} onChange={(e) => setFormData({ ...formData, driverInfo: { ...formData.driverInfo, phone: e.target.value } })} style={inputStyle} placeholder="010-0000-0000" inputMode="tel" />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>운전자 메모</label>
+                    <input value={formData.driverInfo.note} onChange={(e) => setFormData({ ...formData, driverInfo: { ...formData.driverInfo, note: e.target.value } })} style={inputStyle} placeholder="예: 오전 통화 선호, 차는 공장에 있음" />
                   </div>
                   <div>
                     <label style={labelStyle}>차량 관리자</label>

@@ -23,10 +23,26 @@ const DOC_KIND_OF = {
   기타: 'repair'
 };
 
-const VEHICLE_FIELDS = 'plateNo carModel status registrationDate inspectionValidity cc fuelType deliveryDate rentBillingDate maintenance contract company contractorName currentMileage paymentTerm';
+const VEHICLE_FIELDS = 'plateNo carModel status registrationDate inspectionValidity cc fuelType deliveryDate rentBillingDate maintenance contract company contractorName currentMileage paymentTerm driver driverInfo';
 
-// 계약 만료일(차마다 인도일 기준)을 세는 데 필요한 칸까지
-const CONTRACT_FIELDS = 'leaseCompany termMonths contractNo contractKind contractDate deliveryDate status';
+// 계약 만료일(차마다 인도일 기준)을 세는 데 필요한 칸까지. 담당자 연락처는 운전자가 비어 있을 때 대신 보여 준다
+const CONTRACT_FIELDS = 'leaseCompany termMonths contractNo contractKind contractDate deliveryDate status managerMain managerMainPhone managerOps managerOpsPhone';
+
+/**
+ * 예약·검사 때 연락할 사람(대표님 2026-11-17 "운전자 명과 전화번호도 같이").
+ * 렌트차량 DB의 운전자가 정본이고, 비어 있으면 계약서의 실무담당자 → 책임담당자를 쓴다(source로 어디서 왔는지 알린다).
+ * @returns {{name: string, phone: string, relation: string, note: string, source: string} | null}
+ */
+const driverOf = (v) => {
+  const d = v.driverInfo || {};
+  if (d.name || d.phone || v.driver) {
+    return { name: d.name || v.driver || '', phone: d.phone || '', relation: d.relation || '', note: d.note || '', source: '운전자' };
+  }
+  const c = v.contract || {};
+  if (c.managerOps || c.managerOpsPhone) return { name: c.managerOps || '', phone: c.managerOpsPhone || '', relation: '실무담당자', note: '', source: '계약 실무담당자' };
+  if (c.managerMain || c.managerMainPhone) return { name: c.managerMain || '', phone: c.managerMainPhone || '', relation: '책임담당자', note: '', source: '계약 책임담당자' };
+  return null;
+};
 
 const loadVehicle = (filter) => Vehicle.findOne(filter)
   .select(VEHICLE_FIELDS)
@@ -100,6 +116,7 @@ const rowOf = (v, records) => {
     carModel: v.carModel || '',
     status: v.status,
     partyName: partyNameOf(v),
+    driver: driverOf(v),
     registrationDate: kstYmd(v.registrationDate),
     deliveryDate: kstYmd(v.deliveryDate),
     annualKm: v.maintenance?.mileage || null,

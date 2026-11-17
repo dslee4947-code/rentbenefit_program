@@ -80,7 +80,8 @@ const doneOf = (history) => (history || []).filter((r) => !r.status || r.status 
   .sort((a, b) => (String(a.date) < String(b.date) ? 1 : -1));
 const previousOf =(history, kind) => doneOf(history).find((r) => r.kind === kind) || null;
 
-const prefillFrom = (history, kind, f) => {
+// 연락처는 렌트차량 DB의 운전자가 먼저다(대표님 2026-11-17). 없으면 지난 기록, 그것도 없으면 계약 담당자(driver.source가 계약…).
+const prefillFrom = (history, kind, f, driver) => {
   const done = doneOf(history);
   const same = done.find((r) => r.kind === kind);
   const latest = (pick) => [same, ...done].find((r) => r && pick(r));
@@ -88,11 +89,22 @@ const prefillFrom = (history, kind, f) => {
   const filled = [];
   const shopRec = latest((r) => r.kind === kind && r.shop && !SHOP_PLACEHOLDER.test(r.shop));
   if (!f.shop && shopRec) { next.shop = shopRec.shop; filled.push('정비소'); }
+  const hasDriver = driver && (driver.name || driver.phone);
   const contact = latest((r) => r.contactName || r.contactPhone);
-  if (contact && !f.contactName && !f.contactPhone) {
-    next.contactName = contact.contactName || '';
-    next.contactPhone = contact.contactPhone || '';
-    filled.push('연락처');
+  if (!f.contactName && !f.contactPhone) {
+    if (hasDriver && driver.source === '운전자') {
+      next.contactName = driver.name || '';
+      next.contactPhone = driver.phone || '';
+      filled.push('운전자 연락처');
+    } else if (contact) {
+      next.contactName = contact.contactName || '';
+      next.contactPhone = contact.contactPhone || '';
+      filled.push('연락처');
+    } else if (hasDriver) {
+      next.contactName = driver.name || '';
+      next.contactPhone = driver.phone || '';
+      filled.push(`${driver.source} 연락처`);
+    }
   }
   const pickup = latest((r) => r.transport?.in?.from || r.transport?.out?.to);
   if (pickup) {
@@ -218,7 +230,7 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
   // 새 기록이면 지난 같은 종류 기록에서 정비소·연락처·픽업지를 채워 연다
   const [init] = useState(() => {
     const f = formOf(record, preset);
-    return record ? { next: f, filled: [] } : prefillFrom(history, f.kind, f);
+    return record ? { next: f, filled: [] } : prefillFrom(history, f.kind, f, row?.driver);
   });
   const [prefilled, setPrefilled] = useState(init.filled);
   const [form, setForm] = useState(init.next);
@@ -226,7 +238,7 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
   // 새 기록에서 종류를 바꾸면 그 종류의 지난 기록으로 빈칸을 다시 채운다
   const changeKind = (kind) => setForm((f) => {
     if (record) return { ...f, kind };
-    const { next, filled } = prefillFrom(history, kind, { ...f, kind });
+    const { next, filled } = prefillFrom(history, kind, { ...f, kind }, row?.driver);
     setPrefilled(filled);
     return next;
   });
@@ -538,7 +550,7 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
             {previous.nextTodo && <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#b45309' }}>📌 이번에 할 일: {previous.nextTodo}</div>}
             {previous.memo && !isAutoMemo(previous.memo) && <div style={{ fontSize: '0.8rem' }}>특이사항: {previous.memo}</div>}
             {previous.description && <div style={{ ...hint, whiteSpace: 'pre-wrap' }}>지난 점검 내용: {previous.description}</div>}
-            {prefilled.length > 0 && <div style={hint}>지난 기록에서 {prefilled.join(' · ')}을(를) 가져왔습니다. 바뀌었으면 고쳐 주세요.</div>}
+            {prefilled.length > 0 && <div style={hint}>{prefilled.join(' · ')}을(를) 지난 기록·렌트차량 DB 운전자에서 채웠습니다. 바뀌었으면 고쳐 주세요.</div>}
           </div>
         )}
 

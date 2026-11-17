@@ -970,13 +970,39 @@ function Due({ item, color }) {
   );
 }
 
-const MAINT_COLUMNS = ['차량번호', '구분', '차종', '계약자', '약정 주행', '점검 주기', '마지막 정기점검', '지금 주행', '다음 정기점검', '점검 횟수', '진행'];
+// '진행'(예약·진행 상태)은 맨 끝에 있으면 잘 안 보여 차량번호 바로 옆에 둔다(대표님 2026-11-17)
+const MAINT_COLUMNS = ['차량번호', '진행', '구분', '차종', '계약자', '약정 주행', '점검 주기', '마지막 정기점검', '지금 주행', '다음 정기점검', '점검 횟수'];
 // 일정 → 진행 → 완료. 기록의 상태(예정 → 입고·수리 중 → 완료)를 그대로 쓴다.
 const STAGE = {
   예정: { label: '일정 잡힘', color: '#1d4ed8', bg: '#dbeafe' },
   입고: { label: '진행 중', color: '#b45309', bg: '#fef3c7' },
   '수리 중': { label: '진행 중', color: '#b45309', bg: '#fef3c7' }
 };
+// 그 종류로 고객과 잡아 둔 일정(예정·진행 중) 중 가장 이른 것
+const bookingOf = (r, kind) => (r.bookings || []).filter((x) => x.kind === kind).sort((x, y) => (x.date < y.date ? -1 : 1))[0] || null;
+const stageOf = (b) => (b ? STAGE[b.status] || STAGE.예정 : null);
+
+/** 목록의 '진행' 칸: [예약 잡기] → 일정 잡힘 MM-DD [진행] [완료] → 진행 중 MM-DD [완료] */
+function ProgressCell({ r, kind, onStep, cell }) {
+  const b = bookingOf(r, kind);
+  const color = KIND[kind].color;
+  const btn = (label, c, onClick) => (
+    <button type="button" onClick={onClick} style={{ border: `1px solid ${c}`, background: '#fff', color: c, borderRadius: '6px', padding: '0.2rem 0.5rem', fontSize: '0.74rem', fontWeight: 800, cursor: 'pointer' }}>{label}</button>
+  );
+  const st = stageOf(b);
+  return (
+    <td style={cell} onClick={(e) => e.stopPropagation()}>
+      {!b ? btn('📌 예약 잡기', color, () => onStep(kind, 'book', r)) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          <span style={{ background: st.color, color: '#fff', borderRadius: '6px', padding: '0.15rem 0.45rem', fontSize: '0.76rem', fontWeight: 800 }} title={b.shop || ''}>{b.status === '예정' ? '📌' : '🔧'} {st.label} {b.date.slice(5)}</span>
+          {b.status === '예정' && btn('진행', '#b45309', () => onStep(kind, 'start', r, b))}
+          {btn('완료', color, () => onStep(kind, 'finish', r, b))}
+        </div>
+      )}
+    </td>
+  );
+}
+
 const kmText = (km) => (km ? `${Number(km).toLocaleString()}km` : '');
 const manKm = (km) => (km % 10000 === 0 ? `${km / 10000}만km` : kmText(km));
 
@@ -994,9 +1020,12 @@ function MaintenanceRow({ r, selected, onOpen, onStep, cell, clip }) {
   const annual = r.annualKm || null;
   const perYear = m?.intervalMonths ? Math.round((12 / m.intervalMonths) * 10) / 10 : null;
   const sub = { fontSize: '0.74rem', color: 'var(--text-muted)' };
+  // 예약(일정 잡힘)·진행 중인 차는 그 색으로 칠해 맨 위에 둔다
+  const st = stageOf(bookingOf(r, '정기점검'));
   return (
-    <tr onClick={onOpen} style={{ cursor: 'pointer', background: selected ? 'var(--bg-main)' : over ? '#fef2f2' : undefined }}>
-      <td style={{ ...cell, fontWeight: 800, color: over ? 'var(--error)' : 'var(--text-bright)', borderLeft: `4px solid ${over || soon ? tone : 'transparent'}` }}>{r.plateNo || '-'}</td>
+    <tr onClick={onOpen} style={{ cursor: 'pointer', background: selected ? 'var(--bg-main)' : st ? st.bg : over ? '#fef2f2' : undefined }}>
+      <td style={{ ...cell, fontWeight: 800, color: st ? st.color : over ? 'var(--error)' : 'var(--text-bright)', borderLeft: `4px solid ${st ? st.color : over || soon ? tone : 'transparent'}` }}>{r.plateNo || '-'}</td>
+      <ProgressCell r={r} kind="정기점검" onStep={onStep} cell={cell} />
       <td style={{ ...cell, color: 'var(--text-muted)' }}>{groupText(r)}</td>
       <td style={{ ...cell, ...clip, maxWidth: '170px' }} title={r.carModel}>{r.carModel}</td>
       <td style={{ ...cell, ...clip, maxWidth: '150px' }} title={r.partyName}>{r.partyName || '-'}</td>
@@ -1028,23 +1057,6 @@ function MaintenanceRow({ r, selected, onOpen, onStep, cell, clip }) {
       <td style={cell}>
         {c.expected ? <b>{c.done || 0} / {c.expected}회</b> : <b>{c.done || 0}회</b>}
         <div style={sub}>{c.remaining !== null && c.remaining !== undefined ? `계약 끝까지 ${c.remaining}회 남음` : ''}</div>
-      </td>
-      <td style={cell} onClick={(e) => e.stopPropagation()}>
-        {(() => {
-          const b = (r.bookings || []).filter((x) => x.kind === '정기점검').sort((x, y) => (x.date < y.date ? -1 : 1))[0];
-          const btn = (label, color, onClick) => (
-            <button type="button" onClick={onClick} style={{ border: `1px solid ${color}`, background: '#fff', color, borderRadius: '6px', padding: '0.2rem 0.5rem', fontSize: '0.74rem', fontWeight: 800, cursor: 'pointer' }}>{label}</button>
-          );
-          if (!b) return btn('일정 잡기', KIND.정기점검.color, () => onStep('book', r));
-          const st = STAGE[b.status] || STAGE.예정;
-          return (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-              <span style={{ background: st.bg, color: st.color, borderRadius: '6px', padding: '0.1rem 0.4rem', fontSize: '0.74rem', fontWeight: 800 }} title={b.shop || ''}>{st.label} {b.date.slice(5)}</span>
-              {b.status === '예정' && btn('진행', '#b45309', () => onStep('start', r, b))}
-              {btn('완료', KIND.정기점검.color, () => onStep('finish', r, b))}
-            </div>
-          );
-        })()}
       </td>
     </tr>
   );
@@ -1181,14 +1193,15 @@ function VehicleServiceView({ showToast, currentUser }) {
     }
   };
 
-  // 정기점검 목록의 [일정 잡기] · [진행] · [완료]
-  const maintStep = async (step, r, b) => {
+  // 자동차검사·정기점검 목록의 [예약 잡기] · [진행] · [완료]
+  const progressStep = async (kind, step, r, b) => {
     if (step === 'book') {
       // 계산한 날이 지났으면 내일로 잡아 두고, 고객과 정한 날로 고치게 한다
       const tomorrow = new Date(Date.now() + 33 * 3600e3).toISOString().slice(0, 10);
-      const date = r.maintenance?.date && r.maintenance.date > tomorrow ? r.maintenance.date : tomorrow;
+      const planned = kind === '자동차검사' ? r.inspection?.date : r.maintenance?.date;
+      const date = planned && planned > tomorrow ? planned : tomorrow;
       openVehicle(r.vehicleId);
-      setFormOpen({ record: null, preset: { kind: '정기점검', date, status: '예정' } });
+      setFormOpen({ record: null, preset: { kind, date, status: '예정' } });
       return;
     }
     if (step === 'start') {
@@ -1198,7 +1211,7 @@ function VehicleServiceView({ showToast, currentUser }) {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.success) { showToast?.(data.message || '바꾸지 못했습니다.', 'error'); return; }
-        showToast?.(`${r.plateNo} 정기점검을 진행 중으로 바꿨습니다.`, 'success');
+        showToast?.(`${r.plateNo} ${kind}을 진행 중으로 바꿨습니다.`, 'success');
         load();
       } catch {
         showToast?.('서버 통신 오류가 발생했습니다.', 'error');
@@ -1233,13 +1246,22 @@ function VehicleServiceView({ showToast, currentUser }) {
   // 칩 묶음에 맞춰 표를 바꾼다. 정기점검 칩이면 정기점검에 필요한 칸만, 자동차검사 칩이면 검사·차령 칸만 보인다(대표님 2026-11-17).
   const mode = activeFilter?.group || '';
   const columns = mode === 'maint' ? MAINT_COLUMNS
-    : mode === 'insp' ? ['차량번호', '구분', '차종', '계약자', '자동차검사', '차령', '최근 기록']
+    : mode === 'insp' ? ['차량번호', '진행', '구분', '차종', '계약자', '자동차검사', '차령', '최근 기록']
       : ['차량번호', '구분', '차종', '계약자', '자동차검사', '차령', '정기점검', '최근 기록'];
+  const modeKind = mode === 'maint' ? '정기점검' : mode === 'insp' ? '자동차검사' : '';
+  const bookedRank = (r) => {
+    const b = modeKind && bookingOf(r, modeKind);
+    return !b ? 2 : b.status === '예정' ? 1 : 0;
+  };
+  const bookedDate = (r) => (modeKind && bookingOf(r, modeKind)?.date) || '';
   const visible = rows
     .filter((r) => !q || [r.plateNo, r.carModel, r.partyName].some((x) => String(x || '').replace(/\s+/g, '').toLowerCase().includes(q)))
     .filter((r) => !activeFilter || activeFilter.test(r))
-    // 급한 차부터 (rankOf 설명 참고)
-    .sort((a, b) => rankOf(a) - rankOf(b)
+    // 자동차검사·정기점검 칩에서는 고객과 예약한 차(진행 중 → 일정 잡힘, 날짜 순)를 맨 위에 둔다(대표님 2026-11-17).
+    // 그다음은 급한 차부터 (rankOf 설명 참고)
+    .sort((a, b) => bookedRank(a) - bookedRank(b)
+      || String(bookedDate(a)).localeCompare(String(bookedDate(b)))
+      || rankOf(a) - rankOf(b)
       || Number(isCareGroup(b)) - Number(isCareGroup(a))
       || urgencyDday(a) - urgencyDday(b));
 
@@ -1372,10 +1394,13 @@ function VehicleServiceView({ showToast, currentUser }) {
               const ageLevel = carAgeLevelOf(r);
               const age = ageLevel ? CAR_AGE_LEVEL[ageLevel] : null;
               // 줄 색은 검사·차령 중 더 급한 쪽을 따른다
-              const urgent = [inspUrgent, age].filter(Boolean).sort((a, b) => a.rank - b.rank)[0] || null;
+              const urgentLevel = [inspUrgent, age].filter(Boolean).sort((a, b) => a.rank - b.rank)[0] || null;
+              // 자동차검사 칩에서 예약·진행 중인 차는 급한 색 대신 예약 색으로 칠한다
+              const bookedStage = mode === 'insp' ? stageOf(bookingOf(r, '자동차검사')) : null;
+              const urgent = bookedStage ? { bg: bookedStage.bg, fg: bookedStage.color } : urgentLevel;
               const insp = r.inspection;
               const maint = r.maintenance;
-              if (mode === 'maint') return <MaintenanceRow key={r.vehicleId} r={r} cell={cell} clip={clip} onStep={maintStep} selected={selectedId === r.vehicleId} onOpen={() => openVehicle(r.vehicleId)} />;
+              if (mode === 'maint') return <MaintenanceRow key={r.vehicleId} r={r} cell={cell} clip={clip} onStep={progressStep} selected={selectedId === r.vehicleId} onOpen={() => openVehicle(r.vehicleId)} />;
               return (
                 <tr
                   key={r.vehicleId}
@@ -1383,6 +1408,7 @@ function VehicleServiceView({ showToast, currentUser }) {
                   style={{ cursor: 'pointer', background: selectedId === r.vehicleId ? 'var(--bg-main)' : urgent?.bg }}
                 >
                   <td style={{ ...cell, fontWeight: 800, color: urgent?.fg || 'var(--text-bright)', borderLeft: `4px solid ${urgent?.fg || 'transparent'}` }}>{r.plateNo || '-'}</td>
+                  {mode === 'insp' && <ProgressCell r={r} kind="자동차검사" onStep={progressStep} cell={cell} />}
                   <td style={{ ...cell, color: 'var(--text-muted)' }}>{groupText(r)}</td>
                   <td style={{ ...cell, ...clip, maxWidth: '200px' }} title={r.carModel}>{r.carModel}</td>
                   <td style={{ ...cell, ...clip, maxWidth: '170px' }} title={r.partyName}>{r.partyName || '-'}</td>

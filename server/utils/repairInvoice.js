@@ -270,6 +270,79 @@ const summaryRow = (flat) => {
 };
 
 /**
+ * 보험 수리비 견적서(내역서) 양식. 정비소 프로그램이 뽑는 사고 수리 견적으로, 위에 '수리비 정산정보' 표가 있고
+ * 아래 '작업항목 및 부품명' 표에 번호·이름·작업(탈착·판금·도장…)·H.Q·금액이 칸마다 한 줄씩 온다.
+ * OCR이 천 단위 쉼표를 점으로 읽기도 한다(1.000.834). G90 101호1807 KGM성수 견적서(2026-11-13)에서 합계·작업 줄을 못 읽었다.
+ *
+ * @returns {{items: object[], partsTotal: number, laborTotal: number, supply: number, vat: number, total: number}|null}
+ *   이 양식이 아니면 null
+ */
+const ESTIMATE_HEAD = /작업\s*항목\s*및\s*부품명/;
+const ESTIMATE_WORK = /^(탈착|털착|탈부착|교환|판금|도장|수리|조정|점검|분해|조립)$/;
+const ESTIMATE_END = /^(이\s*내역서|상기\s*견적서|차량\s*사고일|페이지)/;
+const amountOf = (s) => {
+  const t = String(s).trim();
+  if (/^\d{1,3}([.,]\d{3})+$/.test(t)) return Number(t.replace(/[.,]/g, '')); // 13.450, 1.000.834 → 쉼표로 본다
+  if (/^\d+$/.test(t)) return Number(t);
+  return null;
+};
+const estimateItems = (lines) => {
+  if (!lines.some((l) => /수리비\s*정산\s*정보/.test(l)) && !lines.some((l) => ESTIMATE_HEAD.test(l))) return null;
+  const at = (label, from = 0, last = false) => {
+    const re = new RegExp(`^${spaced(label)}$`);
+    const idx = last ? lines.map((l, i) => (re.test(l) ? i : -1)).filter((i) => i >= 0).pop() : lines.findIndex((l, i) => i >= from && re.test(l));
+    if (idx === undefined || idx < 0) return 0;
+    const v = lines.slice(idx + 1, idx + 3).map(amountOf).find((n) => n !== null);
+    return v || 0;
+  };
+  const laborTotal = at('공임소계');
+  const partsTotal = at('부품소계');
+  const vat = at('부가세');
+  const total = at('합계', 0, true);
+
+  const items = [];
+  const start = lines.findIndex((l) => ESTIMATE_HEAD.test(l));
+  if (start >= 0) {
+    let cur = null;
+    let next = 1;
+    for (const line of lines.slice(start + 1)) {
+      if (ESTIMATE_END.test(line)) break;
+      // 칸 머리글(작업·H.Q%·부품코드·부품가격·공임 비고)은 건너뛴다
+      if (/^(작업|H\.?Q%?|부품\s*코드|부품\s*가격|공임\s*비?|비?\s*고|No)$/i.test(line)) continue;
+      if (line === String(next)) {
+        cur = { names: [], work: '', nums: [] };
+        items.push(cur);
+        next += 1;
+        continue;
+      }
+      if (!cur) continue;
+      if (ESTIMATE_WORK.test(line)) { cur.work = line.replace('털착', '탈착'); continue; }
+      if (/^\d+\.\d{1,2}$/.test(line)) continue; // H.Q (0.38, 3.82)
+      const n = amountOf(line);
+      if (n !== null) { if (n >= 100) cur.nums.push(n); continue; }
+      if (/[가-힣A-Za-z]{2}/.test(line)) cur.names.push(line.replace(/\*+/g, '').trim());
+    }
+  }
+  const rows = items.filter((r) => r.names.length).map((r) => {
+    const amount = r.nums.reduce((s, n) => s + n, 0);
+    const name = `${r.names.join(' ')}${r.work ? ` ${r.work}` : ''}`.replace(/\s+/g, ' ').trim();
+    const isPart = /부품/.test(name) && !r.work;
+    return { name, qty: 1, unitPrice: 0, parts: isPart ? amount : 0, labor: isPart ? 0 : amount, amount };
+  });
+
+  const supply = laborTotal + partsTotal || 0;
+  return {
+    items: rows,
+    partsTotal,
+    laborTotal,
+    supply,
+    vat,
+    // 정산 표의 '합 계'가 부가세 뺀 값일 수도 있어 공급가 + 부가세와 맞는 쪽을 쓴다
+    total: supply && vat && total !== supply + vat ? supply + vat : total
+  };
+};
+
+/**
  * 내역서 글자를 정비 기록 양식 값으로 정리한다.
  *
  * @param {string} text 내역서 전체 글자 (줄바꿈 유지)
@@ -296,7 +369,10 @@ export const parseRepairInvoice = (text) => {
 
   const inline = lines.map(lineItemOf).filter(Boolean);
   const columns = columnItems(lines);
-  const items = columns.length > inline.length ? columns : inline;
+  const estimate = estimateItems(lines);
+  let items = columns.length > inline.length ? columns : inline;
+  // 보험 견적서 양식은 표를 따로 읽는다. 위 방식은 '차 량 번호: 101호 1807' 같은 줄을 작업으로 잡는다
+  if (estimate?.items.length) items = estimate.items;
 
   let partsTotal = labeledAmount(flat, TOTAL_LABELS.parts);
   let laborTotal = labeledAmount(flat, TOTAL_LABELS.labor);
@@ -306,6 +382,7 @@ export const parseRepairInvoice = (text) => {
   let total = labeledAmount(flat, TOTAL_LABELS.total);
   const row = summaryRow(flat);
   if (row) ({ parts: partsTotal, labor: laborTotal, supply, vat, total } = row);
+  else if (estimate?.supply) ({ partsTotal, laborTotal, supply, vat, total } = estimate);
 
   // 빈 합계는 아는 값으로 채운다. 내역서마다 적힌 칸이 달라서다.
   const sumParts = items.reduce((s, i) => s + i.parts, 0);

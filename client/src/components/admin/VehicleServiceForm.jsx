@@ -653,7 +653,16 @@ export default function VehicleServiceForm({ row, record, preset, history = [], 
         <div style={card}>
           <h3 style={h2}>④ 파일 (견적서 · 점검 결과서 · 사진)</h3>
           {existingFiles > 0 && <div style={hint}>이 기록에 이미 붙은 파일 {existingFiles}개. 새로 고르면 저장할 때 더 붙습니다.</div>}
-          <input type="file" multiple onChange={(e) => { const picked = [...e.target.files]; e.target.value = ''; setFiles((fs) => [...fs, ...picked]); }} style={{ fontSize: '0.8rem' }} />
+          <input type="file" multiple onChange={(e) => {
+            const picked = [...e.target.files];
+            e.target.value = '';
+            setFiles((fs) => [...fs, ...picked]);
+            // 여기로 견적서를 올려도 칸이 채워지게 한다. 아직 아무 서류도 읽지 않았을 때 첫 PDF·엑셀 한 장만 읽는다
+            // (사진은 차 상태 사진이 많아 읽지 않는다. 사진 견적서는 위 [견적서·점검 결과서 올리기]로)
+            const doc = picked.find((f) => /\.(pdf|xlsx?)$/i.test(f.name));
+            if (doc && !readInfo && !form.invoice && !reading) readInvoice(doc);
+          }} style={{ fontSize: '0.8rem' }} />
+          <div style={hint}>PDF·엑셀 견적서를 고르면 내용을 읽어 빈 칸을 채웁니다. 사진 견적서는 위 [견적서·점검 결과서 올리기]를 쓰세요.</div>
           {files.length > 0 && (
             <div style={{ ...hint, display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
               {files.map((f, i) => (

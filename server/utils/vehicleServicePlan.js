@@ -236,6 +236,21 @@ export const estimateMonthlyKm = (records) => {
 };
 
 /**
+ * 지난 정기점검 날의 주행거리. 같은 날 기록이 여럿이면 그날 가장 큰 값을 쓴다.
+ * 그보다 앞선 날 기록에 똑같은 숫자가 있으면 예전 값을 옮겨 적은 것이라 믿지 않는다(null).
+ * @returns {number|null}
+ */
+const lastCheckKm = (lastCheck, records) => {
+  if (!lastCheck) return null;
+  const day = kstYmd(lastCheck.date);
+  const kms = (records || [])
+    .filter((r) => r.kind === '정기점검' && kstYmd(r.date) === day && Number(r.mileage) > 0)
+    .map((r) => Number(r.mileage))
+    .filter((km) => !(records || []).some((o) => Number(o.mileage) === km && kstYmd(o.date) && kstYmd(o.date) < day));
+  return kms.length ? Math.max(...kms) : null;
+};
+
+/**
  * 다음 정기점검. 일반정비 '가입' 차량만 계산하고, 아니면 null.
  *
  * 기준일은 마지막 정기점검 기록, 없으면 인도일 → 렌트료 게시일 → 최초등록일 순.
@@ -271,10 +286,11 @@ export const nextMaintenance = (vehicle, records, today = new Date()) => {
   const pace = estimateMonthlyKm(records);
   let kmDate = '';
   if (pace && pace.kmPerMonth > 0) {
-    // 기준일의 주행거리: 지난 점검에 적혀 있으면 그 값, 없으면 실제 주행 속도로 거꾸로 짐작한다
-    const baseKm = Number(lastCheck?.mileage) > 0
-      ? Number(lastCheck.mileage)
-      : pace.lastKm - (pace.kmPerMonth * (dayNo(pace.lastYmd) - dayNo(baseDate))) / 30.44;
+    // 기준일의 주행거리: 지난 점검에 적혀 있으면 그 값, 없으면 실제 주행 속도로 거꾸로 짐작한다.
+    // 앞선 다른 날 기록과 같은 숫자는 옮겨 적은 값으로 보고 쓰지 않는다
+    // (101하5040: 6/10·7/20·9/15 모두 143,242km라 9/15 점검이 10/27에 벌써 '지남'으로 나왔다, 2026-11-17).
+    const baseKm = lastCheckKm(lastCheck, records)
+      ?? pace.lastKm - (pace.kmPerMonth * (dayNo(pace.lastYmd) - dayNo(baseDate))) / 30.44;
     const remainKm = baseKm + M.everyKm - pace.lastKm;
     kmDate = addDays(pace.lastYmd, Math.round((remainKm / pace.kmPerMonth) * 30.44));
     if (kmDate < date) {

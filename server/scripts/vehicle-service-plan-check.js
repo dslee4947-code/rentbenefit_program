@@ -86,6 +86,22 @@ check('점검: 실제로 더 많이 타면 주행거리 기준 날짜가 앞선�
   assert.match(r.basis, /실제 주행/);
 });
 
+check('점검: 지난 점검 주행거리가 앞선 기록을 옮겨 적은 값이면 쓰지 않는다 (101하5040)', () => {
+  const v = { maintenance: { generalMaintenance: '가입', mileage: 20000 }, deliveryDate: '2026-03-31' };
+  const records = [
+    { kind: '정기점검', date: '2023-07-19', mileage: 53509 },
+    { kind: '정기점검', date: '2026-06-10', mileage: 143242 },
+    { kind: '사고수리', date: '2026-07-20', mileage: 143242 },
+    { kind: '정기점검', date: '2026-09-15', mileage: 143242 },
+    { kind: '정기점검', date: '2026-09-15' },
+    { kind: '고장수리', date: '2026-10-27', mileage: 153233 }
+  ];
+  const r = nextMaintenance(v, records, '2026-11-17');
+  assert.equal(r.lastDone, '2026-09-15');
+  assert.ok(r.date > '2026-12-31', `9/15 점검 뒤 1만km는 아직이어야 한다: ${r.date}`);
+  assert.notEqual(r.status, '지남');
+});
+
 check('검사: 사이버검사소 만료일이 있으면 기록이 빠져도 그 날짜가 다음 검사일', () => {
   // 2025년 검사비가 원장에 없던 101호2169 (2026-10-28)
   const v = { registrationDate: '2021-10-25', inspectionValidity: { from: '2026-10-25', to: '2027-10-24', checkedAt: '2026-10-28' } };

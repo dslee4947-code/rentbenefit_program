@@ -1,8 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { X } from 'lucide-react';
 import MoneyInput from './MoneyInput.jsx';
-import CarDamageMap from './CarDamageMap.jsx';
-import { ACTIONS, ACTION_COLOR } from './carDamageZones.js';
 import { READ_SOURCE, consumablesOf } from './serviceDocs.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -14,8 +12,6 @@ const METHODS = ['직원', '외주 탁송', '센터 픽업·딜리버리', '고�
 const PAYERS = ['자차 보험', '상대방 보험', '보증·리콜(무상)', '회사 부담', '고객 부담'];
 const FUELS = ['', '바닥', '1/4', '1/2', '3/4', '가득'];
 const CONSUMABLES = ['엔진오일·오일필터', '에어필터', '에어컨 필터', '브레이크 패드(앞)', '브레이크 패드(뒤)', '브레이크 오일', '타이어', '와이퍼', '배터리', '냉각수'];
-
-const emptyLine = () => ({ name: '', qty: 1, unitPrice: '', parts: '', labor: '', amount: '' });
 
 const num = (v) => Number(String(v ?? '').replace(/,/g, '')) || 0;
 const won = (n) => `${Math.round(n).toLocaleString()}원`;
@@ -29,7 +25,7 @@ const toLocalInput = (d) => {
   return k.toISOString().slice(0, 16);
 };
 
-const emptyLeg = (method = '직원') => ({ method, from: '', to: '', distanceKm: '', vendor: '', fee: '' });
+const emptyLeg = (method = '직원') => ({ method, from: '', to: '', person: '', distanceKm: '', vendor: '', fee: '' });
 
 /**
  * @param {object|null} record 고칠 기록
@@ -37,9 +33,11 @@ const emptyLeg = (method = '직원') => ({ method, from: '', to: '', distanceKm:
  *   status를 주면 그 상태로 연다. 정기점검 목록의 [일정 잡기]는 '예정', [완료 처리]는 잡아 둔 기록을 '완료'로 연다.
  */
 const formOf = (record, preset) => {
+  const blank = { callAfterIn: '', callGuide: '', callAfterOut: '', mood: '' };
   if (!record) {
     const future = preset?.status === '예정' || (preset?.date && preset.date > new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10));
     return {
+      ...blank,
       kind: preset?.kind || '정기점검', status: future ? '예정' : '완료', staff: '', shop: '',
       inAt: future ? `${preset.date}T10:00` : '', outAt: preset?.date && !future ? `${preset.date}T18:00` : '', mileageIn: '', mileageOut: '', fuelIn: '', fuelOut: '',
       transport: { in: emptyLeg(), out: emptyLeg() },
@@ -50,6 +48,8 @@ const formOf = (record, preset) => {
   }
   const leg = (l) => ({ ...emptyLeg(l?.method || ''), ...Object.fromEntries(Object.entries(l || {}).map(([k, v]) => [k, v ?? ''])) });
   return {
+    ...blank,
+    callAfterIn: record.callAfterIn || '', callGuide: record.callGuide || '', callAfterOut: record.callAfterOut || '', mood: record.mood || '',
     kind: record.kind, status: preset?.status || record.status || '완료', staff: record.staff || '', shop: record.shop || '',
     // 예전 간단 양식 기록은 입고·출고 시각이 없다. 날짜를 출고로 보여 준다.
     // 잡아 둔 일정을 완료로 열면 출고는 오늘로 채운다(받은 날이 다음 점검을 세는 기준이 된다).
@@ -67,42 +67,141 @@ const formOf = (record, preset) => {
   };
 };
 
+// ── 캘린더 AS 서식 붙여 넣기 ──
+// 직원들이 구글 캘린더에 쓰는 서식(진행일자 / 진행자 - < 차종 / 차량번호 > AS (입고지 / 담당자) …)을 그대로 붙여 넣으면 칸을 채운다.
+// 서식에 남은 안내 글자(픽업장소, 주행거리 km 등)는 비어 있는 것으로 본다.
+const PLACEHOLDER = /^(픽업장소|픽업시간|픽업시 인도자|인도장소|인도시간|인도시 인수자|주행거리\s*km|주유상태|픽업방법|인도방법|입고지|담당자|진행자|진행일자|없음)$/;
+const clean = (v) => {
+  const t = String(v || '').trim();
+  return PLACEHOLDER.test(t) ? '' : t;
+};
+const lineOf = (text, label) => {
+  // 이름 뒤에 ':'가 있어야 그 줄로 본다('픽업후 확인전화'를 '픽업'으로 읽지 않게). 빈칸이면 다음 줄로 넘어가지 않는다.
+  const re = new RegExp(`^[ \\t]*${label}[ \\t]*:[ \\t]*(.*)$`, 'm');
+  return clean((text.match(re) || [])[1]);
+};
+const methodOf = (t) => {
+  if (!t) return '';
+  if (/탁송/.test(t)) return '외주 탁송';
+  if (/센터|픽딜/.test(t)) return '센터 픽업·딜리버리';
+  if (/고객/.test(t)) return '고객 직접';
+  return '직원';
+};
+const kmOf = (t) => (String(t || '').match(/([\d,]{2,})\s*km/i) || [])[1]?.replace(/,/g, '') || '';
+const amountOf = (t) => {
+  const won1 = String(t || '').match(/(\d{1,3}(?:,\d{3})+|\d{4,})\s*원/);
+  if (won1) return won1[1].replace(/,/g, '');
+  const man = String(t || '').match(/(\d+(?:\.\d+)?)\s*만\s*원/);
+  if (man) return String(Math.round(Number(man[1]) * 10000));
+  return /무상|무료/.test(String(t || '')) ? '0' : '';
+};
+const timeOf = (t) => (String(t || '').match(/(\d{1,2}):(\d{2})/) || []).slice(1).map((x) => x.padStart(2, '0')).join(':');
+
+/** 붙여 넣은 서식 → 양식에 덮을 값. 서식에서 읽은 칸만 돌려준다. */
+const parseTemplate = (raw, form) => {
+  const text = String(raw || '').replace(/\r/g, '');
+  const p = {};
+  const header = text.split('\n').find((l) => /<[^>]+>\s*AS/.test(l)) || '';
+  if (header) {
+    const staff = clean((header.split('<')[0].split('/').pop() || '').replace(/-\s*$/, ''));
+    if (staff) p.staff = staff;
+    const shop = (header.match(/AS\s*\(([^)]*)\)/) || [])[1] || '';
+    if (shop && !/^\s*입고지\s*\/\s*담당자\s*$/.test(shop)) p.shop = shop.trim();
+    const pd = (header.match(/픽업\s*&\s*딜리버리\s*:?\s*(.*)$/) || [])[1] || '';
+    const [pm, dm] = pd.split('/').map(clean);
+    if (pm) p.inMethod = methodOf(pm);
+    if (dm) p.outMethod = methodOf(dm);
+    const ymd = (header.match(/(\d{2})(\d{2})(\d{2})/) || []).slice(1);
+    if (ymd.length) p.baseDate = `20${ymd[0]}-${ymd[1]}-${ymd[2]}`;
+  }
+  [['request', '점검 의뢰'], ['callAfterIn', '(?:입고|픽업)후 확인전화'], ['description', '점검 내용'], ['callGuide', '점검 안내 전화'],
+    ['mood', '고객님\\s*성향\\s*및\\s*기분'], ['callAfterOut', '인도 확인 전화'], ['memo', '특이사항']].forEach(([k, label]) => {
+    const v = lineOf(text, label);
+    if (v) p[k] = v;
+  });
+  const cost = lineOf(text, '점검 비용');
+  if (cost) {
+    const a = amountOf(cost);
+    if (a !== '') p.amount = a;
+    if (/무상|보증|리콜/.test(cost)) p.payer = '보증·리콜(무상)';
+  }
+  [['in', '픽업'], ['out', '인도']].forEach(([side, label]) => {
+    const v = lineOf(text, label);
+    if (!v) return;
+    // 칸 구분은 띄어쓰기가 붙은 '/'. '주유 1/8'처럼 붙여 쓴 '/'는 자르지 않는다
+    const [place, time, person, km, fuel, method] = v.split(/\s+\/\s*|\s*\/\s+/).map(clean);
+    let base = (side === 'in' ? form.inAt : form.outAt).slice(0, 10) || p.baseDate || '';
+    // '25일 화성 근무처'처럼 장소 앞에 날짜가 있으면 그 날로 본다
+    const day = (String(place || '').match(/^(\d{1,2})일/) || [])[1];
+    if (base && day) base = `${base.slice(0, 8)}${day.padStart(2, '0')}`;
+    const leg = { place, person, km: kmOf(km), fuel: String(fuel || '').replace(/^주유\s*/, ''), method: methodOf(method), at: base && timeOf(time) ? `${base}T${timeOf(time)}` : '' };
+    if (Object.values(leg).some(Boolean)) p[side] = leg;
+  });
+  return p;
+};
+
 /**
- * 정비·수리 한 건 상세 입력 (테스트판, 2026-10).
- * 시안: docs/mockups/vehicle-service-form-v1.html
+ * 정비·수리 한 건 입력 (2026-11-17 간소화).
  *
- * 수리 내역서(PDF·엑셀·사진)를 올리면 글자를 읽어 업체·날짜·주행거리·작업 줄·공급가·부가세를 채운다(서버 utils/repairInvoice.js).
- * 읽은 글자는 화면에서 고쳐 다시 정리할 수 있다. 저장은 사람이 확인한 뒤 한다.
- * 아직 하지 않는 것(다음 단계): 원장 자동 기록, 지도 API 거리 자동 계산.
+ * 직원들이 쓰던 구글 캘린더 AS 서식과 같은 순서로 칸을 둔다:
+ * 접수(종류·상태·진행자·입고지) → 점검(의뢰·전화·내용·비용·고객 기분) → 픽업·인도 → 특이사항 → 파일.
+ * 차 그림(수리 부위)·정기점검 횟수·계약 대비 주행·탁송 거리 계산 칸은 뺐다. 예전 기록에 있던 값은 그대로 저장된다.
+ *
+ * 견적서·점검 결과서(PDF·엑셀·사진)를 올리면 글자를 읽어 비용·작업 내용·주행거리를 채우고 파일로 붙인다(서버 utils/repairInvoice.js).
  *
  * @param {object} props
- * @param {object} props.row 차량 한 줄(서버 rowOf: checks, usage, notices 포함)
+ * @param {object} props.row 차량 한 줄(서버 rowOf)
  * @param {object|null} props.record 고칠 기록. 없으면 새로 적는다
- * @param {{kind: string, date: string}} [props.preset] 달력에서 날짜·종류를 골라 열 때
- * @param {{year:number, perKm:number}[]} props.transportRates 해마다 외주 탁송 km당 단가
+ * @param {{kind: string, date: string, status?: string}} [props.preset] 달력·목록에서 날짜·종류를 골라 열 때
  */
-export default function VehicleServiceForm({ row, record, preset, transportRates = [], onClose, onSaved, showToast }) {
+export default function VehicleServiceForm({ row, record, preset, onClose, onSaved, showToast }) {
   const [form, setForm] = useState(() => formOf(record, preset));
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState('');
   const [reading, setReading] = useState(false);
   const [readInfo, setReadInfo] = useState(null); // { source, parsed, filled: [] } 마지막으로 읽은 결과
-  const [showText, setShowText] = useState(false);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState('');
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
   const setLeg = (side, patch) => setForm((f) => ({ ...f, transport: { ...f.transport, [side]: { ...f.transport[side], ...patch } } }));
   const setCost = (patch) => setForm((f) => ({ ...f, costs: { ...f.costs, ...patch } }));
-
-  const togglePart = (zone) => setForm((f) => {
-    const cur = f.parts.find((p) => p.zone === zone);
-    const next = cur ? ACTIONS[ACTIONS.indexOf(cur.action) + 1] : ACTIONS[0];
-    const rest = f.parts.filter((p) => p.zone !== zone);
-    return { ...f, parts: next ? [...rest, { zone, action: next, memo: cur?.memo || '' }] : rest };
-  });
   const toggleConsumable = (c) => setForm((f) => ({
     ...f, consumables: f.consumables.includes(c) ? f.consumables.filter((x) => x !== c) : [...f.consumables, c]
   }));
+
+  /** 붙여 넣은 캘린더 서식으로 칸을 채운다. 서식에 적힌 칸만 덮어쓴다. */
+  const fillFromTemplate = () => {
+    const p = parseTemplate(pasteText, form);
+    const filled = [];
+    setForm((f) => {
+      const next = { ...f, transport: { in: { ...f.transport.in }, out: { ...f.transport.out } }, costs: { ...f.costs } };
+      ['staff', 'shop', 'request', 'callAfterIn', 'description', 'callGuide', 'mood', 'callAfterOut', 'memo', 'payer'].forEach((k) => {
+        if (p[k]) { next[k] = p[k]; filled.push(k); }
+      });
+      if (p.amount !== undefined) { next.costs.repair = p.amount; next.costs.vat = ''; filled.push('amount'); }
+      if (p.inMethod) next.transport.in.method = p.inMethod;
+      if (p.outMethod) next.transport.out.method = p.outMethod;
+      [['in', 'inAt', 'mileageIn', 'fuelIn', 'from'], ['out', 'outAt', 'mileageOut', 'fuelOut', 'to']].forEach(([side, at, km, fuel, placeKey]) => {
+        const s = p[side];
+        if (!s) return;
+        if (s.place) next.transport[side][placeKey] = s.place;
+        if (s.person) next.transport[side].person = s.person;
+        if (s.method) next.transport[side].method = s.method;
+        if (s.km) next[km] = s.km;
+        if (s.fuel) next[fuel] = s.fuel;
+        if (s.at) next[at] = s.at;
+        filled.push(side);
+      });
+      return next;
+    });
+    if (filled.length) {
+      showToast?.('서식에서 읽은 칸을 채웠습니다. 저장 전에 확인해 주세요.', 'success');
+      setPasteOpen(false);
+    } else {
+      showToast?.('서식에서 읽을 칸을 찾지 못했습니다. "점검 의뢰 :", "픽업 :" 같은 줄이 있는지 확인해 주세요.', 'error');
+    }
+  };
 
   /**
    * 내역서에서 읽은 값을 양식에 넣는다. 작업 줄·공급가·부가세는 내역서를 따르고,
@@ -112,14 +211,14 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
     const filled = [];
     const f = form; // 읽는 동안에는 양식을 만지지 않는다(버튼이 '읽는 중')
     const next = { ...f, lines: p.lines.map((l) => ({ ...l })), invoice: { bizNo: p.bizNo, issuedDate: p.issuedDate, partsTotal: p.partsTotal, laborTotal: p.laborTotal, supply: p.supply, vat: p.vat, discount: p.discount, total: p.total, text } };
-    filled.push(`작업 ${p.lines.length}줄`);
-    if (p.supply || p.vat) { next.costs = { ...f.costs, repair: p.supply || f.costs.repair, vat: p.vat || f.costs.vat }; filled.push('수리비·부가세'); }
-    if (!f.shop && p.shop) { next.shop = p.shop; filled.push('업체'); }
-    if (!f.inAt && p.inDate) { next.inAt = `${p.inDate}T10:00`; filled.push('입고일'); }
+    if (p.lines.length) filled.push(`작업 ${p.lines.length}줄`);
+    if (p.supply || p.vat) { next.costs = { ...f.costs, repair: p.supply || f.costs.repair, vat: p.vat || f.costs.vat }; filled.push('비용'); }
+    if (!f.shop && p.shop) { next.shop = p.shop; filled.push('입고지'); }
+    if (!f.inAt && p.inDate) { next.inAt = `${p.inDate}T10:00`; filled.push('픽업일'); }
     const out = p.outDate || p.issuedDate;
-    if (!f.outAt && out) { next.outAt = `${out}T18:00`; filled.push('출고일'); }
+    if (!f.outAt && out) { next.outAt = `${out}T18:00`; filled.push('인도일'); }
     if (p.mileage && !f.mileageOut && !f.mileageIn) { next.mileageOut = String(p.mileage); filled.push('주행거리'); }
-    if (!f.description && p.lines.length) { next.description = p.lines.map((l) => l.name).join(', '); filled.push('작업 내용'); }
+    if (!f.description && p.lines.length) { next.description = p.lines.map((l) => l.name).join(', '); filled.push('점검 내용'); }
     if (!f.insurer && p.insurer) { next.insurer = p.insurer; filled.push('보험사'); }
     if (!f.claimNo && p.claimNo) { next.claimNo = p.claimNo; filled.push('접수번호'); }
     const added = consumablesOf(p.lines).filter((c) => !f.consumables.includes(c));
@@ -128,21 +227,19 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
     return filled;
   };
 
-  /** 파일 또는 고친 글자를 서버에 보내 정리한다 */
-  const readInvoice = async ({ file, text }) => {
+  /** 견적서·결과서 파일을 서버에 보내 읽고, 파일은 기록에 붙인다 */
+  const readInvoice = async (file) => {
     setReading(true);
     try {
       const fd = new FormData();
-      if (file) fd.append('file', file);
-      else fd.append('text', text);
+      fd.append('file', file);
       const res = await fetch(`${API_HOST}/api/vehicle-services/read-invoice`, { method: 'POST', body: fd });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) { showToast?.(data.message || '내역서를 읽지 못했습니다.', 'error'); return; }
+      setFiles((fs) => (fs.some((x) => x.name === file.name && x.size === file.size) ? fs : [...fs, file]));
+      if (!res.ok || !data.success) { showToast?.(`${data.message || '내용을 읽지 못했습니다.'} 파일은 붙여 둡니다.`, 'error'); return; }
       const filled = applyParsed(data.parsed, data.text);
       setReadInfo({ source: data.source, parsed: data.parsed, filled });
-      // 읽은 내역서 파일은 기록에 함께 붙인다
-      if (file) setFiles((fs) => (fs.some((x) => x.name === file.name && x.size === file.size) ? fs : [...fs, file]));
-      showToast?.(`내역서를 정리했습니다. 작업 ${data.parsed.lines.length}줄 · 합계 ${won(data.parsed.total)}`, 'success');
+      showToast?.(`읽었습니다${data.parsed.total ? ` · 합계 ${won(data.parsed.total)}` : ''}. 채운 칸을 확인해 주세요.`, 'success');
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
     } finally {
@@ -150,47 +247,8 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
     }
   };
 
-  const setLine = (i, patch) => setForm((f) => ({
-    ...f,
-    lines: f.lines.map((l, j) => {
-      if (j !== i) return l;
-      const n = { ...l, ...patch };
-      // 부품·공임을 고치면 금액은 둘의 합
-      if ('parts' in patch || 'labor' in patch) n.amount = String(num(n.parts) + num(n.labor) || num(n.amount) || '');
-      return n;
-    })
-  }));
-  const lineSum = (k) => form.lines.reduce((s, l) => s + num(l[k]), 0);
-
-  // ── 자동 계산
-  const days = form.inAt && form.outAt ? Math.max(0, Math.round((new Date(form.outAt) - new Date(form.inAt)) / 86400000)) : null;
-  const moved = num(form.mileageOut) && num(form.mileageIn) ? num(form.mileageOut) - num(form.mileageIn) : null;
-  const latestRate = transportRates[transportRates.length - 1];
-  const estimateOf = (leg) => (latestRate && num(leg.distanceKm) ? Math.round(num(leg.distanceKm) * latestRate.perKm) : null);
-  const transportFee = ['in', 'out'].reduce((s, side) => s + (form.transport[side].method === '외주 탁송' ? num(form.transport[side].fee) : 0), 0);
-  const repairTotal = num(form.costs.repair) + num(form.costs.vat);
-  const insurancePaid = num(form.costs.insurancePaid);
-  const companyBurden = useMemo(() => {
-    const byOthers = ['고객 부담', '보증·리콜(무상)'].includes(form.payer) ? repairTotal : 0;
-    return repairTotal - byOthers - insurancePaid + transportFee;
-  }, [form.payer, repairTotal, insurancePaid, transportFee]);
-
-  const checks = row?.checks;
-  const nextRound = form.kind === '정기점검' && !record?.checkRound ? (checks?.done || 0) + 1 : record?.checkRound;
-
-  // 고객 안내 문자 초안 (보내지는 않는다)
-  const makeNotice = (n) => {
-    const head = `[렌트베네핏] ${row?.partyName || '고객'}님, ${row?.plateNo} ${row?.carModel} 차량 안내드립니다.`;
-    const body = n.type === 'over'
-      ? `최근 주행거리가 연 ${row.usage.annualizedKm?.toLocaleString()}km로 약정 주행거리(연 ${row.usage.contractKm?.toLocaleString()}km)보다 많습니다. 안전을 위해 정기점검 주기를 앞당겨 진행하고자 하며, 약정 초과 주행에 대한 기준도 함께 안내드리겠습니다.`
-      : '최근 1년 동안 정기점검 기록이 없습니다. 주행거리가 적더라도 오일·소모품은 시간이 지나면 성능이 떨어지므로 연 1회 정기점검을 꼭 받으셔야 합니다. 편하신 일정 알려 주시면 예약 도와드리겠습니다.';
-    const text = `${head}\n${body}\n문의: 렌트베네핏`;
-    setNotice(text);
-    navigator.clipboard?.writeText(text).then(() => showToast?.('안내 문자를 복사했습니다. 붙여 넣어 보내세요.', 'success')).catch(() => {});
-  };
-
   const save = async () => {
-    if (!form.inAt && !form.outAt) { showToast?.('입고 또는 출고 날짜를 적어 주세요.', 'error'); return; }
+    if (!form.inAt && !form.outAt) { showToast?.('픽업 또는 인도 날짜를 적어 주세요.', 'error'); return; }
     // 잡아 둔 검사·점검을 완료로 바꿀 때는 견적서·점검 결과서를 올려야 한다(대표님 2026-11-17).
     // 완료해야 목록에서 빠지고 다음 일정이 그날부터 다시 잡히므로, 증빙 없이 끝난 것으로 처리되지 않게 한다.
     const finishing = form.status === '완료' && ['정기점검', '자동차검사'].includes(form.kind) && record && record.status && record.status !== '완료';
@@ -231,325 +289,223 @@ export default function VehicleServiceForm({ row, record, preset, transportRates
     }
   };
 
+  const checks = row?.checks;
+  const nextRound = form.kind === '정기점검' && !record?.checkRound ? (checks?.done || 0) + 1 : record?.checkRound;
+  const insured = ['자차 보험', '상대방 보험'].includes(form.payer);
+  const total = num(form.costs.repair) + num(form.costs.vat);
+  const existingFiles = (record?.attachments || []).length || (record?.fileName ? 1 : 0);
+
   // ── 모양
   const card = { background: '#fff', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '0.8rem 0.9rem' };
-  const h2 = { margin: '0 0 0.6rem', fontSize: '0.88rem', fontWeight: 800, color: 'var(--text-bright)', display: 'flex', alignItems: 'center', gap: '0.4rem' };
-  const tag = { marginLeft: 'auto', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' };
-  const row2 = { display: 'grid', gridTemplateColumns: '84px 1fr', gap: '0.5rem', alignItems: 'center', marginBottom: '0.45rem' };
-  const lab = { fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 };
-  const input = { width: '100%', padding: '0.35rem 0.45rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-bright)', fontSize: '0.8rem', boxSizing: 'border-box' };
-  const auto = { background: 'var(--bg-main)', borderRadius: '6px', padding: '0.35rem 0.55rem', fontSize: '0.76rem', color: 'var(--text-bright)' };
+  const h2 = { margin: '0 0 0.55rem', fontSize: '0.88rem', fontWeight: 800, color: 'var(--text-bright)' };
+  const row2 = { display: 'grid', gridTemplateColumns: '108px 1fr', gap: '0.5rem', alignItems: 'center', marginBottom: '0.45rem' };
+  const lab = { fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 };
+  const input = { width: '100%', padding: '0.4rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-bright)', fontSize: '0.82rem', boxSizing: 'border-box' };
+  const area = { ...input, minHeight: '54px', resize: 'vertical', fontFamily: 'inherit' };
   const hint = { fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.15rem' };
-  const two = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem' };
-  const three = { display: 'grid', gridTemplateColumns: '1.4fr 1fr 0.8fr', gap: '0.35rem' };
+  const two = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' };
+  const btn = { border: '1px solid var(--border-color)', background: '#fff', borderRadius: '7px', padding: '0.4rem 0.8rem', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' };
   // 컴포넌트로 만들면 입력할 때마다 다시 만들어져 글자 칸이 포커스를 잃는다. 그래서 함수로 그린다.
   const chips = (items, value, onChange) => (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
       {items.map((it) => (
         <button key={it} type="button" onClick={() => onChange(value === it ? '' : it)}
-          style={{ border: `1px solid ${value === it ? 'var(--primary)' : 'var(--border-color)'}`, background: value === it ? 'var(--primary)' : '#fff', color: value === it ? '#fff' : 'var(--text-muted)', borderRadius: '999px', padding: '0.22rem 0.65rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>
+          style={{ border: `1px solid ${value === it ? 'var(--primary)' : 'var(--border-color)'}`, background: value === it ? 'var(--primary)' : '#fff', color: value === it ? '#fff' : 'var(--text-muted)', borderRadius: '999px', padding: '0.22rem 0.65rem', fontSize: '0.76rem', fontWeight: 700, cursor: 'pointer' }}>
           {it}
         </button>
       ))}
     </div>
   );
-  const leg = (side, title) => {
+  const field = (label, el) => <div style={row2}><span style={lab}>{label}</span>{el}</div>;
+  const text = (key, placeholder) => <input style={input} value={form[key]} onChange={(e) => set({ [key]: e.target.value })} placeholder={placeholder} />;
+
+  // 픽업·인도 한 줄: 장소 / 날짜·시간 / 넘겨준·받은 사람 / 주행거리 / 주유 / 방법
+  const handover = (side) => {
     const l = form.transport[side];
-    const est = estimateOf(l);
+    const pick = side === 'in';
+    const at = pick ? 'inAt' : 'outAt';
+    const km = pick ? 'mileageIn' : 'mileageOut';
+    const fuel = pick ? 'fuelIn' : 'fuelOut';
+    const placeKey = pick ? 'from' : 'to';
+    const td = { padding: '0.2rem' };
     return (
-      <>
-        <div style={row2}><span style={lab}>{title}</span>{chips(METHODS, l.method, (v) => setLeg(side, { method: v }))}</div>
-        <div style={row2}><span style={lab}>{side === 'in' ? '픽업지 → 센터' : '센터 → 인도지'}</span>
-          <div style={two}>
-            <input style={input} value={l.from} onChange={(e) => setLeg(side, { from: e.target.value })} placeholder={side === 'in' ? '픽업지 주소' : '센터'} />
-            <input style={input} value={l.to} onChange={(e) => setLeg(side, { to: e.target.value })} placeholder={side === 'in' ? '입고 센터' : '인도지 주소'} />
-          </div></div>
-        <div style={row2}><span style={lab}>거리 · 탁송</span>
-          <div style={three}>
-            <input style={{ ...input, textAlign: 'right' }} inputMode="decimal" value={l.distanceKm} onChange={(e) => setLeg(side, { distanceKm: e.target.value.replace(/[^0-9.]/g, '') })} placeholder="거리 km" />
-            <input style={input} value={l.vendor} disabled={l.method !== '외주 탁송'} onChange={(e) => setLeg(side, { vendor: e.target.value })} placeholder="탁송 업체" />
-            <MoneyInput style={input} value={l.fee} disabled={l.method !== '외주 탁송'} onChange={(e) => setLeg(side, { fee: e.target.value })} placeholder="탁송료" />
-          </div></div>
-        {l.method === '외주 탁송' && (
-          <div style={{ ...row2, marginTop: '-0.2rem' }}><span />
-            <div style={hint}>
-              {est !== null
-                ? <>예상 {won(est)} ({latestRate.year}년 평균 km당 {won(latestRate.perKm)}){num(l.fee) ? ` · 실제 ${won(num(l.fee))} (${num(l.fee) >= est ? '+' : ''}${Math.round(((num(l.fee) - est) / est) * 100)}%)` : ''}</>
-                : '거리와 탁송료가 쌓이면 해마다 km당 단가와 예상 탁송료가 나옵니다.'}
-            </div></div>
-        )}
-      </>
+      <tr>
+        <td style={{ ...td, ...lab, whiteSpace: 'nowrap' }}>{pick ? '픽업' : '인도'}</td>
+        <td style={td}><input style={input} value={l[placeKey]} onChange={(e) => setLeg(side, { [placeKey]: e.target.value })} placeholder={pick ? '픽업 장소' : '인도 장소'} /></td>
+        <td style={td}><input type="datetime-local" style={input} value={form[at]} onChange={(e) => set({ [at]: e.target.value })} /></td>
+        <td style={td}><input style={input} value={l.person} onChange={(e) => setLeg(side, { person: e.target.value })} placeholder={pick ? '넘겨준 분' : '받은 분'} /></td>
+        <td style={td}><MoneyInput style={{ ...input, textAlign: 'right' }} value={form[km]} onChange={(e) => set({ [km]: e.target.value })} placeholder="km" /></td>
+        <td style={td}><input list="vs-fuels" style={input} value={form[fuel]} onChange={(e) => set({ [fuel]: e.target.value })} placeholder="1/2" /></td>
+        <td style={td}>
+          <select style={input} value={l.method} onChange={(e) => setLeg(side, { method: e.target.value })}>
+            <option value="">-</option>
+            {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+          {l.method === '외주 탁송' && <MoneyInput style={{ ...input, marginTop: '0.25rem' }} value={l.fee} onChange={(e) => setLeg(side, { fee: e.target.value })} placeholder="탁송료" />}
+        </td>
+      </tr>
     );
   };
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1100, overflowY: 'auto', padding: '1.5rem 1rem' }}>
-      <div style={{ maxWidth: '1100px', margin: '0 auto', background: 'var(--bg-main)', borderRadius: '12px', padding: '1rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.8rem' }}>
+      <div style={{ maxWidth: '880px', margin: '0 auto', background: 'var(--bg-main)', borderRadius: '12px', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
           <div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-bright)' }}>
-              정비·수리 기록 {record ? '고치기' : '입력'} <span style={{ fontSize: '0.75rem', background: '#eef3fe', color: 'var(--primary)', borderRadius: '10px', padding: '0.1rem 0.5rem', verticalAlign: '2px' }}>테스트</span>
-            </div>
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-              {row?.plateNo} · {row?.carModel} · {row?.partyName || '-'} · 인도 {row?.deliveryDate || '-'}{row?.annualKm ? ` · 약정 ${Number(row.annualKm).toLocaleString()}km/년` : ''}
+            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-bright)' }}>정비·수리 기록 {record ? '고치기' : '입력'}</div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              {row?.plateNo} · {row?.carModel} · {row?.partyName || '-'}
+              {form.kind === '정기점검' && nextRound ? ` · 정기점검 ${nextRound}회차` : ''}
             </div>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem' }}>
-            <button type="button" onClick={onClose} style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '7px', padding: '0.45rem 0.9rem', fontWeight: 700, cursor: 'pointer' }}>닫기</button>
-            <button type="button" onClick={save} disabled={saving} style={{ border: 'none', background: 'var(--primary)', color: '#fff', borderRadius: '7px', padding: '0.45rem 1rem', fontWeight: 800, cursor: saving ? 'wait' : 'pointer' }}>{saving ? '저장 중…' : '저장'}</button>
+            <button type="button" onClick={onClose} style={btn}>닫기</button>
+            <button type="button" onClick={save} disabled={saving} style={{ border: 'none', background: 'var(--primary)', color: '#fff', borderRadius: '7px', padding: '0.45rem 1.1rem', fontWeight: 800, cursor: saving ? 'wait' : 'pointer' }}>{saving ? '저장 중…' : '저장'}</button>
             <button type="button" onClick={onClose} title="닫기" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={18} /></button>
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gap: '0.8rem' }}>
-          {/* 0. 수리 내역서 */}
-          <div style={{ ...card, gridColumn: '1 / -1', borderColor: 'var(--primary)' }}>
-            <h3 style={h2}>📄 수리 내역서로 채우기<span style={tag}>PDF · 엑셀 · 사진(스캔) — 읽은 값은 저장 전에 확인하세요</span></h3>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <label style={{ border: 'none', background: 'var(--primary)', color: '#fff', borderRadius: '7px', padding: '0.4rem 0.9rem', fontWeight: 800, fontSize: '0.8rem', cursor: reading ? 'wait' : 'pointer' }}>
-                {reading ? '읽는 중…' : '내역서 올리기'}
-                <input type="file" accept=".pdf,.xlsx,.xls,image/*" style={{ display: 'none' }} disabled={reading}
-                  onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) readInvoice({ file: f }); }} />
-              </label>
-              <button type="button" onClick={() => setShowText((v) => !v)} style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '7px', padding: '0.38rem 0.8rem', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer' }}>
-                {showText ? '글자 닫기' : form.invoice?.text ? '읽은 글자 보기·고치기' : '글자 붙여 넣기'}
-              </button>
-              {readInfo && (
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  {READ_SOURCE[readInfo.source] || readInfo.source}로 읽음 · 채운 칸: {readInfo.filled.join(', ') || '없음'}
-                </span>
+        {/* 빨리 채우기: 캘린더 서식 붙여 넣기 · 견적서·결과서 올리기 */}
+        <div style={{ ...card, borderColor: 'var(--primary)', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <button type="button" onClick={() => setPasteOpen((v) => !v)} style={{ ...btn, borderColor: 'var(--primary)', color: 'var(--primary)' }}>📋 캘린더 서식 붙여 넣기</button>
+            <label style={{ ...btn, background: 'var(--primary)', color: '#fff', border: 'none', cursor: reading ? 'wait' : 'pointer' }}>
+              {reading ? '읽는 중…' : '📄 견적서·점검 결과서 올리기'}
+              <input type="file" accept=".pdf,.xlsx,.xls,image/*" style={{ display: 'none' }} disabled={reading}
+                onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) readInvoice(f); }} />
+            </label>
+            <span style={hint}>둘 중 하나로 칸을 채운 뒤 확인하고 저장하세요.</span>
+          </div>
+          {pasteOpen && (
+            <div>
+              <textarea style={{ ...area, minHeight: '150px', fontSize: '0.78rem' }} value={pasteText} onChange={(e) => setPasteText(e.target.value)}
+                placeholder={'구글 캘린더에 쓰던 서식을 그대로 붙여 넣으세요.\n진행일자 / 진행자 - < 차종 / 차량번호 > AS (입고지 / 담당자) - 픽업&딜리버리 : 픽업방법 / 인도방법\n점검 의뢰 :\n입고후 확인전화 :\n점검 내용 :\n…'} />
+              <button type="button" onClick={fillFromTemplate} disabled={!pasteText.trim()} style={{ ...btn, marginTop: '0.3rem', background: 'var(--text-bright)', color: '#fff', border: 'none' }}>칸 채우기</button>
+            </div>
+          )}
+          {readInfo && (
+            <div style={hint}>
+              {READ_SOURCE[readInfo.source] || readInfo.source}로 읽음 · 채운 칸: {readInfo.filled.join(', ') || '없음'}
+              {readInfo.parsed?.plateNo && row?.plateNo && readInfo.parsed.plateNo !== row.plateNo.replace(/\s/g, '') && (
+                <b style={{ color: '#b91c1c' }}> · ⚠ 파일의 차량번호 {readInfo.parsed.plateNo}가 이 차({row.plateNo})와 다릅니다</b>
+              )}
+              {readInfo.parsed?.kindGuess && readInfo.parsed.kindGuess !== form.kind && (
+                <> · 파일로 보면 <b>{readInfo.parsed.kindGuess}</b> 같습니다 <button type="button" onClick={() => set({ kind: readInfo.parsed.kindGuess })} style={{ ...btn, padding: '0 0.4rem', fontSize: '0.74rem' }}>종류 바꾸기</button></>
               )}
             </div>
-            {readInfo?.parsed?.plateNo && row?.plateNo && readInfo.parsed.plateNo !== row.plateNo.replace(/\s/g, '') && (
-              <div style={{ ...hint, color: '#b91c1c', fontWeight: 700 }}>⚠ 내역서 차량번호는 {readInfo.parsed.plateNo}인데 이 차는 {row.plateNo}입니다. 다른 차 내역서가 아닌지 확인해 주세요.</div>
-            )}
-            {readInfo?.parsed?.kindGuess && readInfo.parsed.kindGuess !== form.kind && (
-              <div style={hint}>
-                내역서로 보면 <b>{readInfo.parsed.kindGuess}</b> 같습니다.{' '}
-                <button type="button" onClick={() => set({ kind: readInfo.parsed.kindGuess })} style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0 0.4rem', fontSize: '0.75rem', cursor: 'pointer' }}>종류 바꾸기</button>
-              </div>
-            )}
-            {(readInfo?.parsed?.warnings || []).map((w) => <div key={w} style={{ ...hint, color: '#b45309' }}>⚠ {w}</div>)}
-            {showText && (
-              <div style={{ marginTop: '0.4rem' }}>
-                <textarea style={{ ...input, minHeight: '140px', fontFamily: 'monospace', fontSize: '0.75rem' }}
-                  value={form.invoice?.text || ''}
-                  onChange={(e) => setForm((f) => ({ ...f, invoice: { ...(f.invoice || {}), text: e.target.value } }))}
-                  placeholder={'내역서 글자를 붙여 넣거나, 읽은 글자를 고친 뒤 [글자로 다시 정리]를 누르세요.\n예) 엔진오일 1 45,000 45,000 20,000 / 공급가액 253,000 / 부가세 25,300 / 합계 278,300'} />
-                <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginTop: '0.3rem' }}>
-                  <button type="button" disabled={reading || !form.invoice?.text?.trim()} onClick={() => readInvoice({ text: form.invoice.text })}
-                    style={{ border: 'none', background: 'var(--text-bright)', color: '#fff', borderRadius: '7px', padding: '0.35rem 0.8rem', fontWeight: 800, fontSize: '0.76rem', cursor: 'pointer' }}>글자로 다시 정리</button>
-                  <span style={hint}>한 줄에 작업 하나: 이름 뒤에 [수량 단가 부품 공임] 또는 [금액]. 합계 줄은 공급가액·부가세·합계 라벨로 찾습니다.</span>
-                </div>
-              </div>
-            )}
+          )}
+        </div>
 
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.76rem', marginTop: '0.6rem' }}>
+        {/* 1. 접수 */}
+        <div style={card}>
+          <h3 style={h2}>① 접수</h3>
+          {field('종류', chips(KINDS, form.kind, (v) => v && set({ kind: v })))}
+          {field('진행 상태', chips(STATUSES, form.status, (v) => v && set({ status: v })))}
+          {field('진행자 · 입고지', (
+            <div style={two}>
+              {text('staff', '진행자 (예: 두식)')}
+              {text('shop', '입고지 / 담당자 (예: 분당 백현 / 윤우진)')}
+            </div>
+          ))}
+        </div>
+
+        {/* 2. 점검 */}
+        <div style={card}>
+          <h3 style={h2}>② 점검</h3>
+          {field('점검 의뢰', <textarea style={area} value={form.request} onChange={(e) => set({ request: e.target.value })} placeholder="고객이 요청한 것" />)}
+          {field('입고후 확인전화', text('callAfterIn', '언제, 누구와 (예: 9월 22일 어드바이저)'))}
+          {field('점검 내용', <textarea style={{ ...area, minHeight: '70px' }} value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="실제로 한 작업" />)}
+          {field('점검 안내 전화', text('callGuide', '언제, 누구에게 (예: 25일 13:05 고객님)'))}
+          {field('점검 비용', (
+            <div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '0.4rem', alignItems: 'center' }}>
+                <MoneyInput style={input} value={form.costs.repair} onChange={(e) => setCost({ repair: e.target.value })} placeholder="금액 (공급가)" />
+                <MoneyInput style={input} value={form.costs.vat} onChange={(e) => setCost({ vat: e.target.value })} placeholder="부가세 (없으면 비움)" />
+                <b style={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>합계 {won(total)}</b>
+              </div>
+              <div style={{ marginTop: '0.35rem' }}>{chips(PAYERS, form.payer, (v) => set({ payer: v }))}</div>
+              {insured && (
+                <div style={{ ...two, marginTop: '0.35rem' }}>
+                  <input style={input} value={form.insurer} onChange={(e) => set({ insurer: e.target.value })} placeholder="보험사" />
+                  <input style={input} value={form.claimNo} onChange={(e) => set({ claimNo: e.target.value })} placeholder="접수번호" />
+                  <input style={input} value={form.fault} onChange={(e) => set({ fault: e.target.value })} placeholder="과실 (예: 상대 100 : 0)" />
+                  <MoneyInput style={input} value={form.deductible} onChange={(e) => set({ deductible: e.target.value })} placeholder="자기부담금" />
+                </div>
+              )}
+            </div>
+          ))}
+          {field('고객 성향·기분', text('mood', '대체적으로 만족'))}
+        </div>
+
+        {/* 3. 픽업 · 인도 */}
+        <div style={card}>
+          <h3 style={h2}>③ 픽업 · 인도</h3>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', minWidth: '720px' }}>
               <thead>
-                <tr style={{ color: 'var(--text-muted)', background: 'var(--bg-main)' }}>
-                  {['작업 · 부품', '수량', '단가', '부품', '공임', '금액', ''].map((h, i) => <th key={i} style={{ textAlign: i === 0 ? 'left' : 'right', padding: '0.3rem', fontWeight: 700, width: i === 0 ? 'auto' : i === 1 ? '54px' : i === 6 ? '28px' : '104px' }}>{h}</th>)}
+                <tr style={{ color: 'var(--text-muted)', fontSize: '0.74rem' }}>
+                  {['', '장소', '날짜·시간', '넘겨준·받은 분', '주행거리', '주유', '방법'].map((h, i) => <th key={i} style={{ textAlign: 'left', padding: '0.2rem', fontWeight: 700 }}>{h}</th>)}
                 </tr>
               </thead>
               <tbody>
-                {form.lines.length === 0 && (
-                  <tr><td colSpan={7} style={{ padding: '0.5rem', color: 'var(--text-muted)', textAlign: 'center' }}>내역서를 올리면 작업 줄이 여기에 정리됩니다. 직접 줄을 더해 적어도 됩니다.</td></tr>
-                )}
-                {form.lines.map((l, i) => (
-                  <tr key={i} style={{ borderTop: '1px solid var(--border-color)' }}>
-                    <td style={{ padding: '0.15rem' }}><input style={{ ...input, padding: '0.2rem 0.35rem' }} value={l.name} onChange={(e) => setLine(i, { name: e.target.value })} placeholder="엔진오일 교환" /></td>
-                    <td style={{ padding: '0.15rem' }}><input style={{ ...input, padding: '0.2rem 0.35rem', textAlign: 'right' }} inputMode="decimal" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value.replace(/[^0-9.]/g, '') })} /></td>
-                    {['unitPrice', 'parts', 'labor', 'amount'].map((k) => (
-                      <td key={k} style={{ padding: '0.15rem' }}><MoneyInput style={{ ...input, padding: '0.2rem 0.35rem', textAlign: 'right' }} value={l[k]} onChange={(e) => setLine(i, { [k]: e.target.value })} /></td>
-                    ))}
-                    <td style={{ textAlign: 'center' }}>
-                      <button type="button" title="줄 지우기" onClick={() => setForm((f) => ({ ...f, lines: f.lines.filter((_, j) => j !== i) }))} style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}><X size={13} /></button>
-                    </td>
-                  </tr>
-                ))}
+                {handover('in')}
+                {handover('out')}
               </tbody>
-              <tfoot>
-                <tr style={{ borderTop: '2px solid var(--border-color)', fontWeight: 800 }}>
-                  <td style={{ padding: '0.3rem' }}>
-                    <button type="button" onClick={() => setForm((f) => ({ ...f, lines: [...f.lines, emptyLine()] }))} style={{ border: '1px dashed var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.15rem 0.6rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>+ 줄 더하기</button>
-                    <span style={{ marginLeft: '0.6rem' }}>작업 합</span>
-                  </td>
-                  <td /><td />
-                  {['parts', 'labor', 'amount'].map((k) => <td key={k} style={{ textAlign: 'right', padding: '0.3rem' }}>{lineSum(k).toLocaleString()}</td>)}
-                  <td />
-                </tr>
-              </tfoot>
             </table>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '0.3rem', marginTop: '0.45rem' }}>
-              {[['부품 합계', form.invoice?.partsTotal], ['공임 합계', form.invoice?.laborTotal], ['할인', form.invoice?.discount], ['공급가액', form.invoice?.supply], ['부가세', form.invoice?.vat], ['내역서 합계', form.invoice?.total]].map(([k, v]) => (
-                <div key={k} style={{ ...auto, textAlign: 'center' }}><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{k}</div><b>{num(v) ? num(v).toLocaleString() : '-'}</b></div>
+          </div>
+          <datalist id="vs-fuels">{FUELS.filter(Boolean).map((f) => <option key={f} value={f} />)}</datalist>
+          <div style={{ marginTop: '0.45rem' }}>{field('인도 확인 전화', text('callAfterOut', '언제, 누구와'))}</div>
+          {field('특이사항', <textarea style={area} value={form.memo} onChange={(e) => set({ memo: e.target.value })} placeholder="없음" />)}
+          {['사고수리', '고장수리'].includes(form.kind) && field('대차 제공', text('loaner', '수리 동안 내준 차 (예: 아반떼 125호5281, 2/26~3/5)'))}
+          {['정기점검', '소모품교환'].includes(form.kind) && field('바꾼 소모품', (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.2rem 0.7rem', fontSize: '0.78rem' }}>
+              {CONSUMABLES.map((c) => (
+                <label key={c} style={{ display: 'flex', gap: '0.25rem', alignItems: 'center', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={form.consumables.includes(c)} onChange={() => toggleConsumable(c)} />{c}
+                </label>
               ))}
             </div>
-            <div style={{ ...hint, display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              {form.invoice?.bizNo ? `사업자번호 ${form.invoice.bizNo} · ` : ''}공급가액·부가세는 ④ 수리비·부가세 칸에 들어갑니다.
-              {form.lines.length > 0 && (
-                <button type="button" onClick={() => { const sup = lineSum('amount') - num(form.invoice?.discount); setCost({ repair: String(sup), vat: String(Math.round(sup * 0.1)) }); }}
-                  style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.05rem 0.5rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>
-                  작업 합으로 수리비 다시 계산 (부가세 10%)
-                </button>
-              )}
-            </div>
-          </div>
+          ))}
+          {form.kind === '자동차검사' && (
+            <label style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', fontSize: '0.8rem', fontWeight: 700, color: '#c2410c', cursor: 'pointer' }}>
+              <input type="checkbox" checked={form.carAgeExtended} onChange={(e) => set({ carAgeExtended: e.target.checked })} />
+              차령 연장도 함께 신청함 (체크한 검사만 차령 1년 연장으로 셉니다)
+            </label>
+          )}
+        </div>
 
-          {/* 1. 기본 */}
-          <div style={card}>
-            <h3 style={h2}>① 기본 정보</h3>
-            <div style={row2}><span style={lab}>종류</span>{chips(KINDS, form.kind, (v) => v && set({ kind: v }))}</div>
-            <div style={row2}><span style={lab}>진행 상태</span>{chips(STATUSES, form.status, (v) => v && set({ status: v }))}</div>
-            <div style={row2}><span style={lab}>담당 · 센터</span>
-              <div style={two}>
-                <input style={input} value={form.staff} onChange={(e) => set({ staff: e.target.value })} placeholder="진행 직원" />
-                <input style={input} value={form.shop} onChange={(e) => set({ shop: e.target.value })} placeholder="정비소·센터 (예: 한성 성동)" />
-              </div></div>
-            <div style={row2}><span style={lab}>정기점검 횟수</span>
-              <div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.3rem' }}>
-                  {[['계약 중 예정', checks?.expected ?? '-'], ['받은 횟수', checks?.done ?? 0], ['남은 횟수', checks?.remaining ?? '-'], ['다음 점검', row?.maintenance?.date || '-']].map(([k, v]) => (
-                    <div key={k} style={{ ...auto, textAlign: 'center' }}><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{k}</div><b>{typeof v === 'number' ? `${v}회` : v}</b></div>
-                  ))}
-                </div>
-                <div style={hint}>
-                  {form.kind === '정기점검' && nextRound ? `저장하면 ${nextRound}회차로 셉니다. ` : ''}
-                  {checks?.termMonths ? `계약 ${checks.termMonths}개월 ÷ ${checks.intervalMonths}개월 주기 · 남은 횟수는 다음 점검일부터 계약 끝(${checks.contractEnd || '-'})까지` : '계약 기간을 몰라 예정 횟수를 셀 수 없습니다'}
-                </div>
-              </div></div>
-          </div>
-
-          {/* 2. 기간·주행거리 */}
-          <div style={card}>
-            <h3 style={h2}>② 수리 기간 · 주행거리<span style={tag}>문제가 생겼을 때 증거자료</span></h3>
-            {[['입고', 'inAt', 'mileageIn', 'fuelIn'], ['출고', 'outAt', 'mileageOut', 'fuelOut']].map(([t, at, km, fuel]) => (
-              <div key={t} style={row2}><span style={lab}>{t}</span>
-                <div style={three}>
-                  <input type="datetime-local" style={input} value={form[at]} onChange={(e) => set({ [at]: e.target.value })} />
-                  <MoneyInput style={input} value={form[km]} onChange={(e) => set({ [km]: e.target.value })} placeholder="주행거리 km" />
-                  <select style={input} value={form[fuel]} onChange={(e) => set({ [fuel]: e.target.value })}>{FUELS.map((f) => <option key={f} value={f}>{f ? `연료 ${f}` : '연료'}</option>)}</select>
-                </div></div>
-            ))}
-            <div style={row2}><span /><div style={auto}>
-              수리 기간 <b>{days === null ? '-' : `${days}일`}</b>{moved !== null ? <> · 이동 중 주행 <b>{moved.toLocaleString()}km</b></> : ''}
-            </div></div>
-            <div style={row2}><span style={lab}>계약 대비</span>
-              <div>
-                <div style={auto}>
-                  {row?.usage?.annualizedKm
-                    ? <>인도 후 {row.usage.monthsSinceDelivery}개월 · 주행 {Number(row.usage.lastKm).toLocaleString()}km → 연 환산 <b>{row.usage.annualizedKm.toLocaleString()}km</b>{row.usage.ratio ? ` (약정의 ${row.usage.ratio}%)` : ' (약정 미기재)'}</>
-                    : '주행거리 기록이 쌓이면 약정 대비 주행을 계산합니다.'}
-                </div>
-                {(row?.notices || []).map((n) => (
-                  <div key={n.type} style={{ borderLeft: '3px solid #d97706', background: '#fff7e6', borderRadius: '6px', padding: '0.4rem 0.6rem', fontSize: '0.75rem', marginTop: '0.35rem', lineHeight: 1.5 }}>
-                    {n.text}
-                    <button type="button" onClick={() => makeNotice(n)} style={{ marginLeft: '0.4rem', border: '1px solid var(--border-color)', background: '#fff', borderRadius: '6px', padding: '0.1rem 0.5rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>안내 문자 만들기</button>
-                  </div>
-                ))}
-                {notice && <textarea readOnly value={notice} style={{ ...input, marginTop: '0.35rem', minHeight: '70px' }} />}
-              </div></div>
-          </div>
-
-          {/* 3. 이동·탁송 */}
-          <div style={card}>
-            <h3 style={h2}>③ 이동 · 탁송<span style={tag}>외주 탁송이면 탁송료가 생깁니다</span></h3>
-            {leg('in', '입고 이동')}
-            <div style={{ borderTop: '1px dashed var(--border-color)', margin: '0.4rem 0' }} />
-            {leg('out', '출고 이동')}
-            <div style={hint}>거리는 지금은 직접 적습니다. 지도 API를 붙이면 주소로 자동 계산됩니다.</div>
-          </div>
-
-          {/* 4. 보험·비용 */}
-          <div style={card}>
-            <h3 style={h2}>④ 보험 · 비용 처리</h3>
-            <div style={row2}><span style={lab}>처리 구분</span>{chips(PAYERS, form.payer, (v) => set({ payer: v }))}</div>
-            {['자차 보험', '상대방 보험'].includes(form.payer) && (
-              <>
-                <div style={row2}><span style={lab}>보험사 · 접수</span><div style={two}>
-                  <input style={input} value={form.insurer} onChange={(e) => set({ insurer: e.target.value })} placeholder="보험사" />
-                  <input style={input} value={form.claimNo} onChange={(e) => set({ claimNo: e.target.value })} placeholder="접수번호" />
-                </div></div>
-                <div style={row2}><span style={lab}>과실 · 자기부담</span><div style={two}>
-                  <input style={input} value={form.fault} onChange={(e) => set({ fault: e.target.value })} placeholder="예: 상대 100 : 0" />
-                  <MoneyInput style={input} value={form.deductible} onChange={(e) => set({ deductible: e.target.value })} placeholder="자기부담금" />
-                </div></div>
-              </>
-            )}
-            <div style={row2}><span style={lab}>대차 제공</span><input style={input} value={form.loaner} onChange={(e) => set({ loaner: e.target.value })} placeholder="수리 동안 내준 차 (예: 아반떼 125호5281, 2/26~3/5)" /></div>
-            <div style={row2}><span style={lab}>수리비 · 부가세</span><div style={two}>
-              <MoneyInput style={input} value={form.costs.repair} onChange={(e) => setCost({ repair: e.target.value })} placeholder="수리비(공급가)" />
-              <MoneyInput style={input} value={form.costs.vat} onChange={(e) => setCost({ vat: e.target.value })} placeholder="부가세" />
-            </div></div>
-            <div style={row2}><span style={lab}>보험 처리액</span><MoneyInput style={input} value={form.costs.insurancePaid} onChange={(e) => setCost({ insurancePaid: e.target.value })} placeholder="보험사가 낸 금액" /></div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.3rem', marginTop: '0.5rem' }}>
-              {[['수리비 합계', repairTotal], ['탁송료', transportFee], ['보험 처리', -insurancePaid]].map(([k, v]) => (
-                <div key={k} style={{ ...auto, textAlign: 'center' }}><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{k}</div><b>{Math.round(v).toLocaleString()}</b></div>
+        {/* 4. 파일 */}
+        <div style={card}>
+          <h3 style={h2}>④ 파일 (견적서 · 점검 결과서 · 사진)</h3>
+          {existingFiles > 0 && <div style={hint}>이 기록에 이미 붙은 파일 {existingFiles}개. 새로 고르면 저장할 때 더 붙습니다.</div>}
+          <input type="file" multiple onChange={(e) => { const picked = [...e.target.files]; e.target.value = ''; setFiles((fs) => [...fs, ...picked]); }} style={{ fontSize: '0.8rem' }} />
+          {files.length > 0 && (
+            <div style={{ ...hint, display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              {files.map((f, i) => (
+                <span key={`${f.name}-${i}`}>📎 {f.name} <button type="button" onClick={() => setFiles((fs) => fs.filter((_, j) => j !== i))} style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer', padding: 0 }}>×</button></span>
               ))}
-              <div style={{ ...auto, textAlign: 'center', background: 'var(--text-bright)', color: '#fff' }}><div style={{ fontSize: '0.75rem', opacity: 0.75 }}>회사 실부담</div><b>{Math.round(companyBurden).toLocaleString()}</b></div>
             </div>
-            <div style={hint}>원장 반영(테스트판에서는 기록만): {[repairTotal ? `${form.kind} ${won(repairTotal)}` : '', insurancePaid ? `보험 입금 ${won(insurancePaid)}` : '', transportFee ? `탁송 ${won(transportFee)}` : ''].filter(Boolean).join(' / ') || '-'}</div>
-          </div>
-
-          {/* 5. 작업·부위 */}
-          <div style={{ ...card, gridColumn: '1 / -1' }}>
-            <h3 style={h2}>⑤ 요청 · 작업 내용 · 수리 부위<span style={tag}>그림의 부위를 누를 때마다 교환 → 판금·도색 → 수리·점검 → 없음</span></h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: '1rem', alignItems: 'start' }}>
-              <div>
-                <CarDamageMap parts={form.parts} onToggle={togglePart} />
-                <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
-                  {ACTIONS.map((a) => <span key={a}><i style={{ display: 'inline-block', width: 9, height: 9, background: ACTION_COLOR[a], borderRadius: 2, marginRight: 3 }} />{a}</span>)}
-                </div>
-              </div>
-              <div>
-                <div style={row2}><span style={lab}>고객 요청</span><textarea style={{ ...input, minHeight: '52px' }} value={form.request} onChange={(e) => set({ request: e.target.value })} placeholder="점검 의뢰 내용" /></div>
-                <div style={row2}><span style={lab}>작업 내용</span><textarea style={{ ...input, minHeight: '52px' }} value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="실제로 한 작업" /></div>
-                {form.parts.length > 0 && (
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.76rem', marginBottom: '0.5rem' }}>
-                    <thead><tr style={{ color: 'var(--text-muted)' }}><th style={{ textAlign: 'left', padding: '0.25rem' }}>부위</th><th style={{ textAlign: 'left' }}>작업</th><th style={{ textAlign: 'left' }}>메모</th></tr></thead>
-                    <tbody>
-                      {form.parts.map((p, i) => (
-                        <tr key={p.zone} style={{ borderTop: '1px solid var(--border-color)' }}>
-                          <td style={{ padding: '0.25rem' }}>{p.zone}</td>
-                          <td><span style={{ background: ACTION_COLOR[p.action], color: '#111', borderRadius: '8px', padding: '0.05rem 0.45rem', fontWeight: 700 }}>{p.action}</span></td>
-                          <td><input style={{ ...input, padding: '0.2rem 0.35rem' }} value={p.memo} onChange={(e) => setForm((f) => ({ ...f, parts: f.parts.map((x, j) => (j === i ? { ...x, memo: e.target.value } : x)) }))} placeholder="긁힘, 찍힘 등" /></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-                <div style={{ ...lab, marginBottom: '0.3rem' }}>소모품 (바꾼 것만 체크)</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '0.25rem 0.6rem', fontSize: '0.76rem' }}>
-                  {CONSUMABLES.map((c) => (
-                    <label key={c} style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={form.consumables.includes(c)} onChange={() => toggleConsumable(c)} />{c}
-                    </label>
+          )}
+          {form.lines.length > 0 && (
+            <details style={{ marginTop: '0.4rem', fontSize: '0.78rem' }}>
+              <summary style={{ cursor: 'pointer', color: 'var(--text-muted)', fontWeight: 700 }}>견적서에서 읽은 작업 {form.lines.length}줄 보기</summary>
+              <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '0.3rem' }}>
+                <tbody>
+                  {form.lines.map((l, i) => (
+                    <tr key={i} style={{ borderTop: '1px solid var(--border-color)' }}>
+                      <td style={{ padding: '0.2rem' }}>{l.name}</td>
+                      <td style={{ padding: '0.2rem', textAlign: 'right', whiteSpace: 'nowrap' }}>{num(l.amount) ? won(num(l.amount)) : ''}</td>
+                      <td style={{ width: '24px', textAlign: 'center' }}>
+                        <button type="button" title="줄 지우기" onClick={() => setForm((f) => ({ ...f, lines: f.lines.filter((_, j) => j !== i) }))} style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer' }}><X size={12} /></button>
+                      </td>
+                    </tr>
                   ))}
-                </div>
-                {form.kind === '자동차검사' && (
-                  <label style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', marginTop: '0.5rem', fontSize: '0.8rem', fontWeight: 700, color: '#c2410c', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={form.carAgeExtended} onChange={(e) => set({ carAgeExtended: e.target.checked })} />
-                    차령 연장도 함께 신청함 (체크한 검사만 차령 1년 연장으로 셉니다)
-                  </label>
-                )}
-                <div style={{ ...row2, marginTop: '0.5rem' }}><span style={lab}>메모</span><input style={input} value={form.memo} onChange={(e) => set({ memo: e.target.value })} /></div>
-              </div>
-            </div>
-          </div>
-
-          {/* 6. 증빙 */}
-          <div style={{ ...card, gridColumn: '1 / -1' }}>
-            <h3 style={h2}>⑥ 붙일 파일 (내역서 · 견적서 · 사진)</h3>
-            {record && <div style={hint}>이 기록에 이미 붙은 파일 {(record.attachments || []).length || (record.fileName ? 1 : 0)}개. 새로 고르면 저장할 때 더 붙습니다.</div>}
-            <input type="file" multiple onChange={(e) => { const picked = [...e.target.files]; e.target.value = ''; setFiles((fs) => [...fs, ...picked]); }} style={{ fontSize: '0.8rem' }} />
-            {files.length > 0 && (
-              <div style={{ ...hint, display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-                {files.map((f, i) => (
-                  <span key={`${f.name}-${i}`}>📎 {f.name} <button type="button" onClick={() => setFiles((fs) => fs.filter((_, j) => j !== i))} style={{ border: 'none', background: 'none', color: 'var(--error)', cursor: 'pointer', padding: 0 }}>×</button></span>
-                ))}
-              </div>
-            )}
-            <div style={hint}>위에서 읽은 내역서도 여기에 함께 붙습니다. 파일은 계약자 OneDrive 폴더의 차량번호 폴더에 날짜별로 저장됩니다.</div>
-          </div>
+                </tbody>
+              </table>
+              {form.invoice?.total ? <div style={hint}>견적서 합계 {won(num(form.invoice.total))}{form.invoice.bizNo ? ` · 사업자번호 ${form.invoice.bizNo}` : ''}</div> : null}
+            </details>
+          )}
+          <div style={hint}>파일은 계약자 OneDrive 폴더의 차량번호 폴더에 날짜별로 저장됩니다.</div>
         </div>
       </div>
     </div>

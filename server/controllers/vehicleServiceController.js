@@ -154,8 +154,9 @@ const bodyOf = (req) => {
   return req.body || {};
 };
 
-const DETAIL_TEXT = ['status', 'staff', 'request', 'fuelIn', 'fuelOut', 'payer', 'insurer', 'claimNo', 'fault', 'loaner'];
-const LEG_TEXT = ['method', 'from', 'to', 'vendor'];
+const DETAIL_TEXT = ['status', 'staff', 'request', 'fuelIn', 'fuelOut', 'payer', 'insurer', 'claimNo', 'fault', 'loaner', 'callAfterIn', 'callGuide', 'callAfterOut', 'mood'];
+// person: 픽업 때 차를 넘겨준 사람 / 인도 때 받은 사람
+const LEG_TEXT = ['method', 'from', 'to', 'person', 'vendor'];
 
 const applyDetail = (record, b) => {
   for (const key of DETAIL_TEXT) if (b[key] !== undefined) record[key] = String(b[key] ?? '');

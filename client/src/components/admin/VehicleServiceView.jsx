@@ -3,7 +3,6 @@ import { RefreshCw, X, ExternalLink, Trash2, Pencil, Search } from 'lucide-react
 import VehicleServiceForm from './VehicleServiceForm.jsx';
 import ServiceDocUpload from './ServiceDocUpload.jsx';
 import { DOC_LABEL, attachServiceFiles, fieldsFromDoc, openServiceFile, readServiceDoc } from './serviceDocs.js';
-import CarDamageMap from './CarDamageMap.jsx';
 import CalendarInboxPanel from './CalendarInboxPanel.jsx';
 import MoneyInput from './MoneyInput.jsx';
 
@@ -1054,7 +1053,6 @@ function VehicleServiceView({ showToast, currentUser }) {
   // 상세 입력 양식(테스트판). { record: null }이면 새 기록, record가 있으면 고치기
   const [formOpen, setFormOpen] = useState(null);
   const [docUploadOpen, setDocUploadOpen] = useState(false);
-  const [transportRates, setTransportRates] = useState([]);
 
   const canWrite = currentUser?.role !== 'viewer';
 
@@ -1077,7 +1075,6 @@ function VehicleServiceView({ showToast, currentUser }) {
         setDetail({ row: data.row, records: data.records || [] });
         // 목록의 그 줄도 같이 맞춘다. 목록을 열어 둔 사이 기록이 바뀌면 상세와 목록이 달라 보였다.
         setRows((prev) => prev.map((r) => (r.vehicleId === data.row?.vehicleId ? data.row : r)));
-        setTransportRates(data.transportRates || []);
       }
       else showToast?.(data.message || '차량 기록을 불러오지 못했습니다.', 'error');
     } catch {
@@ -1187,9 +1184,6 @@ function VehicleServiceView({ showToast, currentUser }) {
   const small = { fontSize: '0.75rem', color: 'var(--text-muted)' };
 
   const selectedRow = detail?.row || rows.find((r) => r.vehicleId === selectedId);
-  // 지금까지 고친 부위를 부위마다 센다(차량 그림에 겹쳐 보여 준다)
-  const damageCounts = {};
-  (detail?.records || []).flatMap((r) => r.parts || []).forEach((p) => { damageCounts[p.zone] = (damageCounts[p.zone] || 0) + 1; });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
@@ -1434,8 +1428,8 @@ function VehicleServiceView({ showToast, currentUser }) {
               );
             })()}
 
-            {/* 정기점검 횟수 · 계약 대비 주행 · 지금까지 고친 부위 */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+            {/* 정기점검 횟수 · 계약 대비 주행 (차 그림은 2026-11-17 대표님 요청으로 뺐다) */}
+            <div>
               <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.6rem' }}>
                 <div style={{ ...small, fontWeight: 800 }}>정기점검 횟수</div>
                 <div style={{ fontWeight: 800, color: 'var(--text-bright)' }}>
@@ -1455,15 +1449,11 @@ function VehicleServiceView({ showToast, currentUser }) {
                   <div key={n.type} style={{ ...small, color: '#b45309', marginTop: '0.3rem' }}>⚠ {n.text}</div>
                 ))}
               </div>
-              <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.4rem' }}>
-                <div style={{ ...small, fontWeight: 800, textAlign: 'center' }}>지금까지 고친 부위</div>
-                <CarDamageMap width={130} counts={damageCounts} />
-              </div>
             </div>
 
             {canWrite && (
               <button type="button" onClick={() => setFormOpen({ record: null })} style={{ border: 'none', background: 'var(--primary)', color: '#fff', padding: '0.55rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 800, cursor: 'pointer' }}>
-                + 정비·수리 기록 남기기 (상세 양식)
+                + 정비·수리 기록 남기기
               </button>
             )}
 
@@ -1543,7 +1533,6 @@ function VehicleServiceView({ showToast, currentUser }) {
           row={selectedRow}
           record={formOpen.record}
           preset={formOpen.preset}
-          transportRates={transportRates}
           onClose={() => setFormOpen(null)}
           onSaved={afterSave}
           showToast={showToast}

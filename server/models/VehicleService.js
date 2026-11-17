@@ -40,6 +40,11 @@ const VehicleServiceSchema = new Schema({
   status: { type: String, enum: ['예정', '입고', '수리 중', '완료'], default: '완료' },
   staff: { type: String, default: '' }, // 진행 직원
   request: { type: String, default: '' }, // 고객 요청(점검 의뢰). 작업 내용은 description
+  // 캘린더 AS 서식의 전화·고객 칸 (2026-11-17 양식 간소화)
+  callAfterIn: { type: String, default: '' }, // 입고후 확인전화
+  callGuide: { type: String, default: '' }, // 점검 안내 전화
+  callAfterOut: { type: String, default: '' }, // 인도 확인 전화
+  mood: { type: String, default: '' }, // 고객님 성향 및 기분
 
   // 수리 기간과 주행거리. 나중에 문제가 생겼을 때 증거자료가 된다.
   inAt: Date,
@@ -52,8 +57,8 @@ const VehicleServiceSchema = new Schema({
   // 입고·출고 이동. 외주 탁송이면 탁송료가 생기고 원장에 넣어야 한다.
   // 거리를 함께 남겨 두면 해마다 km당 탁송료가 얼마나 올랐는지 볼 수 있다.
   transport: {
-    in: { method: String, from: String, to: String, distanceKm: Number, vendor: String, fee: Number },
-    out: { method: String, from: String, to: String, distanceKm: Number, vendor: String, fee: Number }
+    in: { method: String, from: String, to: String, person: String, distanceKm: Number, vendor: String, fee: Number },
+    out: { method: String, from: String, to: String, person: String, distanceKm: Number, vendor: String, fee: Number }
   },
 
   // 누가 비용을 내는가

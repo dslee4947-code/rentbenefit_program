@@ -96,10 +96,9 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
                 <tr><td colSpan={table.cols.length + 1} style={{ ...cellHead, background: '#fde68a', textAlign: 'left' }}>만기 정산</td></tr>
               )}
               <tr style={r.section === 'settle' ? { background: '#fffbeb' } : undefined}>
-                <td style={rowHead}>{r.label}</td>
+                <td style={rowHead}>{r.label}{r.labelNote ? <div style={{ fontSize: '10.4px', fontWeight: '500', color: '#6b7280' }}>{r.labelNote}</div> : null}</td>
                 {r.cells.map((v, i) => (
                   <td key={i} style={{ ...cell, textAlign: 'center', verticalAlign: 'middle', fontWeight: r.section === 'settle' && v !== '없음' ? '800' : '500',
-                    fontSize: r.section === 'settle' && v !== '없음' ? '13.6px' : undefined,
                     color: v === '없음' || v === '-' ? '#9ca3af' : r.label === '보증금 반환' ? '#047857' : '#111' }}>
                     {v}
                     {r.notes?.[i] ? <div style={{ fontSize: '10.4px', fontWeight: '500', color: '#6b7280' }}>{r.notes[i]}</div> : null}

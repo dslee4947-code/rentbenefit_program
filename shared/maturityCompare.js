@@ -108,7 +108,7 @@ const wonText = (n) => `${Math.round(Number(n) || 0).toLocaleString('ko-KR')}원
  * @param {object} p m(compareMaturity 결과), ext(연장 안 [{months, monthlyFee, takeoverPrice, maintenance, endDate}]),
  *   startDate 연장 시작일, thirdParty 제3자 인수, repairKnown 반납 수리비를 넣었는지
  * @returns {{ cols: {kind: 'ext'|'takeover'|'return', title: string}[], rows: {label: string, section?: 'settle', cells: string[], notes?: string[]}[] }}
- *   notes는 칸 아래에 작게 붙는 설명(보증금: 금액 아래 '연장 계약으로 승계' 등)
+ *   notes는 칸 아래, labelNote는 줄 이름 아래에 작게 붙는 설명. 괄호로 덧붙이지 않는다(대표님 2026-11-17)
  */
 export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false, repairKnown = false }) => {
   const exts = ext.length ? ext : [null];
@@ -129,14 +129,18 @@ export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false,
       ...row('보증금', { ext: () => (m.deposit ? wonText(m.deposit) : '없음'), takeover: () => (m.deposit ? wonText(m.deposit) : '없음'), return: () => (m.deposit ? wonText(m.deposit) : '없음') }),
       notes: cols.map((c) => (!m.deposit ? '' : { ext: '연장 계약으로 승계', takeover: '인수가와 상계', return: '반납 후 반환' }[c.kind]))
     },
-    row('인수가', { ext: (o) => (o?.takeoverPrice > 0 ? `${wonText(o.takeoverPrice)} (연장 만기 때)` : '없음'), takeover: () => wonText(t.price), return: () => '없음' }),
+    // 괄호로 덧붙이던 설명은 칸 아래에 작게(notes)
+    {
+      ...row('인수가', { ext: (o) => (o?.takeoverPrice > 0 ? wonText(o.takeoverPrice) : '없음'), takeover: () => wonText(t.price), return: () => '없음' }),
+      notes: cols.map((c) => (c.kind === 'ext' && c.o?.takeoverPrice > 0 ? '연장 만기 때' : ''))
+    },
     ...(thirdParty ? [row('승계 수수료', { ext: () => '없음', takeover: () => wonText(t.fee), return: () => '없음' })] : []),
     row('수리비', { ext: () => '없음', takeover: () => '없음', return: () => (repairKnown ? wonText(m.return.repair) : '반납 후 확정') }),
-    row(m.remaining.length > 1 ? `잔여 렌트료 (${m.remaining.length}회)` : '마지막 렌트료', {
+    { ...row(m.remaining.length > 1 ? '잔여 렌트료' : '마지막 렌트료', {
       ext: () => (m.remainingSum ? wonText(m.remainingSum) : '없음'),
       takeover: () => (m.remainingSum ? wonText(m.remainingSum) : '없음'),
       return: () => (m.remainingSum ? wonText(m.remainingSum) : '없음')
-    }, 'settle'),
+    }, 'settle'), labelNote: m.remaining.length > 1 ? `${m.remaining.length}회` : '' },
     row('인수 금액', { ext: () => '없음', takeover: () => (t.pay >= 0 ? wonText(t.pay) : '없음'), return: () => '없음' }, 'settle'),
     row('보증금 반환', { ext: () => '없음', takeover: () => (t.pay < 0 ? wonText(-t.pay) : '없음'), return: () => wonText(m.return.depositBack) }, 'settle')
   ];

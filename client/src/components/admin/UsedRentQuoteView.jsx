@@ -569,7 +569,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
               <tbody>
                 {maturityView.rows.map((r) => (
                   <tr key={r.label} style={r.section === 'settle' ? { background: '#fffbeb' } : undefined}>
-                    <th style={{ padding: '0.3rem 0.4rem', textAlign: 'left', fontWeight: r.section === 'settle' ? 800 : 700 }}>{r.label}</th>
+                    <th style={{ padding: '0.3rem 0.4rem', textAlign: 'left', fontWeight: r.section === 'settle' ? 800 : 700 }}>{r.label}{r.labelNote ? <span style={{ fontSize: '0.72rem', fontWeight: 500, color: 'var(--text-muted)' }}> {r.labelNote}</span> : null}</th>
                     {r.cells.map((v, i) => (
                       <td key={i} style={{ padding: '0.3rem 0.4rem', textAlign: 'right', fontWeight: r.section === 'settle' && v !== '없음' ? 800 : 500, color: v === '없음' || v === '-' ? 'var(--text-muted)' : r.label === '보증금 반환' ? '#047857' : 'var(--text-bright)' }}>
                         {v}

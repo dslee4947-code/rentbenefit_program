@@ -62,6 +62,9 @@ test('비교표: 한 칸에 한 내용, 다성테크는 1안 24개월 월 268,00
   assert.deepEqual(cell('마지막 렌트료'), ['1,208,000원', '1,208,000원', '1,208,000원']);
   assert.deepEqual(cell('인수 금액'), ['없음', '0원', '없음']);
   assert.deepEqual(cell('보증금'), ['27,389,000원', '27,389,000원', '27,389,000원']);
+  assert.deepEqual(cell('인수가'), ['17,389,000원', '27,389,000원', '없음']);
+  assert.deepEqual(rows.find((r) => r.label === '인수가').notes, ['연장 만기 때', '', '']);
+  assert.equal(rows.some((r) => r.cells.some((v) => /[()]/.test(v))), false);
   assert.deepEqual(rows.find((r) => r.label === '보증금').notes, ['연장 계약으로 승계', '인수가와 상계', '반납 후 반환']);
   assert.deepEqual(cell('보증금 반환'), ['없음', '없음', '27,389,000원']);
   assert.equal(rows.some((r) => r.label === '승계 수수료'), false);

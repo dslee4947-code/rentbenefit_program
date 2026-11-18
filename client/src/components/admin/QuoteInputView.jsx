@@ -4018,7 +4018,14 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
 
             {/* Table Wrapper */}
             <div className="comparison-table-wrapper print-fit-scroll">
-              <table className="comparison-table-modern">
+              <table className="comparison-table-modern" style={{ tableLayout: 'fixed' }}>
+                {/* 안 열은 내용 길이와 상관없이 늘 같은 폭(대표님 2026-11-18 "1안만 넓고 2안은 좁다").
+                    구분·비고만 폭을 정하고, 안 열은 폭을 비워 남은 폭을 똑같이 나눠 갖게 한다(table-layout: fixed) */}
+                <colgroup>
+                  <col style={{ width: '140px' }} />
+                  {displaySelectedOptions.map((_, idx) => <col key={idx} />)}
+                  <col style={{ width: '140px' }} />
+                </colgroup>
                 <thead>
                   {/* Row 1: Vehicle model colspans */}
                   <tr style={{ background: '#111e38', color: '#fff' }}>

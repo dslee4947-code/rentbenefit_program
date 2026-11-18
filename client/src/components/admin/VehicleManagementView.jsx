@@ -220,7 +220,7 @@ const EMPTY_FORM = {
   sellingAdminExpense: '',
   driver: '',
   // 운전자(렌트 차량 AS 예약·검사 때 연락할 사람). 출고 준비의 운전자 등록과 같은 칸이다
-  driverInfo: { relation: '', name: '', phone: '', note: '' },
+  driverInfo: { relation: '', name: '', birthDate: '', licenseNo: '', licenseType: '', phone: '', email: '', note: '' },
   vehicleManager: '',
   accessories: {
     blackboxPrice: '',
@@ -435,7 +435,11 @@ function VehicleManagementView({ showToast, currentUser }) {
         ...(vehicle.driverInfo || {}),
         relation: vehicle.driverInfo?.relation || '',
         name: vehicle.driverInfo?.name || vehicle.driver || '',
+        birthDate: vehicle.driverInfo?.birthDate || '',
+        licenseNo: vehicle.driverInfo?.licenseNo || '',
+        licenseType: vehicle.driverInfo?.licenseType || '',
         phone: vehicle.driverInfo?.phone || '',
+        email: vehicle.driverInfo?.email || '',
         note: vehicle.driverInfo?.note || ''
       },
       vehicleManager: vehicle.vehicleManager || '',
@@ -465,6 +469,29 @@ function VehicleManagementView({ showToast, currentUser }) {
       gifts[index] = { ...gifts[index], [field]: value };
       return { ...prev, gifts };
     });
+  };
+
+  const setDriver = (key, value) => setFormData((prev) => ({ ...prev, driverInfo: { ...prev.driverInfo, [key]: value } }));
+
+  // 계약서의 대표자·책임담당자·실무담당자를 실운전자로 불러온다(출고 준비와 같다)
+  const fillDriverFrom = (relation) => {
+    const contract = editingVehicle?.contract;
+    const company = contract?.companyId || editingVehicle?.company;
+    const customerName = contract?.customer ? formatCustomerName(contract.customer) : '';
+    const picked = {
+      대표자: { name: company?.ceoName || customerName || '', phone: '' },
+      책임담당자: { name: contract?.managerMain || '', phone: contract?.managerMainPhone || '' },
+      실무담당자: { name: contract?.managerOps || '', phone: contract?.managerOpsPhone || '' }
+    }[relation];
+    if (!picked || (!picked.name && !picked.phone)) {
+      showToast?.(`계약서에 ${relation} 정보가 없습니다. 직접 입력해 주세요.`, 'info');
+      setDriver('relation', relation);
+      return;
+    }
+    setFormData((prev) => ({
+      ...prev,
+      driverInfo: { ...prev.driverInfo, relation, name: picked.name || prev.driverInfo.name, phone: picked.phone || prev.driverInfo.phone }
+    }));
   };
 
   /** 차를 눌러 수정 화면을 연다. 보기 권한만 있으면 열어서 보기만 하고 저장은 막힌다. */
@@ -777,6 +804,17 @@ function VehicleManagementView({ showToast, currentUser }) {
     { key: 'ceoName', label: '대표자', render: (v) => getContractCeoName(v) },
     // 사양은 차량 칸에 함께 적는다(예: "G80 3.5T AWD"). 따로 두면 두 칸을 오가며 봐야 했다.
     { key: 'carModel', label: '차량', render: (v) => v.carModel || '-' },
+    // 실운전자는 엑셀 순서와 달리 차량 옆에 둔다(찾기 쉽게). 비어 있으면 바로 등록하는 단추를 둔다(대표님 2026-11-18)
+    { key: 'driver', label: '실운전자', render: (v) => {
+      const text = [v.driverInfo?.name || v.driver, v.driverInfo?.relation ? `(${v.driverInfo.relation})` : '', v.driverInfo?.phone].filter(Boolean).join(' ');
+      if (text) return text;
+      // 누르면 줄 클릭으로 수정 화면이 열리고, 열린 뒤 실운전자 칸으로 내려간다
+      return (
+        <button type="button" onClick={() => setTimeout(() => document.getElementById('vehicle-driver-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200)} style={{ border: '1px dashed var(--primary)', background: '#fff', color: 'var(--primary)', borderRadius: '6px', padding: '0.15rem 0.5rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          + 운전자 등록
+        </button>
+      );
+    } },
     { key: 'bizNo', label: '사업자번호', render: (v) => getCompanyField(v, 'bizNo') },
     { key: 'corporateRegistrationNo', label: '법인등록번호', render: (v) => getCompanyField(v, 'corporateRegistrationNo') },
     { key: 'companyAddress', label: '사업장주소', render: (v) => getCompanyField(v, 'address') },
@@ -844,7 +882,6 @@ function VehicleManagementView({ showToast, currentUser }) {
     { key: 'profitAmount', label: '이익금', render: (v) => formatMoney(v.profitAmount) },
     { key: 'dealerCommission', label: '타딜러수수료', render: (v) => formatMoney(v.dealerCommission) },
     { key: 'sellingAdminExpense', label: '판관비', render: (v) => formatMoney(v.sellingAdminExpense) },
-    { key: 'driver', label: '운전자', render: (v) => [v.driverInfo?.name || v.driver, v.driverInfo?.phone].filter(Boolean).join(' ') || '-' },
     { key: 'vehicleManager', label: '차량관리자', render: (v) => v.vehicleManager || '-' },
     { key: 'blackboxPrice', label: '블랙박스금액', render: (v) => formatMoney(v.accessories?.blackboxPrice) },
     { key: 'blackboxInfo', label: '블랙박스정보', render: (v) => v.accessories?.blackboxInfo || '-' },
@@ -1287,6 +1324,62 @@ function VehicleManagementView({ showToast, currentUser }) {
                 );
               })()}
 
+              {/* 실운전자: 실제로 차를 타는 분. 렌트 차량 AS 예약·자동차검사 때 이 이름과 전화로 연락한다(대표님 2026-11-18).
+                  출고 준비의 운전자 등록과 같은 칸(driverInfo)이다. */}
+              <div id="vehicle-driver-section" style={{ border: '1px solid var(--primary)', borderRadius: '10px', padding: '0.8rem', background: 'var(--primary-glow)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
+                  <div style={{ fontWeight: '800', fontSize: '0.95rem', color: 'var(--text-bright)' }}>🧑 실운전자</div>
+                  <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>실제로 차를 타는 분. 정비·검사 예약 때 이 분께 연락합니다.</span>
+                  <span style={{ marginLeft: 'auto', fontSize: '0.76rem', color: 'var(--text-muted)' }}>계약서에서 불러오기</span>
+                  {['대표자', '책임담당자', '실무담당자'].map((r) => (
+                    <button key={r} type="button" onClick={() => fillDriverFrom(r)} style={{ border: '1px solid var(--border-color)', background: formData.driverInfo.relation === r ? 'var(--primary)' : '#fff', color: formData.driverInfo.relation === r ? '#fff' : 'var(--text-muted)', padding: '0.25rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer' }}>
+                      {r}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.8rem' }}>
+                  <div>
+                    <label style={labelStyle}>구분</label>
+                    <select value={formData.driverInfo.relation} onChange={(e) => setDriver('relation', e.target.value)} style={inputStyle}>
+                      <option value="">선택</option>
+                      {['대표자', '책임담당자', '실무담당자', '직원', '가족', '기타'].map((x) => <option key={x} value={x}>{x}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>운전자 이름</label>
+                    <input value={formData.driverInfo.name} onChange={(e) => setDriver('name', e.target.value)} style={inputStyle} placeholder="예: 홍길동 과장" />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>전화번호</label>
+                    <input value={formData.driverInfo.phone} onChange={(e) => setDriver('phone', e.target.value)} style={inputStyle} placeholder="010-0000-0000" inputMode="tel" />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>생년월일</label>
+                    <input type="date" value={formData.driverInfo.birthDate} onChange={(e) => setDriver('birthDate', e.target.value)} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>면허번호</label>
+                    <input value={formData.driverInfo.licenseNo} onChange={(e) => setDriver('licenseNo', e.target.value)} style={inputStyle} placeholder="예: 11-12-345678-90" />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>면허 종류</label>
+                    <select value={formData.driverInfo.licenseType} onChange={(e) => setDriver('licenseType', e.target.value)} style={inputStyle}>
+                      <option value="">선택</option>
+                      {['1종 보통', '1종 대형', '2종 보통', '2종 소형'].map((x) => <option key={x} value={x}>{x}</option>)}
+                      {formData.driverInfo.licenseType && !['1종 보통', '1종 대형', '2종 보통', '2종 소형'].includes(formData.driverInfo.licenseType) && <option value={formData.driverInfo.licenseType}>{formData.driverInfo.licenseType}</option>}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>이메일</label>
+                    <input type="email" value={formData.driverInfo.email} onChange={(e) => setDriver('email', e.target.value)} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>메모</label>
+                    <input value={formData.driverInfo.note} onChange={(e) => setDriver('note', e.target.value)} style={inputStyle} placeholder="예: 오전 통화 선호, 차는 공장에 있음" />
+                  </div>
+                </div>
+              </div>
+
               {/* 차종/사양 */}
               <div>
                 <div style={{ fontWeight: '700', fontSize: '0.85rem', marginBottom: '0.6rem', color: 'var(--text-bright)' }}>📄 차종 / 사양</div>
@@ -1593,26 +1686,6 @@ function VehicleManagementView({ showToast, currentUser }) {
                   <div>
                     <label style={labelStyle}>판관비 (원)</label>
                     <MoneyInput value={formData.sellingAdminExpense} onChange={(e) => setFormData({ ...formData, sellingAdminExpense: e.target.value })} style={inputStyle} />
-                  </div>
-                  {/* 운전자: 렌트 차량 AS에서 예약·자동차검사 때 이 이름과 전화로 연락한다 */}
-                  <div>
-                    <label style={labelStyle}>운전자 구분</label>
-                    <select value={formData.driverInfo.relation} onChange={(e) => setFormData({ ...formData, driverInfo: { ...formData.driverInfo, relation: e.target.value } })} style={inputStyle}>
-                      <option value="">선택</option>
-                      {['대표자', '책임담당자', '실무담당자', '직원', '기타'].map((x) => <option key={x} value={x}>{x}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={labelStyle}>운전자 이름</label>
-                    <input value={formData.driverInfo.name} onChange={(e) => setFormData({ ...formData, driverInfo: { ...formData.driverInfo, name: e.target.value } })} style={inputStyle} placeholder="예: 홍길동 과장" />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>운전자 전화번호</label>
-                    <input value={formData.driverInfo.phone} onChange={(e) => setFormData({ ...formData, driverInfo: { ...formData.driverInfo, phone: e.target.value } })} style={inputStyle} placeholder="010-0000-0000" inputMode="tel" />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>운전자 메모</label>
-                    <input value={formData.driverInfo.note} onChange={(e) => setFormData({ ...formData, driverInfo: { ...formData.driverInfo, note: e.target.value } })} style={inputStyle} placeholder="예: 오전 통화 선호, 차는 공장에 있음" />
                   </div>
                   <div>
                     <label style={labelStyle}>차량 관리자</label>

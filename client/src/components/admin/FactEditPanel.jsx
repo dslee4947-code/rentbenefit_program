@@ -72,7 +72,8 @@ export default function FactEditPanel({ open, docs, edits, onChange, disabled })
 
 function Row({ label, base, value, onSet, wide, disabled }) {
   const edited = value !== undefined && value !== '' && value !== base;
-  const empty = !base && !edited;
+  // DB에 '주소 없음'처럼 글자로 비어 있다고 적힌 것도 빈 칸으로 본다
+  const empty = (!base || /^\s*(주소\s*)?없음\s*$/.test(base)) && !edited;
   return (
     <label style={{ display: 'grid', gridTemplateColumns: '84px 1fr 18px', alignItems: wide ? 'start' : 'center', gap: '0.3rem' }}>
       <span style={{ fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.75rem', paddingTop: wide ? '0.35rem' : 0 }}>{label}</span>

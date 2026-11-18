@@ -131,6 +131,32 @@ const basisSpec = (item, data, rows, go) => {
       amount: (r) => r.monthlyFee || 0, groupBy: (r) => `${new Date(r.endDate).getMonth() + 1}월 만기`, rowsLabel: '만기 계약',
       expected: expiring.monthlyRent, expectedLabel: `월 ${krw(expiring.monthlyRent)}`, goLabel: '계약 화면으로', onGo: () => go('contract-register')
     };
+    case 'streaks': return {
+      title: '입금 기록이 끊긴 계약', rows, rowsLabel: '끊긴 회차',
+      columns: [
+        { h: '계약자', get: (r) => r.party, wrap: true },
+        { h: '계약번호', get: (r) => r.contractNo },
+        { h: '차량', get: (r) => `${r.carModel} ${r.plateNo}`.trim() },
+        { h: '끊긴 시작(출금일)', get: (r) => ymd(r.since), strong: true },
+        { h: '회차', get: (r) => r.no, num: true },
+        { h: '출금일', get: (r) => ymd(r.dueDate) },
+        { h: '상태', get: (r) => r.status },
+        { h: '청구액', get: (r) => r.total, money: true },
+        { h: '못 받은 금액', get: (r) => r.unpaid, money: true, strong: true },
+        { h: '회차표 마지막 입금', get: (r) => r.lastPaidRound, wrap: true },
+        { h: '원장 마지막 렌트료 입금', get: (r) => r.ledgerLast },
+        { h: '원장 입금(끊긴 뒤)', get: (r) => r.ledgerAfter, wrap: true },
+        { h: '판단', get: (r) => r.verdict, strong: true },
+        { h: '설명', get: (r) => r.verdictText, wrap: true }
+      ],
+      formula: `청구 회차표에서 출금일이 지났는데 입금완료가 아닌 회차가 가장 최근 회차부터 두 회차 이상 이어진 계약입니다(입금 기록이 들어와 있는 ${ymd(collections.lastPaidAt)}까지 출금분만). 계약마다 회차표에서 마지막으로 입금완료된 회차와, 차량 손익 원장(갑지)의 렌트료 입금을 함께 놓았습니다. 원장에도 입금이 없으면 '미납 의심', 원장에는 있으면 '반영 누락 의심'입니다.`,
+      amount: (r) => r.unpaid, counted: (r) => r.counted !== false,
+      excludedNote: '다음 회차 청구액에 이미 들어 있는 앞 회차 미납(두 번 세지 않음)',
+      groupBy: (r) => `${r.party} · ${r.contractNo} — ${ymd(r.since)}부터 ${r.months}회차 · ${r.verdict}`,
+      warn: (r) => r.verdict === '미납 의심',
+      note: "'못 받은 금액'은 회차표의 (청구액 − 들어온 금액)입니다. 앞 회차 미납이 다음 회차 청구액에 넘어가 있으면 마지막 회차만 더합니다(흐린 줄). 빨간 줄은 원장에도 입금이 없는 계약입니다. 구분별 합계의 계약 줄 금액이 대시보드 카드 금액과 같습니다.",
+      goLabel: '청구서 보관함으로', onGo: () => go('invoice-archive')
+    };
     default: return null;
   }
 };
@@ -411,7 +437,10 @@ function ExecutiveSummary({ gapData, setActiveTab, showToast }) {
       {collections.streaks.length > 0 && (
         <div style={{ ...card }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 800, color: 'var(--text-bright)' }}>입금 기록이 끊긴 계약 ({collections.streakCount}건)</span>
+            <span style={{ fontWeight: 800, color: 'var(--text-bright)' }}>
+              입금 기록이 끊긴 계약 ({collections.streakCount}건){' '}
+              <button type="button" onClick={() => setBasis('streaks')} style={{ border: 'none', background: 'none', color: 'var(--primary)', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', padding: 0 }}>근거 보기 ›</button>
+            </span>
             <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
               실제 미납이거나, 재계약 등으로 원장과 회차표가 연결되지 않은 경우입니다 · {recordedUntil}까지 기록 기준
             </span>
@@ -420,10 +449,10 @@ function ExecutiveSummary({ gapData, setActiveTab, showToast }) {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
               <tbody>
                 {collections.streaks.map((it) => (
-                  <tr key={it.contractId} style={{ borderTop: '1px solid var(--border-color)' }}>
+                  <tr key={it.contractId} onClick={() => setBasis('streaks')} title="눌러서 근거 보기" style={{ borderTop: '1px solid var(--border-color)', cursor: 'pointer' }}>
                     <td style={{ padding: '0.45rem', fontWeight: 600 }}>{it.partyName}</td>
                     <td style={{ padding: '0.45rem', color: 'var(--text-muted)' }}>{it.contractNo} · {it.carModel} {it.plateNo}</td>
-                    <td style={{ padding: '0.45rem', whiteSpace: 'nowrap', color: '#b45309', fontWeight: 700 }}>{it.months}회차 연속</td>
+                    <td style={{ padding: '0.45rem', whiteSpace: 'nowrap', color: '#b45309', fontWeight: 700 }}>{ymd(it.sinceDueDate)} 출금분부터 {it.months}회차 연속</td>
                     <td style={{ padding: '0.45rem', whiteSpace: 'nowrap', textAlign: 'right' }}>{krw(it.amount)}</td>
                   </tr>
                 ))}

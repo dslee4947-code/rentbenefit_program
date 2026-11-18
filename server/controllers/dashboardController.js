@@ -8,6 +8,8 @@ import Quote from '../models/Quote.js';
 import ActivityLog, { DEPARTMENTS } from '../models/ActivityLog.js';
 import { resolveScheduleInputs } from './billingScheduleController.js';
 import { buildShortTermReport } from '../utils/shortTermReport.js';
+import VehicleLedger from '../models/VehicleLedger.js';
+import { findStreaks, rentDepositsOf, verdictOf } from '../utils/paymentStreaks.js';
 
 // @desc    Get dashboard summary (counts via aggregation + upcoming schedule notifications)
 // @route   GET /api/dashboard/summary
@@ -280,23 +282,9 @@ export const getExecutiveSummary = async (req, res) => {
     const recordedUntil = lastPaid[0]?.at ? new Date(lastPaid[0].at) : today;
     const covered = (r) => new Date(r.dueDate) <= recordedUntil;
 
-    // 기록이 있는 기간 안에서 연속 두 회차 이상 입금 기록이 없는 계약.
+    // 기록이 있는 기간 안에서 연속 두 회차 이상 입금 기록이 없는 계약(utils/paymentStreaks.js).
     // 실제 미납이거나, 원장이 회차표와 연결되지 않아 기록이 빠진 경우다. 어느 쪽이든 자금팀이 확인할 일이다.
-    const byContract = new Map();
-    for (const r of overdueRows.filter(covered)) {
-      const key = String(r.contract);
-      if (!byContract.has(key)) byContract.set(key, []);
-      byContract.get(key).push(r);
-    }
-    const streaks = [];
-    for (const [contractId, list] of byContract) {
-      list.sort((a, b) => b.no - a.no);
-      // 가장 최근 회차부터 거꾸로 끊기지 않고 이어진 만큼
-      let run = 1;
-      while (run < list.length && list[run].no === list[run - 1].no - 1) run += 1;
-      if (run >= 2) streaks.push({ contractId, months: run, amount: list.slice(0, run).reduce((a, r) => a + r.unpaid, 0), latest: list[0] });
-    }
-    streaks.sort((a, b) => b.amount - a.amount);
+    const streaks = findStreaks(overdueRows, recordedUntil);
     const streakContracts = await Contract.find({ _id: { $in: streaks.slice(0, 10).map((x) => x.contractId) } })
       .select('contractNo companyId customer vehicle')
       .populate('companyId', 'name').populate('customer', 'name').populate('vehicle', 'carModel plateNo')
@@ -326,7 +314,8 @@ export const getExecutiveSummary = async (req, res) => {
           plateNo: c?.vehicle?.plateNo || '',
           months: x.months,
           amount: x.amount,
-          sinceDueDate: x.latest.dueDate
+          sinceDueDate: x.since,
+          latestDueDate: x.latest.dueDate
         };
       }),
       // 입금 기록이 어디까지 들어와 있는지. 이 날짜 뒤는 기록이 없어서 "미확인"이 늘어난다.
@@ -451,7 +440,7 @@ export const getExecutiveSummary = async (req, res) => {
  * 경영 요약 숫자 카드의 근거(대표님 2026-10-30: 숫자를 누르면 어디서 왔는지 표로 본다).
  * getExecutiveSummary와 같은 조건으로 줄을 그대로 돌려준다. 카드 금액 = 이 줄들의 합이어야 한다.
  *
- * @route GET /api/dashboard/executive/basis?item=rent|fleet|collect|unpaid|sales (관리자만)
+ * @route GET /api/dashboard/executive/basis?item=rent|fleet|collect|unpaid|sales|streaks (관리자만)
  */
 const partyOf = (c) => c?.companyId?.name || c?.customer?.name || '';
 
@@ -531,6 +520,81 @@ export const getExecutiveBasis = async (req, res) => {
           kind: r.status === '미납' ? '미납' : (new Date(r.dueDate) <= recordedUntil ? '확인 필요' : '기록 대기')
         };
       }).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate) || a.party.localeCompare(b.party));
+      return res.json({ success: true, item, rows, recordedUntil });
+    }
+
+    if (item === 'streaks') {
+      // 입금 기록이 끊긴 계약의 근거. 대시보드 카드와 같은 계산(findStreaks)으로 계약을 고르고,
+      // 끊긴 회차마다 한 줄 + 회차표 마지막 입금 + 원장 렌트료 입금을 붙여 실제 미납인지 기록 누락인지 본다.
+      const [overdue, paidRounds, lastPaid] = await Promise.all([
+        BillingSchedule.aggregate([
+          { $unwind: '$rounds' },
+          { $match: { 'rounds.dueDate': { $lt: today }, 'rounds.status': { $ne: '입금완료' } } },
+          { $project: { contract: 1, no: '$rounds.no', dueDate: '$rounds.dueDate', status: '$rounds.status', total: { $ifNull: ['$rounds.total', 0] },
+            paidAmount: '$rounds.paidAmount',
+            unpaid: { $max: [0, { $subtract: [{ $ifNull: ['$rounds.total', 0] }, { $ifNull: ['$rounds.paidAmount', 0] }] }] } } }
+        ]),
+        BillingSchedule.aggregate([
+          { $unwind: '$rounds' },
+          { $match: { 'rounds.status': '입금완료' } },
+          { $project: { contract: 1, no: '$rounds.no', dueDate: '$rounds.dueDate', paidAt: '$rounds.paidAt', paidAmount: '$rounds.paidAmount', total: '$rounds.total' } }
+        ]),
+        BillingSchedule.aggregate([
+          { $unwind: '$rounds' },
+          { $match: { 'rounds.status': '입금완료' } },
+          { $group: { _id: null, at: { $max: '$rounds.paidAt' } } }
+        ])
+      ]);
+      const recordedUntil = lastPaid[0]?.at ? new Date(lastPaid[0].at) : today;
+      const streaks = findStreaks(overdue, recordedUntil);
+      const ids = streaks.map((x) => x.contractId);
+      const [contracts, ledgers] = await Promise.all([
+        Contract.find({ _id: { $in: ids } })
+          .select('contractNo companyId customer vehicle')
+          .populate('companyId', 'name').populate('customer', 'name').populate('vehicle', 'carModel plateNo')
+          .lean(),
+        VehicleLedger.find({ $or: [{ contract: { $in: ids } }, { 'contractPeriods.contract': { $in: ids } }] })
+          .select('contract contractPeriods entries.side entries.date entries.amount entries.category entries.label entries.periodSeq header.plateNo')
+          .lean()
+      ]);
+      const byId = new Map(contracts.map((c) => [String(c._id), c]));
+      const lastPaidOf = new Map();
+      for (const r of paidRounds) {
+        const k = String(r.contract);
+        const cur = lastPaidOf.get(k);
+        if (!cur || r.no > cur.no) lastPaidOf.set(k, r);
+      }
+      const ymdK = (d) => {
+        if (!d) return '';
+        const x = new Date(new Date(d).getTime() + 9 * 3600e3);
+        return x.toISOString().slice(0, 10);
+      };
+      const rows = [];
+      for (const st of streaks) {
+        const c = byId.get(st.contractId);
+        const deposits = rentDepositsOf(ledgers, st.contractId);
+        const v = verdictOf(st, deposits);
+        const lp = lastPaidOf.get(st.contractId);
+        const lastLedger = deposits[deposits.length - 1];
+        const common = {
+          contractId: st.contractId,
+          contractNo: c?.contractNo || '',
+          party: partyOf(c) || '계약자 미상',
+          carModel: c?.vehicle?.carModel || '',
+          plateNo: c?.vehicle?.plateNo || '',
+          since: st.since,
+          months: st.months,
+          streakAmount: st.amount,
+          lastPaidRound: lp ? `${lp.no}회차 (출금 ${ymdK(lp.dueDate)}${lp.paidAt ? ` · 입금 ${ymdK(lp.paidAt)}` : ''})` : '입금완료 회차 없음',
+          ledgerLast: lastLedger ? `${ymdK(lastLedger.date)} ${Math.round(lastLedger.amount).toLocaleString()}원` : '없음',
+          ledgerAfter: v.after.length ? v.after.map((d) => `${ymdK(d.date)} ${Math.round(d.amount).toLocaleString()}원`).join(', ') : '없음',
+          verdict: v.kind,
+          verdictText: v.text
+        };
+        for (const r of st.rounds) {
+          rows.push({ ...common, no: r.no, dueDate: r.dueDate, status: r.status || '(상태 없음)', total: r.total, paidAmount: r.paidAmount || 0, unpaid: r.unpaid, counted: r.inAmount });
+        }
+      }
       return res.json({ success: true, item, rows, recordedUntil });
     }
 

@@ -573,10 +573,11 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
               </thead>
               <tbody>
                 {maturityView.rows.map((r) => (
-                  <tr key={r.label} style={r.section === 'settle' ? { background: '#f9f8f6' } : undefined}>
-                    <th style={{ padding: '0.3rem 0.4rem', textAlign: 'left', fontWeight: r.section === 'settle' ? 800 : 700 }}>{r.label}{r.labelNote ? <span style={{ fontSize: '0.72rem', fontWeight: 500, color: 'var(--text-muted)' }}> {r.labelNote}</span> : null}</th>
+                  // 결론 줄(만기 시 청구 비용)은 금색 바탕에 크게(대표님 2026-11-18)
+                  <tr key={r.label} style={r.section === 'total' ? { background: '#f7f0e4', borderTop: '2px solid #ad885c', borderBottom: '2px solid #ad885c' } : r.section === 'settle' ? { background: '#f9f8f6' } : undefined}>
+                    <th style={{ padding: r.section === 'total' ? '0.5rem 0.4rem' : '0.3rem 0.4rem', textAlign: 'left', fontWeight: r.section ? 800 : 700, color: r.section === 'total' ? '#111e38' : undefined }}>{r.label}{r.labelNote ? <span style={{ fontSize: '0.72rem', fontWeight: 500, color: 'var(--text-muted)' }}> {r.labelNote}</span> : null}</th>
                     {r.cells.map((v, i) => (
-                      <td key={i} style={{ padding: '0.3rem 0.4rem', textAlign: 'right', fontWeight: r.section === 'settle' && v !== '없음' ? 800 : 500, color: v === '없음' || v === '-' ? 'var(--text-muted)' : '#111e38' }}>
+                      <td key={i} style={{ padding: r.section === 'total' ? '0.5rem 0.4rem' : '0.3rem 0.4rem', textAlign: 'right', fontSize: r.section === 'total' ? '1.1rem' : undefined, fontWeight: r.section === 'total' ? 900 : r.section === 'settle' && v !== '없음' ? 800 : 500, color: v === '없음' || v === '-' ? 'var(--text-muted)' : '#111e38' }}>
                         {v}
                         {r.notes?.[i] ? <div style={{ fontSize: '0.72rem', fontWeight: 500, color: 'var(--text-muted)', whiteSpace: 'pre-line' }}>{r.notes[i]}</div> : null}
                       </td>

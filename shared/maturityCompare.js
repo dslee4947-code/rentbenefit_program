@@ -122,6 +122,9 @@ export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false,
   ];
   const row = (label, pick, section) => ({ label, section, cells: cols.map((c) => pick[c.kind](c.o)) });
   const t = m.takeover;
+  const takeoverTax = tax ? acquisitionTaxOf({ ...tax, onDate: tax.contractEnd, takeoverPrice: t.price }) : null;
+  // 인수 금액(인수가 - 보증금 + 승계 수수료, 음수면 0) + 취득세
+  const takeoverTotal = Math.max(0, t.pay) + (takeoverTax ? takeoverTax.tax : 0);
   const rows = [
     row('방법', { ext: (o) => (o ? `${o.months}개월 연장` : '연장 견적 없음'), takeover: () => (thirdParty ? '제3자 인수' : '인수'), return: () => '반납' }),
     row('기간', { ext: (o) => (o ? `${startDate} ~ ${o.endDate}` : '-'), takeover: () => '만기 종료', return: () => '만기 종료' }),
@@ -137,18 +140,15 @@ export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false,
       ...row('인수가', { ext: (o) => (o?.takeoverPrice > 0 ? wonText(o.takeoverPrice) : '없음'), takeover: () => wonText(t.price), return: () => '없음' }),
       notes: cols.map((c) => (c.kind === 'ext' && c.o?.takeoverPrice > 0 ? '연장 만기 때' : ''))
     },
-    // 인수자가 이전등록 때 구청에 내는 취득세(예상). 연장 안은 연장이 끝나는 해 기준(shared/usedCarTax.js)
-    ...(tax ? [(() => {
-      const of = (onDate, price) => acquisitionTaxOf({ ...tax, onDate, takeoverPrice: price });
-      const calc = cols.map((c) => (c.kind === 'takeover' ? of(tax.contractEnd, t.price) : c.kind === 'ext' && c.o?.takeoverPrice > 0 ? of(c.o.endDate, c.o.takeoverPrice) : null));
-      return {
-        label: '인수 시 취득세',
-        labelNote: '구청 납부 · 예상',
-        cells: cols.map((c, i) => (c.kind === 'return' || (c.kind === 'ext' && !(c.o?.takeoverPrice > 0)) ? '없음' : calc[i] ? wonText(calc[i].tax) : '계산 불가')),
-        // 구청 과표율(경과연수별 잔가율)을 함께 적는다(대표님 2026-11-17). 두 줄: 연도·과표율 / 과표
-        notes: calc.map((x) => (x ? `${x.year}년 ${x.years}년차 과표율 ${(x.rate * 100).toFixed(1)}%\n${x.basis} 과표 ${wonText(x.taxBase)}${x.light ? ' · 경차 감면' : ''}` : ''))
-      };
-    })()] : []),
+    // 인수자가 이전등록 때 구청에 내는 취득세(예상, shared/usedCarTax.js).
+    // 지금 돈이 나가는 2안 인수만 계산한다. 1안 연장은 당장 내는 돈이 아니라 뺀다(대표님 2026-11-18)
+    ...(tax ? [{
+      label: '인수 시 취득세',
+      labelNote: '구청 납부 · 예상',
+      cells: cols.map((c) => (c.kind !== 'takeover' ? '없음' : takeoverTax ? wonText(takeoverTax.tax) : '계산 불가')),
+      // 구청 과표율(경과연수별 잔가율)을 함께 적는다(대표님 2026-11-17). 두 줄: 연도·과표율 / 과표
+      notes: cols.map((c) => (c.kind === 'takeover' && takeoverTax ? `${takeoverTax.year}년 ${takeoverTax.years}년차 과표율 ${(takeoverTax.rate * 100).toFixed(1)}%\n${takeoverTax.basis} 과표 ${wonText(takeoverTax.taxBase)}${takeoverTax.light ? ' · 경차 감면' : ''}` : ''))
+    }] : []),
     ...(thirdParty ? [row('승계 수수료', { ext: () => '없음', takeover: () => wonText(t.fee), return: () => '없음' })] : []),
     // 반납 수리비 줄은 표에서 뺀다(대표님 2026-11-18). 수리비 공제는 비고에 적는다
     { ...row(m.remaining.length > 1 ? '잔여 렌트료' : '마지막 렌트료', {
@@ -157,7 +157,23 @@ export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false,
       return: () => (m.remainingSum ? wonText(m.remainingSum) : '없음')
     }, 'settle'), labelNote: m.remaining.length > 1 ? `${m.remaining.length}회` : '' },
     row('인수 금액', { ext: () => '없음', takeover: () => (t.pay >= 0 ? wonText(t.pay) : '없음'), return: () => '없음' }, 'settle'),
-    row('보증금 반환', { ext: () => '없음', takeover: () => (t.pay < 0 ? wonText(-t.pay) : '없음'), return: () => wonText(m.return.depositBack) }, 'settle')
+    row('보증금 반환', { ext: () => '없음', takeover: () => (t.pay < 0 ? wonText(-t.pay) : '없음'), return: () => wonText(m.return.depositBack) }, 'settle'),
+    // 결론: 이것만 봐도 얼마를 내는지 알 수 있게(대표님 2026-11-18). 마지막 렌트료는 세 안이 같으니 따로 둔다
+    //   1안 연장 월 렌트료 · 2안 인수 금액 + 취득세(+ 승계 수수료) · 3안 0원
+    {
+      label: '만기 시 청구 비용',
+      labelNote: m.remainingSum ? '마지막 렌트료 별도' : '',
+      section: 'total',
+      cells: cols.map((c) => (c.kind === 'ext' ? (c.o ? wonText(c.o.monthlyFee) : '-') : c.kind === 'takeover' ? wonText(takeoverTotal) : '0원')),
+      notes: cols.map((c) => {
+        if (c.kind === 'ext') return c.o ? `월 렌트료 · ${c.o.months}개월` : '';
+        if (c.kind === 'takeover') {
+          const parts = [`인수 금액 ${wonText(Math.max(0, t.pay))}`, ...(takeoverTax ? [`취득세 ${wonText(takeoverTax.tax)}`] : [])];
+          return `${parts.join(' + ')}${t.pay < 0 ? `\n보증금 ${wonText(-t.pay)} 반환` : ''}`;
+        }
+        return m.return.depositBack > 0 ? `보증금 ${wonText(m.return.depositBack)} 반환` : '';
+      })
+    }
   ];
   return { cols, rows };
 };

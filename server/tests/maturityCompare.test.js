@@ -74,8 +74,15 @@ test('비교표: 한 칸에 한 내용, 다성테크는 1안 24개월 월 268,00
   const withTax = maturityTable({ m, ext: [{ months: 24, monthlyFee: 268000, takeoverPrice: 17389000, maintenance: false, endDate: '2028-12-01' }], startDate: '2026-12-02',
     tax: { registrationDate: '2022-12-01', model: 'G80 2.5T AWD', cc: 2497, newCarPrice: 64000000, contractEnd: '2026-12-02' } });
   const taxRow = withTax.rows.find((r) => r.label === '인수 시 취득세');
-  assert.deepEqual(taxRow.cells, ['1,266,580원', '1,917,230원', '없음']);
-  assert.deepEqual(taxRow.notes, ['2028년 6년차 과표율 31.1%\n시가표준액 과표 18,094,000원', '2026년 4년차 과표율 43.7%\n인수가 과표 27,389,000원', '']);
+  // 1안 연장은 당장 내는 돈이 아니라 취득세를 빼고, 2안 인수만 계산한다(2026-11-18)
+  assert.deepEqual(taxRow.cells, ['없음', '1,917,230원', '없음']);
+  assert.deepEqual(taxRow.notes, ['', '2026년 4년차 과표율 43.7%\n인수가 과표 27,389,000원', '']);
+  // 결론 줄: 1안 연장 월 렌트료 · 2안 인수 금액 + 취득세 · 3안 0원
+  const total = withTax.rows.find((r) => r.label === '만기 시 청구 비용');
+  assert.equal(total.section, 'total');
+  assert.deepEqual(total.cells, ['268,000원', '1,917,230원', '0원']);
+  assert.deepEqual(total.notes, ['월 렌트료 · 24개월', '인수 금액 0원 + 취득세 1,917,230원', '보증금 27,389,000원 반환']);
+  assert.equal(total.labelNote, '마지막 렌트료 별도');
   // 제3자 인수면 승계 수수료 줄이 생긴다
   const third = maturityTable({ m: compareMaturity({ rounds: ds, contractEnd: '2026-12-02', monthlyRent: 1208000, deposit: 0, takeoverPrice: 2506900, thirdParty: true }), thirdParty: true });
   assert.deepEqual(third.rows.find((r) => r.label === '승계 수수료').cells, ['없음', '330,000원', '없음']);

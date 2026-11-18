@@ -120,6 +120,24 @@ export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKn
         <tbody>
           {table.rows.map((r, ri) => {
             const firstSettle = r.section === 'settle' && table.rows[ri - 1]?.section !== 'settle';
+            // 결론 줄(만기 시 청구 비용): 이것만 봐도 얼마를 내는지 알 수 있게 크게(대표님 2026-11-18)
+            if (r.section === 'total') {
+              return (
+                <tr key={r.label}>
+                  <td style={{ ...label, background: NAVY, color: '#fff', fontWeight: '800', fontSize: '14.4px', borderTop: `2px solid ${GOLD}`, borderBottom: `2px solid ${GOLD}` }}>
+                    {r.label}
+                    {r.labelNote ? <div style={{ ...note, color: '#e6d6bf' }}>{r.labelNote}</div> : null}
+                  </td>
+                  {r.cells.map((v, i) => (
+                    <td key={i} style={{ ...value, textAlign: 'center', verticalAlign: 'middle', background: '#f7f0e4', borderTop: `2px solid ${GOLD}`, borderBottom: `2px solid ${GOLD}`,
+                      borderRight: i < r.cells.length - 1 ? `1px solid ${LINE}` : 'none', color: NAVY, fontWeight: '900', fontSize: '19.2px', padding: '10px 8px' }}>
+                      {v}
+                      {r.notes?.[i] ? <div style={{ ...note, fontWeight: '500' }}>{r.notes[i]}</div> : null}
+                    </td>
+                  ))}
+                </tr>
+              );
+            }
             return (
               <React.Fragment key={r.label}>
                 {firstSettle && (

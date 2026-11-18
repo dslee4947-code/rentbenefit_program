@@ -22,8 +22,8 @@ const DIM = '#9a948a';
  *   thirdParty 제3자 인수, repairKnown 반납 수리비를 넣었는지, multiCar 한 계약에 차가 여러 대인지, createdBy 담당자,
  *   tax 인수 시 취득세 계산용 차 정보(maturityTable 참고)
  */
-export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKnown, multiCar, createdBy, tax }) {
-  const table = maturityTable({ m, ext, startDate: car.startDate, thirdParty, repairKnown, tax });
+export default function MaturityCompareSheet({ car, m, ext, thirdParty, repairKnown, multiCar, createdBy, tax, insurance = 0 }) {
+  const table = maturityTable({ m, ext, startDate: car.startDate, thirdParty, repairKnown, tax, insurance });
   const frame = { width: '100%', borderCollapse: 'collapse', fontSize: '13.6px', borderTop: `2px solid ${NAVY}`, borderBottom: `2px solid ${NAVY}` };
   const label = { background: SOFT, color: '#2b2b2b', fontWeight: '700', padding: '8px 10px', borderBottom: `1px solid ${LINE}`, borderRight: `1px solid ${GOLD}`, textAlign: 'center', whiteSpace: 'nowrap' };
   const value = { padding: '8px 10px', borderBottom: `1px solid ${LINE}`, color: NAVY };

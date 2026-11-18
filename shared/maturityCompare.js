@@ -113,7 +113,7 @@ const wonText = (n) => `${Math.round(Number(n) || 0).toLocaleString('ko-KR')}원
  * @returns {{ cols: {kind: 'ext'|'takeover'|'return', title: string}[], rows: {label: string, section?: 'settle', cells: string[], notes?: string[]}[] }}
  *   notes는 칸 아래, labelNote는 줄 이름 아래에 작게 붙는 설명. 괄호로 덧붙이지 않는다(대표님 2026-11-17)
  */
-export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false, repairKnown = false, tax = null }) => {
+export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false, repairKnown = false, tax = null, insurance = 0 }) => {
   const exts = ext.length ? ext : [null];
   const cols = [
     ...exts.map((o, i) => ({ kind: 'ext', o, title: `${i + 1}안 계약 연장` })),
@@ -123,8 +123,10 @@ export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false,
   const row = (label, pick, section) => ({ label, section, cells: cols.map((c) => pick[c.kind](c.o)) });
   const t = m.takeover;
   const takeoverTax = tax ? acquisitionTaxOf({ ...tax, onDate: tax.contractEnd, takeoverPrice: t.price }) : null;
-  // 인수 금액(인수가 - 보증금 + 승계 수수료, 음수면 0) + 취득세
-  const takeoverTotal = Math.max(0, t.pay) + (takeoverTax ? takeoverTax.tax : 0);
+  // 인수 후 고객이 새로 드는 보험료(예상, 법인 약 120만원 · 대표님 2026-11-18)
+  const ins = Math.max(0, Number(insurance) || 0);
+  // 인수 금액(인수가 - 보증금 + 승계 수수료, 음수면 0) + 취득세 + 보험료
+  const takeoverTotal = Math.max(0, t.pay) + (takeoverTax ? takeoverTax.tax : 0) + ins;
   const rows = [
     row('방법', { ext: (o) => (o ? `${o.months}개월 연장` : '연장 견적 없음'), takeover: () => (thirdParty ? '제3자 인수' : '인수'), return: () => '반납' }),
     row('기간', { ext: (o) => (o ? `${startDate} ~ ${o.endDate}` : '-'), takeover: () => '만기 종료', return: () => '만기 종료' }),
@@ -165,6 +167,10 @@ export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false,
       // 구청 과표율(경과연수별 잔가율)을 함께 적는다(대표님 2026-11-17). 두 줄: 연도·과표율 / 과표
       notes: cols.map((c) => (c.kind === 'takeover' && takeoverTax ? `${takeoverTax.year}년 ${takeoverTax.years}년차 과표율 ${(takeoverTax.rate * 100).toFixed(1)}%\n${takeoverTax.basis} 과표 ${wonText(takeoverTax.taxBase)}${takeoverTax.light ? ' · 경차 감면' : ''}` : ''))
     }] : []),
+    ...(ins > 0 ? [{
+      ...row('인수 후 보험료', { ext: () => '없음', takeover: () => wonText(ins), return: () => '없음' }),
+      labelNote: '1년 · 예상'
+    }] : []),
     ...(thirdParty ? [row('승계 수수료', { ext: () => '없음', takeover: () => wonText(t.fee), return: () => '없음' })] : []),
     // 반납 수리비 줄은 표에서 뺀다(대표님 2026-11-18). 수리비 공제는 비고에 적는다
     { ...row(m.remaining.length > 1 ? '잔여 렌트료' : '마지막 렌트료', {
@@ -184,7 +190,7 @@ export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false,
       notes: cols.map((c) => {
         if (c.kind === 'ext') return c.o ? `월 렌트료 · ${c.o.months}개월` : '';
         if (c.kind === 'takeover') {
-          const parts = [`인수 금액 ${wonText(Math.max(0, t.pay))}`, ...(takeoverTax ? [`취득세 ${wonText(takeoverTax.tax)}`] : [])];
+          const parts = [`인수 금액 ${wonText(Math.max(0, t.pay))}`, ...(takeoverTax ? [`취득세 ${wonText(takeoverTax.tax)}`] : []), ...(ins > 0 ? [`보험료 약 ${wonText(ins)}`] : [])];
           return `${parts.join(' + ')}${t.pay < 0 ? `\n보증금 ${wonText(-t.pay)} 반환` : ''}`;
         }
         return m.return.depositBack > 0 ? `보증금 ${wonText(m.return.depositBack)} 반환` : '';

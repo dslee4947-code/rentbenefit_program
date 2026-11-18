@@ -9,7 +9,7 @@ import {
   getFactDocFile,
   saveEndDoc,
   sendEndDoc,
-  getEndDocFile, getSettlementInfo
+  getEndDocFile, getSettlementInfo, saveFactEdits
 } from '../controllers/deliveryDocsController.js';
 import { getDepositNotices, sendDepositNotice } from '../controllers/depositNoticeController.js';
 import { getReleaseReport, saveReleaseReport } from '../controllers/releaseReportController.js';
@@ -30,6 +30,7 @@ router.put('/:contractId/release-report/:vehicleId', checkWritePermission, saveR
 router.put('/:contractId', checkWritePermission, saveDeliveryDocsInput);
 router.post('/:contractId/deposit-notice/send', checkWritePermission, upload.single('file'), sendDepositNotice);
 // 계약사실 증명원 · 상환스케쥴표 따로 만들어 저장 (장기렌트 청구서 > 계약사실 증명원, 고지서 운전자 변경)
+router.put('/:contractId/fact-edits', checkWritePermission, saveFactEdits);
 router.post('/:contractId/fact-docs', checkWritePermission, upload.single('file'), saveFactDoc);
 router.post('/:contractId/fact-docs/send', checkWritePermission, upload.single('file'), sendFactDoc);
 router.get('/:contractId/fact-docs/:docId/file', getFactDocFile);

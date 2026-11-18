@@ -192,7 +192,50 @@ export const buildDeliveryDocs = async (contractId) => {
     // 종료 서류를 보낼 곳. 청구서를 보내는 메일과 같은 순서로 찾는다
     mailTo: recipientOf(schedule, company, customer) || to
   };
-  return { ...data, snapshot, missing, warnings, overrides, factDocs, endDocs, ending, deliveryDocs: contract.deliveryDocs || null, docFolderName: contract.docFolderName || contract.contractNo };
+  const factEdits = contract.factEdits || { party: {}, vehicles: {} };
+  return { ...data, snapshot, missing, warnings, overrides, factDocs, endDocs, ending, factEdits, deliveryDocs: contract.deliveryDocs || null, docFolderName: contract.docFolderName || contract.contractNo };
+};
+
+// 계약사실 증명원에서 손으로 고칠 수 있는 칸
+export const FACT_PARTY_FIELDS = ['name', 'bizNo', 'corpNo', 'address', 'ceoName', 'phone'];
+export const FACT_VEHICLE_FIELDS = [
+  'plateNo', 'vin', 'carModel', 'color', 'options', 'carPrice', 'takeoverPrice', 'takeoverText', 'mileage', 'deposit', 'advancePayment',
+  'termMonths', 'earlyRate', 'lateRate', 'paymentDay', 'monthlyFee', 'deliveryDate', 'endDate', 'firstDueDate',
+  'emergency', 'regularCheck', 'generalMaintenance', 'consumables', 'tireText',
+  'driverAge', 'liability', 'property', 'personalInjury', 'uninsured', 'deductible'
+];
+
+/**
+ * 계약사실 증명원에 손으로 고친 값을 저장한다. 빈 문자열은 'DB 값 쓰기'로 보고 지운다.
+ * 인도 서류 발송 상태와 상관없이 저장한다(증명원은 필요할 때마다 다시 뽑는 서류다).
+ * @route PUT /api/delivery-docs/:contractId/fact-edits
+ */
+export const saveFactEdits = async (req, res) => {
+  try {
+    const contract = await Contract.findById(req.params.contractId);
+    if (!contract) return res.status(404).json({ success: false, message: '계약을 찾을 수 없습니다.' });
+    const clean = (obj, fields) => {
+      const out = {};
+      fields.forEach((k) => {
+        const v = obj?.[k];
+        if (v !== undefined && v !== null && String(v).trim() !== '') out[k] = String(v).trim();
+      });
+      return out;
+    };
+    const party = clean(req.body?.party, FACT_PARTY_FIELDS);
+    const vehicles = {};
+    Object.entries(req.body?.vehicles || {}).forEach(([id, v]) => {
+      if (!/^[a-f0-9]{24}$/i.test(id)) return;
+      const c = clean(v, FACT_VEHICLE_FIELDS);
+      if (Object.keys(c).length) vehicles[id] = c;
+    });
+    contract.factEdits = { party, vehicles };
+    contract.markModified('factEdits');
+    await contract.save();
+    res.json({ success: true, data: contract.factEdits, message: '고친 내용을 저장했습니다.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
 
 /** @route GET /api/delivery-docs/:contractId */

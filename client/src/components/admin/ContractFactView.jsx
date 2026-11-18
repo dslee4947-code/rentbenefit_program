@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Search, FileText, Download, Save, ExternalLink, X, Send } from 'lucide-react';
 import ContractFactSheet from './ContractFactSheet.jsx';
+import FactEditPanel from './FactEditPanel.jsx';
 import { makeFittedPdf } from '../../utils/printFit.js';
 import { partyWithResidentFront } from '../../utils/residentNo.js';
-import { dbValue } from '../../utils/factDocs.js';
+import { dbValue, applyFactEdits } from '../../utils/factDocs.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -38,6 +39,8 @@ export default function ContractFactView({ showToast, currentUser, contractId: p
   const [vehicleId, setVehicleId] = useState(''); // '' = 계약의 차 전체
   const [parts, setParts] = useState('fact');
   const [form, setForm] = useState({});
+  const [edits, setEdits] = useState({ party: {}, vehicles: {} }); // 증명원에 손으로 고친 값
+  const [editsDirty, setEditsDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [mailTo, setMailTo] = useState(''); // 받는 메일. 계약을 열면 청구서 메일로 채운다
   const sheetRef = useRef(null);
@@ -50,6 +53,8 @@ export default function ContractFactView({ showToast, currentUser, contractId: p
     const d = data.data;
     setOpen(d);
     setMailTo(d.ending?.mailTo || '');
+    setEdits({ party: { ...(d.factEdits?.party || {}) }, vehicles: { ...(d.factEdits?.vehicles || {}) } });
+    setEditsDirty(false);
     setForm({
       driverRange: d.overrides?.driverRange || '',
       accidentRepair: d.overrides?.accidentRepair || '',
@@ -77,10 +82,14 @@ export default function ContractFactView({ showToast, currentUser, contractId: p
     setFound(data.items || []);
   };
 
-  const docs = open ? open.docs.filter((x) => !vehicleId || x.vehicleId === vehicleId) : [];
+  // 원래 값(서버)과, 손으로 고친 값을 덮은 값
+  const baseDocs = open ? open.docs.filter((x) => !vehicleId || x.vehicleId === vehicleId) : [];
+  const edited = applyFactEdits(open, edits);
+  const docs = edited ? edited.docs.filter((x) => !vehicleId || x.vehicleId === vehicleId) : [];
   const previewData = open ? {
-    ...open,
-    party: partyWithResidentFront(open.party, form.residentFront),
+    ...edited,
+    // 사업자번호를 손으로 고쳤으면 주민번호 앞자리로 덮지 않는다
+    party: edits.party?.bizNo ? edited.party : partyWithResidentFront(edited.party, form.residentFront),
     commission: form.commission,
     receiptDate: form.receiptDate,
     docs: docs.map((d) => ({ ...d, accidentRepair: form.accidentRepair || d.db.accidentRepair, insurance: { ...d.insurance, driverRange: form.driverRange || d.db.driverRange } }))
@@ -97,7 +106,20 @@ export default function ContractFactView({ showToast, currentUser, contractId: p
   if (open && !docs.length) lacking.push('계약에 묶인 차량');
 
   // 입력 칸(운전자 범위 등)은 인도 서류와 같이 쓴다. 이미 보낸 인도 서류는 서버가 고치지 못하게 막으므로 그때는 화면 값만 쓴다.
+  const saveEdits = async () => {
+    const res = await fetch(`${API_HOST}/api/delivery-docs/${open.contractId}/fact-edits`, {
+      method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(edits)
+    }).then((r) => r.json()).catch(() => null);
+    if (res?.success) setEditsDirty(false);
+    return res;
+  };
+  const saveEditsNow = async () => {
+    const res = await saveEdits();
+    showToast?.(res?.message || '저장하지 못했습니다.', res?.success ? 'success' : 'error');
+  };
+
   const saveInputs = async () => {
+    if (editsDirty) await saveEdits();
     await fetch(`${API_HOST}/api/delivery-docs/${open.contractId}`, {
       method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(form)
     }).catch(() => null);
@@ -112,6 +134,7 @@ export default function ContractFactView({ showToast, currentUser, contractId: p
   const download = async () => {
     setBusy(true);
     try {
+      if (canEdit && editsDirty) await saveEdits();
       const blob = await buildPdf();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -227,7 +250,7 @@ export default function ContractFactView({ showToast, currentUser, contractId: p
 
       {open && (
         <div style={{ ...card, display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-          <div style={{ width: '290px', maxWidth: '100%', display: 'flex', flexDirection: 'column', gap: '0.6rem', fontSize: '0.8rem' }}>
+          <div style={{ width: '340px', maxWidth: '100%', display: 'flex', flexDirection: 'column', gap: '0.6rem', fontSize: '0.8rem' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem' }}>
               <div>
                 <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>{open.party.name}</div>
@@ -269,8 +292,21 @@ export default function ContractFactView({ showToast, currentUser, contractId: p
               <div style={{ background: '#fee2e2', color: '#991b1b', borderRadius: '8px', padding: '0.6rem' }}>
                 <b>저장할 수 없습니다</b>
                 {lacking.map((m) => <div key={m}>· {m} 없음</div>)}
-                <div style={{ marginTop: '0.2rem' }}>렌트차량 DB에서 채운 뒤 다시 여세요.</div>
+                <div style={{ marginTop: '0.2rem' }}>아래 '증명원 내용 고치기'에 직접 넣거나, 렌트차량 DB에서 채운 뒤 다시 여세요.</div>
               </div>
+            )}
+
+            {parts !== 'schedule' && (
+              <FactEditPanel
+                open={open}
+                docs={baseDocs}
+                edits={edits}
+                disabled={!canEdit}
+                onChange={(e) => { setEdits(e); setEditsDirty(true); }}
+              />
+            )}
+            {parts !== 'schedule' && canEdit && editsDirty && (
+              <button type="button" onClick={saveEditsNow} style={btn('#b45309')}><Save size={14} /> 고친 내용 저장</button>
             )}
 
             {parts !== 'schedule' && [

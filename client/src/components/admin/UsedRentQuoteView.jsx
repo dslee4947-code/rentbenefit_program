@@ -149,6 +149,8 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
   // 만기 비교: 1안은 견적서에 넣는 연장 안들, 2안·3안은 지금 계약의 인수가·보증금
   const maturityExt = sheetRows.map((r) => ({
     months: r.calc.months, monthlyFee: r.calc.monthlyFee, takeoverPrice: r.calc.takeoverPrice,
+    // 연장 안의 보증금·선수금(기존 보증금을 나눠 넣은 값)을 비교표에 보여 준다(대표님 2026-11-18)
+    deposit: Number(r.calc.deposit) || 0, advancePayment: Number(r.calc.advancePayment) || 0,
     maintenance: r.opt.maintenance === true, endDate: extensionEndOf(car.startDate, r.calc.months)
   }));
   const maturityData = compareMaturity({

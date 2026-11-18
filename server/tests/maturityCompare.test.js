@@ -54,24 +54,28 @@ test('만기 비교: 회차표가 만기 전에 끝나 있으면 빠진 결제�
 test('비교표: 한 칸에 한 내용, 다성테크는 1안 24개월 월 268,000원 · 인수 금액 0원 · 보증금 반환 27,389,000원', () => {
   const ds = [{ no: 10, status: '입금완료', total: 1208000, paidAmount: 1208000, dueDate: '2026-10-25' }, { no: 11, status: '청구됨', total: 1208000, dueDate: '2026-11-25' }];
   const m = compareMaturity({ rounds: ds, contractEnd: '2026-12-02', monthlyRent: 1208000, deposit: 27389000, takeoverPrice: 27389000 });
-  const { cols, rows } = maturityTable({ m, ext: [{ months: 24, monthlyFee: 268000, takeoverPrice: 17389000, maintenance: false, endDate: '2028-12-01' }], startDate: '2026-12-02' });
+  const { cols, rows } = maturityTable({ m, ext: [{ months: 24, monthlyFee: 268000, takeoverPrice: 17389000, deposit: 17389000, advancePayment: 10000000, maintenance: false, endDate: '2028-12-01' }], startDate: '2026-12-02' });
   assert.deepEqual(cols.map((c) => c.title), ['1안 계약 연장', '2안 인수', '3안 반납']);
   const cell = (label) => rows.find((r) => r.label === label).cells;
   assert.deepEqual(cell('방법'), ['24개월 연장', '인수', '반납']);
   assert.deepEqual(cell('월 렌트료'), ['268,000원', '없음', '없음']);
   assert.deepEqual(cell('마지막 렌트료'), ['1,208,000원', '1,208,000원', '1,208,000원']);
   assert.deepEqual(cell('인수 금액'), ['없음', '0원', '없음']);
-  assert.deepEqual(cell('보증금'), ['27,389,000원', '27,389,000원', '27,389,000원']);
+  // 1안: 기존 보증금 27,389,000원을 보증금 17,389,000원 + 선수금 10,000,000원으로 나눈다(2026-11-18)
+  assert.deepEqual(cell('보증금'), ['17,389,000원', '27,389,000원', '27,389,000원']);
+  assert.deepEqual(cell('선수금'), ['10,000,000원', '없음', '없음']);
+  assert.deepEqual(rows.find((r) => r.label === '선수금').notes, ['기존 보증금에서 전환 · 렌트료 차감', '', '']);
+  assert.deepEqual(rows.slice(2, 6).map((r) => r.label), ['보증금', '선수금', '인수가', '월 렌트료']);
   assert.deepEqual(cell('인수가'), ['17,389,000원', '27,389,000원', '없음']);
   assert.deepEqual(rows.find((r) => r.label === '인수가').notes, ['연장 만기 때', '', '']);
   assert.equal(rows.some((r) => r.cells.some((v) => /[()]/.test(v))), false);
-  assert.deepEqual(rows.find((r) => r.label === '보증금').notes, ['연장 계약으로 승계', '인수가와 상계', '반납 후 반환']);
+  assert.deepEqual(rows.find((r) => r.label === '보증금').notes, ['기존 보증금 27,389,000원 중', '인수가와 상계', '반납 후 반환']);
   assert.deepEqual(cell('보증금 반환'), ['없음', '없음', '27,389,000원']);
   assert.equal(rows.some((r) => r.label === '승계 수수료'), false);
   assert.equal(rows.some((r) => r.label === '수리비'), false);
   assert.equal(rows.some((r) => r.label === '인수 시 취득세'), false);
   // 차 정보를 주면 취득세 줄: 연장 안은 연장이 끝나는 2028년, 인수는 2026년 기준
-  const withTax = maturityTable({ m, ext: [{ months: 24, monthlyFee: 268000, takeoverPrice: 17389000, maintenance: false, endDate: '2028-12-01' }], startDate: '2026-12-02',
+  const withTax = maturityTable({ m, ext: [{ months: 24, monthlyFee: 268000, takeoverPrice: 17389000, deposit: 17389000, advancePayment: 10000000, maintenance: false, endDate: '2028-12-01' }], startDate: '2026-12-02',
     tax: { registrationDate: '2022-12-01', model: 'G80 2.5T AWD', cc: 2497, newCarPrice: 64000000, contractEnd: '2026-12-02' } });
   const taxRow = withTax.rows.find((r) => r.label === '인수 시 취득세');
   // 1안 연장은 당장 내는 돈이 아니라 취득세를 빼고, 2안 인수만 계산한다(2026-11-18)

@@ -128,18 +128,34 @@ export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false,
   const rows = [
     row('방법', { ext: (o) => (o ? `${o.months}개월 연장` : '연장 견적 없음'), takeover: () => (thirdParty ? '제3자 인수' : '인수'), return: () => '반납' }),
     row('기간', { ext: (o) => (o ? `${startDate} ~ ${o.endDate}` : '-'), takeover: () => '만기 종료', return: () => '만기 종료' }),
-    row('월 렌트료', { ext: (o) => (o ? wonText(o.monthlyFee) : '-'), takeover: () => '없음', return: () => '없음' }),
-    row('정비', { ext: (o) => (o ? (o.maintenance ? '포함' : '미포함') : '-'), takeover: () => '없음', return: () => '없음' }),
+    // 1안은 기존 보증금을 연장 계약의 보증금·선수금으로 어떻게 나눴고, 인수가가 얼마라서 월 렌트료가 얼마인지
+    // 위에서 아래로 읽히게 보증금 → 선수금 → 인수가 → 월 렌트료 순서로 둔다(대표님 2026-11-18)
     // 보증금은 금액을 적고, 어떻게 처리되는지는 아래에 작게(대표님 2026-11-17)
     {
-      ...row('보증금', { ext: () => (m.deposit ? wonText(m.deposit) : '없음'), takeover: () => (m.deposit ? wonText(m.deposit) : '없음'), return: () => (m.deposit ? wonText(m.deposit) : '없음') }),
-      notes: cols.map((c) => (!m.deposit ? '' : { ext: '연장 계약으로 승계', takeover: '인수가와 상계', return: '반납 후 반환' }[c.kind]))
+      ...row('보증금', { ext: (o) => (o ? (o.deposit > 0 ? wonText(o.deposit) : '없음') : '-'), takeover: () => (m.deposit ? wonText(m.deposit) : '없음'), return: () => (m.deposit ? wonText(m.deposit) : '없음') }),
+      notes: cols.map((c) => {
+        if (c.kind !== 'ext') return !m.deposit ? '' : { takeover: '인수가와 상계', return: '반납 후 반환' }[c.kind];
+        if (!c.o || !m.deposit || !(c.o.deposit > 0)) return '';
+        return c.o.deposit === m.deposit ? '기존 보증금 승계' : `기존 보증금 ${wonText(m.deposit)} 중`;
+      })
     },
+    ...(exts.some((o) => o?.advancePayment > 0) ? [{
+      ...row('선수금', { ext: (o) => (o?.advancePayment > 0 ? wonText(o.advancePayment) : '없음'), takeover: () => '없음', return: () => '없음' }),
+      // 기존 보증금을 나눠 선수금으로 돌렸으면 그렇게 적는다
+      notes: cols.map((c) => (c.kind === 'ext' && c.o?.advancePayment > 0
+        ? (m.deposit && c.o.deposit + c.o.advancePayment === m.deposit ? '기존 보증금에서 전환 · 렌트료 차감' : '렌트료 차감')
+        : ''))
+    }] : []),
     // 괄호로 덧붙이던 설명은 칸 아래에 작게(notes)
     {
       ...row('인수가', { ext: (o) => (o?.takeoverPrice > 0 ? wonText(o.takeoverPrice) : '없음'), takeover: () => wonText(t.price), return: () => '없음' }),
       notes: cols.map((c) => (c.kind === 'ext' && c.o?.takeoverPrice > 0 ? '연장 만기 때' : ''))
     },
+    {
+      ...row('월 렌트료', { ext: (o) => (o ? wonText(o.monthlyFee) : '-'), takeover: () => '없음', return: () => '없음' }),
+      notes: cols.map((c) => (c.kind === 'ext' && c.o ? '위 보증금·선수금·인수가 기준' : ''))
+    },
+    row('정비', { ext: (o) => (o ? (o.maintenance ? '포함' : '미포함') : '-'), takeover: () => '없음', return: () => '없음' }),
     // 인수자가 이전등록 때 구청에 내는 취득세(예상, shared/usedCarTax.js).
     // 지금 돈이 나가는 2안 인수만 계산한다. 1안 연장은 당장 내는 돈이 아니라 뺀다(대표님 2026-11-18)
     ...(tax ? [{

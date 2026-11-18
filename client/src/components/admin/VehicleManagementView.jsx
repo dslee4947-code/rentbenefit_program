@@ -16,6 +16,7 @@ import {
 import VehicleRerentDialog from './VehicleRerentDialog.jsx';
 import { formatCustomerName, PAYMENT_DAY_OPTIONS, formatPaymentDay } from '../../utils/format.js';
 import MoneyInput from './MoneyInput.jsx';
+import CustomerPicker from './CustomerPicker.jsx';
 import { useTableSort } from './useTableSort.js';
 import { downloadFile } from '../../utils/authFetch.js';
 import { useSaveShortcut } from './useSaveShortcut.js';
@@ -1345,10 +1346,19 @@ function VehicleManagementView({ showToast, currentUser }) {
                       {['대표자', '책임담당자', '실무담당자', '직원', '가족', '기타'].map((x) => <option key={x} value={x}>{x}</option>)}
                     </select>
                   </div>
-                  <div>
-                    <label style={labelStyle}>운전자 이름</label>
-                    <input value={formData.driverInfo.name} onChange={(e) => setDriver('name', e.target.value)} style={inputStyle} placeholder="예: 홍길동 과장" />
-                  </div>
+                  {/* 운전자는 고객 DB에 있는 사람으로 정한다. 고르면 이름·전화·이메일이 채워진다. 없으면 그냥 입력해도 저장된다 */}
+                  <CustomerPicker
+                    label="운전자 이름 (고객 DB 검색)"
+                    value={formData.driverInfo.name}
+                    placeholder="이름·전화 두 글자 이상"
+                    onPick={(name, phone, c) => setFormData((prev) => ({
+                      ...prev,
+                      driverInfo: { ...prev.driverInfo, name, phone: phone || prev.driverInfo.phone, email: c?.email || prev.driverInfo.email }
+                    }))}
+                    onType={(name) => setDriver('name', name)}
+                    labelStyle={labelStyle}
+                    inputStyle={inputStyle}
+                  />
                   <div>
                     <label style={labelStyle}>전화번호</label>
                     <input value={formData.driverInfo.phone} onChange={(e) => setDriver('phone', e.target.value)} style={inputStyle} placeholder="010-0000-0000" inputMode="tel" />

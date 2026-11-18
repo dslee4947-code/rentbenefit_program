@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Truck, Search, X, Save, CheckCircle2, Plus, Trash2, Edit } from 'lucide-react';
 import { formatCustomerName, PAYMENT_DAY_OPTIONS } from '../../utils/format.js';
 import MoneyInput from './MoneyInput.jsx';
+import CustomerPicker from './CustomerPicker.jsx';
 import { useTableSort } from './useTableSort.js';
 import { useSaveShortcut } from './useSaveShortcut.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
@@ -55,77 +56,6 @@ const EMPTY_FORM = {
 };
 
 const EMPTY_WORK = { name: '', vendor: '', price: '', scheduledDate: '', completed: false, note: '' };
-
-/**
- * 고객 DB에서 사람을 찾아 이름과 연락처를 채우는 입력칸.
- *
- * 연락처가 저장된 고객만 후보로 보여 준다. 연락처가 없으면 출고 때 연락할 수 없어 쓸모가 없다.
- * 검색 결과에 없으면 직접 입력해도 그대로 저장된다.
- *
- * @param {string} label 칸 이름
- * @param {string} value 현재 이름
- * @param {(name: string, phone: string) => void} onPick 고객을 고르면 이름과 연락처를 함께 넘긴다
- * @param {(name: string) => void} onType 직접 입력할 때
- */
-function CustomerPicker({ label, value, onPick, onType, labelStyle, inputStyle, apiHost }) {
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState([]);
-  const [open, setOpen] = useState(false);
-
-  // 입력할 때마다 요청하지 않도록 잠시 기다렸다가 검색한다
-  useEffect(() => {
-    const term = query.trim();
-    if (term.length < 2) { setResults([]); return; }
-
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(`${apiHost}/api/customers?search=${encodeURIComponent(term)}&limit=30`);
-        const data = await res.json();
-        const withPhone = (data.customers || [])
-          .map(c => ({ ...c, _phone: c.mobilePhone || c.contactPhone || '' }))
-          .filter(c => c._phone.trim() !== '')
-          .slice(0, 10);
-        setResults(withPhone);
-      } catch {
-        setResults([]);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [query, apiHost]);
-
-  return (
-    <div style={{ position: 'relative' }}>
-      <label style={labelStyle}>{label}</label>
-      <input
-        value={open ? query : value}
-        onFocus={() => { setOpen(true); setQuery(''); }}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        onChange={(e) => { setQuery(e.target.value); onType(e.target.value); }}
-        style={inputStyle}
-        placeholder="이름 두 글자 이상 입력"
-      />
-      {open && results.length > 0 && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid var(--border-color)', borderRadius: '6px', boxShadow: '0 6px 18px rgba(0,0,0,0.12)', zIndex: 10, maxHeight: '210px', overflowY: 'auto' }}>
-          {results.map(c => (
-            <div
-              key={c._id}
-              onMouseDown={() => { onPick(formatCustomerName(c), c._phone); setQuery(''); setResults([]); setOpen(false); }}
-              style={{ padding: '0.5rem 0.7rem', cursor: 'pointer', fontSize: '0.82rem', borderBottom: '1px solid var(--border-color)' }}
-            >
-              <div style={{ fontWeight: '700', color: 'var(--text-bright)' }}>{formatCustomerName(c)}</div>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.76rem' }}>{c._phone}</div>
-            </div>
-          ))}
-        </div>
-      )}
-      {open && query.trim().length >= 2 && results.length === 0 && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '0.5rem 0.7rem', fontSize: '0.78rem', color: 'var(--text-muted)', zIndex: 10 }}>
-          연락처가 저장된 고객 중 검색 결과가 없습니다.
-        </div>
-      )}
-    </div>
-  );
-}
 
 function DeliveryPrepView({ showToast, currentUser }) {
   const [vehicles, setVehicles] = useState([]);

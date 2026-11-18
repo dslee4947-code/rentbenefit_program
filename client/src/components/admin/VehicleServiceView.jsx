@@ -123,6 +123,25 @@ const whoOf = (r) => (isLong(r) ? (r.partyName || r.plateNo || '-') : '단기');
  * 예약·검사 때 연락할 사람(렌트차량 DB 운전자, 없으면 계약 담당자). 전화번호는 누르면 걸린다.
  * 운전자가 비어 있어 계약 담당자를 보여 줄 때는 어디서 왔는지 함께 적는다.
  */
+/**
+ * 목록의 '계약자 · 실운전자' 칸. 렌트차량 DB에 실운전자가 있으면 계약자 아래 굵게 보여 준다(대표님 2026-11-18).
+ * 실운전자가 없으면 계약자만.
+ */
+function PartyCell({ r, cell, clip, width }) {
+  const d = r.driver;
+  const real = d && d.source === '운전자' && (d.name || d.phone) ? d : null;
+  return (
+    <td style={{ ...cell, maxWidth: width }} title={[r.partyName, real && `실운전자 ${real.name} ${real.phone}`].filter(Boolean).join(' / ')}>
+      <div style={clip}>{r.partyName || '-'}</div>
+      {real && (
+        <div style={{ ...clip, fontSize: '0.78rem', fontWeight: 800, color: '#0f766e' }}>
+          🧑 {real.name}{real.relation && real.relation !== '기타' ? ` (${real.relation})` : ''}{real.phone ? ` · ${real.phone}` : ''}
+        </div>
+      )}
+    </td>
+  );
+}
+
 function DriverLine({ r, style }) {
   const d = r?.driver;
   if (!d || (!d.name && !d.phone)) {
@@ -998,7 +1017,7 @@ function Due({ item, color }) {
 }
 
 // '진행'(예약·진행 상태)은 맨 끝에 있으면 잘 안 보여 차량번호 바로 옆에 둔다(대표님 2026-11-17)
-const MAINT_COLUMNS = ['차량번호', '진행', '메모', '구분', '차종', '계약자', '약정 주행', '점검 주기', '마지막 정기점검', '지금 주행', '다음 정기점검', '점검 횟수'];
+const MAINT_COLUMNS = ['차량번호', '진행', '메모', '구분', '차종', '계약자 · 실운전자', '약정 주행', '점검 주기', '마지막 정기점검', '지금 주행', '다음 정기점검', '점검 횟수'];
 // 일정 → 진행 → 완료. 기록의 상태(예정 → 입고·수리 중 → 완료)를 그대로 쓴다.
 const STAGE = {
   예정: { label: '일정 잡힘', color: '#1d4ed8', bg: '#dbeafe' },
@@ -1150,7 +1169,7 @@ function MaintenanceRow({ r, selected, onOpen, onStep, cell, clip }) {
       <NotesCell r={r} cell={cell} />
       <td style={{ ...cell, color: 'var(--text-muted)' }}>{groupText(r)}</td>
       <td style={{ ...cell, ...clip, maxWidth: '170px' }} title={r.carModel}>{r.carModel}</td>
-      <td style={{ ...cell, ...clip, maxWidth: '150px' }} title={r.partyName}>{r.partyName || '-'}</td>
+      <PartyCell r={r} cell={cell} clip={clip} width="190px" />
       <td style={cell}>{annual ? `연 ${manKm(annual)}` : <span style={sub}>없음(연 2만km로 봄)</span>}</td>
       <td style={cell} title={m?.basis || ''}>
         {m ? (<>
@@ -1371,8 +1390,8 @@ function VehicleServiceView({ showToast, currentUser }) {
   // 칩 묶음에 맞춰 표를 바꾼다. 정기점검 칩이면 정기점검에 필요한 칸만, 자동차검사 칩이면 검사·차령 칸만 보인다(대표님 2026-11-17).
   const mode = activeFilter?.group || '';
   const columns = mode === 'maint' ? MAINT_COLUMNS
-    : mode === 'insp' ? ['차량번호', '진행', '메모', '구분', '차종', '계약자', '자동차검사', '차령', '최근 기록']
-      : ['차량번호', '메모', '구분', '차종', '계약자', '자동차검사', '차령', '정기점검', '최근 기록'];
+    : mode === 'insp' ? ['차량번호', '진행', '메모', '구분', '차종', '계약자 · 실운전자', '자동차검사', '차령', '최근 기록']
+      : ['차량번호', '메모', '구분', '차종', '계약자 · 실운전자', '자동차검사', '차령', '정기점검', '최근 기록'];
   const modeKind = mode === 'maint' ? '정기점검' : mode === 'insp' ? '자동차검사' : '';
   const bookedRank = (r) => {
     const b = modeKind && bookingOf(r, modeKind);
@@ -1380,7 +1399,7 @@ function VehicleServiceView({ showToast, currentUser }) {
   };
   const bookedDate = (r) => (modeKind && bookingOf(r, modeKind)?.date) || '';
   const visible = rows
-    .filter((r) => !q || [r.plateNo, r.carModel, r.partyName].some((x) => String(x || '').replace(/\s+/g, '').toLowerCase().includes(q)))
+    .filter((r) => !q || [r.plateNo, r.carModel, r.partyName, r.driver?.name, r.driver?.phone].some((x) => String(x || '').replace(/\s+/g, '').toLowerCase().includes(q)))
     .filter((r) => !activeFilter || activeFilter.test(r))
     // 자동차검사·정기점검 칩에서는 고객과 예약한 차(진행 중 → 일정 잡힘, 날짜 순)를 맨 위에 둔다(대표님 2026-11-17).
     // 그다음은 급한 차부터 (rankOf 설명 참고)
@@ -1492,7 +1511,7 @@ function VehicleServiceView({ showToast, currentUser }) {
         ))}
         <div style={{ position: 'relative', marginLeft: 'auto' }}>
           <Search size={13} style={{ position: 'absolute', left: '0.5rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="차량번호·차종·계약자" style={{ ...input, width: '200px', paddingLeft: '1.6rem' }} />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="차량번호·차종·계약자·운전자" style={{ ...input, width: '220px', paddingLeft: '1.6rem' }} />
         </div>
         <button type="button" onClick={load} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-muted)', padding: '0.4rem 0.6rem', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}>
           <RefreshCw size={12} /> 새로고침
@@ -1537,7 +1556,7 @@ function VehicleServiceView({ showToast, currentUser }) {
                   <NotesCell r={r} cell={cell} />
                   <td style={{ ...cell, color: 'var(--text-muted)' }}>{groupText(r)}</td>
                   <td style={{ ...cell, ...clip, maxWidth: '200px' }} title={r.carModel}>{r.carModel}</td>
-                  <td style={{ ...cell, ...clip, maxWidth: '170px' }} title={r.partyName}>{r.partyName || '-'}</td>
+                  <PartyCell r={r} cell={cell} clip={clip} width="210px" />
                   <td style={cell}>
                     {insp ? (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>

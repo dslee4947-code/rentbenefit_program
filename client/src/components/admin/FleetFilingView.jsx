@@ -19,6 +19,9 @@ const card = { background: 'var(--bg-surface)', border: '1px solid var(--border-
 const input = { padding: '0.35rem 0.5rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.84rem', background: 'var(--bg-surface)', color: 'var(--text-main)', width: '100%', boxSizing: 'border-box' };
 const th = { padding: '0.4rem 0.5rem', fontSize: '0.76rem', fontWeight: 800, background: 'var(--bg-main)', borderBottom: '2px solid var(--border-color)', textAlign: 'left', whiteSpace: 'nowrap' };
 const td = { padding: '0.3rem 0.5rem', borderBottom: '1px solid var(--border-color)', fontSize: '0.82rem', verticalAlign: 'middle' };
+// ⑥ 변경 사유에 버튼으로 한 줄 더 넣는 말
+const REASON_EXTRAS = ['차고지 증명', '차고지계약 연장 신청'];
+
 const btn = (kind = 'ghost') => ({
   padding: '0.4rem 0.85rem', borderRadius: '6px', fontSize: '0.84rem', fontWeight: 700, cursor: 'pointer',
   border: kind === 'ghost' ? '1px solid var(--border-color)' : 'none',
@@ -162,7 +165,24 @@ function FilingEditor({ info, filing, canEdit, onSave, onStatus, onDelete, onOpe
           <input style={input} disabled={!editable} value={draft.registrationLabel} placeholder={defaultRegistrationLabelOf(draft.kind, sheet.increase, sheet.decrease)} onChange={(e) => set({ registrationLabel: e.target.value })} />
         </label>
         <label style={{ fontSize: '0.78rem', fontWeight: 700 }}>⑥ 변경 사유 (비우면 자동)
-          <textarea rows={2} style={{ ...input, resize: 'vertical' }} disabled={!editable} value={draft.reason} placeholder={defaultReasonOf(draft.kind, sheet.increase, sheet.decrease)} onChange={(e) => set({ reason: e.target.value })} />
+          <textarea rows={3} style={{ ...input, resize: 'vertical' }} disabled={!editable} value={draft.reason} placeholder={defaultReasonOf(draft.kind, sheet.increase, sheet.decrease)} onChange={(e) => set({ reason: e.target.value })} />
+          {/* 1년에 한 번 차고지 증명을 함께 낼 때 사유에 한 줄 더 넣는다(대표님 2026-11-18). 다시 누르면 뺀다. */}
+          {editable && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.3rem' }}>
+              {REASON_EXTRAS.map((extra) => {
+                const base = (draft.reason || '').trim() || defaultReasonOf(draft.kind, sheet.increase, sheet.decrease);
+                const lines = base.split('\n').map((l) => l.trim()).filter(Boolean);
+                const on = lines.includes(extra);
+                return (
+                  <button key={extra} type="button" aria-pressed={on}
+                    style={{ ...btn(), fontSize: '0.74rem', padding: '0.15rem 0.5rem', ...(on ? { background: 'var(--primary)', color: '#fff', borderColor: 'var(--primary)' } : {}) }}
+                    onClick={() => set({ reason: (on ? lines.filter((l) => l !== extra) : [...lines, extra]).join('\n') })}>
+                    {on ? '✓ ' : '+ '}{extra}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </label>
         <label style={{ fontSize: '0.78rem', fontWeight: 700 }}>메모
           <textarea rows={2} style={{ ...input, resize: 'vertical' }} disabled={!canEdit} value={draft.memo} onChange={(e) => set({ memo: e.target.value })} />

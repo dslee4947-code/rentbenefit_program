@@ -83,7 +83,9 @@ export const headInfoOf = (text) => {
       out.contactName = name;
     }
   }
-  for (const line of head) {
+  // "픽업:서울시 …"처럼 픽업이라고 적힌 주소가 있으면 그 줄을 먼저 쓴다(2026-11-19 101하7215: 첫 줄은 회사 주소)
+  const ordered = [...head.filter((l) => /^[^:：]{0,10}픽업[^:：]{0,4}[:：]/.test(l)), ...head];
+  for (const line of ordered) {
     if (!ADDRESS.test(line)) continue;
     const label = (line.match(ADDRESS_LABEL) || [])[1] || '';
     if (label && SHOP_LABEL.test(label)) continue;
@@ -101,7 +103,8 @@ const kmOf = (line) => {
   return Number.isFinite(n) && n > 0 ? n : undefined;
 };
 const fuelOf = (line) => {
-  const m = String(line || '').match(/주유\s*([^/]+)/) || String(line || '').match(/\/\s*(\d{1,3}\s*%)\s*\//);
+  // "주유 3/4"의 '/'는 칸 나눔이 아니다
+  const m = String(line || '').match(/주유\s*(\d+\s*\/\s*\d+|[^/]+)/) || String(line || '').match(/\/\s*(\d{1,3}\s*%)\s*\//);
   const v = m ? m[1].trim() : '';
   return v === '상태' || v === '' ? '' : v;
 };
@@ -198,8 +201,11 @@ export const parseServiceEvent = (event) => {
   // 양식 그대로 둔 빈칸("입고지 / 담당자")은 비운다
   const shopRaw = (headerLine.match(/AS\s*\(([^)]*)\)/) || [])[1] || '';
   const shop = /^\s*입고지\s*\/\s*담당자\s*$/.test(shopRaw) ? '' : shopRaw.replace(/\/\s*$/, '');
-  const pickup = lineValue(text, '픽업');
-  const deliver = lineValue(text, '인도');
+  // 픽업·인도 칸은 양식(머리줄 아래)에서 읽는다. 위 연락처 줄의 "픽업:서울시 …" 주소 줄을 먼저 잡으면
+  // km·주유를 못 읽는다(2026-11-19 101하7215)
+  const body = headerLine ? text.slice(text.indexOf(headerLine) + headerLine.length) : text;
+  const pickup = lineValue(body, '픽업') || lineValue(text, '픽업');
+  const deliver = lineValue(body, '인도') || lineValue(text, '인도');
   // 방문정비는 픽업·인도 대신 '방문 : 27일 근무처 / 10:20 / 고객님 / 6,925km / 방문정비' 한 줄로 쓴다(2026-11-17 142호8391)
   const visit = lineValue(text, '방문');
   const request = lineValue(text, '점검 의뢰');

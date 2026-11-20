@@ -233,12 +233,17 @@ const EMPTY_FORM = {
   gifts: [{ name: '', price: '' }]
 };
 
+/** 장기렌트인데 실운전자(이름·전화)가 비어 있는 차 */
+const lacksDriver = (v) => v.status === '장기렌트' && !(v.driverInfo?.name || v.driverInfo?.phone || v.driver);
+
 function VehicleManagementView({ showToast, currentUser }) {
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  // 실운전자를 아직 안 넣은 장기렌트 차만 보기(대표님 2026-11-20, 렌트 차량 AS 맨 앞 칸이 이 값을 쓴다)
+  const [noDriverOnly, setNoDriverOnly] = useState(false);
   const [stats, setStats] = useState({ total: 0, '계약중': 0, '장기렌트': 0, '단기렌트': 0, '재고': 0, '거래완료': 0 });
 
   const [showModal, setShowModal] = useState(false);
@@ -909,7 +914,11 @@ function VehicleManagementView({ showToast, currentUser }) {
 
   // 표 머리글을 눌러 정렬한다. 검색·상태는 서버가 걸러 주고, 정렬은 받아 온 목록에서 한다.
   // 정렬을 고르지 않았을 때는 기본 순서(상태 -> 최근 출고순)로 보여 준다.
-  const orderedVehicles = useMemo(() => [...vehicles].sort(byDefaultOrder), [vehicles]);
+  const noDriverCount = useMemo(() => vehicles.filter(lacksDriver).length, [vehicles]);
+  const orderedVehicles = useMemo(
+    () => (noDriverOnly ? vehicles.filter(lacksDriver) : [...vehicles]).sort(byDefaultOrder),
+    [vehicles, noDriverOnly]
+  );
   const sort = useTableSort(orderedVehicles, VEHICLE_COLUMNS);
   const sortedVehicles = sort.rows;
 
@@ -1031,9 +1040,17 @@ function VehicleManagementView({ showToast, currentUser }) {
         <SortControls
           sort={sort}
           defaultLabel="기본 순서 (상태 · 최근 출고순)"
-          show={sort.active || Boolean(searchTerm) || statusFilter !== 'all'}
-          onReset={() => { setSearchTerm(''); setStatusFilter('all'); }}
+          show={sort.active || Boolean(searchTerm) || statusFilter !== 'all' || noDriverOnly}
+          onReset={() => { setSearchTerm(''); setStatusFilter('all'); setNoDriverOnly(false); }}
         />
+        <button
+          type="button"
+          onClick={() => setNoDriverOnly((x) => !x)}
+          title="장기렌트 차 중 실운전자를 아직 넣지 않은 차만 봅니다"
+          style={{ border: `1px solid ${noDriverOnly ? '#b45309' : 'var(--border-color)'}`, background: noDriverOnly ? '#fef3c7' : '#fff', color: noDriverOnly ? '#b45309' : 'var(--text-muted)', padding: '0.55rem 0.9rem', borderRadius: '8px', fontSize: '0.83rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+        >
+          🧑 실운전자 미등록 {noDriverCount}대
+        </button>
         <button
           type="button"
           onClick={openAddModal}

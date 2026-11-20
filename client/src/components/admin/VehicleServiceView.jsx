@@ -123,21 +123,30 @@ const whoOf = (r) => (isLong(r) ? (r.partyName || r.plateNo || '-') : '단기');
  * 예약·검사 때 연락할 사람(렌트차량 DB 운전자, 없으면 계약 담당자). 전화번호는 누르면 걸린다.
  * 운전자가 비어 있어 계약 담당자를 보여 줄 때는 어디서 왔는지 함께 적는다.
  */
-/**
- * 목록의 '계약자 · 실운전자' 칸. 렌트차량 DB에 실운전자가 있으면 계약자 아래 굵게 보여 준다(대표님 2026-11-18).
- * 실운전자가 없으면 계약자만.
- */
+/** 목록의 '계약자' 칸 */
 function PartyCell({ r, cell, clip, width }) {
+  return (
+    <td style={{ ...cell, maxWidth: width }} title={r.partyName || ''}>
+      <div style={clip}>{r.partyName || '-'}</div>
+    </td>
+  );
+}
+
+/**
+ * 목록 맨 앞 '실운전자' 칸(차량번호 앞, 대표님 2026-11-20). 렌트차량 DB의 실운전자만 쓴다.
+ * 비어 있으면 장기렌트는 '미등록'으로 알리고(렌트차량 DB에서 넣는다), 단기렌트·사고대차는 탈 사람이 매번 달라 비워 둔다.
+ */
+function DriverCell({ r, cell, clip, edge }) {
   const d = r.driver;
   const real = d && d.source === '운전자' && (d.name || d.phone) ? d : null;
   return (
-    <td style={{ ...cell, maxWidth: width }} title={[r.partyName, real && `실운전자 ${real.name} ${real.phone}`].filter(Boolean).join(' / ')}>
-      <div style={clip}>{r.partyName || '-'}</div>
-      {real && (
-        <div style={{ ...clip, fontSize: '0.78rem', fontWeight: 800, color: '#0f766e' }}>
-          🧑 {real.name}{real.relation && real.relation !== '기타' ? ` (${real.relation})` : ''}{real.phone ? ` · ${real.phone}` : ''}
-        </div>
-      )}
+    <td style={{ ...cell, maxWidth: '150px', ...edge }} title={real ? [real.name, real.relation && `(${real.relation})`, real.phone, real.note].filter(Boolean).join(' ') : ''}>
+      {real ? (<>
+        <div style={{ ...clip, fontWeight: 800, color: '#0f766e' }}>{real.name || '-'}</div>
+        {real.phone && <div style={{ ...clip, fontSize: '0.74rem', color: 'var(--text-muted)' }}>{real.phone}</div>}
+      </>) : isLong(r)
+        ? <span style={{ fontSize: '0.74rem', color: '#b45309', fontWeight: 700 }}>미등록</span>
+        : <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>-</span>}
     </td>
   );
 }
@@ -1017,7 +1026,7 @@ function Due({ item, color }) {
 }
 
 // '진행'(예약·진행 상태)은 맨 끝에 있으면 잘 안 보여 차량번호 바로 옆에 둔다(대표님 2026-11-17)
-const MAINT_COLUMNS = ['차량번호', '진행', '메모', '구분', '차종', '계약자 · 실운전자', '약정 주행', '점검 주기', '마지막 정기점검', '지금 주행', '다음 정기점검', '점검 횟수'];
+const MAINT_COLUMNS = ['실운전자', '차량번호', '진행', '메모', '구분', '차종', '계약자', '약정 주행', '점검 주기', '마지막 정기점검', '지금 주행', '다음 정기점검', '점검 횟수'];
 // 일정 → 진행 → 완료. 기록의 상태(예정 → 입고·수리 중 → 완료)를 그대로 쓴다.
 const STAGE = {
   예정: { label: '일정 잡힘', color: '#1d4ed8', bg: '#dbeafe' },
@@ -1164,7 +1173,8 @@ function MaintenanceRow({ r, selected, onOpen, onStep, cell, clip }) {
   const st = stageOf(bookingOf(r, '정기점검'));
   return (
     <tr onClick={onOpen} style={{ cursor: 'pointer', background: selected ? 'var(--bg-main)' : st ? st.bg : over ? '#fef2f2' : undefined }}>
-      <td style={{ ...cell, fontWeight: 800, color: st ? st.color : over ? 'var(--error)' : 'var(--text-bright)', borderLeft: `4px solid ${st ? st.color : over || soon ? tone : 'transparent'}` }}>{r.plateNo || '-'}</td>
+      <DriverCell r={r} cell={cell} clip={clip} edge={{ borderLeft: `4px solid ${st ? st.color : over || soon ? tone : 'transparent'}` }} />
+      <td style={{ ...cell, fontWeight: 800, color: st ? st.color : over ? 'var(--error)' : 'var(--text-bright)' }}>{r.plateNo || '-'}</td>
       <ProgressCell r={r} kind="정기점검" onStep={onStep} cell={cell} />
       <NotesCell r={r} cell={cell} />
       <td style={{ ...cell, color: 'var(--text-muted)' }}>{groupText(r)}</td>
@@ -1390,8 +1400,8 @@ function VehicleServiceView({ showToast, currentUser }) {
   // 칩 묶음에 맞춰 표를 바꾼다. 정기점검 칩이면 정기점검에 필요한 칸만, 자동차검사 칩이면 검사·차령 칸만 보인다(대표님 2026-11-17).
   const mode = activeFilter?.group || '';
   const columns = mode === 'maint' ? MAINT_COLUMNS
-    : mode === 'insp' ? ['차량번호', '진행', '메모', '구분', '차종', '계약자 · 실운전자', '자동차검사', '차령', '최근 기록']
-      : ['차량번호', '메모', '구분', '차종', '계약자 · 실운전자', '자동차검사', '차령', '정기점검', '최근 기록'];
+    : mode === 'insp' ? ['실운전자', '차량번호', '진행', '메모', '구분', '차종', '계약자', '자동차검사', '차령', '최근 기록']
+      : ['실운전자', '차량번호', '메모', '구분', '차종', '계약자', '자동차검사', '차령', '정기점검', '최근 기록'];
   const modeKind = mode === 'maint' ? '정기점검' : mode === 'insp' ? '자동차검사' : '';
   const bookedRank = (r) => {
     const b = modeKind && bookingOf(r, modeKind);
@@ -1551,7 +1561,8 @@ function VehicleServiceView({ showToast, currentUser }) {
                   onClick={() => openVehicle(r.vehicleId)}
                   style={{ cursor: 'pointer', background: selectedId === r.vehicleId ? 'var(--bg-main)' : urgent?.bg }}
                 >
-                  <td style={{ ...cell, fontWeight: 800, color: urgent?.fg || 'var(--text-bright)', borderLeft: `4px solid ${urgent?.fg || 'transparent'}` }}>{r.plateNo || '-'}</td>
+                  <DriverCell r={r} cell={cell} clip={clip} edge={{ borderLeft: `4px solid ${urgent?.fg || 'transparent'}` }} />
+                  <td style={{ ...cell, fontWeight: 800, color: urgent?.fg || 'var(--text-bright)' }}>{r.plateNo || '-'}</td>
                   {mode === 'insp' && <ProgressCell r={r} kind="자동차검사" onStep={progressStep} cell={cell} />}
                   <NotesCell r={r} cell={cell} />
                   <td style={{ ...cell, color: 'var(--text-muted)' }}>{groupText(r)}</td>

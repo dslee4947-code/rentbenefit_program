@@ -65,8 +65,6 @@ const defaultSettings = () => ({
 });
 // 계약 만기 처리 비교표의 입력값(제3자 인수, 반납 예상 수리비)
 const defaultMaturity = () => ({ thirdParty: false, successionFee: SUCCESSION_FEE, repair: '', standardValue: '', insurance: '' });
-// 인수 후 고객이 새로 드는 자동차 보험료(예상). 법인은 약 120만원(대표님 2026-11-18), 개인은 넣지 않는다
-const TAKEOVER_INSURANCE_CORP = 1200000;
 // 연장 시작일 + 개월 - 1일 = 연장 계약 마지막 날
 const extensionEndOf = (start, months) => {
   if (!start || !(months > 0)) return '';
@@ -136,6 +134,8 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
   const fit = phoneFitStyles(usePhoneFit(sheetOuterRef, sheetRef, SHEET_WIDTH_PX, []), SHEET_WIDTH_PX);
 
   const setCarField = (patch) => setCar((prev) => ({ ...prev, ...patch }));
+  // 새 안은 1안 조건(기간·보증금·약정거리 등)을 그대로 복사해 바꿀 곳만 고치게 한다
+  const addOption = () => setOptions((p) => (p.length >= MAX_OPTIONS ? p : [...p, { ...(p[p.length - 1] || newOption(12)), include: true }]));
   const setOpt = (i, patch) => setOptions((prev) => prev.map((o, j) => (j === i ? { ...o, ...patch } : o)));
 
   const ageLimit = vehicleAgeLimit({ registrationDate: car.registrationDate, cc: car.cc }, car.startDate || todayYmd());
@@ -167,7 +167,8 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
     registrationDate: car.registrationDate, model: car.carModel, cc: car.cc, newCarPrice: car.newCarPrice,
     contractEnd: car.contractEnd, standardValueNow: maturity.standardValue, standardYear: todayYmd()
   } : null;
-  const maturityInsurance = maturity.insurance !== '' && maturity.insurance !== undefined ? Number(maturity.insurance) || 0 : car.partyType === '법인' ? TAKEOVER_INSURANCE_CORP : 0;
+  // 인수 후 보험료는 차마다 달라(레이는 120만원보다 훨씬 적다) 우리가 직접 넣는다. 비우면 비교표에서 뺀다(대표님 2026-11-23)
+  const maturityInsurance = Math.max(0, Number(maturity.insurance) || 0);
   const maturityView = maturityTable({ m: maturityData, ext: maturityExt, startDate: car.startDate, thirdParty: maturity.thirdParty, repairKnown: Number(maturity.repair) > 0, tax: maturityTax, insurance: maturityInsurance });
 
   /** 지금 계약의 회차표를 읽어 남은 렌트료를 잡는다 */
@@ -558,7 +559,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
       {/* 계약 만기 처리 비교(대표님 2026-11-17): 1안 연장 · 2안 인수 · 3안 반납을 한 장으로 */}
       {isExt && car.contractId && (
         <div style={{ ...card, border: '1px solid #ad885c', borderTop: '3px solid #111e38' }} className="no-print">
-          <div style={cardTitle}>■ 계약 만기 처리 비교 <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>1안 연장 · 2안 인수 · 3안 반납(만기 반납)</span></div>
+          <div style={cardTitle}>■ 계약 만기 처리 비교 <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>{maturityView.cols.map((c) => c.title.replace(' 계약', '')).join(' · ')}</span></div>
           {maturityData.missingCount > 0 && (
             <div style={{ fontSize: '0.8rem', color: '#b91c1c', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '6px', padding: '0.4rem 0.6rem', marginBottom: '0.5rem' }}>
               <AlertTriangle size={13} style={{ verticalAlign: '-2px' }} /> 회차표가 계약 만기({car.contractEnd})보다 먼저 끝나 있습니다. 상환스케줄 기준으로 빠진 {maturityData.missingCount}개 회차
@@ -598,12 +599,15 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
             </label>
             {maturity.thirdParty && field('승계 수수료', <MoneyInput value={maturity.successionFee} onChange={(e) => setMaturity((p) => ({ ...p, successionFee: e.target.value }))} style={{ ...input, width: '140px' }} />)}
             {field('시가표준액 (위택스 조회값, 비우면 신차 공급가로 추정)', <MoneyInput value={maturity.standardValue} onChange={(e) => setMaturity((p) => ({ ...p, standardValue: e.target.value }))} style={{ ...input, width: '200px' }} placeholder="추정" />)}
-            {field(`인수 후 보험료 (비우면 ${car.partyType === '법인' ? '법인 약 120만원' : '넣지 않음'})`, <MoneyInput value={maturity.insurance} onChange={(e) => setMaturity((p) => ({ ...p, insurance: e.target.value }))} style={{ ...input, width: '180px' }} placeholder={car.partyType === '법인' ? '1,200,000' : '없음'} />)}
+            {field('인수 후 보험료 (1년 예상, 직접 입력 · 비우면 표에서 뺌)', <MoneyInput value={maturity.insurance} onChange={(e) => setMaturity((p) => ({ ...p, insurance: e.target.value }))} style={{ ...input, width: '180px', borderColor: maturityInsurance ? undefined : '#d97706' }} placeholder="보험료 입력" />)}
             {field('반납 예상 수리비 (비우면 반납 뒤 확정)', <MoneyInput value={maturity.repair} onChange={(e) => setMaturity((p) => ({ ...p, repair: e.target.value }))} style={{ ...input, width: '180px' }} placeholder="반납 뒤 확정" />)}
             <button type="button" onClick={printMaturity} style={{ ...btn(true), marginLeft: 'auto' }}><Printer size={15} /> 비교표 인쇄 / PDF</button>
           </div>
           <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            1안은 아래 [안별 조건 · 계산]에서 견적서에 넣은 연장 안으로 채워집니다. 비교표는 맨 아래에서 미리 볼 수 있습니다.
+            연장 안은 아래 [안별 조건 · 계산]에서 견적서에 넣은 안으로 채워집니다. 연장 안을 더 넣으면 1안·2안 연장, 그다음 인수·반납 순서로 번호가 붙습니다. 비교표는 맨 아래에서 미리 볼 수 있습니다.
+            {options.length < MAX_OPTIONS && (
+              <button type="button" onClick={addOption} style={{ ...btn(false), marginLeft: '0.5rem', padding: '0.25rem 0.6rem', fontSize: '0.78rem' }}><Plus size={13} /> 연장 안 추가 ({options.length + 1}안)</button>
+            )}
           </div>
         </div>
       )}
@@ -630,7 +634,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
         <div style={{ ...cardTitle, justifyContent: 'space-between' }}>
           <span>■ 안별 조건 · 계산</span>
           {options.length < MAX_OPTIONS && (
-            <button type="button" onClick={() => setOptions((p) => [...p, newOption(12, car.vehicleId ? p[0]?.deposit : '')])} style={btn(false)}><Plus size={14} /> 안 추가</button>
+            <button type="button" onClick={addOption} style={{ ...btn(true), padding: '0.4rem 0.9rem' }}><Plus size={14} /> {options.length + 1}안 추가</button>
           )}
         </div>
         <div style={{ overflowX: 'auto' }}>

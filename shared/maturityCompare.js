@@ -123,7 +123,7 @@ export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false,
   const row = (label, pick, section) => ({ label, section, cells: cols.map((c) => pick[c.kind](c.o)) });
   const t = m.takeover;
   const takeoverTax = tax ? acquisitionTaxOf({ ...tax, onDate: tax.contractEnd, takeoverPrice: t.price }) : null;
-  // 인수 후 고객이 새로 드는 보험료(예상, 법인 약 120만원 · 대표님 2026-11-18)
+  // 인수 후 고객이 새로 드는 보험료(예상). 화면에서 직접 넣은 값만 쓴다(대표님 2026-11-23)
   const ins = Math.max(0, Number(insurance) || 0);
   // 인수 금액(인수가 - 보증금 + 승계 수수료, 음수면 0) + 취득세 + 보험료
   const takeoverTotal = Math.max(0, t.pay) + (takeoverTax ? takeoverTax.tax : 0) + ins;

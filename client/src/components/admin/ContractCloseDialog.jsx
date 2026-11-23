@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { X, Undo2, KeyRound } from 'lucide-react';
+import { Undo2, KeyRound } from 'lucide-react';
 import MoneyInput from './MoneyInput.jsx';
+import ActionPage from './ActionPage.jsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -99,12 +100,8 @@ function ContractCloseDialog({ contractId, onClose, onDone, showToast }) {
   });
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '5vh 1rem', overflowY: 'auto' }}>
-      <div style={{ background: '#fff', borderRadius: '12px', width: 'min(600px, 100%)', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.2rem' }}>
-          <div style={{ fontWeight: 800, fontSize: '1.05rem' }}>계약 끝내기 — 반납 · 인수</div>
-          <button type="button" onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={18} /></button>
-        </div>
+    // 팝업 대신 페이지로 연다(대표님 2026-11-23, ActionPage)
+    <ActionPage title="계약 만료 — 반납 · 인수" onClose={onClose} width={720}>
         <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)' }}>
           <button type="button" style={tab(mode === '반납')} onClick={() => setMode('반납')}><Undo2 size={15} /> 반납 (차가 돌아옴)</button>
           <button type="button" style={tab(mode === '인수')} onClick={() => setMode('인수')}><KeyRound size={15} /> 인수 (고객이 삼)</button>
@@ -165,8 +162,7 @@ function ContractCloseDialog({ contractId, onClose, onDone, showToast }) {
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </ActionPage>
   );
 }
 

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import ContractExtendDialog from './ContractExtendDialog.jsx';
+import ContractCloseDialog from './ContractCloseDialog.jsx';
 import BasisDialog from './BasisDialog.jsx';
 import { AlertTriangle, ChevronRight, TrendingUp, Car, CalendarClock, Users, Info, Wallet, AlertOctagon } from 'lucide-react';
 
@@ -266,6 +267,12 @@ function ShortTermTargets({ st, onOpen }) {
 function ExecutiveSummary({ gapData, setActiveTab, showToast }) {
   const queryClient = useQueryClient();
   const [extendTarget, setExtendTarget] = useState(null);
+  const [closeTarget, setCloseTarget] = useState(null);
+  // 계약사를 누르면 견적서 > 계약 만기 처리로 가서 그 차를 불러온다(대표님 2026-11-23). 견적 화면이 열리며 읽고 지운다
+  const openMaturityQuote = (it) => {
+    try { sessionStorage.setItem('maturityPick', JSON.stringify({ contractId: it._id, plateNo: it.plateNo || '' })); } catch { /* 저장 못 하면 그냥 견적서만 연다 */ }
+    setActiveTab('quote-input');
+  };
   const [basis, setBasis] = useState(null); // 근거를 보고 있는 카드
   const { data, isLoading, isError } = useQuery({
     queryKey: ['dashboard-executive'],
@@ -469,7 +476,7 @@ function ExecutiveSummary({ gapData, setActiveTab, showToast }) {
       <div style={{ ...card }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
           <span style={{ fontWeight: 800, color: 'var(--text-bright)' }}>다가오는 만기 (90일)</span>
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>가까운 순 · 재계약·인수 권유 대상</span>
+          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>가까운 순 · 계약사를 누르면 만기 비교표 · 연장 · 만료(반납·인수)</span>
         </div>
         {expiring.items.length === 0 ? (
           <div style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>90일 안에 끝나는 계약이 없습니다.</div>
@@ -480,7 +487,12 @@ function ExecutiveSummary({ gapData, setActiveTab, showToast }) {
                 {expiring.items.slice(0, 10).map((it) => (
                   <tr key={it._id} style={{ borderTop: '1px solid var(--border-color)' }}>
                     <td style={{ padding: '0.45rem', whiteSpace: 'nowrap', fontWeight: 700, color: it.dDay <= 30 ? '#b45309' : 'var(--text-muted)' }}>D-{it.dDay}</td>
-                    <td style={{ padding: '0.45rem', fontWeight: 600 }}>{it.partyName}</td>
+                    <td style={{ padding: '0.45rem', fontWeight: 600 }}>
+                      <button type="button" onClick={() => openMaturityQuote(it)} title="견적서 > 계약 만기 처리에서 이 차로 비교표를 만듭니다"
+                        style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontWeight: 700, color: 'var(--primary)', textDecoration: 'underline', textUnderlineOffset: '3px', textAlign: 'left', fontSize: 'inherit' }}>
+                        {it.partyName}
+                      </button>
+                    </td>
                     <td style={{ padding: '0.45rem', color: 'var(--text-muted)' }}>{it.carModel} {it.plateNo}</td>
                     <td style={{ padding: '0.45rem', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{ymd(it.endDate)}</td>
                     <td style={{ padding: '0.45rem', whiteSpace: 'nowrap', textAlign: 'right' }}>{it.monthlyFee ? `월 ${krw(it.monthlyFee)}` : '-'}</td>
@@ -491,6 +503,14 @@ function ExecutiveSummary({ gapData, setActiveTab, showToast }) {
                         style={{ border: '1px solid #16a34a', color: '#16a34a', background: '#fff', borderRadius: '6px', padding: '0.2rem 0.55rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
                       >
                         연장
+                      </button>
+                      {/* 만료: 반납 또는 인수로 계약을 끝낸다 */}
+                      <button
+                        type="button"
+                        onClick={() => setCloseTarget(it._id)}
+                        style={{ marginLeft: '0.3rem', border: '1px solid #b45309', color: '#b45309', background: '#fff', borderRadius: '6px', padding: '0.2rem 0.55rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                      >
+                        만료
                       </button>
                     </td>
                   </tr>
@@ -505,6 +525,15 @@ function ExecutiveSummary({ gapData, setActiveTab, showToast }) {
       </div>
 
       {basis && <ExecBasis item={basis} data={data} onClose={() => setBasis(null)} go={setActiveTab} />}
+
+      {closeTarget && (
+        <ContractCloseDialog
+          contractId={closeTarget}
+          onClose={() => setCloseTarget(null)}
+          onDone={() => queryClient.invalidateQueries({ queryKey: ['dashboard-executive'] })}
+          showToast={showToast}
+        />
+      )}
 
       {extendTarget && (
         <ContractExtendDialog

@@ -282,7 +282,8 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
   const [createdBy, setCreatedBy] = useState('이두식');
   const [printFormType, setPrintFormType] = useState('rental'); // 'comparison' or 'rental'
   // 신차 견적 / 중고렌트 견적(연장·재렌트). 중고렌트는 계산식이 달라 화면을 통째로 바꾼다(UsedRentQuoteView)
-  const [quoteKind, setQuoteKind] = useState('신차');
+  // 대시보드 '다가오는 만기'에서 계약사를 눌러 왔으면 계약 만기 처리로 연다(UsedRentQuoteView가 차를 불러온다)
+  const [quoteKind, setQuoteKind] = useState(() => { try { return sessionStorage.getItem('maturityPick') ? '계약연장' : '신차'; } catch { return '신차'; } });
   const [isMaintenanceDetailModalOpen, setIsMaintenanceDetailModalOpen] = useState(false);
   const [subView, setSubView] = useState('quote'); // 'quote' or 'maintenance'
   const [tempMaintenanceItems, setTempMaintenanceItems] = useState([]);

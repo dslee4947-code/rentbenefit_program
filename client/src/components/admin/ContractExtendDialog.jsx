@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { X, CalendarPlus, FileCheck2 } from 'lucide-react';
+import { CalendarPlus, FileCheck2 } from 'lucide-react';
 import MoneyInput from './MoneyInput.jsx';
+import ActionPage from './ActionPage.jsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -118,14 +119,8 @@ function ContractExtendDialog({ contractId, onClose, onDone, showToast, initial 
   const label = { fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '0.25rem', display: 'block' };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '5vh 1rem', overflowY: 'auto' }}>
-      <div style={{ background: '#fff', borderRadius: '12px', width: 'min(640px, 100%)', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.2rem', borderBottom: '1px solid var(--border-color)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 800, fontSize: '1.05rem' }}>
-            <CalendarPlus size={18} style={{ color: 'var(--primary)' }} /> 계약 연장
-          </div>
-          <button type="button" onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={18} /></button>
-        </div>
+    // 팝업 대신 페이지로 연다(대표님 2026-11-23, ActionPage)
+    <ActionPage title="계약 연장" icon={<CalendarPlus size={20} style={{ color: 'var(--primary)' }} />} onClose={onClose} width={720}>
 
         {!preview ? (
           <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>불러오는 중...</div>
@@ -211,8 +206,7 @@ function ContractExtendDialog({ contractId, onClose, onDone, showToast, initial 
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </ActionPage>
   );
 }
 

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Search, Save, Printer, Plus, Trash2, FolderOpen, X, AlertTriangle, FileDown, Car, FileSignature, CalendarPlus } from 'lucide-react';
 import { printFitted, makeFittedPdf } from '../../utils/printFit.js';
 import usePhoneFit, { phoneFitStyles } from '../../utils/usePhoneFit.js';
@@ -256,6 +256,30 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
       // 신차가격은 손으로 고칠 수 있으니 못 찾아도 넘어간다
     }
   };
+
+  // 대시보드 '다가오는 만기'에서 계약사를 눌러 왔으면 그 계약의 차를 바로 불러온다(대표님 2026-11-23)
+  useEffect(() => {
+    if (!isExt) return;
+    let pick = null;
+    try { pick = JSON.parse(sessionStorage.getItem('maturityPick') || 'null'); sessionStorage.removeItem('maturityPick'); } catch { pick = null; }
+    if (!pick?.plateNo) return;
+    (async () => {
+      try {
+        await Promise.resolve();
+        setSearch(pick.plateNo);
+        const res = await fetch(`${API_HOST}/api/vehicles?search=${encodeURIComponent(pick.plateNo)}&limit=30`);
+        const data = await res.json();
+        const list = (data.vehicles || []).filter((v) => v.contract && typeof v.contract === 'object' && v.status !== '거래완료');
+        const v = list.find((x) => String(x.contract._id) === String(pick.contractId)) || list.find((x) => x.plateNo === pick.plateNo);
+        if (v) pickVehicle(v);
+        else { setResults(list); showToast?.(`${pick.plateNo} 차를 바로 찾지 못했습니다. 목록에서 골라 주세요.`, 'warning'); }
+      } catch {
+        showToast?.('서버 통신 오류가 발생했습니다.', 'error');
+      }
+    })();
+    // 화면이 열릴 때 한 번만
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const payload = () => ({
     quoteKind: kind,

@@ -113,7 +113,7 @@ const wonText = (n) => `${Math.round(Number(n) || 0).toLocaleString('ko-KR')}원
  * @returns {{ cols: {kind: 'ext'|'takeover'|'return', title: string}[], rows: {label: string, section?: 'settle', cells: string[], notes?: string[]}[] }}
  *   notes는 칸 아래, labelNote는 줄 이름 아래에 작게 붙는 설명. 괄호로 덧붙이지 않는다(대표님 2026-11-17)
  */
-export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false, repairKnown = false, tax = null, insurance = 0 }) => {
+export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false, repairKnown = false, tax = null, insurance = 0, carPrice = 0 }) => {
   const exts = ext.length ? ext : [null];
   const cols = [
     ...exts.map((o, i) => ({ kind: 'ext', o, title: `${i + 1}안 계약 연장` })),
@@ -127,7 +127,11 @@ export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false,
   const ins = Math.max(0, Number(insurance) || 0);
   // 인수 금액(인수가 - 보증금 + 승계 수수료, 음수면 0) + 취득세 + 보험료
   const takeoverTotal = Math.max(0, t.pay) + (takeoverTax ? takeoverTax.tax : 0) + ins;
+  // 경차는 취득세 75만원까지 감면이라 대부분 0원이다. 이때는 번호 등록 대행 수수료만 든다고 적는다(대표님 2026-11-23)
+  const lightFree = Boolean(takeoverTax?.light && takeoverTax.tax === 0);
   const rows = [
+    // 차량가: 처음 계약 때 차량 가격(차량가 + 옵션). 인수가가 아니라 원래 차 값이다. 칸을 합치지 않고 안마다 적는다(대표님 2026-11-23)
+    ...(Number(carPrice) > 0 ? [{ label: '차량가', cells: cols.map(() => wonText(carPrice)) }] : []),
     row('방법', { ext: (o) => (o ? `${o.months}개월 연장` : '연장 견적 없음'), takeover: () => (thirdParty ? '제3자 인수' : '인수'), return: () => '반납' }),
     row('기간', { ext: (o) => (o ? `${startDate} ~ ${o.endDate}` : '-'), takeover: () => '만기 종료', return: () => '만기 종료' }),
     // 1안은 기존 보증금을 연장 계약의 보증금·선수금으로 어떻게 나눴고, 인수가가 얼마라서 월 렌트료가 얼마인지
@@ -163,9 +167,11 @@ export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false,
     ...(tax ? [{
       label: '인수 시 취득세',
       labelNote: '구청 납부 · 예상',
-      cells: cols.map((c) => (c.kind !== 'takeover' ? '없음' : takeoverTax ? wonText(takeoverTax.tax) : '계산 불가')),
+      cells: cols.map((c) => (c.kind !== 'takeover' ? '없음' : lightFree ? '0원 · 경차 감면' : takeoverTax ? wonText(takeoverTax.tax) : '계산 불가')),
       // 구청 과표율(경과연수별 잔가율)을 함께 적는다(대표님 2026-11-17). 두 줄: 연도·과표율 / 과표
-      notes: cols.map((c) => (c.kind === 'takeover' && takeoverTax ? `${takeoverTax.year}년 ${takeoverTax.years}년차 과표율 ${(takeoverTax.rate * 100).toFixed(1)}%\n${takeoverTax.basis} 과표 ${wonText(takeoverTax.taxBase)}${takeoverTax.light ? ' · 경차 감면' : ''}` : ''))
+      // 경차 감면으로 0원이면 과표율 대신 '번호 등록 대행 수수료만 발생'을 적는다(인쇄 칸이 좁다)
+      notes: cols.map((c) => (c.kind === 'takeover' && lightFree ? `취득세 ${wonText(takeoverTax.grossTax)} 전액 감면\n번호 등록 대행\n수수료만 발생`
+        : c.kind === 'takeover' && takeoverTax ? `${takeoverTax.year}년 ${takeoverTax.years}년차 과표율 ${(takeoverTax.rate * 100).toFixed(1)}%\n${takeoverTax.basis} 과표 ${wonText(takeoverTax.taxBase)}${takeoverTax.light ? ' · 경차 감면' : ''}` : ''))
     }] : []),
     ...(ins > 0 ? [{
       ...row('인수 후 보험료', { ext: () => '없음', takeover: () => wonText(ins), return: () => '없음' }),
@@ -190,8 +196,8 @@ export const maturityTable = ({ m, ext = [], startDate = '', thirdParty = false,
       notes: cols.map((c) => {
         if (c.kind === 'ext') return c.o ? `월 렌트료 · ${c.o.months}개월` : '';
         if (c.kind === 'takeover') {
-          const parts = [`인수 금액 ${wonText(Math.max(0, t.pay))}`, ...(takeoverTax ? [`취득세 ${wonText(takeoverTax.tax)}`] : []), ...(ins > 0 ? [`보험료 약 ${wonText(ins)}`] : [])];
-          return `${parts.join(' + ')}${t.pay < 0 ? `\n보증금 ${wonText(-t.pay)} 반환` : ''}`;
+          const parts = [`인수 금액 ${wonText(Math.max(0, t.pay))}`, ...(takeoverTax && !lightFree ? [`취득세 ${wonText(takeoverTax.tax)}`] : []), ...(ins > 0 ? [`보험료 약 ${wonText(ins)}`] : [])];
+          return `${parts.join(' + ')}${lightFree ? '\n경차라 취득세 없음\n번호 등록 대행 수수료 별도' : ''}${t.pay < 0 ? `\n보증금 ${wonText(-t.pay)} 반환` : ''}`;
         }
         return m.return.depositBack > 0 ? `보증금 ${wonText(m.return.depositBack)} 반환` : '';
       })

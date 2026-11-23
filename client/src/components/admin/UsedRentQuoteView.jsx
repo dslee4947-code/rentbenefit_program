@@ -169,7 +169,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
   } : null;
   // 인수 후 보험료는 차마다 달라(레이는 120만원보다 훨씬 적다) 우리가 직접 넣는다. 비우면 비교표에서 뺀다(대표님 2026-11-23)
   const maturityInsurance = Math.max(0, Number(maturity.insurance) || 0);
-  const maturityView = maturityTable({ m: maturityData, ext: maturityExt, startDate: car.startDate, thirdParty: maturity.thirdParty, repairKnown: Number(maturity.repair) > 0, tax: maturityTax, insurance: maturityInsurance });
+  const maturityView = maturityTable({ m: maturityData, ext: maturityExt, startDate: car.startDate, thirdParty: maturity.thirdParty, repairKnown: Number(maturity.repair) > 0, tax: maturityTax, insurance: maturityInsurance, carPrice: car.newCarPrice });
 
   /** 지금 계약의 회차표를 읽어 남은 렌트료를 잡는다 */
   const loadSchedule = async (contractId) => {
@@ -791,7 +791,7 @@ function UsedRentQuoteView({ kind = '중고렌트', showToast, currentUser, onOp
         <div className="comparison-sheet-section maturity-sheet-section">
           <div className="print-fit-scroll m-fit-outer" ref={maturityOuterRef} style={{ overflowX: 'auto', ...maturityFit.outer }}>
             <div ref={maturityRef} className={`used-rent-print-area print-fit m-doc${maturityFit.outer ? ' m-fitted' : ''}`}
-              style={{ width: `${SHEET_WIDTH_PX}px`, height: `${SHEET_HEIGHT_PX}px`, margin: '0 auto', background: '#fff', padding: `${SHEET_MARGIN_PX}px`, color: '#000', fontFamily: "'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif", fontSize: '12.16px', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden', boxShadow: '0 0 0 1px var(--border-color)', ...maturityFit.inner }}>
+              style={{ width: `${SHEET_WIDTH_PX}px`, minHeight: `${SHEET_HEIGHT_PX}px`, margin: '0 auto', background: '#fff', padding: `${SHEET_MARGIN_PX}px`, color: '#000', fontFamily: "'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif", fontSize: '12.16px', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'visible', boxShadow: '0 0 0 1px var(--border-color)', ...maturityFit.inner }}>
               <MaturityCompareSheet car={car} m={maturityData} ext={maturityExt} thirdParty={maturity.thirdParty}
                 repairKnown={Number(maturity.repair) > 0} multiCar={schedule.carCount > 1} createdBy={createdBy} tax={maturityTax} insurance={maturityInsurance} />
             </div>

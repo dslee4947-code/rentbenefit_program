@@ -22,6 +22,7 @@ import { noticeKeyOf, findOverdueNotices, upsertNoticeSchedule, collectNotices }
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
 import { vehicleEndOf, lastDayOf } from '../utils/contractTerm.js';
 import { isShortTerm, buildShortTermSchedule, ensureShortTermRounds, shortTermVehicleView, postShortTermPaymentToLedger } from '../utils/shortTermBilling.js';
+import { isSameNotice } from '../utils/noticeIdentity.js';
 
 /**
  * 날짜를 YYYY-MM-DD로. Date 객체를 그냥 자르면 'Sun Oct 25 2026...'이 나온다.
@@ -1767,15 +1768,16 @@ const findSameFile = (schedule, hash) => {
  *
  * 파일 지문은 같은 고지서를 다시 스캔하면 달라진다. 실제로 자주 그렇게 된다(재스캔·재발송분).
  * 고지서에 적힌 번호가 같으면 다른 파일이어도 같은 건이다.
+ * 단, 위반일이나 차량번호가 다르면 번호를 잘못 읽은 것이라 다른 건으로 본다(utils/noticeIdentity.js).
  *
  * @param {object} schedule 회차표
- * @param {string} noticeNo 고지서 번호
+ * @param {{noticeNo: string, occurredAt?: any, plateNo?: string}} notice 새로 올리는 고지서
  * @returns {{round: number, attachment: object}|null}
  */
-const findSameNotice = (schedule, noticeNo) => {
-  if (!noticeNo) return null;
+const findSameNotice = (schedule, notice) => {
+  if (!notice?.noticeNo) return null;
   for (const r of schedule.rounds) {
-    const hit = (r.attachments || []).find((a) => a.noticeNo && a.noticeNo === noticeNo);
+    const hit = (r.attachments || []).find((a) => isSameNotice(a, notice));
     if (hit) return { round: r.no, attachment: hit };
   }
   return null;
@@ -1787,10 +1789,12 @@ const findSameNotice = (schedule, noticeNo) => {
  *
  * @returns {Promise<string>} 이미 있으면 안내 문장, 없으면 빈 값
  */
-const findInRentalNotices = async (noticeNo, fileHash) => {
+const findInRentalNotices = async (noticeNo, fileHash, body = {}) => {
   const or = [{ fileHash }];
   if (noticeNo) or.push({ noticeNo });
-  const hit = await RentalNotice.findOne({ $or: or }).select('plateNo kind customerName').lean();
+  const hits = await RentalNotice.find({ $or: or }).select('plateNo kind customerName fileHash noticeNo occurredAt').lean();
+  const notice = { noticeNo, occurredAt: body.occurredAt, plateNo: body.plateNo };
+  const hit = hits.find((h) => h.fileHash === fileHash || isSameNotice(h, notice));
   return hit
     ? `이 고지서는 이미 대차 고지서로 올라가 있습니다. (${hit.plateNo} · ${hit.kind}${hit.customerName ? ` · ${hit.customerName}` : ''}) 고지서 관리에서 확인해 주세요.`
     : '';
@@ -1916,12 +1920,12 @@ export const addRoundAttachment = async (req, res) => {
 
     const noticeNo = (req.body.noticeNo || '').trim();
     const fileHash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
-    const inRental = await findInRentalNotices(noticeNo, fileHash);
+    const inRental = await findInRentalNotices(noticeNo, fileHash, req.body);
     if (inRental) return res.status(409).json({ success: false, duplicate: true, message: inRental });
 
     // 고지서 번호가 같으면 파일이 달라도 같은 건이다. 재스캔한 고지서가 두 번 청구되는 것을 막는다.
     // 같은 회차라도 다른 파일(재스캔본)이면 막는다. 파일이 같으면 아래에서 그 자리의 값을 고친다.
-    const sameNotice = findSameNotice(schedule, noticeNo);
+    const sameNotice = findSameNotice(schedule, { noticeNo, occurredAt: req.body.occurredAt, plateNo: req.body.plateNo });
     if (sameNotice && (sameNotice.round !== round.no || sameNotice.attachment.fileHash !== fileHash)) {
       return res.status(409).json({
         success: false,
@@ -1993,12 +1997,14 @@ export const addUpcomingAttachment = async (req, res) => {
     }
 
     const fileHash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
-    const inRental = await findInRentalNotices((req.body.noticeNo || '').trim(), fileHash);
+    const inRental = await findInRentalNotices((req.body.noticeNo || '').trim(), fileHash, req.body);
     if (inRental) return res.status(409).json({ success: false, duplicate: true, message: inRental });
 
     // 고지서 번호가 같으면 파일이 달라도 같은 건이다. 재스캔한 고지서가 두 번 청구되는 것을 막는다.
     // 같은 회차라도 다른 파일(재스캔본)이면 막는다. 파일이 같으면 아래에서 그 자리의 값을 고친다.
-    const sameNotice = findSameNotice(schedule, (req.body.noticeNo || '').trim());
+    const sameNotice = findSameNotice(schedule, {
+      noticeNo: (req.body.noticeNo || '').trim(), occurredAt: req.body.occurredAt, plateNo: req.body.plateNo
+    });
     if (sameNotice && (sameNotice.round !== round.no || sameNotice.attachment.fileHash !== fileHash)) {
       return res.status(409).json({
         success: false,

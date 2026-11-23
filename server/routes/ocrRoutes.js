@@ -4,6 +4,7 @@ import { readFineNotice } from '../utils/fineNoticeOcr.js';
 import { findContractAtDate, findRentalAtDate } from '../utils/rentPeriod.js';
 import BillingSchedule from '../models/BillingSchedule.js';
 import RentalNotice from '../models/RentalNotice.js';
+import { isSameNotice } from '../utils/noticeIdentity.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 const router = express.Router();
@@ -32,24 +33,27 @@ const findAlreadyRegistered = async ({ noticeNo, plateNo, violationDate, amount 
   }
   if (!or.length) return null;
 
-  const schedule = await BillingSchedule.findOne({ $or: or })
+  // 번호가 같아도 위반일·차량번호가 다르면 다른 고지서다(번호를 잘못 읽은 경우). 그래서 여러 회차표를 다 본다.
+  const schedules = await BillingSchedule.find({ $or: or })
     .populate('contract', 'contractNo leaseCompany')
     .lean();
-  if (!schedule) return null;
 
-  const isSame = (a) => (noticeNo && a.noticeNo === noticeNo)
+  const notice = { noticeNo, occurredAt: violationDate, plateNo };
+  const isSame = (a) => isSameNotice(a, notice)
     || (plateNo && a.plateNo === plateNo && Number(a.amount) === Number(amount)
-        && a.occurredAt && String(a.occurredAt).slice(0, 10) === violationDate);
+        && a.occurredAt && new Date(a.occurredAt).toISOString().slice(0, 10) === violationDate);
 
-  for (const round of schedule.rounds || []) {
-    const hit = (round.attachments || []).find(isSame);
-    if (hit) {
-      return {
-        contractNo: schedule.contract?.contractNo || '',
-        partyName: schedule.contract?.leaseCompany || '',
-        roundNo: round.no,
-        fileName: hit.fileName || ''
-      };
+  for (const schedule of schedules) {
+    for (const round of schedule.rounds || []) {
+      const hit = (round.attachments || []).find(isSame);
+      if (hit) {
+        return {
+          contractNo: schedule.contract?.contractNo || '',
+          partyName: schedule.contract?.leaseCompany || '',
+          roundNo: round.no,
+          fileName: hit.fileName || ''
+        };
+      }
     }
   }
   return null;
@@ -64,7 +68,11 @@ const findAlreadyRegisteredRental = async ({ noticeNo, plateNo, violationDate, a
   if (noticeNo) or.push({ noticeNo });
   if (plateNo && violationDate && amount) or.push({ plateNo, amount, occurredAt: new Date(violationDate) });
   if (!or.length) return null;
-  const hit = await RentalNotice.findOne({ $or: or }).select('plateNo fileName').lean();
+  const hits = await RentalNotice.find({ $or: or }).select('plateNo fileName noticeNo occurredAt amount').lean();
+  const notice = { noticeNo, occurredAt: violationDate, plateNo };
+  const hit = hits.find((h) => isSameNotice(h, notice)
+    || (plateNo && h.plateNo === plateNo && Number(h.amount) === Number(amount)
+        && h.occurredAt && new Date(h.occurredAt).toISOString().slice(0, 10) === violationDate));
   return hit ? { rentalNoticeId: hit._id, plateNo: hit.plateNo, fileName: hit.fileName || '' } : null;
 };
 

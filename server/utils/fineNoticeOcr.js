@@ -274,10 +274,28 @@ export const findDueDate = (text) => findLabeledDate(String(text || '').replace(
  */
 export const findNoticeNo = (text) => {
   const flat = String(text || '').replace(/\s+/g, ' ');
+  // 전자납부번호는 고지서마다 다른 긴 번호(19자리 안팎)라 가장 믿을 만하다.
+  const electronic = new RegExp(`${spaced('전자납부번호')}\\s*[:\\-]?\\s*((?:\\d[\\d\\- ]{13,28}\\d))`).exec(flat);
+  if (electronic) {
+    // 한 덩어리로 읽혔으면 그것만 쓴다. 뒤에 붙은 다른 숫자(기한 등)를 섞지 않기 위해서다.
+    const first = electronic[1].trim().split(' ')[0].replace(/-/g, '');
+    if (first.length >= 15) return first;
+    const digits = electronic[1].replace(/[^0-9]/g, '');
+    if (digits.length >= 15) return digits.slice(0, 19);
+  }
+  // 지방세식 납부번호: 기관부서코드(11) 연도(4) 회계(2) 과목(6) 고지번호(8) 검(1).
+  // 칸마다 띄어 읽히므로 덩어리를 모두 이어 붙인다. 앞 덩어리만 쓰면 같은 구청 고지서가 모두 같은 번호가 된다.
+  const localTax = /(?<!\d)(\d{11})\s*(20\d{2})\s*(\d{2})\s*(\d{6})\s*(\d{8})\s*(\d)(?!\d)/.exec(flat);
+  if (localTax) return localTax.slice(1).join('');
   for (const label of NOTICE_NO_LABELS) {
     const re = new RegExp(`${spaced(label)}\\s*[:\\-]?\\s*([0-9][0-9\\-]{6,29})`);
     const m = re.exec(flat);
-    if (m) return m[1].replace(/-+$/, '');
+    if (!m) continue;
+    const value = m[1].replace(/-+$/, '');
+    // 11자리 숫자 뒤에 연도가 이어지면 지방세 납부번호의 기관부서코드다. 고지서마다 같아 열쇠가 못 된다.
+    const after = flat.slice(m.index + m[0].length);
+    if (/^\d{11}$/.test(value) && /^\s*20\d{2}\b/.test(after)) continue;
+    return value;
   }
   return '';
 };

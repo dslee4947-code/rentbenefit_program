@@ -5,6 +5,7 @@ import { saveDocument, readSavedFile } from '../utils/documentStorageService.js'
 import { mimeTypeOf } from '../utils/oneDriveStorage.js';
 import { ACCIDENT_RENTAL_PARTY } from '../utils/accidentRentalCompany.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
+import { isSameNotice } from '../utils/noticeIdentity.js';
 
 // 화면에서 고칠 수 있는 항목. 파일 경로·지문은 올릴 때만 정해진다.
 const EDITABLE = [
@@ -29,12 +30,20 @@ const findDuplicate = async ({ noticeNo, fileHash, excludeId, plateNo, occurredA
   if (noticeNo) or.push({ noticeNo });
   // 고지번호가 없는 서식은 재스캔하면 파일 지문도 달라진다. 차량·위반일·금액이 모두 같으면 같은 건으로 본다.
   if (plateNo && occurredAt && Number(amount) > 0) or.push({ plateNo, occurredAt: new Date(occurredAt), amount: Number(amount) });
-  const own = await RentalNotice.findOne({ $or: or, ...(excludeId ? { _id: { $ne: excludeId } } : {}) }).lean();
+  // 고지번호가 같아도 위반일·차량번호가 다르면 번호를 잘못 읽은 것이라 다른 고지서로 본다(utils/noticeIdentity.js).
+  const notice = { noticeNo, occurredAt, plateNo };
+  const sameOne = (x) => (fileHash && x.fileHash === fileHash)
+    || isSameNotice(x, notice)
+    || (plateNo && occurredAt && Number(amount) > 0 && x.plateNo === plateNo && Number(x.amount) === Number(amount)
+        && x.occurredAt && new Date(x.occurredAt).getTime() === new Date(occurredAt).getTime());
+  const owns = await RentalNotice.find({ $or: or, ...(excludeId ? { _id: { $ne: excludeId } } : {}) }).lean();
+  const own = owns.find(sameOne);
   if (own) return `이미 대차 고지서로 올라가 있습니다. (${own.plateNo} · ${own.kind} · ${own.fileName || ''})`;
 
   const longOr = [{ 'rounds.attachments.fileHash': fileHash }];
   if (noticeNo) longOr.push({ 'rounds.attachments.noticeNo': noticeNo });
-  const schedule = await BillingSchedule.findOne({ $or: longOr }).populate('contract', 'contractNo leaseCompany').lean();
+  const schedules = await BillingSchedule.find({ $or: longOr }).populate('contract', 'contractNo leaseCompany').lean();
+  const schedule = schedules.find((s) => (s.rounds || []).some((r) => (r.attachments || []).some(sameOne)));
   if (schedule) {
     return `이미 장기렌트 청구서에 붙어 있습니다. (${schedule.contract?.leaseCompany || ''} ${schedule.contract?.contractNo || ''})`;
   }
@@ -149,7 +158,10 @@ export const updateRentalNotice = async (req, res) => {
       notice.settledAt = RENTAL_NOTICE_FINISHED.includes(notice.status) ? (notice.settledAt || new Date()) : undefined;
     }
     if (req.body.noticeNo !== undefined && notice.noticeNo) {
-      const duplicate = await findDuplicate({ noticeNo: notice.noticeNo, fileHash: notice.fileHash, excludeId: notice._id });
+      const duplicate = await findDuplicate({
+        noticeNo: notice.noticeNo, fileHash: notice.fileHash, excludeId: notice._id,
+        plateNo: notice.plateNo, occurredAt: notice.occurredAt, amount: notice.amount
+      });
       if (duplicate) return res.status(409).json({ success: false, duplicate: true, message: duplicate });
     }
     await notice.save();

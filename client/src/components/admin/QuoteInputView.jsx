@@ -4558,7 +4558,7 @@ function QuoteInputView({ setActiveTab, setPrefilledQuoteData, setPrefilledContr
                     <tr>
                       <td style={{ background: '#fafafa', padding: '2px', border: '1px solid #000', textAlign: 'center', fontWeight: '700' }}>자 기 신 체</td>
                       <td colSpan={3} style={{ padding: '2px 4px', border: '1px solid #000', textAlign: 'center', fontWeight: '600' }}>
-                        {firstOption?.opt.insuranceType === 'premium' ? '사상 2억 / 부상 3000만' : '사상 1억 / 부상 1500만'}
+                        {firstOption?.opt.insuranceType === 'premium' ? '자손 2억 / 부상 3000만' : '자손 1억 / 부상 1500만'}
                       </td>
                     </tr>
                     <tr>

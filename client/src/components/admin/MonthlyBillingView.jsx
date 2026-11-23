@@ -316,7 +316,18 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
       const data = await res.json();
       if (data.success) {
         setSavedForm(formSnapshot(form));
-        if (!silent) {
+        if (data.revised) {
+          // 발행한 청구서를 고쳤다. 정정 청구서를 다시 보내야 한다는 안내는 조용히 저장할 때도 보여 준다.
+          showToast?.(data.message, 'warning');
+          fetchDue();
+          // 정정 기록(revisedAt·revisions)이 화면 안내에 보이도록 회차표를 다시 읽는다
+          if (selected?.contract?._id) {
+            fetch(`${API_HOST}/api/billing-schedules/contract/${selected.contract._id}`, { cache: 'no-store' })
+              .then((r) => r.json())
+              .then((d) => { if (d.success) setSchedule(d.schedule); })
+              .catch(() => {});
+          }
+        } else if (!silent) {
           showToast?.('회차 내역이 저장되었습니다.', 'success');
           fetchDue();
         }
@@ -494,7 +505,8 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
   };
 
   const handleRemoveAttachment = async (index) => {
-    if (!window.confirm('이 서류를 목록에서 뺄까요?\n저장된 파일은 폴더에 그대로 남습니다.')) return;
+    const issuedNote = form?.issuedAt ? '\n\n이미 발행한 청구서입니다. 빼면 청구액이 바뀌어 정정 청구서를 다시 보내야 합니다.' : '';
+    if (!window.confirm(`이 서류를 목록에서 뺄까요?\n저장된 파일은 폴더에 그대로 남습니다.${issuedNote}`)) return;
     try {
       const res = await fetch(`${API_HOST}/api/billing-schedules/${schedule._id}/rounds/${form.no}/attachments/${index}`, {
         method: 'DELETE',
@@ -506,7 +518,8 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
         if (data.round) {
           applyDocAmounts(data.round);
         }
-        showToast?.(data.message, 'success');
+        showToast?.(data.message, data.revised ? 'warning' : 'success');
+        if (data.revised) refreshAll();
       } else {
         showToast?.(data.message || '빼지 못했습니다.', 'error');
       }
@@ -536,7 +549,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
         body: JSON.stringify({ noticeStatus })
       });
       const data = await res.json();
-      showToast?.(data.message || (data.success ? '처리했습니다.' : '처리하지 못했습니다.'), data.success ? 'success' : 'error');
+      showToast?.(data.message || (data.success ? '처리했습니다.' : '처리하지 못했습니다.'), data.success ? (data.revised ? 'warning' : 'success') : 'error');
       if (data.success) refreshAll();
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
@@ -1323,7 +1336,23 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                       const isCurrent = r.no === form?.no;
                       return (
                         <tr key={r.no} data-current={isCurrent ? 'true' : undefined} style={{ borderBottom: '1px solid var(--border-color)', background: isCurrent ? 'var(--primary-glow)' : 'transparent' }}>
-                          <td style={{ padding: '0.4rem 0.6rem', textAlign: 'center', fontWeight: '700' }}>{r.no}</td>
+                          <td style={{ padding: '0.4rem 0.6rem', textAlign: 'center', fontWeight: '700' }}>
+                            {r.no}
+                            {!isCurrent && (
+                              <button
+                                type="button"
+                                // 지난 회차를 열어 고친다. 지금 회차의 전월 미결제·이자 계산값이 따라가지 않게 뺀다.
+                                onClick={() => askThen(() => openRound({ ...selected, round: r, prevRound: undefined, suggestedInterest: 0 }))}
+                                title={r.issuedAt ? '이 회차 청구서를 열어 고칩니다 (정정 청구서를 다시 보내야 합니다)' : '이 회차를 엽니다'}
+                                style={{ display: 'block', margin: '0 auto', border: 'none', background: 'none', color: 'var(--primary)', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+                              >
+                                {r.issuedAt ? '고치기' : '열기'}
+                              </button>
+                            )}
+                            {r.revisedAt && r.issuedAt && new Date(r.revisedAt) > new Date(r.issuedAt) && (
+                              <div style={{ fontSize: '0.68rem', color: 'var(--error)', fontWeight: 800 }}>정정본 필요</div>
+                            )}
+                          </td>
                           <td style={{ padding: '0.4rem 0.6rem', textAlign: 'center' }}>{ymd(r.dueDate)}</td>
                           <td style={{ padding: '0.4rem 0.6rem', textAlign: 'right', color: 'var(--text-muted)' }}>{won(r.monthlyRent)}</td>
                           <td style={{ padding: '0.4rem 0.6rem', textAlign: 'right' }}>
@@ -1389,9 +1418,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                             )}
                           </td>
                           <td style={{ padding: '0.3rem 0.5rem' }}>
-                            {r.issuedAt ? (
-                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>발행됨 · 고칠 수 없음</span>
-                            ) : (
+                            {(
                               <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center' }}>
                                 {(() => {
                                   const cur = unpaidValue(r);
@@ -1455,6 +1482,36 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                 출금일 {ymd(selected.round.dueDate)} · {selected.company?.name || selected.customer?.name || ''}
               </div>
             </div>
+
+            {/* 발행한 청구서도 고칠 수 있다. 고치면 기록이 남고 정정 청구서를 다시 보내야 한다. */}
+            {form.issuedAt && (() => {
+              const live = schedule?.rounds?.find((r) => r.no === form.no) || form;
+              const pending = live.revisedAt && new Date(live.revisedAt) > new Date(live.issuedAt);
+              const revs = (live.revisions || []).slice(-3).reverse();
+              return (
+                <div style={{
+                  borderRadius: '8px', padding: '0.6rem 0.8rem', fontSize: '0.78rem', lineHeight: 1.5,
+                  background: pending ? '#fef2f2' : '#eff6ff', border: `1px solid ${pending ? '#fecaca' : '#bfdbfe'}`,
+                  color: pending ? '#b91c1c' : '#1e3a8a'
+                }}>
+                  <strong>
+                    {pending
+                      ? '고친 뒤 아직 정정 청구서를 다시 만들지 않았습니다'
+                      : `발행한 청구서입니다 (${ymd(live.issuedAt)}${live.sentAt ? ' 메일 보냄' : ''})`}
+                  </strong>
+                  <div style={{ color: 'var(--text-muted)' }}>
+                    {pending
+                      ? '아래 [정정본 PDF 저장] 또는 [정정본 발행 + 메일]로 다시 만들어 주세요. 이전 청구서 파일은 따로 남습니다.'
+                      : '금액·서류를 고칠 수 있습니다. 고치면 기록이 남고, 정정 청구서를 다시 보내야 합니다.'}
+                  </div>
+                  {revs.map((v, i) => (
+                    <div key={i} style={{ color: 'var(--text-main)' }}>
+                      · {ymd(v.at)} {v.summary} ({won(v.totalBefore)} → {won(v.totalAfter)}){v.by ? ` · ${v.by}` : ''}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
 
             {vehicles.length > 0 && (
               <div style={{ background: 'var(--bg-main)', borderRadius: '8px', padding: '0.7rem 0.8rem' }}>
@@ -1651,15 +1708,12 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                       <button
                         type="button"
                         onClick={() => handleNoticeStatus(i, paidByCustomer ? '청구예정' : '고객납부')}
-                        disabled={Boolean(form?.issuedAt)}
-                        title={form?.issuedAt
-                          ? '이미 발행한 회차라 바꿀 수 없습니다'
-                          : (paidByCustomer ? '다시 청구 대상으로 되돌립니다' : '고객이 직접 냈습니다. 청구액에서 뺍니다.')}
+                        title={(paidByCustomer ? '다시 청구 대상으로 되돌립니다' : '고객이 직접 냈습니다. 청구액에서 뺍니다.')
+                          + (form?.issuedAt ? ' (발행한 청구서라 고친 뒤 정정 청구서를 다시 보내야 합니다)' : '')}
                         style={{
                           flexShrink: 0, whiteSpace: 'nowrap', padding: '0.2rem 0.5rem', borderRadius: '5px',
                           fontSize: '0.75rem', fontWeight: '800',
-                          cursor: form?.issuedAt ? 'not-allowed' : 'pointer',
-                          opacity: form?.issuedAt ? 0.5 : 1,
+                          cursor: 'pointer',
                           border: `1px solid ${paidByCustomer ? '#16a34a' : 'var(--border-color)'}`,
                           background: paidByCustomer ? '#16a34a' : '#fff',
                           color: paidByCustomer ? '#fff' : 'var(--text-muted)'
@@ -1852,7 +1906,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                 disabled={issuing}
                 style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', background: '#fff', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '0.6rem', borderRadius: '8px', fontWeight: '700', fontSize: '0.85rem', cursor: issuing ? 'not-allowed' : 'pointer', opacity: issuing ? 0.7 : 1 }}
               >
-                <FileText size={15} /> PDF 저장
+                <FileText size={15} /> {form.issuedAt ? '정정본 PDF 저장' : 'PDF 저장'}
               </button>
               <button
                 type="button"
@@ -1860,7 +1914,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                 disabled={issuing}
                 style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', background: 'var(--primary)', color: '#fff', border: 'none', padding: '0.6rem', borderRadius: '8px', fontWeight: '700', fontSize: '0.85rem', cursor: issuing ? 'not-allowed' : 'pointer', opacity: issuing ? 0.7 : 1 }}
               >
-                <Send size={15} /> {issuing ? '발행 중...' : '발행 + 메일'}
+                <Send size={15} /> {issuing ? '발행 중...' : (form.issuedAt ? '정정본 발행 + 메일' : '발행 + 메일')}
               </button>
             </div>
 

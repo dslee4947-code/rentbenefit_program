@@ -23,6 +23,7 @@ import { logActivity, ACTIONS } from '../utils/activityLog.js';
 import { vehicleEndOf, lastDayOf } from '../utils/contractTerm.js';
 import { isShortTerm, buildShortTermSchedule, ensureShortTermRounds, shortTermVehicleView, postShortTermPaymentToLedger } from '../utils/shortTermBilling.js';
 import { isSameNotice } from '../utils/noticeIdentity.js';
+import { noteIssuedRevision, needsReissue } from '../utils/issuedRevision.js';
 
 /**
  * 날짜를 YYYY-MM-DD로. Date 객체를 그냥 자르면 'Sun Oct 25 2026...'이 나온다.
@@ -611,7 +612,8 @@ const deliverInvoice = async ({ schedule, round, partyName, fileName, pdfBuffer,
     }
   }
 
-  round.status = round.status === '입금완료' ? round.status : '청구됨';
+  // 정정 청구서를 다시 발행할 때 입금 결과(입금완료·미납)를 지우지 않는다
+  round.status = ['입금완료', '미납'].includes(round.status) ? round.status : '청구됨';
   round.issuedAt = new Date();
   round.invoiceFileName = saved.fileName;
   round.invoiceSavedPath = saved.localPath;
@@ -1557,7 +1559,9 @@ export const issueRound = async (req, res) => {
 
     // 자동 발송이 이 회차를 보내는 중이거나 이미 보냈으면 화면에서 또 보내지 않는다(고객이 두 번 받는다).
     // 승인만 걸려 있으면 DB에서 조건부로 풀어 아침 발송과 겹치지 않게 한다. 그사이 서버가 먼저 잡았으면 멈춘다.
-    if (['발송중', '발송완료'].includes(round.autoSend?.status)) {
+    // 자동 발송으로 나간 뒤 고친 회차(정정)는 다시 발행할 수 있다
+    const revisedAfterAutoSend = round.autoSend?.status === '발송완료' && needsReissue(round);
+    if (['발송중', '발송완료'].includes(round.autoSend?.status) && !revisedAfterAutoSend) {
       return res.status(409).json({ success: false, message: '자동 발송으로 보내는 중이거나 이미 보낸 청구서입니다. 자동 발송 탭에서 확인해 주세요.' });
     }
     if (round.autoSend?.status) {
@@ -2307,21 +2311,23 @@ export const removeRoundAttachment = async (req, res) => {
     if (!round.attachments[index]) {
       return res.status(404).json({ success: false, message: '해당 서류가 없습니다.' });
     }
-    // 이미 나간 청구서의 금액은 건드리지 않는다. 고객이 받은 금액과 장부가 어긋난다.
-    if (round.issuedAt) {
-      return res.status(400).json({ success: false, message: '이미 발행한 회차라 서류를 뺄 수 없습니다.' });
-    }
+    // 발행한 회차도 뺄 수 있다. 고친 기록을 남기고 정정 청구서를 다시 보내라고 알린다(finishIssuedRevision).
+    const totalBefore = round.total || 0;
     const removed = round.attachments[index];
     round.attachments.splice(index, 1);
     // 남은 서류만으로 금액을 다시 더한다. 서류를 뺐는데 금액이 남아 있으면 청구액이 맞지 않는다.
     recalcAfterRemoval(round);
+    const revision = await finishIssuedRevision(schedule, round, totalBefore,
+      `${removed.kind || '서류'}${removed.plateNo ? ` ${removed.plateNo}` : ''} ${Number(removed.amount || 0).toLocaleString()}원 빼기`, req);
     await schedule.save();
     // 캘린더에 걸린 납부기한도 지운다. 없는 고지서의 기한이 캘린더에 남으면 헛일을 한다.
     await Schedule.deleteOne({ 'source.key': noticeKeyOf(removed, schedule._id, round.no) });
     res.json({
       success: true,
       round,
+      revised: Boolean(revision),
       message: `${removed.fileName}을(를) 목록에서 뺐습니다. 저장된 파일은 그대로 있습니다.`
+        + (revision ? ` ${revision.message}` : '')
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -2345,10 +2351,7 @@ export const updateRoundAttachment = async (req, res) => {
     if (!round) return res.status(404).json({ success: false, message: '해당 회차가 없습니다.' });
     const att = round.attachments[Number(req.params.index)];
     if (!att) return res.status(404).json({ success: false, message: '해당 서류가 없습니다.' });
-    if (round.issuedAt) {
-      return res.status(400).json({ success: false, message: '이미 발행한 회차라 고칠 수 없습니다. 다음 회차에서 조정해 주세요.' });
-    }
-
+    const totalBefore = round.total || 0;
     const oldKey = noticeKeyOf(att, schedule._id, round.no);
     const b = req.body || {};
     const dateOf = (v) => (v ? new Date(`${String(v).slice(0, 10)}T00:00:00+09:00`) : undefined);
@@ -2364,6 +2367,8 @@ export const updateRoundAttachment = async (req, res) => {
 
     // 금액을 다시 더한다(손으로 넣은 금액이 남지 않게, 서류에 금액이 하나도 없으면 0으로)
     recalcAfterRemoval(round);
+    const revision = await finishIssuedRevision(schedule, round, totalBefore,
+      `${att.kind}${att.plateNo ? ` ${att.plateNo}` : ''} 고지서 내용 수정`, req);
     await schedule.save();
 
     // 캘린더 납부기한 일정: 열쇠(고지번호·차량·위반일·금액)가 바뀌었을 수 있어 지우고 다시 건다
@@ -2378,7 +2383,10 @@ export const updateRoundAttachment = async (req, res) => {
       summary: `${round.no}회차 고지서 수정 (${att.kind} ${Number(att.amount || 0).toLocaleString()}원)`,
       meta: { round: round.no, kind: att.kind, amount: att.amount, noticeNo: att.noticeNo }
     });
-    res.json({ success: true, round, attachment: att, message: `고지서를 고쳤습니다. ${round.no}회차 청구액은 ${Number(round.total || 0).toLocaleString()}원입니다.` });
+    res.json({
+      success: true, round, attachment: att, revised: Boolean(revision),
+      message: revision ? `고지서를 고쳤습니다. ${revision.message}` : `고지서를 고쳤습니다. ${round.no}회차 청구액은 ${Number(round.total || 0).toLocaleString()}원입니다.`
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -2438,6 +2446,29 @@ const recalcAfterRemoval = (round) => {
 };
 
 /**
+ * 발행한 회차를 고친 뒤 처리(저장 전에 부른다). 발행 전 회차면 null.
+ *
+ * 고친 기록을 남기고, 입금 상태를 새 청구액에 맞추고, 뒤의 미발행 회차의 전월 미결제·이자를 다시 센다.
+ * 청구한 뒤 고객이 고쳐 달라거나 직접 내겠다고 하는 일이 잦아 발행한 회차도 고칠 수 있게 했다(2026-11-23).
+ *
+ * @returns {Promise<{message: string}|null>}
+ */
+const finishIssuedRevision = async (schedule, round, totalBefore, summary, req) => {
+  const rev = noteIssuedRevision(round, { totalBefore, summary, by: req?.user?.name || '' });
+  if (!rev) return null;
+  const contractId = String(schedule.contract?._id || schedule.contract);
+  const rateMap = await loadLateInterestRates([contractId]);
+  applyCarryForward(schedule, rateMap.get(contractId) || 25, round.no);
+  logActivity({
+    req, dept: '청구부', action: ACTIONS.ROUND_STATUS_CHANGE,
+    target: { model: 'BillingSchedule', id: schedule._id },
+    summary: `발행한 ${round.no}회차 청구서 정정: ${summary} (${rev.totalBefore.toLocaleString()} → ${rev.totalAfter.toLocaleString()}원)`,
+    meta: { round: round.no, totalBefore: rev.totalBefore, totalAfter: rev.totalAfter }
+  });
+  return rev;
+};
+
+/**
  * 고지서를 고객이 직접 냈는지 표시한다.
  *
  * 직접 낸 건은 청구서에서 빠져야 한다. 첨부를 지우면 그 고지서가 있었다는 기록까지 사라져
@@ -2457,12 +2488,13 @@ export const updateAttachmentNoticeStatus = async (req, res) => {
     const att = round.attachments[Number(req.params.index)];
     if (!att) return res.status(404).json({ success: false, message: '해당 서류가 없습니다.' });
 
-    if (round.issuedAt) {
-      return res.status(400).json({ success: false, message: '이미 발행한 회차라 금액을 바꿀 수 없습니다.' });
-    }
-
+    const totalBefore = round.total || 0;
     const status = applyNoticeStatus(att, req.body);
     recalcRound(round);
+    // 청구액이 바뀐 경우만 정정으로 남긴다(단계만 넘긴 것은 청구서 내용이 그대로다)
+    const revision = (round.total || 0) !== totalBefore
+      ? await finishIssuedRevision(schedule, round, totalBefore, `${att.kind}${att.plateNo ? ` ${att.plateNo}` : ''} ${status}`, req)
+      : null;
     await schedule.save();
     await syncNoticeSchedule(att, schedule._id, round.no, status);
 
@@ -2471,8 +2503,10 @@ export const updateAttachmentNoticeStatus = async (req, res) => {
       success: true,
       round,
       attachment: att,
+      revised: Boolean(revision),
       message: `${NOTICE_STATUS_MESSAGE[status] || status}로 표시했습니다.`
         + (billed ? ` ${round.no}회차 청구액에 들어갑니다.` : ` ${round.no}회차 청구액에서 뺐습니다.`)
+        + (revision ? ` ${revision.message}` : '')
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -2551,6 +2585,7 @@ export const bulkUpdateNotices = async (req, res) => {
     let done = 0;
     let issuedBlocked = 0;
     let missing = 0;
+    const revisedRounds = [];
     const calendarUpdates = [];
 
     for (const [scheduleId, rows] of bySchedule) {
@@ -2568,7 +2603,7 @@ export const bulkUpdateNotices = async (req, res) => {
       for (const [no, list] of byRound) {
         const round = schedule.rounds.find((r) => r.no === no);
         if (!round) { missing += list.length; continue; }
-        if (round.issuedAt) { issuedBlocked += list.length; continue; }
+        const totalBefore = round.total || 0;
 
         if (action === 'delete') {
           // 큰 순번부터 지운다. 작은 것부터 지우면 뒤의 순번이 당겨져 엉뚱한 것이 지워진다.
@@ -2597,6 +2632,11 @@ export const bulkUpdateNotices = async (req, res) => {
           }
           if (touched) recalcRound(round);
         }
+        // 발행한 회차는 고친 기록을 남긴다(정정 청구서를 다시 보내야 한다)
+        if (round.issuedAt && (round.total || 0) !== totalBefore) {
+          await finishIssuedRevision(schedule, round, totalBefore, action === 'delete' ? '고지서 빼기' : '고지서 단계 변경', req);
+          revisedRounds.push(`${no}회차`);
+        }
       }
 
       if (touched) await schedule.save();
@@ -2611,6 +2651,7 @@ export const bulkUpdateNotices = async (req, res) => {
     const parts = [];
     if (done) parts.push(action === 'delete' ? `${done}건을 목록에서 뺐습니다.` : `${done}건을 처리했습니다.`);
     if (issuedBlocked) parts.push(`${issuedBlocked}건은 이미 발행한 회차라 그대로 두었습니다.`);
+    if (revisedRounds.length) parts.push(`발행한 청구서 ${revisedRounds.length}건의 금액이 바뀌었습니다. 청구서 화면에서 정정 청구서를 다시 만들어 주세요.`);
     if (missing) parts.push(`${missing}건은 찾지 못했습니다. 새로고침 후 다시 골라 주세요.`);
     if (action === 'delete' && done) parts.push('저장된 파일은 그대로 있습니다.');
 
@@ -2874,6 +2915,10 @@ export const updateRound = async (req, res) => {
       return res.status(404).json({ success: false, message: '해당 회차가 없습니다.' });
     }
 
+    const totalBefore = round.total || 0;
+    const contentOf = (r) => JSON.stringify([r.monthlyRent, r.prevUnpaid, r.prevOverpaid, r.interest,
+      r.fine, r.maintenance, r.other, (r.extras || []).map((e) => [e.label, e.amount]), r.note || '']);
+    const contentBefore = contentOf(round);
     ['prevUnpaid', 'prevOverpaid', 'interest', 'fine', 'maintenance', 'other', 'monthlyRent']
       .forEach((field) => {
         if (req.body[field] !== undefined) round[field] = Number(req.body[field]) || 0;
@@ -2899,8 +2944,13 @@ export const updateRound = async (req, res) => {
     // 합계는 항상 다시 계산한다. 사람이 따로 적어 두면 항목과 어긋난다.
     recalcRound(round);
 
+    // 발행한 청구서의 내용이 바뀌었으면 기록을 남기고 정정 청구서를 다시 보내라고 알린다
+    const revision = contentOf(round) !== contentBefore
+      ? await finishIssuedRevision(schedule, round, totalBefore, String(req.body.revisionNote || '청구서 항목 수정').trim(), req)
+      : null;
+
     await schedule.save();
-    res.json({ success: true, round, message: '회차 내역이 저장되었습니다.' });
+    res.json({ success: true, round, revised: Boolean(revision), message: revision ? revision.message : '회차 내역이 저장되었습니다.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

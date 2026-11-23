@@ -186,11 +186,19 @@ function FineNoticeView({ showToast, currentUser }) {
    * 냈으면 청구액에서 빠지고 캘린더 일정도 닫힌다. 서류는 지우지 않는다.
    * 지우면 그 고지서가 있었다는 기록까지 사라져 나중에 되짚을 수 없다.
    */
+  // 발행한 청구서의 고지서도 고칠 수 있다(2026-11-23). 청구액이 바뀌면 정정 청구서를 다시 보내야 해서 한 번 묻는다.
+  // 단계만 넘기는 일(안내·운전자 확인 등)은 청구액이 그대로라 서버가 정정 기록을 남기지 않는다.
+  const issuedOk = (row) => !row.issued || window.confirm(
+    `${row.partyName || ''} ${row.roundNo}회차 청구서는 이미 발행했습니다.\n\n`
+    + '청구액이 바뀌면 고친 기록이 남고, 청구서 화면에서 정정 청구서를 다시 보내야 합니다.\n\n계속할까요?'
+  );
+
   const setNoticeStatus = async (row, noticeStatus, extra = {}) => {
     if (currentUser?.role === 'viewer') {
       showToast?.('권한이 없습니다. 관리자에게 문의하세요.', 'error');
       return;
     }
+    if (!issuedOk(row)) return;
     const id = `${row.scheduleId}-${row.roundNo}-${row.index}`;
     try {
       setBusy(id);
@@ -203,7 +211,7 @@ function FineNoticeView({ showToast, currentUser }) {
         }
       );
       const data = await res.json();
-      showToast?.(data.message || (data.success ? '처리했습니다.' : '처리하지 못했습니다.'), data.success ? 'success' : 'error');
+      showToast?.(data.message || (data.success ? '처리했습니다.' : '처리하지 못했습니다.'), data.success ? (data.revised ? 'warning' : 'success') : 'error');
       if (data.success) await fetchNotices();
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
@@ -293,7 +301,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
       showToast?.('권한이 없습니다. 관리자에게 문의하세요.', 'error');
       return;
     }
-    const rows = shown.filter((x) => picked.has(rowIdOf(x)) && !x.issued);
+    const rows = shown.filter((x) => picked.has(rowIdOf(x)));
     if (!rows.length) {
       showToast?.('고른 고지서가 없습니다.', 'error');
       return;
@@ -303,7 +311,9 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
     const ask = action === 'delete'
       ? `고른 ${rows.length}건을 삭제합니다. (합계 ${won(sum)})\n\n청구액에서도 빠지고 되돌릴 수 없습니다.\n저장된 고지서 파일은 그대로 남습니다.\n\n삭제할까요?`
       : `고른 ${rows.length}건을 처리 완료로 표시합니다. (합계 ${won(sum)})\n\n방식에 따라 대납완료 · 납부완료 · 변경완료로 각각 표시됩니다.\n\n계속할까요?`;
-    if (!window.confirm(ask)) return;
+    const issuedCount = rows.filter((x) => x.issued).length;
+    const issuedNote = issuedCount ? `\n\n이 중 ${issuedCount}건은 이미 발행한 청구서입니다. 청구액이 바뀌면 정정 청구서를 다시 보내야 합니다.` : '';
+    if (!window.confirm(ask + issuedNote)) return;
 
     try {
       setBusy('bulk');
@@ -322,7 +332,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
         })
       });
       const data = await res.json();
-      showToast?.(data.message || (data.success ? '처리했습니다.' : '처리하지 못했습니다.'), data.success ? 'success' : 'error');
+      showToast?.(data.message || (data.success ? '처리했습니다.' : '처리하지 못했습니다.'), data.success ? (/정정/.test(data.message || '') ? 'warning' : 'success') : 'error');
       await fetchNotices();
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
@@ -360,6 +370,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
   });
   const saveFix = async () => {
     const x = fixing.row;
+    if (!issuedOk(x)) return;
     const rid = `${x.scheduleId}-${x.roundNo}-${x.index}`;
     try {
       setBusy(rid);
@@ -372,7 +383,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
         })
       });
       const data = await res.json();
-      showToast?.(data.message || (data.success ? '고쳤습니다.' : '고치지 못했습니다.'), data.success ? 'success' : 'error');
+      showToast?.(data.message || (data.success ? '고쳤습니다.' : '고치지 못했습니다.'), data.success ? (data.revised ? 'warning' : 'success') : 'error');
       if (data.success) { setFixing(null); await fetchNotices(); }
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
@@ -384,7 +395,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
   /**
    * 고지서 한 건을 지운다(잘못 올린 고지서).
    * 청구액에서도 빠지고 캘린더 납부기한도 지워진다. 저장된 고지서 파일은 남아서 잘못 지웠으면 다시 올리면 된다.
-   * 이미 청구서를 발행한 회차의 고지서는 서버가 막는다(고객이 받은 금액과 장부가 어긋난다).
+   * 이미 청구서를 발행한 회차여도 지울 수 있다. 서버가 고친 기록을 남기고, 정정 청구서를 다시 보내라고 알린다.
    */
   const removeOne = async (x) => {
     if (currentUser?.role === 'viewer') {
@@ -392,7 +403,8 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
       return;
     }
     const what = [x.partyName, x.plateNo, x.kind, won(x.amount || 0)].filter(Boolean).join(' · ');
-    if (!window.confirm(`이 고지서를 삭제할까요?\n\n${what}\n\n청구액에서도 빠지고 되돌릴 수 없습니다.\n저장된 고지서 파일은 그대로 남습니다.`)) return;
+    const issuedNote = x.issued ? `\n\n${x.roundNo}회차 청구서는 이미 발행했습니다. 지우면 청구액이 바뀌어 정정 청구서를 다시 보내야 합니다.` : '';
+    if (!window.confirm(`이 고지서를 삭제할까요?\n\n${what}\n\n청구액에서도 빠지고 되돌릴 수 없습니다.\n저장된 고지서 파일은 그대로 남습니다.${issuedNote}`)) return;
     const rid = `${x.scheduleId}-${x.roundNo}-${x.index}`;
     try {
       setBusy(rid);
@@ -401,7 +413,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
         headers: { 'X-User-Role': currentUser?.role || 'viewer' }
       });
       const data = await res.json();
-      showToast?.(data.success ? '고지서를 삭제했습니다.' : (data.message || '삭제하지 못했습니다.'), data.success ? 'success' : 'error');
+      showToast?.(data.success ? (data.revised ? data.message : '고지서를 삭제했습니다.') : (data.message || '삭제하지 못했습니다.'), data.success ? (data.revised ? 'warning' : 'success') : 'error');
       await fetchNotices();
     } catch {
       showToast?.('서버 통신 오류가 발생했습니다.', 'error');
@@ -435,8 +447,8 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
     && !x.issued
   ));
 
-  // 발행한 회차는 금액이 이미 나가서 손댈 수 없다. 고를 수 있는 줄만 센다.
-  const pickable = shown.filter((x) => !x.issued);
+  // 발행한 회차도 고를 수 있다(고치면 정정 청구서를 다시 보낸다)
+  const pickable = shown;
   const pickedRows = pickable.filter((x) => picked.has(rowIdOf(x)));
   const allPicked = pickable.length > 0 && pickedRows.length === pickable.length;
   const pickedTotal = pickedRows.reduce((s, x) => s + (x.amount || 0), 0);
@@ -782,9 +794,8 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                         type="checkbox"
                         checked={picked.has(id)}
                         onChange={() => togglePick(id)}
-                        disabled={x.issued}
-                        title={x.issued ? '이미 발행한 회차라 손댈 수 없습니다' : ''}
-                        style={{ cursor: x.issued ? 'not-allowed' : 'pointer' }}
+                        title={x.issued ? '이미 발행한 회차입니다. 고치면 정정 청구서를 다시 보내야 합니다' : ''}
+                        style={{ cursor: 'pointer' }}
                       />
                     </td>
                     <td style={{ ...tdStyle, fontWeight: '700' }}>
@@ -796,11 +807,11 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                       <select
                         value={x.handling || '대납청구'}
                         onChange={(e) => setHandling(x, e.target.value)}
-                        disabled={x.issued || busy === id}
+                        disabled={busy === id}
                         title={HANDLINGS[x.handling]?.hint}
                         style={{
                           padding: '0.22rem 0.35rem', borderRadius: '5px', fontSize: '0.75rem', fontWeight: '800',
-                          cursor: (x.issued || busy === id) ? 'not-allowed' : 'pointer',
+                          cursor: busy === id ? 'not-allowed' : 'pointer',
                           border: `1px solid ${HANDLINGS[x.handling]?.color || 'var(--border-color)'}`,
                           color: HANDLINGS[x.handling]?.color || 'var(--text-muted)',
                           background: '#fff'
@@ -918,13 +929,13 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                             <button
                               type="button"
                               onClick={() => setNoticeStatus(x, '접수')}
-                              disabled={x.issued || busy === id}
+                              disabled={busy === id}
                               title="처음 단계로 되돌립니다"
                               style={{
                                 whiteSpace: 'nowrap', padding: '0.28rem 0.6rem', borderRadius: '6px',
                                 fontSize: '0.75rem', fontWeight: '700',
-                                cursor: (x.issued || busy === id) ? 'not-allowed' : 'pointer',
-                                opacity: (x.issued || busy === id) ? 0.5 : 1,
+                                cursor: busy === id ? 'not-allowed' : 'pointer',
+                                opacity: busy === id ? 0.5 : 1,
                                 border: '1px solid var(--border-color)', background: '#fff', color: 'var(--text-muted)'
                               }}
                             >
@@ -953,13 +964,13 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                               }
                               setNoticeStatus(x, step.to, extra);
                             }}
-                            disabled={x.issued || busy === id}
-                            title={x.issued ? '이미 발행한 회차라 바꿀 수 없습니다' : step.hint}
+                            disabled={busy === id}
+                            title={step.hint}
                             style={{
                               whiteSpace: 'nowrap', padding: '0.3rem 0.7rem', borderRadius: '6px',
                               fontSize: '0.78rem', fontWeight: '800',
-                              cursor: (x.issued || busy === id) ? 'not-allowed' : 'pointer',
-                              opacity: (x.issued || busy === id) ? 0.5 : 1,
+                              cursor: busy === id ? 'not-allowed' : 'pointer',
+                              opacity: busy === id ? 0.5 : 1,
                               border: `1px solid ${HANDLINGS[x.handling]?.color || 'var(--primary)'}`,
                               background: HANDLINGS[x.handling]?.color || 'var(--primary)',
                               color: '#fff'
@@ -970,7 +981,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                         );
                       })()}
                       {/* 올린 뒤 고객이 직접 내겠다고 하면: 청구에서 빼기 / 다시 넣기 */}
-                      {!x.issued && !paid && x.noticeStatus !== '청구취소' && x.noticeStatus !== '대납완료' && (
+                      {!paid && x.noticeStatus !== '청구취소' && x.noticeStatus !== '대납완료' && (
                         <button
                           type="button"
                           onClick={() => cancelBilling(x)}
@@ -981,7 +992,7 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                           고객 직접 납부(청구 취소)
                         </button>
                       )}
-                      {!x.issued && x.noticeStatus === '청구취소' && (
+                      {x.noticeStatus === '청구취소' && (
                         <button
                           type="button"
                           onClick={() => rebill(x)}
@@ -997,13 +1008,13 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                       <button
                         type="button"
                         onClick={() => openFix(x)}
-                        disabled={x.issued || busy === id}
-                        title={x.issued ? '이미 청구서를 발행한 회차라 고칠 수 없습니다' : '금액·납부기한·위반일 등을 고칩니다'}
+                        disabled={busy === id}
+                        title={x.issued ? '금액·납부기한·위반일 등을 고칩니다 (발행한 청구서라 정정본을 다시 보내야 합니다)' : '금액·납부기한·위반일 등을 고칩니다'}
                         style={{
                           border: 'none', background: 'none', padding: '0.2rem',
-                          color: x.issued ? 'var(--text-muted)' : 'var(--primary)',
-                          cursor: (x.issued || busy === id) ? 'not-allowed' : 'pointer',
-                          opacity: (x.issued || busy === id) ? 0.4 : 1
+                          color: 'var(--primary)',
+                          cursor: busy === id ? 'not-allowed' : 'pointer',
+                          opacity: busy === id ? 0.4 : 1
                         }}
                       >
                         <Pencil size={15} />
@@ -1011,13 +1022,13 @@ ${row.partyName} · ${row.plateNo} · ${row.kind}
                       <button
                         type="button"
                         onClick={() => removeOne(x)}
-                        disabled={x.issued || busy === id}
-                        title={x.issued ? '이미 청구서를 발행한 회차라 삭제할 수 없습니다' : '잘못 올린 고지서 삭제 (저장된 파일은 남습니다)'}
+                        disabled={busy === id}
+                        title={x.issued ? '잘못 올린 고지서 삭제 (발행한 청구서라 정정본을 다시 보내야 합니다)' : '잘못 올린 고지서 삭제 (저장된 파일은 남습니다)'}
                         style={{
                           border: 'none', background: 'none', padding: '0.2rem',
-                          color: x.issued ? 'var(--text-muted)' : 'var(--error)',
-                          cursor: (x.issued || busy === id) ? 'not-allowed' : 'pointer',
-                          opacity: (x.issued || busy === id) ? 0.4 : 1
+                          color: 'var(--error)',
+                          cursor: busy === id ? 'not-allowed' : 'pointer',
+                          opacity: busy === id ? 0.4 : 1
                         }}
                       >
                         <Trash2 size={15} />

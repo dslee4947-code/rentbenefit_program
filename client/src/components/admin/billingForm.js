@@ -24,8 +24,10 @@ export const unpaidOfPrevRound = (rounds, no) => {
  * @param {object[]} rounds 그 계약의 전체 회차
  */
 export const buildRoundForm = (item, round, rounds) => {
-  const carried = item.prevRound?.unpaid || unpaidOfPrevRound(rounds, round.no);
-  const suggestedInterest = item.suggestedInterest || 0;
+  // 이미 발행한 회차는 고객이 받은 청구서 그대로 보여 준다. 계산값을 채우면 저장할 때 청구서가 바뀐다.
+  const issued = Boolean(round.issuedAt);
+  const carried = issued ? 0 : (item.prevRound?.unpaid || unpaidOfPrevRound(rounds, round.no));
+  const suggestedInterest = issued ? 0 : (item.suggestedInterest || 0);
   return {
     no: round.no,
     monthlyRent: round.monthlyRent ?? 0,
@@ -41,7 +43,10 @@ export const buildRoundForm = (item, round, rounds) => {
     suggestedInterest,
     interestRate: item.lateInterestRate || 0,
     interestDays: item.overdueDays || 0,
-    issuedAt: round.issuedAt || null // 발행한 회차는 서류 상태를 바꿀 수 없다
+    // 발행한 회차도 고칠 수 있다. 고치면 정정 청구서를 다시 보내야 한다(서버 utils/issuedRevision.js).
+    issuedAt: round.issuedAt || null,
+    revisedAt: round.revisedAt || null,
+    revisions: round.revisions || []
   };
 };
 

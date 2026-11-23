@@ -97,6 +97,16 @@ const BillingRoundSchema = new Schema({
   },
   invoice: { type: Schema.Types.ObjectId, ref: 'Invoice' },
   issuedAt: Date, // 청구서를 발행한 시각
+  // 발행한 뒤 고친 기록(utils/issuedRevision.js). revisedAt이 issuedAt보다 뒤면 정정 청구서를 다시 보내야 한다.
+  revisedAt: Date,
+  revisions: [{
+    _id: false,
+    at: Date,
+    by: String,
+    summary: String,
+    totalBefore: Number,
+    totalAfter: Number
+  }],
   sentAt: Date, // 메일을 보낸 시각
   sentTo: String, // 메일을 보낸 주소. 주소가 등록되지 않은 고객은 다음 회차에 이 주소를 쓴다
   paidAt: Date,

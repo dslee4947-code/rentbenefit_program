@@ -1,5 +1,5 @@
 import { makeFittedPdf } from '../../utils/printFit.js';
-import { advanceSummary } from './advancePayment.js';
+import { advanceTaxInvoice, ADVANCE_NOTE } from '../../../../shared/advancePayment.js';
 
 /**
  * 청구서 양식과 PDF 만들기.
@@ -122,9 +122,8 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
       ? round.extras.map((e) => [e.label || '기타 청구', e.amount])
       : [['기타 청구', round?.other]])
   ];
-  // 선납금이 있는 계약: 청구액은 그대로 두고, 차량 표의 칸과 표 아래 한 줄(잔액)에만 작게 보여 준다
-  // (대표님 지시 2026-10-18, 총액 아래 식 줄은 겹쳐서 2026-10-19에 뺐다).
-  const adv = advanceSummary(vehicles, round?.no);
+  // 선납금이 있는 계약: 청구액은 그대로 두고 월 렌트료·선납금 안분액·세금계산서 발행금액을 안내한다(대표님 2026-11-24).
+  const tax = advanceTaxInvoice(vehicles, round);
   const small = { fontSize: '10.5px', color: '#666' };
 
   const debit = debitAccountOf(vehicles, company, item?.customer);
@@ -185,6 +184,25 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
           </tbody>
         </table>
       </div>
+
+      {/* 선납금 계약: 세금계산서는 선납금 안분액을 더해 발행되어 결제금액과 다르다. 메일 본문에도 같은 내용이 붙는다(advanceMailText) */}
+      {tax && (
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '16px' }}>
+          <thead><tr><th colSpan={2} style={head}>선납금 및 세금계산서 안내</th></tr></thead>
+          <tbody>
+            <tr><td style={cell}>월 렌트료</td><td style={{ ...cell, textAlign: 'right' }}>{tax.rent.toLocaleString()} 원</td></tr>
+            <tr><td style={cell}>선납금 안분액 <span style={small}>({tax.basis})</span></td><td style={{ ...cell, textAlign: 'right' }}>{tax.advance.toLocaleString()} 원</td></tr>
+            <tr><td style={{ ...cell, fontWeight: 700, background: '#f5f5f5' }}>월 세금계산서 발행금액</td><td style={{ ...cell, textAlign: 'right', fontWeight: 700, background: '#f5f5f5' }}>{tax.taxInvoice.toLocaleString()} 원</td></tr>
+            <tr>
+              <td colSpan={2} style={{ ...cell, ...small }}>
+                {ADVANCE_NOTE}
+                {' '}누적 안분액 {tax.summary.deducted.toLocaleString()}원 · 선납금 잔액 {tax.summary.balance.toLocaleString()}원
+                {tax.summary.remaining ? ` (남은 ${tax.summary.remaining}회)` : ' (안분 완료)'}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      )}
 
       {/* 연장 계약 첫 청구서 안내. 메일 본문 맨 위에도 같은 문장이 붙는다(서버 extensionLeadOf) */}
       {extLead && (
@@ -266,24 +284,19 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
           <tr>
             <th style={{ ...head, width: '36px' }}>No</th>
             <th style={head}>차량번호</th>
-            {adv && <th style={{ ...head, ...small, fontWeight: 600 }}>월 렌트료</th>}
-            {adv && <th style={{ ...head, ...small, fontWeight: 600 }}>선납금 차감</th>}
-            <th style={head}>{adv ? '청구 렌트료' : '월 렌트료'}</th>
+            <th style={head}>월 렌트료</th>
             <th style={head}>인도일</th>
             <th style={head}>종료일</th>
           </tr>
         </thead>
         <tbody>
           {(vehicles || []).map((v, i) => {
-            const a = adv?.rows.find((r) => r.plateNo === v.plateNo);
             const fee = Number(v.monthlyFee) || 0;
             return (
               <tr key={v._id}>
                 <td style={{ ...cell, textAlign: 'center' }}>{i + 1}</td>
                 <td style={{ ...cell, textAlign: 'center' }}>{v.plateNo || v.code || '-'}</td>
-                {adv && <td style={{ ...cell, ...small, textAlign: 'right' }}>{a?.deduction ? (fee + a.deduction).toLocaleString() : (fee ? fee.toLocaleString() : '-')}</td>}
-                {adv && <td style={{ ...cell, ...small, textAlign: 'right' }}>{a?.deduction ? `-${a.deduction.toLocaleString()}` : '-'}</td>}
-                <td style={{ ...cell, textAlign: 'right', fontWeight: adv ? 700 : 400 }}>{fee ? fee.toLocaleString() : '-'}</td>
+                <td style={{ ...cell, textAlign: 'right' }}>{fee ? fee.toLocaleString() : '-'}</td>
                 <td style={{ ...cell, textAlign: 'center' }}>{ymd(v.deliveryDate)}</td>
                 <td style={{ ...cell, textAlign: 'center' }}>{ymd(v.endDate)}</td>
               </tr>
@@ -291,13 +304,6 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
           })}
         </tbody>
       </table>
-      {adv && (
-        <div style={{ ...small, marginTop: '6px' }}>
-          선납금 {adv.total.toLocaleString()}원 중 이번 회차까지 {adv.deducted.toLocaleString()}원 차감 ·
-          {' '}잔액 {adv.balance.toLocaleString()}원{adv.remaining ? ` (남은 ${adv.remaining}회)` : ' (차감 완료)'}
-          {' '}· 선납금은 계약기간 동안 매월 같은 금액으로 월 렌트료에서 차감됩니다.
-        </div>
-      )}
 
       {/* 1회차 일할 정산 — 마지막 회차에 맞추기로 한 약속을 매달 청구서에 남긴다(대표님 지시 2026-10-19) */}
       {item?.proration?.diff ? (

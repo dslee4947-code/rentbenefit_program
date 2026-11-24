@@ -15,6 +15,7 @@ import { saveDocument, findContractDocument, readSavedFile, getDocumentSettings,
 import { mimeTypeOf } from '../utils/oneDriveStorage.js';
 import { parseHistoryWorkbook, applyHistoryRows } from '../utils/billingHistoryImport.js';
 import XLSX from 'xlsx';
+import { advanceMonthsOf, advanceMailText } from '../../shared/advancePayment.js';
 import { sendInvoiceMail, sendFineNoticeMail, sendInternalMail } from '../utils/mailService.js';
 import { isMaintenanceKind } from '../utils/maintenance.js';
 import { recalcRound } from '../utils/roundTotal.js';
@@ -374,12 +375,12 @@ export const getScheduleByContract = async (req, res) => {
     const found = await Vehicle.find({ contract: req.params.contractId })
       .select('code carModel plateNo monthlyFee deliveryDate advancePayment paymentTerm banking')
       .lean();
-    // 선납금은 차량마다 '선납금 ÷ 개월 수'씩 월 렌트료에서 빠진다(계약서 조건). 개월 수는 차량 값,
-    // 없으면 계약기간, 그것도 없으면 회차표의 회차 수(일할 회차가 끼면 하나 많을 수 있다)를 쓴다. 청구서가 차감액·잔액을 그릴 때 쓴다(advancePayment.js).
+    // 선납금은 차량마다 '선납금 ÷ 개월 수'씩 월 렌트료에서 빠진다(계약서 조건). 개월 수는 계약기간,
+    // 없으면 차량 값, 그것도 없으면 회차표의 회차 수(일할 회차가 끼면 하나 많을 수 있다)를 쓴다. 청구서가 차감액·잔액을 그릴 때 쓴다(advancePayment.js).
     // 종료일은 차마다 계약 기간의 마지막 날(인도일 + 계약 개월 수 - 1일, 연장 계약은 계약 만기 기준). 청구서 차량 표에 인도일과 함께 보인다
     const vehicles = found.map((v) => shortTermVehicleView(contract, v)).map((v) => ({
       ...v,
-      advanceMonths: Number(v.paymentTerm) || Number(contract?.termMonths) || schedule.totalRounds || 0,
+      advanceMonths: advanceMonthsOf(v, contract, schedule.totalRounds),
       endDate: lastDayOf(vehicleEndOf(contract, v))
     }));
     // 엑셀로 보냈던 청구서 기록(드롭박스에서 읽어 넣은 것). 보관함이 회차 옆에 함께 보여 준다
@@ -555,6 +556,17 @@ const extensionLeadOf = (schedule, round) => {
   return `[연장 계약 안내] 이번 청구서부터 연장 계약(${c.contractNo}${period}) 조건으로 청구합니다.${prev}`;
 };
 
+/** 청구 메일에 넣을 선납금·세금계산서 안내. 청구서 PDF(InvoiceSheet)와 같은 계산이다. 선납금이 없으면 ''. */
+export const advanceInfoOf = async (schedule, round) => {
+  const contractId = schedule?.contract?._id || schedule?.contract;
+  if (!contractId) return '';
+  const contract = await Contract.findById(contractId).select('termMonths contractKind rentalKind rentStartDate pricing.monthlyFee').lean();
+  const found = await Vehicle.find({ contract: contractId }).select('plateNo monthlyFee advancePayment paymentTerm').lean();
+  const vehicles = found.map((v) => shortTermVehicleView(contract, v))
+    .map((v) => ({ ...v, advanceMonths: advanceMonthsOf(v, contract, schedule.totalRounds) }));
+  return advanceMailText(vehicles, round);
+};
+
 /**
  * 함께 보낼 서류 중 읽지 못하는 첫 파일 이름. 모두 읽히면 ''.
  * 서류가 빠진 청구서가 고객에게 나가면 안 되므로 보내기 전에 확인한다.
@@ -595,6 +607,7 @@ const deliverInvoice = async ({ schedule, round, partyName, fileName, pdfBuffer,
       mailResult = await sendInvoiceMail({
         to,
         leadLine: extensionLeadOf(schedule, round),
+        infoText: await advanceInfoOf(schedule, round),
         fileName,
         fileBuffer: pdfBuffer,
         extraFiles,
@@ -975,6 +988,7 @@ export const testSendInvoice = async (req, res) => {
     const mail = await sendInvoiceMail({
       to,
       leadLine: extensionLeadOf(schedule, round),
+      infoText: await advanceInfoOf(schedule, round),
       fileName,
       fileBuffer: req.file.buffer,
       extraFiles,
@@ -1344,6 +1358,7 @@ export const resendInvoice = async (req, res) => {
     const mail = await sendInvoiceMail({
       to,
       leadLine: extensionLeadOf(schedule, round),
+      infoText: await advanceInfoOf(schedule, round),
       fileName: round.invoiceFileName || 'invoice.pdf',
       fileBuffer: pdfBuffer,
       extraFiles,

@@ -116,14 +116,16 @@ const buildHtmlBody = (body, tail, { greeting = '', signatureHtml = '' } = {}) =
  * @param {object} [params.values] 제목·본문의 치환 값 ({{계약자}} 등)
  * @param {string} [params.cc] 참조
  * @param {string} [params.leadLine] 본문 맨 위에 붙일 안내 한 줄(예: 연장 계약 첫 청구 안내). 양식은 그대로 둔다
+ * @param {string} [params.infoText] 본문 첫 문단 다음에 넣을 안내(선납금·세금계산서). 양식은 그대로 둔다
  */
-export const sendInvoiceMail = async ({ to, subject, fileName, fileBuffer, extraFiles = [], values = {}, cc, leadLine }) => {
+export const sendInvoiceMail = async ({ to, subject, fileName, fileBuffer, extraFiles = [], values = {}, cc, leadLine, infoText }) => {
   return sendTemplateMail({
     to,
     cc,
     subject,
     values,
     leadLine,
+    infoText,
     files: [{ fileName, buffer: fileBuffer, contentType: 'application/pdf' }, ...extraFiles],
     missingToMessage: '받는 사람 이메일이 없습니다. 법인 관리에서 청구 이메일을 먼저 등록해 주세요.'
   });
@@ -183,6 +185,13 @@ export const sendEndDocMail = async ({ to, templateKey, fileName, fileBuffer, va
  */
 const invoiceSender = () => process.env.INVOICE_SENDER_EMAIL || 'rent@sdibenefit.com';
 
+/** 본문 첫 문단('청구서 보내드립니다') 다음에 안내를 끼운다. 맺음말 뒤에 붙으면 어색하다. */
+export const insertAfterFirstParagraph = (body, info) => {
+  if (!info) return body;
+  const [first, ...rest] = String(body || '').replace(/\r\n/g, '\n').split(/\n{2,}/);
+  return [first, info, ...rest].filter((x) => x.trim()).join('\n\n');
+};
+
 /**
  * 저장된 양식으로 메일을 보낸다. 청구서와 고지서 안내가 같은 길을 쓴다.
  *
@@ -199,14 +208,14 @@ const invoiceSender = () => process.env.INVOICE_SENDER_EMAIL || 'rent@sdibenefit
  * @param {string} [params.missingToMessage] 받는 사람이 없을 때 알릴 말
  * @param {string} [params.leadLine] 본문 맨 위에 붙일 안내 한 줄
  */
-const sendTemplateMail = async ({ to, cc, subject, values = {}, templateKey = 'invoice', files = [], missingToMessage, leadLine }) => {
+const sendTemplateMail = async ({ to, cc, subject, values = {}, templateKey = 'invoice', files = [], missingToMessage, leadLine, infoText }) => {
   if (!to) throw new Error(missingToMessage || '받는 사람 이메일이 없습니다.');
 
   const sender = invoiceSender();
 
   const template = await getOrCreateTemplate(templateKey);
   const finalSubject = applyPlaceholders(subject || template.subject, values);
-  const templated = applyPlaceholders(template.body, values);
+  const templated = insertAfterFirstParagraph(applyPlaceholders(template.body, values), infoText);
   const finalBody = leadLine ? [leadLine, '', templated].join('\n') : templated;
 
   const token = await getGraphAccessToken();

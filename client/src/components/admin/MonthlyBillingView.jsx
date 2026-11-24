@@ -4,6 +4,8 @@ import { Calendar, RefreshCw, Save, FileText, Send, Paperclip, Trash2, AlertCirc
 import InvoiceSheet, { isMaintenanceKind, makeInvoicePdf } from './InvoiceSheet.jsx';
 import ExtensionTag from './ExtensionTag.jsx';
 import MoneyInput from './MoneyInput.jsx';
+import InvoiceMailDialog from './InvoiceMailDialog.jsx';
+import InvoiceEditDialog from './InvoiceEditDialog.jsx';
 import { recipientOf } from '../../../../shared/billingRecipient.js';
 import { attachmentSummary, buildRoundForm, formSnapshot, formTotals, removeExtra, roundSaveBody } from './billingForm.js';
 import { useUnsavedPrompt } from './UnsavedDialog.jsx';
@@ -105,6 +107,8 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
   const [savedForm, setSavedForm] = useState(''); // 마지막으로 저장한(또는 연) 값. 지금 값과 다르면 저장 안 한 수정이 있다
   const [saving, setSaving] = useState(false);
   const [issuing, setIssuing] = useState(false);
+  const [mailDialog, setMailDialog] = useState(false); // 보내기 전 메일 내용을 보고 고치는 창
+  const [editBackup, setEditBackup] = useState(null); // 청구서 보면서 고치기를 연 때의 값. null이면 닫힘
   // 담당자가 바뀌면 청구서 받는 주소도 바뀐다. 보내기 전에 이 자리에서 고칠 수 있게 한다.
   const [mailTo, setMailTo] = useState('');
   const [saveMailToCompany, setSaveMailToCompany] = useState(true);
@@ -316,6 +320,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
       const data = await res.json();
       if (data.success) {
         setSavedForm(formSnapshot(form));
+        if (data.round) setForm((prev) => (prev ? { ...prev, dueDateOriginal: data.round.dueDateOriginal || null } : prev));
         if (data.revised) {
           // 발행한 청구서를 고쳤다. 정정 청구서를 다시 보내야 한다는 안내는 조용히 저장할 때도 보여 준다.
           showToast?.(data.message, 'warning');
@@ -353,39 +358,39 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
   });
 
   // 회차 상세를 열어 둔 동안 Ctrl+S로 저장한다
-  useSaveShortcut(Boolean(selected && form) && !saving, () => handleSaveRound());
+  useSaveShortcut(Boolean(selected && form) && !saving && !mailDialog, async () => {
+    if (await handleSaveRound()) setEditBackup(null);
+  });
+
+  /** 청구서 보면서 고치기를 저장하지 않고 닫는다. 창을 열기 전 값으로 되돌린다. */
+  const closeInvoiceEdit = () => {
+    if (form && editBackup && formSnapshot(form) !== formSnapshot(editBackup)
+      && !window.confirm('고친 내용을 저장하지 않고 닫을까요?')) return false;
+    if (editBackup) setForm(editBackup);
+    setEditBackup(null);
+    return true;
+  };
+  useBackClose(Boolean(editBackup), closeInvoiceEdit);
+  useBackClose(mailDialog, () => setMailDialog(false));
 
   /**
    * 회차를 발행한다: 청구서 PDF를 만들어 서버로 보내면 법인 폴더 저장과 메일 발송이 함께 이뤄진다.
    * 저장한 내용으로 발행해야 하므로, 고친 금액이 있으면 먼저 저장하고 발행한다.
    */
-  const handleIssue = async (withEmail) => {
+  const handleIssue = async (withEmail, mail) => {
     if (currentUser?.role === 'viewer') {
       showToast?.('발행 권한이 없습니다. 관리자에게 문의하세요.', 'error');
       return;
     }
-    const to = (mailTo || '').trim();
+    const to = ((mail ? mail.to : mailTo) || '').trim();
     if (withEmail && !to) {
       showToast?.('받는 사람 이메일을 입력해 주세요.', 'error');
       return;
     }
     // 받는 사람이 미리 채워져 있어 그대로 누르면 실제 고객에게 나간다.
-    // 누구에게 무엇이 나가는지 확인창에 또렷하게 보여 준다.
-    if (withEmail) {
-      const partyName = selected?.company?.name || selected?.customer?.name || selected?.contract?.contractNo || '';
-      const ourDomain = to.toLowerCase().endsWith('@sdibenefit.com');
-      const message = [
-        `${partyName}  ${form.no}회차 청구서`,
-        `청구액 ${won(total)}`,
-        `함께 보낼 서류 :  ${attachmentSummary(attachments) || '없음'}`,
-        '',
-        `받는 사람 :  ${to}`,
-        ourDomain ? '(회사 계정입니다. 시험 발송으로 보입니다)' : '(고객 주소입니다. 실제로 발송됩니다)',
-        '',
-        '보낼까요?'
-      ].join(String.fromCharCode(10));
-      if (!window.confirm(message)) return;
-    }
+    // 누구에게 어떤 글이 나가는지 창에서 보고 고친 뒤 [보내기]를 눌러야 나간다(대표님 2026-11-24).
+    if (withEmail && !mail) { setMailDialog(true); return; }
+    if (mail) setMailTo(to);
 
     try {
       setIssuing(true);
@@ -401,6 +406,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
       fd.append('file', blob, 'invoice.pdf');
       fd.append('sendEmail', withEmail ? 'true' : 'false');
       if (to) fd.append('to', to);
+      if (mail) { fd.append('mailSubject', mail.subject); fd.append('mailBody', mail.body); }
       if (withEmail && saveMailToCompany) fd.append('saveEmailToCompany', 'true');
 
       const res = await fetch(`${API_HOST}/api/billing-schedules/${schedule._id}/rounds/${form.no}/issue`, {
@@ -1479,8 +1485,15 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
                 {selected.carSummary || '-'}<ExtensionTag contract={selected.contract} /> · {form.no}회차
               </div>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                출금일 {ymd(selected.round.dueDate)} · {selected.company?.name || selected.customer?.name || ''}
+                출금일 {ymd(form.dueDate)}{form.dueDateOriginal ? ` (원래 ${ymd(form.dueDateOriginal)})` : ''} · {selected.company?.name || selected.customer?.name || ''}
               </div>
+              <button
+                type="button"
+                onClick={() => setEditBackup(form)}
+                style={{ marginTop: '0.6rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem', background: 'var(--primary-glow)', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '0.45rem 0.9rem', borderRadius: '8px', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}
+              >
+                <FileText size={14} /> 청구서 보면서 고치기 (출금일·청구내역·비고)
+              </button>
             </div>
 
             {/* 발행한 청구서도 고칠 수 있다. 고치면 기록이 남고 정정 청구서를 다시 보내야 한다. */}
@@ -1635,7 +1648,12 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
             </div>
 
             <div>
-              <label style={labelStyle}>비고</label>
+              <label style={labelStyle}>비고 · 특이사항 (청구서와 메일에 나갑니다)</label>
+              <textarea rows={3} value={form.invoiceNote} onChange={(e) => setForm({ ...form, invoiceNote: e.target.value })} style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }} />
+            </div>
+
+            <div>
+              <label style={labelStyle}>내부 메모 (고객에게 안 보임)</label>
               <input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} style={inputStyle} />
             </div>
 
@@ -1965,6 +1983,34 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
 
       {unsavedDialog}
 
+      {mailDialog && selected && form && schedule && (
+        <InvoiceMailDialog
+          title={`${selected.company?.name || selected.customer?.name || selected.contract?.contractNo || ''} ${form.no}회차 청구서 보내기 (${won(total)})`}
+          scheduleId={schedule._id}
+          roundNo={form.no}
+          values={{ total, monthlyRent: form.monthlyRent, dueDate: form.dueDate, invoiceNote: form.invoiceNote }}
+          to={mailTo}
+          docs={attachmentSummary(attachments)}
+          currentUser={currentUser}
+          onConfirm={(m) => { setMailDialog(false); handleIssue(true, m); }}
+          onClose={() => setMailDialog(false)}
+        />
+      )}
+
+      {editBackup && selected && form && (
+        <InvoiceEditDialog
+          form={form}
+          setForm={setForm}
+          totals={{ fineTotal, maintenanceTotal, otherTotal, total, hasDocFine, hasDocMaintenance }}
+          item={selected}
+          vehicles={vehicles}
+          attachments={attachments}
+          saving={saving}
+          onSave={async () => { if (await handleSaveRound()) setEditBackup(null); }}
+          onClose={closeInvoiceEdit}
+        />
+      )}
+
       {/* PDF로 만들 청구서 양식. 화면에는 보이지 않게 두고 이 요소만 캡처한다. */}
       {selected && form && (
         <div style={{ position: 'fixed', left: '-10000px', top: 0 }} aria-hidden="true">
@@ -1977,7 +2023,7 @@ function MonthlyBillingView({ showToast, currentUser, initialMonth }) {
               maintenance: maintenanceTotal,
               other: otherTotal,
               attachments,
-              dueDate: selected.round.dueDate
+              dueDate: form.dueDate
             }}
             vehicles={vehicles}
             total={total}

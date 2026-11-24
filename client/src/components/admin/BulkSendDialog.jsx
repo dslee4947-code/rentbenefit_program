@@ -4,6 +4,7 @@ import { Send, X } from 'lucide-react';
 import InvoiceSheet, { makeInvoicePdf } from './InvoiceSheet.jsx';
 import PaymentDayBadge from './PaymentDayBadge.jsx';
 import { recipientOf } from '../../../../shared/billingRecipient.js';
+import InvoiceMailDialog from './InvoiceMailDialog.jsx';
 import { attachmentSummary, buildRoundForm, formTotals, roundSaveBody } from './billingForm.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
@@ -34,6 +35,7 @@ export default function BulkSendDialog({ title, items, currentUser, showToast, o
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
   const [sheet, setSheet] = useState(null);
+  const [mailEdit, setMailEdit] = useState(null); // 메일 내용을 보고 있는 줄 번호
   const sheetRef = useRef(null);
 
   const update = (i, patch) => setRows((cur) => cur.map((r, k) => (k === i ? { ...r, ...patch } : r)));
@@ -69,7 +71,7 @@ export default function BulkSendDialog({ title, items, currentUser, showToast, o
   }, [items]);
 
   /** 한 건을 보낸다. 실패하면 이유를 돌려준다. */
-  const sendOne = async (it, to) => {
+  const sendOne = async (it, to, mail) => {
     const data = await fetch(`${API_HOST}/api/billing-schedules/contract/${it.contract._id}`, { cache: 'no-store' }).then((r) => r.json());
     if (!data.success) return { error: data.message || '회차표를 불러오지 못했습니다.' };
     const round = data.schedule.rounds.find((r) => r.no === it.round.no);
@@ -111,6 +113,7 @@ export default function BulkSendDialog({ title, items, currentUser, showToast, o
     fd.append('file', blob, 'invoice.pdf');
     fd.append('sendEmail', 'true');
     fd.append('to', to);
+    if (mail) { fd.append('mailSubject', mail.subject); fd.append('mailBody', mail.body); }
     const res = await fetch(`${API_HOST}/api/billing-schedules/${it.scheduleId}/rounds/${round.no}/issue`, {
       method: 'POST',
       headers: { 'X-User-Role': currentUser?.role || 'viewer' },
@@ -139,7 +142,7 @@ export default function BulkSendDialog({ title, items, currentUser, showToast, o
       if (!r.pick || r.state) continue;
       update(i, { state: '보내는 중' });
       try {
-        const result = await sendOne(r.it, r.to.trim());
+        const result = await sendOne(r.it, r.to.trim(), r.mail);
         if (result.error) { bad += 1; update(i, { state: result.issued ? '메일 실패' : '실패', message: result.error }); } else { ok += 1; update(i, { state: '보냄', total: result.total ?? r.total }); }
       } catch (err) {
         bad += 1;
@@ -201,6 +204,16 @@ export default function BulkSendDialog({ title, items, currentUser, showToast, o
                       placeholder="받을 이메일"
                       style={{ width: '100%', minWidth: '170px', padding: '0.3rem 0.45rem', borderRadius: '5px', fontSize: '0.78rem', border: `1px solid ${!r.pick || r.state || isEmail(r.to) ? 'var(--border-color)' : '#f87171'}` }}
                     />
+                    {!r.state && !done && (
+                      <button
+                        type="button"
+                        disabled={running || loading}
+                        onClick={() => setMailEdit(i)}
+                        style={{ border: 'none', background: 'none', padding: '0.2rem 0 0', color: r.mail ? '#16a34a' : 'var(--primary)', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}
+                      >
+                        {r.mail ? '메일 내용 고침 (다시 보기)' : '메일 내용 보기·고치기'}
+                      </button>
+                    )}
                   </td>
                   <td style={{ ...cell, whiteSpace: 'nowrap', fontWeight: 700, color: STATE_COLOR[r.state] || 'var(--text-muted)' }}>
                     {r.state || (r.pick ? '보낼 예정' : '빼기')}
@@ -229,6 +242,24 @@ export default function BulkSendDialog({ title, items, currentUser, showToast, o
           )}
         </div>
       </div>
+      {mailEdit !== null && (
+        // 창 바깥(검은 배경)을 누르면 보내기 창까지 닫히므로 눌림이 위로 가지 않게 막는다
+        <div onClick={(e) => e.stopPropagation()}>
+          <InvoiceMailDialog
+            title={`${nameOf(rows[mailEdit].it)} ${rows[mailEdit].it.round.no}회차 청구 메일`}
+            scheduleId={rows[mailEdit].it.scheduleId}
+            roundNo={rows[mailEdit].it.round.no}
+            values={{ total: rows[mailEdit].total }}
+            initial={rows[mailEdit].mail}
+            to={rows[mailEdit].to}
+            docs={rows[mailEdit].docs}
+            currentUser={currentUser}
+            confirmLabel="이 내용으로 정하기"
+            onConfirm={({ to, subject, body }) => { update(mailEdit, { to, mail: { subject, body } }); setMailEdit(null); }}
+            onClose={() => setMailEdit(null)}
+          />
+        </div>
+      )}
       {sheet && (
         <div style={{ position: 'fixed', left: '-10000px', top: 0 }} aria-hidden="true">
           <InvoiceSheet innerRef={sheetRef} item={sheet.item} round={sheet.round} vehicles={sheet.vehicles} total={sheet.total} />

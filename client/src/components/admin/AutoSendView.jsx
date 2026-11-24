@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { RefreshCw, Send, CheckCircle2, AlertCircle, FileText, X, ChevronLeft, ChevronRight, Eye, Clock, Wallet, ListChecks } from 'lucide-react';
+import InvoiceMailDialog from './InvoiceMailDialog.jsx';
 import InvoiceSheet, { makeInvoicePdf } from './InvoiceSheet.jsx';
 import ExtensionTag from './ExtensionTag.jsx';
 import { buildRoundForm, formTotals, roundSaveBody } from './billingForm.js';
@@ -313,6 +314,7 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
       setBusy('');
     }
   };
+  const [mailFor, setMailFor] = useState(null); // 보내기 전에 메일 내용을 보여 주는 창
   const json = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
   const roundUrl = (scheduleId, no, tail) => `${API_HOST}/api/billing-schedules/${scheduleId}/rounds/${no}/${tail}`;
 
@@ -755,8 +757,15 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
                                   type="button"
                                   style={btn('blue')}
                                   disabled={Boolean(busy)}
-                                  onClick={() => act(keyOf(it), `${API_HOST}/api/billing-schedules/auto-send/run`, json('POST', { scheduleId: it.scheduleId, roundNo: it.round.no }),
-                                    `${nameOf(it)} ${it.round.no}회차 청구서를\n${it.round.autoSend?.to} 로 지금 보낼까요?`)}
+                                  onClick={() => setMailFor({
+                                    key: keyOf(it),
+                                    title: `${nameOf(it)} ${it.round.no}회차 청구서 보내기`,
+                                    scheduleId: it.scheduleId,
+                                    roundNo: it.round.no,
+                                    to: it.round.autoSend?.to,
+                                    lockTo: true, // 승인한 주소로만 나간다
+                                    send: (m) => act(keyOf(it), `${API_HOST}/api/billing-schedules/auto-send/run`, json('POST', { scheduleId: it.scheduleId, roundNo: it.round.no, mailSubject: m.subject, mailBody: m.body }))
+                                  })}
                                 >
                                   <Send size={12} /> 이 건만 보내기
                                 </button>
@@ -838,7 +847,14 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
                                 disabled={Boolean(busy)}
                                 onClick={() => {
                                   const to = (toInput[k] ?? h.to ?? '').trim();
-                                  act(k, roundUrl(h.scheduleId, h.roundNo, 'resend'), json('POST', { to }), `${h.partyName} ${h.roundNo}회차 청구서를\n${to} 로 다시 보낼까요?`);
+                                  setMailFor({
+                                    key: k,
+                                    title: `${h.partyName} ${h.roundNo}회차 청구서 다시 보내기`,
+                                    scheduleId: h.scheduleId,
+                                    roundNo: h.roundNo,
+                                    to,
+                                    send: (m) => act(k, roundUrl(h.scheduleId, h.roundNo, 'resend'), json('POST', { to: m.to, mailSubject: m.subject, mailBody: m.body }))
+                                  });
                                 }}
                                 title={h.sentAt ? '이미 보낸 기록이 있어 서버가 막습니다' : undefined}
                               >
@@ -1039,6 +1055,20 @@ function AutoSendView({ showToast, currentUser, onChanged }) {
             })()}
           </div>
         </div>
+      )}
+
+      {mailFor && (
+        <InvoiceMailDialog
+          key={mailFor.key}
+          title={mailFor.title}
+          scheduleId={mailFor.scheduleId}
+          roundNo={mailFor.roundNo}
+          to={mailFor.to}
+          lockTo={mailFor.lockTo}
+          currentUser={currentUser}
+          onConfirm={(m) => { const f = mailFor; setMailFor(null); f.send(m); }}
+          onClose={() => setMailFor(null)}
+        />
       )}
 
       {/* PDF로 뜰 청구서 양식. 화면에는 보이지 않게 두고 이 요소만 캡처한다 (청구서 화면과 같은 방식). */}

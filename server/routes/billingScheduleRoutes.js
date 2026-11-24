@@ -33,7 +33,8 @@ import {
   getPaymentChecks,
   resendInvoice,
   resolveStuckSend,
-  testSendInvoice
+  testSendInvoice,
+  getMailDraft
 } from '../controllers/billingScheduleController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
 
@@ -69,6 +70,8 @@ router.get('/:id/rounds/:no/auto-send/file', getAutoSendFile);
 router.post('/:id/rounds/:no/auto-send/resolve', checkWritePermission, resolveStuckSend);
 router.post('/:id/rounds/:no/resend', checkWritePermission, resendInvoice);
 router.post('/:id/rounds/:no/test-send', checkWritePermission, upload.single('file'), testSendInvoice);
+// 발송 창에서 보고 고칠 청구 메일 제목·본문 (저장·발송하지 않는다)
+router.post('/:id/rounds/:no/mail-draft', checkWritePermission, getMailDraft);
 router.put('/:id/rounds/:no', checkWritePermission, updateRound);
 router.patch('/:id/rounds/:no/payment', checkWritePermission, updateRoundPayment);
 // [미납으로 처리] / [미납 취소] — 다음 청구서에 원금·이자를 바로 붙인다(dryRun이면 미리보기만)

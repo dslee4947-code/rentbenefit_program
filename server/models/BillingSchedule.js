@@ -12,6 +12,9 @@ const { Schema } = mongoose;
 const BillingRoundSchema = new Schema({
   no: { type: Number, required: true }, // 회차 (1부터)
   dueDate: { type: Date, required: true }, // 청구일(출금일)
+  // 이 회차만 출금일을 바꿨을 때 계약 조건상 원래 출금일(대표님 2026-11-24). 회차표를 다시 만들어도 바꾼 날짜를 지키고,
+  // 목록은 원래 달에 보여 준다(다음 달로 미뤄도 다음 회차와 겹치지 않게).
+  dueDateOriginal: Date,
 
   monthlyRent: { type: Number, default: 0 }, // 그 회차의 월 렌트료 합계
 
@@ -29,7 +32,8 @@ const BillingRoundSchema = new Schema({
     label: { type: String, default: '기타 청구' },
     amount: { type: Number, default: 0 }
   }],
-  note: String,
+  note: String, // 내부 메모. 청구서에 찍히지 않는다
+  invoiceNote: String, // 비고(특이사항). 청구서와 청구 메일에 그대로 나간다
 
   // 연체 이자를 계산할 때 쓴 연이율(%). 사업 초기 20%에서 25%로 바뀐 것처럼 앞으로도 바뀌므로,
   // 그때그때 렌트차량 DB의 값을 쓰되 청구 시점에 무엇으로 계산했는지 남겨 둔다.

@@ -185,6 +185,18 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
         </table>
       </div>
 
+      {/* 비고(특이사항). 이 회차만 출금일을 바꾼 이유 등 담당자가 적은 글. 청구 메일에도 같은 글이 붙는다(서버 mailInfoOf) */}
+      {String(round?.invoiceNote || '').trim() && (
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '16px' }}>
+          <tbody>
+            <tr>
+              <th style={{ ...head, width: '110px' }}>비고</th>
+              <td style={{ ...cell, whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.6 }}>{round.invoiceNote.trim()}</td>
+            </tr>
+          </tbody>
+        </table>
+      )}
+
       {/* 선납금 계약: 세금계산서는 선납금 안분액을 더해 발행되어 결제금액과 다르다. 메일 본문에도 같은 내용이 붙는다(advanceMailText) */}
       {tax && (
         <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '16px' }}>

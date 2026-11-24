@@ -78,8 +78,8 @@ const buildSignatureHtml = (text, closing) => {
   return `<div style="margin-top:20px;line-height:1.75">${dash}${rows}${dash}${closing ? `<div>${escapeHtml(closing)}</div>` : ''}</div>`;
 };
 
-const buildHtmlBody = (body, tail, { greeting = '', signatureHtml = '' } = {}) => {
-  const paragraphs = [greeting, String(body || '')].filter(Boolean).join('\n\n')
+const buildHtmlBody = (body, tail, { signatureHtml = '' } = {}) => {
+  const paragraphs = String(body || '')
     .split(/\n{2,}/)
     .map((block) => `<p style="margin:0 0 16px">${escapeHtml(block).replace(/\n/g, '<br>')}</p>`)
     .join('');
@@ -116,13 +116,17 @@ const buildHtmlBody = (body, tail, { greeting = '', signatureHtml = '' } = {}) =
  * @param {object} [params.values] 제목·본문의 치환 값 ({{계약자}} 등)
  * @param {string} [params.cc] 참조
  * @param {string} [params.leadLine] 본문 맨 위에 붙일 안내 한 줄(예: 연장 계약 첫 청구 안내). 양식은 그대로 둔다
- * @param {string} [params.infoText] 본문 첫 문단 다음에 넣을 안내(선납금·세금계산서). 양식은 그대로 둔다
+ * @param {string} [params.infoText] 본문 첫 문단 다음에 넣을 안내(비고·선납금·세금계산서). 양식은 그대로 둔다
+ * @param {string} [params.mailSubject] 담당자가 발송 창에서 고친 제목. 주면 양식 대신 그대로 쓴다
+ * @param {string} [params.mailBody] 담당자가 발송 창에서 고친 본문(인사말 포함, 서명 제외). 주면 양식 대신 그대로 쓴다
  */
-export const sendInvoiceMail = async ({ to, subject, fileName, fileBuffer, extraFiles = [], values = {}, cc, leadLine, infoText }) => {
+export const sendInvoiceMail = async ({ to, subject, fileName, fileBuffer, extraFiles = [], values = {}, cc, leadLine, infoText, mailSubject, mailBody }) => {
   return sendTemplateMail({
     to,
     cc,
     subject,
+    mailSubject,
+    mailBody,
     values,
     leadLine,
     infoText,
@@ -193,6 +197,35 @@ export const insertAfterFirstParagraph = (body, info) => {
 };
 
 /**
+ * 저장된 양식으로 제목과 본문(인사말 포함, 서명 제외)을 만든다. 발송 창의 미리보기와 실제 발송이 같은 글을 쓴다.
+ * @returns {Promise<{subject: string, body: string, signatureSource: object}>}
+ */
+const composeTemplateMail = async ({ subject, values = {}, templateKey = 'invoice', leadLine, infoText }) => {
+  const template = await getOrCreateTemplate(templateKey);
+  // 서명은 종류가 달라도 같은 회사 서명이다. 청구서 양식에 올려 둔 것을 함께 쓴다.
+  const signatureSource = templateKey === 'invoice' ? template : await getOrCreateTemplate('invoice');
+  const templated = insertAfterFirstParagraph(applyPlaceholders(template.body, values), infoText);
+  const main = leadLine ? [leadLine, '', templated].join('\n') : templated;
+  return {
+    subject: applyPlaceholders(subject || template.subject, values),
+    body: [applyPlaceholders(signatureSource.greeting || '', values), main].filter(Boolean).join('\n\n'),
+    signatureSource
+  };
+};
+
+/**
+ * 청구 메일을 보내기 전에 보여 줄 제목·본문. 서명은 고치지 않고 아래에 그대로 붙으므로 따로 준다.
+ * @returns {Promise<{subject: string, body: string, signature: string}>}
+ */
+export const draftInvoiceMail = async ({ values, leadLine, infoText }) => {
+  const { subject, body, signatureSource } = await composeTemplateMail({ values, leadLine, infoText });
+  const signature = signatureSource.signature?.data?.length
+    ? '(등록한 서명 그림이 붙습니다)'
+    : [signatureSource.signatureText, signatureSource.closingLine].filter(Boolean).join('\n');
+  return { subject, body, signature };
+};
+
+/**
  * 저장된 양식으로 메일을 보낸다. 청구서와 고지서 안내가 같은 길을 쓴다.
  *
  * Microsoft Graph의 앱 전용 토큰을 쓴다(아웃룩 동기화와 같은 Azure 앱).
@@ -208,15 +241,16 @@ export const insertAfterFirstParagraph = (body, info) => {
  * @param {string} [params.missingToMessage] 받는 사람이 없을 때 알릴 말
  * @param {string} [params.leadLine] 본문 맨 위에 붙일 안내 한 줄
  */
-const sendTemplateMail = async ({ to, cc, subject, values = {}, templateKey = 'invoice', files = [], missingToMessage, leadLine, infoText }) => {
+const sendTemplateMail = async ({ to, cc, subject, values = {}, templateKey = 'invoice', files = [], missingToMessage, leadLine, infoText, mailSubject, mailBody }) => {
   if (!to) throw new Error(missingToMessage || '받는 사람 이메일이 없습니다.');
 
   const sender = invoiceSender();
 
-  const template = await getOrCreateTemplate(templateKey);
-  const finalSubject = applyPlaceholders(subject || template.subject, values);
-  const templated = insertAfterFirstParagraph(applyPlaceholders(template.body, values), infoText);
-  const finalBody = leadLine ? [leadLine, '', templated].join('\n') : templated;
+  const composed = await composeTemplateMail({ subject, values, templateKey, leadLine, infoText });
+  const { signatureSource } = composed;
+  // 제목에 줄바꿈이 들어가면 메일 제목이 깨진다
+  const finalSubject = (mailSubject || '').replace(/[\r\n]+/g, ' ').trim() || composed.subject;
+  const finalBody = (mailBody || '').trim() ? mailBody.replace(/\r\n/g, '\n').trim() : composed.body;
 
   const token = await getGraphAccessToken();
 
@@ -226,9 +260,6 @@ const sendTemplateMail = async ({ to, cc, subject, values = {}, templateKey = 'i
     ...(f.contentType ? { contentType: f.contentType } : {}),
     contentBytes: f.buffer.toString('base64')
   }));
-
-  // 서명은 종류가 달라도 같은 회사 서명이다. 청구서 양식에 올려 둔 것을 함께 쓴다.
-  const signatureSource = templateKey === 'invoice' ? template : await getOrCreateTemplate('invoice');
 
   // 서명 이미지를 올려 두었으면 그것만 붙인다(그 안에 이미 로고가 들어 있다).
   // 없을 때만 예전처럼 로고를 붙인다.
@@ -266,7 +297,6 @@ const sendTemplateMail = async ({ to, cc, subject, values = {}, templateKey = 'i
       body: {
         contentType: 'HTML',
         content: buildHtmlBody(finalBody, tail, {
-          greeting: applyPlaceholders(signatureSource.greeting || '', values),
           signatureHtml: tail === 'signature' ? '' : buildSignatureHtml(signatureSource.signatureText, signatureSource.closingLine)
         })
       },

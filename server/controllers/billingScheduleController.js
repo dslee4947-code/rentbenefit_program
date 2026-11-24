@@ -16,7 +16,7 @@ import { mimeTypeOf } from '../utils/oneDriveStorage.js';
 import { parseHistoryWorkbook, applyHistoryRows } from '../utils/billingHistoryImport.js';
 import XLSX from 'xlsx';
 import { advanceMonthsOf, advanceMailText } from '../../shared/advancePayment.js';
-import { sendInvoiceMail, sendFineNoticeMail, sendInternalMail } from '../utils/mailService.js';
+import { sendInvoiceMail, draftInvoiceMail, sendFineNoticeMail, sendInternalMail } from '../utils/mailService.js';
 import { isMaintenanceKind } from '../utils/maintenance.js';
 import { recalcRound } from '../utils/roundTotal.js';
 import { noticeKeyOf, findOverdueNotices, upsertNoticeSchedule, collectNotices } from '../utils/fineNoticeScheduleJob.js';
@@ -300,6 +300,23 @@ export const resolveScheduleInputs = async (contractId) => {
   return { contract, monthlyRent, paymentDay, rentStartDate, deliveryDate, totalRounds };
 };
 
+/**
+ * 회차표를 다시 만들 때 아직 안 나간 회차에서 남길 값: 이 회차만 바꾼 출금일·비고·손으로 넣은 금액·붙인 서류.
+ * 새로 쓰면 계약서를 고칠 때마다 사라진다. 승인(autoSend)은 조건이 바뀌었을 수 있어 남기지 않는다.
+ */
+export const keepRoundEdits = (fresh, old) => {
+  const o = typeof old.toObject === 'function' ? old.toObject() : old;
+  const kept = { ...fresh };
+  ['prevUnpaid', 'prevOverpaid', 'interest', 'interestRate', 'interestDays', 'fine', 'maintenance', 'other', 'extras',
+    'note', 'invoiceNote', 'attachments', 'unbilledInterest', 'pastInterestCharge']
+    .forEach((k) => { if (o[k] !== undefined) kept[k] = o[k]; });
+  if (o.dueDateOriginal) {
+    kept.dueDate = o.dueDate;
+    kept.dueDateOriginal = fresh.dueDate;
+  }
+  return recalcRound(kept);
+};
+
 export const buildScheduleForContract = async (contractId) => {
   // 단기렌트 월 청구는 계약 기간 없이 반납 때까지 한 달씩 만든다
   const kind = await Contract.findById(contractId).select('rentalKind').lean();
@@ -321,13 +338,9 @@ export const buildScheduleForContract = async (contractId) => {
     const no = index + 1;
     const kept = keptByNo.get(no);
     if (kept) return kept;
-    return {
-      no,
-      dueDate,
-      monthlyRent,
-      total: monthlyRent,
-      status: '예정'
-    };
+    const fresh = { no, dueDate, monthlyRent, total: monthlyRent, status: '예정' };
+    const old = existing?.rounds.find((r) => r.no === no);
+    return old ? keepRoundEdits(fresh, old) : fresh;
   });
 
   const payload = {
@@ -441,7 +454,7 @@ export const getDueRounds = async (req, res) => {
     // 단기렌트 월 청구는 회차를 미리 다 만들지 않는다. 화면을 열 때 이번 달 회차까지 늘린다
     await ensureShortTermRounds();
 
-    const schedules = await BillingSchedule.find({ 'rounds.dueDate': { $gte: from, $lt: to } })
+    const schedules = await BillingSchedule.find({ $or: [{ 'rounds.dueDate': { $gte: from, $lt: to } }, { 'rounds.dueDateOriginal': { $gte: from, $lt: to } }] })
       .populate('contract', 'contractNo contractKind rentalKind extensionInfo contractDate endDate termMonths terms')
       .populate('company', 'name bizNo billingEmail')
       .populate('customer', 'name contactName')
@@ -455,7 +468,8 @@ export const getDueRounds = async (req, res) => {
 
     const items = [];
     for (const s of schedules) {
-      const round = s.rounds.find((r) => r.dueDate >= from && r.dueDate < to);
+      // 출금일을 다음 달로 미룬 회차는 원래 달에 보여 준다. 다음 달 회차와 겹치면 한쪽이 목록에서 사라진다
+      const round = s.rounds.find((r) => { const d = r.dueDateOriginal || r.dueDate; return d >= from && d < to; });
       if (!round) continue;
 
       // 전월(직전 회차) 상황. 화면에서 미결제를 한 번에 체크할 수 있게 같이 내려 준다.
@@ -567,6 +581,87 @@ export const advanceInfoOf = async (schedule, round) => {
   return advanceMailText(vehicles, round);
 };
 
+/** 청구 메일 첫 문단 다음에 붙는 안내: 청구서 비고(특이사항)와 선납금 안내. 없으면 ''. */
+export const mailInfoOf = async (schedule, round) => {
+  const note = String(round?.invoiceNote || '').trim();
+  return [note ? `[비고]\n${note}` : '', await advanceInfoOf(schedule, round)].filter(Boolean).join('\n\n');
+};
+
+/** 청구 메일 양식의 {{계약자}} 같은 자리에 들어갈 값 */
+const invoiceMailValues = (schedule, round, total = round.total) => ({
+  계약자: resolvePartyName(schedule),
+  계약번호: schedule.contract?.contractNo || '',
+  회차: round.no,
+  총회차: schedule.totalRounds,
+  출금일: formatYmd(round.dueDate),
+  청구액: `${Number(total || 0).toLocaleString()}원`
+});
+
+/** 요청 본문에서 담당자가 발송 창에서 고친 제목·본문을 꺼낸다 */
+const editedMailOf = (body = {}) => ({ mailSubject: String(body?.mailSubject || ''), mailBody: String(body?.mailBody || '') });
+
+/** 화면에서 받은 YYYY-MM-DD를 출금일로. 회차표의 다른 날짜와 같이 한국 시간 정오로 둔다. 잘못된 값(11월 31일 등)이면 null. */
+const dueDateOf = (value) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+  if (!m) return null;
+  const d = new Date(`${value}T12:00:00+09:00`);
+  const real = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return Number.isNaN(d.getTime()) || real.getUTCDate() !== Number(m[3]) ? null : d;
+};
+
+/**
+ * 이 회차만 출금일을 바꾼다. 앞뒤 회차 출금일을 넘지 못한다.
+ * @returns {{changed: boolean, error?: string, summary?: string}}
+ */
+export const changeRoundDueDate = (rounds, round, ymdValue) => {
+  const next = dueDateOf(ymdValue);
+  if (!next) return { changed: false, error: '출금일 날짜를 확인해 주세요.' };
+  const before = formatYmd(round.dueDate);
+  const after = formatYmd(next);
+  if (before === after) return { changed: false };
+  const prevRound = rounds.find((r) => r.no === round.no - 1);
+  const nextRound = rounds.find((r) => r.no === round.no + 1);
+  if (prevRound && after <= formatYmd(prevRound.dueDate)) return { changed: false, error: `출금일은 ${prevRound.no}회차 출금일(${formatYmd(prevRound.dueDate)})보다 뒤여야 합니다.` };
+  if (nextRound && after >= formatYmd(nextRound.dueDate)) return { changed: false, error: `출금일은 ${nextRound.no}회차 출금일(${formatYmd(nextRound.dueDate)})보다 앞이어야 합니다.` };
+  const original = round.dueDateOriginal || round.dueDate;
+  round.dueDate = next;
+  round.dueDateOriginal = formatYmd(original) === after ? undefined : original;
+  return { changed: true, summary: `출금일 ${before} → ${after}` };
+};
+
+/**
+ * 청구 메일 미리보기. 발송 창에서 제목·본문을 보고 고칠 수 있게 만들어 준다. 저장·발송은 하지 않는다.
+ * 화면에서 고치는 중인 값(청구액·출금일·비고·월 렌트료)을 주면 그 값으로 만든다.
+ *
+ * @route POST /api/billing-schedules/:id/rounds/:no/mail-draft
+ */
+export const getMailDraft = async (req, res) => {
+  try {
+    const schedule = await BillingSchedule.findById(req.params.id)
+      .populate('company', 'name')
+      .populate('customer', 'name')
+      .populate('contract', 'contractNo contractKind extensionInfo contractDate endDate leaseCompany')
+      .lean();
+    if (!schedule) return res.status(404).json({ success: false, message: '회차표를 찾을 수 없습니다.' });
+    const stored = schedule.rounds.find((r) => r.no === Number(req.params.no));
+    if (!stored) return res.status(404).json({ success: false, message: '해당 회차가 없습니다.' });
+    const b = req.body || {};
+    const round = { ...stored };
+    if (b.total !== undefined) round.total = Number(b.total) || 0;
+    if (b.monthlyRent !== undefined) round.monthlyRent = Number(b.monthlyRent) || 0;
+    if (b.invoiceNote !== undefined) round.invoiceNote = String(b.invoiceNote);
+    if (dueDateOf(b.dueDate)) round.dueDate = dueDateOf(b.dueDate);
+    const draft = await draftInvoiceMail({
+      leadLine: extensionLeadOf(schedule, round),
+      infoText: await mailInfoOf(schedule, round),
+      values: invoiceMailValues(schedule, round)
+    });
+    res.json({ success: true, ...draft });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 /**
  * 함께 보낼 서류 중 읽지 못하는 첫 파일 이름. 모두 읽히면 ''.
  * 서류가 빠진 청구서가 고객에게 나가면 안 되므로 보내기 전에 확인한다.
@@ -591,7 +686,7 @@ export const findMissingAttachment = async (round, read = readSavedFile) => {
  *
  * @returns {Promise<{mailResult: object|null, mailError: string|null}>}
  */
-const deliverInvoice = async ({ schedule, round, partyName, fileName, pdfBuffer, saved, to, sendEmail, req, user }) => {
+const deliverInvoice = async ({ schedule, round, partyName, fileName, pdfBuffer, saved, to, sendEmail, req, user, mail = {} }) => {
   let mailResult = null;
   let mailError = null;
   if (sendEmail) {
@@ -607,18 +702,12 @@ const deliverInvoice = async ({ schedule, round, partyName, fileName, pdfBuffer,
       mailResult = await sendInvoiceMail({
         to,
         leadLine: extensionLeadOf(schedule, round),
-        infoText: await advanceInfoOf(schedule, round),
+        infoText: await mailInfoOf(schedule, round),
         fileName,
         fileBuffer: pdfBuffer,
         extraFiles,
-        values: {
-          계약자: partyName,
-          계약번호: schedule.contract?.contractNo || '',
-          회차: round.no,
-          총회차: schedule.totalRounds,
-          출금일: formatYmd(round.dueDate),
-          청구액: `${Number(round.total || 0).toLocaleString()}원`
-        }
+        ...mail,
+        values: { ...invoiceMailValues(schedule, round), 계약자: partyName }
       });
     } catch (err) {
       mailError = err.message;
@@ -676,6 +765,8 @@ export const roundSnapshot = (round, to, context = {}) => crypto.createHash('sha
   attachments: (round.attachments || []).map((a) => [a.fileHash || a.fileName, Number(a.amount) || 0, a.noticeStatus || '']),
   // 청구서에 찍히는 나머지 값. 금액이 같아도 이것이 바뀌면 담당자가 본 청구서와 다르다
   note: round.note || '',
+  // 비고가 있을 때만 넣는다. 늘 넣으면 이미 승인해 둔 건의 지문이 모두 달라진다
+  ...(round.invoiceNote ? { invoiceNote: round.invoiceNote } : {}),
   interestRate: Number(round.interestRate) || 0,
   interestDays: Number(round.interestDays) || 0,
   dueDate: formatYmd(round.dueDate),
@@ -740,6 +831,8 @@ const reviewOf = ({ round, schedule, unpaid, suggestedInterest }) => {
   }
   if (round.prevOverpaid) changes.push({ key: 'overpaid', label: '전월 초과 입금 차감', amount: -round.prevOverpaid });
   if ((round.note || '').trim()) changes.push({ key: 'note', label: '메모 있음', amount: 0 });
+  if ((round.invoiceNote || '').trim()) changes.push({ key: 'invoiceNote', label: '비고 있음', amount: 0 });
+  if (round.dueDateOriginal) changes.push({ key: 'dueDate', label: `출금일 변경 (원래 ${formatYmd(round.dueDateOriginal)})`, amount: 0 });
 
   const expectedTotal = (round.monthlyRent || 0) + prevUnpaid + interest
     + (round.fine || 0) + (round.maintenance || 0) + (round.other || 0) - (round.prevOverpaid || 0);
@@ -988,19 +1081,12 @@ export const testSendInvoice = async (req, res) => {
     const mail = await sendInvoiceMail({
       to,
       leadLine: extensionLeadOf(schedule, round),
-      infoText: await advanceInfoOf(schedule, round),
+      infoText: await mailInfoOf(schedule, round),
       fileName,
       fileBuffer: req.file.buffer,
       extraFiles,
-      values: {
-        계약자: partyName,
-        계약번호: schedule.contract?.contractNo || '',
-        회차: round.no,
-        총회차: schedule.totalRounds,
-        출금일: formatYmd(round.dueDate),
-        // 시험은 저장하지 않고 화면 계산값으로 PDF를 만든다. 본문 금액도 PDF와 같게 화면 값을 쓴다.
-        청구액: `${Number(req.body.total ?? round.total ?? 0).toLocaleString()}원`
-      }
+      // 시험은 저장하지 않고 화면 계산값으로 PDF를 만든다. 본문 금액도 PDF와 같게 화면 값을 쓴다.
+      values: invoiceMailValues(schedule, round, req.body.total ?? round.total)
     });
     // 보낸편지함을 볼 권한이 없어도 무엇을 보냈는지 서버 기록으로 되짚을 수 있게 남긴다
     console.log(`[시험 메일] ${partyName} ${round.no}회차 → ${mail.to}`);
@@ -1044,14 +1130,15 @@ export const cancelAutoSend = async (req, res) => {
  * @param {number} [options.roundNo]
  * @param {boolean} [options.ignoreSendDate] 발송일 전이어도 보낸다 (한 건을 지금 보낼 때)
  * @param {string} [options.sendDate] 이 발송일(YYYY-MM-DD) 건만 보낸다. 날짜별 [보내기]. 발송일 전이어도 보낸다
+ * @param {{mailSubject: string, mailBody: string}} [options.mail] 한 건을 보낼 때 발송 창에서 고친 제목·본문
  * @returns {Promise<{sent: number, held: number, failed: number, results: object[]}>}
  */
-export const runAutoSend = async ({ user, scheduleId, roundNo, ignoreSendDate = false, sendDate } = {}) => {
+export const runAutoSend = async ({ user, scheduleId, roundNo, ignoreSendDate = false, sendDate, mail } = {}) => {
   // 아침 정기 작업과 화면의 [지금 보내기]가 겹치면 같은 청구서가 두 번 나간다. 한 번에 하나만 돈다.
   if (autoSendRunning) return { sent: 0, held: 0, failed: 0, results: [], busy: true };
   autoSendRunning = true;
   try {
-    return await sendApprovedInvoices({ user, scheduleId, roundNo, ignoreSendDate, sendDate });
+    return await sendApprovedInvoices({ user, scheduleId, roundNo, ignoreSendDate, sendDate, mail });
   } finally {
     autoSendRunning = false;
   }
@@ -1059,7 +1146,7 @@ export const runAutoSend = async ({ user, scheduleId, roundNo, ignoreSendDate = 
 
 let autoSendRunning = false;
 
-const sendApprovedInvoices = async ({ user, scheduleId, roundNo, ignoreSendDate, sendDate }) => {
+const sendApprovedInvoices = async ({ user, scheduleId, roundNo, ignoreSendDate, sendDate, mail }) => {
   const today = dayKey(new Date());
   const filter = { 'rounds.autoSend.status': '승인' };
   if (scheduleId) filter._id = scheduleId;
@@ -1129,7 +1216,8 @@ const sendApprovedInvoices = async ({ user, scheduleId, roundNo, ignoreSendDate,
           saved: { fileName: round.autoSend.pdfFileName, localPath: round.autoSend.pdfSavedPath },
           to: round.autoSend.to,
           sendEmail: true,
-          user
+          user,
+          mail: mail || {}
         });
         if (mailResult) {
           round.autoSend.status = '발송완료';
@@ -1171,7 +1259,8 @@ export const runAutoSendNow = async (req, res) => {
       user: req.user,
       scheduleId: req.body?.scheduleId,
       roundNo: req.body?.roundNo,
-      ignoreSendDate: Boolean(one)
+      ignoreSendDate: Boolean(one),
+      mail: one ? editedMailOf(req.body) : undefined
     });
     if (summary.busy) {
       return res.status(409).json({ success: false, message: '자동 발송이 이미 돌고 있습니다. 잠시 뒤 새로고침해 주세요.' });
@@ -1358,18 +1447,12 @@ export const resendInvoice = async (req, res) => {
     const mail = await sendInvoiceMail({
       to,
       leadLine: extensionLeadOf(schedule, round),
-      infoText: await advanceInfoOf(schedule, round),
+      infoText: await mailInfoOf(schedule, round),
       fileName: round.invoiceFileName || 'invoice.pdf',
       fileBuffer: pdfBuffer,
       extraFiles,
-      values: {
-        계약자: partyName,
-        계약번호: schedule.contract?.contractNo || '',
-        회차: round.no,
-        총회차: schedule.totalRounds,
-        출금일: formatYmd(round.dueDate),
-        청구액: `${Number(round.total || 0).toLocaleString()}원`
-      }
+      ...editedMailOf(req.body),
+      values: invoiceMailValues(schedule, round)
     });
     round.sentAt = new Date();
     round.sentTo = mail.to;
@@ -1591,7 +1674,7 @@ export const issueRound = async (req, res) => {
     }
 
     const { mailResult, mailError } = await deliverInvoice({
-      schedule, round, partyName, fileName, pdfBuffer: req.file.buffer, saved, to, sendEmail, req
+      schedule, round, partyName, fileName, pdfBuffer: req.file.buffer, saved, to, sendEmail, req, mail: editedMailOf(req.body)
     });
 
     res.json({
@@ -2932,13 +3015,19 @@ export const updateRound = async (req, res) => {
 
     const totalBefore = round.total || 0;
     const contentOf = (r) => JSON.stringify([r.monthlyRent, r.prevUnpaid, r.prevOverpaid, r.interest,
-      r.fine, r.maintenance, r.other, (r.extras || []).map((e) => [e.label, e.amount]), r.note || '']);
+      r.fine, r.maintenance, r.other, (r.extras || []).map((e) => [e.label, e.amount]), r.note || '', r.invoiceNote || '', formatYmd(r.dueDate)]);
     const contentBefore = contentOf(round);
     ['prevUnpaid', 'prevOverpaid', 'interest', 'fine', 'maintenance', 'other', 'monthlyRent']
       .forEach((field) => {
         if (req.body[field] !== undefined) round[field] = Number(req.body[field]) || 0;
       });
     if (req.body.note !== undefined) round.note = req.body.note;
+    if (req.body.invoiceNote !== undefined) round.invoiceNote = String(req.body.invoiceNote || '').trim() || undefined;
+    let dueChange = null;
+    if (req.body.dueDate) {
+      dueChange = changeRoundDueDate(schedule.rounds, round, String(req.body.dueDate).slice(0, 10));
+      if (dueChange.error) return res.status(400).json({ success: false, message: dueChange.error });
+    }
     if (req.body.status !== undefined) round.status = req.body.status;
 
     // 기타 청구는 항목명과 금액을 함께 받는다. 금액이 0이고 이름도 없는 줄은 버린다.
@@ -2961,7 +3050,7 @@ export const updateRound = async (req, res) => {
 
     // 발행한 청구서의 내용이 바뀌었으면 기록을 남기고 정정 청구서를 다시 보내라고 알린다
     const revision = contentOf(round) !== contentBefore
-      ? await finishIssuedRevision(schedule, round, totalBefore, String(req.body.revisionNote || '청구서 항목 수정').trim(), req)
+      ? await finishIssuedRevision(schedule, round, totalBefore, String(req.body.revisionNote || dueChange?.summary || '청구서 항목 수정').trim(), req)
       : null;
 
     await schedule.save();

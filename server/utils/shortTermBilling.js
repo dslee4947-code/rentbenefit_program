@@ -103,7 +103,9 @@ export const planShortTermRounds = (contract, existingRounds = [], now = new Dat
       note = `반납일(${ymd(until)})까지 ${days}일 일할 (월 ${monthly.toLocaleString()}원 × ${days}/${span}일)`;
     }
     if (old) {
-      old.dueDate = due;
+      // 이 회차만 바꾼 출금일은 지킨다
+      if (old.dueDateOriginal) old.dueDateOriginal = due;
+      else old.dueDate = due;
       old.monthlyRent = amount;
       if (note) old.note = note;
       else if (RETURN_NOTE.test(old.note || '')) old.note = undefined;

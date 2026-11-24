@@ -39,6 +39,9 @@ export const buildRoundForm = (item, round, rounds) => {
     other: round.other || 0,
     extras: (round.extras || []).map((e) => ({ label: e.label || '', amount: e.amount || 0 })),
     note: round.note || '',
+    invoiceNote: round.invoiceNote || '',
+    dueDate: String(round.dueDate || '').slice(0, 10),
+    dueDateOriginal: round.dueDateOriginal || null,
     carried,
     suggestedInterest,
     interestRate: item.lateInterestRate || 0,
@@ -97,7 +100,9 @@ export const formSnapshot = (form) => JSON.stringify({
   maintenance: Number(form.maintenance) || 0,
   other: Number(form.other) || 0,
   extras: (form.extras || []).map((e) => ({ label: e.label || '', amount: Number(e.amount) || 0 })),
-  note: form.note || ''
+  note: form.note || '',
+  invoiceNote: form.invoiceNote || '',
+  dueDate: form.dueDate || ''
 });
 
 /** 메일에 함께 나가는 서류를 종류별로 센 글. 예: '범칙금 2건, 정비내역 1건'. 없으면 '' */

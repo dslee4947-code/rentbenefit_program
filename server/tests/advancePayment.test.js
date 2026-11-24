@@ -9,6 +9,7 @@ test('선납 14,331,000원 60개월: 안분액 238,850원, 세금계산서 673,8
   const t = advanceTaxInvoice([car], { no: 1, monthlyRent: 435000 });
   assert.deepEqual([t.rent, t.advance, t.taxInvoice, t.basis], [435000, 238850, 673850, '14,331,000원 1/60회차']);
   assert.match(advanceMailText([car], { no: 1, monthlyRent: 435000 }), /월 세금계산서 발행금액 : 673,850원/);
+  assert.ok(advanceMailText([car], { no: 1, monthlyRent: 435000 }).includes("세금계산서는 월 렌트료에 선납금(선수금) 안분액을 포함한 금액으로 발행됩니다"));
 });
 
 test('안분액을 모두 더하면 선납금과 같고 끝전은 마지막 회차에 들어간다', () => {

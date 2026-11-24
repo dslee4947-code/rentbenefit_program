@@ -84,7 +84,7 @@ export const advanceTaxInvoice = (vehicles, round) => {
   };
 };
 
-export const ADVANCE_NOTE = '선납금 안분액은 선납금에서 충당되는 금액으로, 별도로 출금되지 않습니다.';
+export const ADVANCE_NOTE = '세금계산서는 월 렌트료에 선납금(선수금) 안분액을 포함한 금액으로 발행됩니다. 선납금 안분액은 선납금에서 충당되는 금액으로, 별도로 출금되지 않습니다.';
 
 /** 청구 메일 본문에 붙일 글. 선납금이 없으면 '' */
 export const advanceMailText = (vehicles, round) => {

@@ -196,7 +196,7 @@ export default function InvoiceSheet({ innerRef, item, round, vehicles, total })
             <tr>
               <td colSpan={2} style={{ ...cell, ...small }}>
                 {ADVANCE_NOTE}
-                {' '}누적 안분액 {tax.summary.deducted.toLocaleString()}원 · 선납금 잔액 {tax.summary.balance.toLocaleString()}원
+                <br />누적 안분액 {tax.summary.deducted.toLocaleString()}원 · 선납금 잔액 {tax.summary.balance.toLocaleString()}원
                 {tax.summary.remaining ? ` (남은 ${tax.summary.remaining}회)` : ' (안분 완료)'}
               </td>
             </tr>

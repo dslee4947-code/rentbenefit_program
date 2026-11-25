@@ -12,6 +12,7 @@ import {
 } from '../controllers/fleetFilingController.js';
 import { getCarAgeFilings, createCarAgeFiling, updateCarAgeFiling, setCarAgeFilingStatus, deleteCarAgeFiling } from '../controllers/carAgeFilingController.js';
 import { getScrapFilings, createScrapFiling, updateScrapFiling, setScrapFilingStatus, deleteScrapFiling } from '../controllers/scrapFilingController.js';
+import { listScrapFiles, uploadScrapFile, getScrapFile, deleteScrapFile, sendScrapMail } from '../controllers/scrapMailController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
 import { uploadSingleFile } from '../middleware/uploadMiddleware.js';
 
@@ -33,6 +34,11 @@ router.post('/scrap', createScrapFiling);
 router.put('/scrap/:id', updateScrapFiling);
 router.post('/scrap/:id/status', setScrapFilingStatus);
 router.delete('/scrap/:id', deleteScrapFiling);
+router.get('/scrap/:id/files', listScrapFiles);
+router.post('/scrap/:id/files', uploadSingleFile(), uploadScrapFile);
+router.get('/scrap/:id/files/:fileId', getScrapFile);
+router.delete('/scrap/:id/files/:fileId', deleteScrapFile);
+router.post('/scrap/:id/mail', uploadSingleFile(), sendScrapMail);
 router.put('/info', updateFleetInfo);
 router.post('/import', uploadSingleFile(), importFleetWorkbook);
 router.post('/notice', uploadSingleFile(), uploadFleetNotice);

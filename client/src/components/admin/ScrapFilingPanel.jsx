@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ScrapFilingDocs from './ScrapFilingDocs.jsx';
+import ScrapFilingMail from './ScrapFilingMail.jsx';
 import { makeA4PagesPdf } from '../../utils/printFit.js';
 import { SCRAP_REASONS } from '../../../../shared/scrapFiling.js';
 
@@ -62,7 +63,7 @@ function VehicleSearch({ vehicles, filedIn, onPick, placeholder }) {
   );
 }
 
-function Editor({ filing, data, canEdit, onSave, onStatus, onDelete, showToast }) {
+function Editor({ filing, data, canEdit, onSave, onStatus, onDelete, onSent, showToast }) {
   const [draft, setDraft] = useState(filing);
   const [busy, setBusy] = useState(false);
   const [showAfter, setShowAfter] = useState(filing.items.some((it) => it.after?.plateNo));
@@ -87,18 +88,22 @@ function Editor({ filing, data, canEdit, onSave, onStatus, onDelete, showToast }
     setItem(i, { after: carOf(v) });
   };
 
+  const makePdf = () => makeA4PagesPdf([...docsRef.current.querySelectorAll('.fleet-doc-page')]);
+  const first = draft.items[0]?.before;
+  const pdfName = `대폐차_신고서_${first ? `${first.carName}_${first.plateNo}_` : ''}${draft.items.length > 1 ? `외${draft.items.length - 1}대_` : ''}${ymd(draft.filedAt).replace(/-/g, '').slice(2)}.pdf`;
+  const dirty = JSON.stringify(draft) !== JSON.stringify(filing);
+
   const pdf = async (open) => {
     const win = open ? window.open('', '_blank') : null;
     setBusy(true);
     try {
-      const blob = await makeA4PagesPdf([...docsRef.current.querySelectorAll('.fleet-doc-page')]);
+      const blob = await makePdf();
       const url = URL.createObjectURL(blob);
       if (win) win.location.href = url;
       else {
         const a = document.createElement('a');
         a.href = url;
-        const first = draft.items[0]?.before;
-        a.download = `대폐차_신고서_${first ? `${first.carName}_${first.plateNo}_` : ''}${draft.items.length > 1 ? `외${draft.items.length - 1}대_` : ''}${ymd(draft.filedAt).replace(/-/g, '').slice(2)}.pdf`;
+        a.download = pdfName;
         a.click();
       }
       setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -134,7 +139,7 @@ function Editor({ filing, data, canEdit, onSave, onStatus, onDelete, showToast }
           {canEdit && filing._id && st !== '처리완료' && <button type="button" style={btn('danger')} disabled={busy} onClick={() => onDelete(filing)}>삭제</button>}
         </span>
       </div>
-      {draft._id && editable && JSON.stringify(draft) !== JSON.stringify(filing) && <div style={{ fontSize: '0.8rem', color: '#b45309' }}>고친 내용이 아직 저장되지 않았습니다.</div>}
+      {draft._id && editable && dirty && <div style={{ fontSize: '0.8rem', color: '#b45309' }}>고친 내용이 아직 저장되지 않았습니다.</div>}
 
       <div style={card}>
         <b style={{ fontSize: '0.9rem' }}>차량 조회</b>
@@ -192,6 +197,8 @@ function Editor({ filing, data, canEdit, onSave, onStatus, onDelete, showToast }
         </label>
       </div>
 
+      <ScrapFilingMail api={API} filing={filing} dirty={dirty} canEdit={canEdit} makePdf={makePdf} pdfName={pdfName} onSent={onSent} showToast={showToast} />
+
       <div style={{ ...card, background: 'var(--bg-main)' }}>
         <div style={{ fontSize: '0.84rem', fontWeight: 800, marginBottom: '0.6rem' }}>서류 미리보기 <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}>— 1쪽 신고서 · 2쪽 별첨</span></div>
         <div ref={docsRef} style={{ display: 'flex', flexDirection: 'column', gap: '18px', alignItems: 'flex-start', overflowX: 'auto', paddingBottom: '6px' }}>
@@ -239,7 +246,7 @@ export default function ScrapFilingPanel({ canEdit, showToast }) {
   if (!data) return <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>대폐차 신고서를 불러오는 중…</div>;
   const current = selected === 'new' ? null : data.filings.find((f) => f._id === selected);
   const fresh = { filedAt: todayYmd(), status: '작성중', reason: SCRAP_REASONS[0], business: '', changedAt: '', showDate: false, showCheck: false, items: [], memo: '' };
-  const edit = { data, canEdit, onSave: save, onStatus: setStatus, onDelete: remove, showToast };
+  const edit = { data, canEdit, onSave: save, onStatus: setStatus, onDelete: remove, onSent: load, showToast };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>

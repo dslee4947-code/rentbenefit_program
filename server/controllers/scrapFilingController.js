@@ -1,4 +1,5 @@
 import ScrapFiling from '../models/ScrapFiling.js';
+import ScrapFilingFile from '../models/ScrapFilingFile.js';
 import Vehicle from '../models/Vehicle.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
 import { SCRAP_STATUSES, scrapCarName } from '../../shared/scrapFiling.js';
@@ -101,6 +102,7 @@ export const deleteScrapFiling = async (req, res) => {
     if (!filing) return res.status(404).json({ success: false, message: '신고서를 찾을 수 없습니다.' });
     if (filing.status === '처리완료') return res.status(400).json({ success: false, message: '처리 완료된 신고서는 지울 수 없습니다.' });
     await ScrapFiling.deleteOne({ _id: filing._id });
+    await ScrapFilingFile.deleteMany({ filing: filing._id });
     log(req, filing, '삭제');
     res.json({ success: true });
   } catch (err) {

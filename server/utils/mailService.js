@@ -184,6 +184,12 @@ export const sendEndDocMail = async ({ to, templateKey, fileName, fileBuffer, va
 };
 
 /**
+ * 대폐차 신고서 메일 (증차·감차 공문 > 대폐차 신고). 제목·본문은 화면에서 적은 그대로, 서명은 회사 서명을 붙인다.
+ * @param {{to: string, cc?: string, mailSubject: string, mailBody: string, files: Array<{fileName: string, buffer: Buffer, contentType?: string}>}} params
+ */
+export const sendScrapFilingMail = async ({ to, cc, mailSubject, mailBody, files }) => sendTemplateMail({ to, cc, mailSubject, mailBody, files });
+
+/**
  * 청구서·안내 메일을 보내는 계정. 고객이 받는 메일의 보내는 사람이다(대표님 지정 2026-10-19: rent@sdibenefit.com).
  * 예전에는 설정이 없으면 연락처 동기화 계정(as@)으로 보냈는데, 고객에게 엉뚱한 주소로 나가므로 rent@로 고정한다.
  */

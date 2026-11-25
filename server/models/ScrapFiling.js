@@ -25,6 +25,7 @@ const scrapFilingSchema = new mongoose.Schema({
   showCheck: { type: Boolean, default: false }, // [√] 자동차대여사업계획 변경
   items: { type: [itemSchema], default: [] },
   memo: { type: String, default: '' },
+  mails: { type: [new mongoose.Schema({ to: String, cc: String, subject: String, files: [String], sentAt: Date, sentBy: String }, { _id: false })], default: [] }, // 조합에 보낸 메일
   submittedAt: Date,
   processedAt: Date,
   createdBy: { type: String, default: '' },

@@ -24,6 +24,46 @@ test('신구사업대비표: 변경 전·후 대수, 늘어난 면적, 변경 �
   assert.equal(Math.round(s.garage.remaining), 369);
 });
 
+test('차고지 감면: 대수는 그대로, 구청 값이 있으면 그 면적, 예상은 지금 사용면적에 감면율', () => {
+  const s = filingSheetOf(info, { kind: '차고지 감면', items: [{ name: 'G90', delta: 1 }], garagePlan: { rate: 0.9 } });
+  assert.equal(s.beforeTotal, s.afterTotal);
+  assert.equal(s.reason, '차고지 감면');
+  assert.equal(s.registrationLabel, '차고지 감면');
+  assert.equal(Math.round(s.garage.remaining), 369);
+  assert.ok(Math.abs(s.expected.reducedRequired - s.beforeArea * 0.1) < 1e-6);
+  const used = filingSheetOf(info, { kind: '차고지 감면', garagePlan: { rate: 0.9, useExpected: true } });
+  assert.ok(Math.abs(used.garage.afterUsedArea - s.beforeArea * 0.1) < 1e-6);
+  const fixed = filingSheetOf({ ...info, garage: { ...info.garage, requiredArea: 1167, reducedRequired: 117 } }, {});
+  assert.deepEqual([fixed.garage.reduction, fixed.garage.remaining], [1050, 338]);
+  const old = filingSheetOf({ ...info, garage: { ...info.garage, requiredArea: 1167, reducedRequired: 117 } }, { garageSnapshot: info.garage });
+  assert.equal(Math.round(old.garage.remaining), 369);
+});
+
+test('구청 알림의 차고지 면적과 감면 줄', async () => {
+  const { parseFleetNoticeText } = await import('../utils/fleetNoticeParse.js');
+  const a = parseFleetNoticeText(`민원-124478(2026.11.09.)호
+○ 주사무소 승용차 2대 증차(143대 → 145대)
+- 차종: 테슬라 Model Y 2대
+나. 차량 및 차고지 현황
+합계 143 143 0 145 145 0 455 1,167 117 338
+주
+사무소 143 143 0 145 145 0 99 90 서울특별시 강서구 마곡동 797-4
+(2024.10.12.~2025.10.11.) 455 1,167 117 338 승용+2`);
+  assert.equal(a.after, 145);
+  assert.equal(a.garage.requiredArea, 1167);
+  assert.equal(a.garage.reducedRequired, 117);
+  assert.equal(a.garage.reductionRate, 0.9);
+  assert.equal(a.garage.consistent, true);
+  assert.equal(a.reduction, '');
+  const b = parseFleetNoticeText(`민원-2(2026.12.09.)호
+○ 주사무소 장기차량 30대 적용, 감면율 수정
+- 101하5045, 125호8766
+나. 차량 및 차고지 현황
+합계 147 147 0 147 147 0 455 1,190 119 336`);
+  assert.equal(b.reduction, '장기차량 30대 적용, 감면율 수정');
+  assert.deepEqual([b.before, b.after, b.increase], [147, 147, 0]);
+});
+
 test('표에 없는 차종은 새 줄, 감차는 음수로 센다', () => {
   const s = filingSheetOf(info, { items: [{ name: '투싼', width: 1.865, length: 4.64, delta: 1 }, { name: ' g90 ', delta: -1 }] });
   assert.equal(s.rows.at(-1).name, '투싼');

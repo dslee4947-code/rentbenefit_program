@@ -8,7 +8,8 @@
  * 화면(서류 미리보기)과 서버(구청 처리 완료 때 대수 반영)가 같은 규칙을 쓰도록 여기 한 곳에 둔다.
  */
 
-export const FILING_KINDS = ['증차·감차', '차고지 변경', '계약 취소 감차'];
+export const GARAGE_REDUCTION = '차고지 감면'; // 1년에 한 번, 대수는 그대로 두고 장기렌트 차량의 차고지 면적 감면을 신청한다
+export const FILING_KINDS = ['증차·감차', GARAGE_REDUCTION, '차고지 변경', '계약 취소 감차'];
 export const FILING_STATUSES = ['작성중', '제출', '처리완료', '취소'];
 
 // 엑셀 '증차' 시트와 신구사업대비표 머리의 값. 기본 정보 칸에서 고친다.
@@ -37,16 +38,30 @@ const num = (v) => Number(v) || 0;
 export const areaOf = (width, length, count) => num(width) * num(length) * num(count);
 
 export const defaultReasonOf = (kind, increase, decrease) => {
+  if (kind === GARAGE_REDUCTION) return '차고지 감면';
   if (kind === '차고지 변경') return '차고지 계약에 따른 면적 신고';
   if (kind === '계약 취소 감차') return '계약 취소로 감차 요청';
   return `증차 ${increase}대\n감차 ${Math.abs(decrease)}대`;
 };
 
 export const defaultRegistrationLabelOf = (kind, increase, decrease) => {
+  if (kind === GARAGE_REDUCTION) return '차고지 감면';
   if (kind === '차고지 변경') return '차고지 변경';
   if (increase && decrease) return '렌터카 증차·감차';
   if (decrease) return '렌터카 감차';
   return '렌터카 증차';
+};
+
+/**
+ * 차고지 면적. 감면후 소요면적은 구청이 알림에 적어 준 값(reducedRequired)이 있으면 그것을, 없으면 감면율로 계산한다.
+ * (구청 값은 감면율과 딱 맞지 않을 때가 있다. 2025-06-11 알림: 감면전 795 · 90% · 감면후 388)
+ */
+export const garageAreasOf = (garage) => {
+  const g = { ...DEFAULT_FLEET_INFO.garage, ...(garage || {}) };
+  const required = num(g.requiredArea);
+  const given = g.reducedRequired === '' || g.reducedRequired == null ? null : num(g.reducedRequired);
+  const reducedRequired = given ?? required - required * num(g.reductionRate);
+  return { ...g, reduction: required - reducedRequired, reducedRequired, remaining: num(g.contractArea) - reducedRequired };
 };
 
 /**
@@ -58,7 +73,9 @@ export const defaultRegistrationLabelOf = (kind, increase, decrease) => {
 export const filingSheetOf = (info, filing = {}) => {
   const base = (filing.snapshot && filing.snapshot.length ? filing.snapshot : info.carTypes) || [];
   const deltas = new Map();
-  (filing.items || []).forEach((it) => {
+  const kind = filing.kind || '증차·감차';
+  // 차고지 감면은 대수가 바뀌지 않는다
+  (kind === GARAGE_REDUCTION ? [] : filing.items || []).forEach((it) => {
     const key = carTypeKey(it.name);
     if (!key) return;
     const prev = deltas.get(key) || { name: String(it.name).trim(), width: num(it.width), length: num(it.length), delta: 0 };
@@ -94,10 +111,12 @@ export const filingSheetOf = (info, filing = {}) => {
   const beforeArea = rows.reduce((s, r) => s + r.beforeArea, 0);
   const changeArea = rows.reduce((s, r) => s + r.afterArea, 0);
 
-  const g = { ...DEFAULT_FLEET_INFO.garage, ...(info.garage || {}) };
-  const reduction = num(g.requiredArea) * num(g.reductionRate);
-  const reducedRequired = num(g.requiredArea) - reduction;
-  const kind = filing.kind || '증차·감차';
+  // 낸 공문은 낼 때의 차고지 면적으로 다시 뽑는다(그 뒤 구청 감면 결과로 면적이 바뀌어도 낸 서류는 그대로)
+  const current = garageAreasOf(filing.garageSnapshot || info.garage);
+  // 감면 예상: 지금 사용면적에 신청 감면율을 적용한 값
+  const planRate = num(filing.garagePlan?.rate ?? current.reductionRate);
+  const expected = garageAreasOf({ ...current, requiredArea: beforeArea, reductionRate: planRate, reducedRequired: null });
+  const garage = kind === GARAGE_REDUCTION && filing.garagePlan?.useExpected ? expected : current;
 
   return {
     rows,
@@ -107,13 +126,12 @@ export const filingSheetOf = (info, filing = {}) => {
     decrease,
     beforeArea,
     changeArea,
+    kind,
+    expected,
     garage: {
-      ...g,
-      reduction,
-      reducedRequired,
-      remaining: num(g.contractArea) - reducedRequired,
+      ...garage,
       // 엑셀 AH14: 변경 전 사용면적 − 감면 면적 + 이번에 늘어난 면적
-      afterUsedArea: beforeArea - reduction + changeArea
+      afterUsedArea: beforeArea - garage.reduction + changeArea
     },
     reason: (filing.reason || '').trim() || defaultReasonOf(kind, increase, decrease),
     registrationLabel: (filing.registrationLabel || '').trim() || defaultRegistrationLabelOf(kind, increase, decrease)

@@ -3,7 +3,7 @@ import FleetFilingDocs from './FleetFilingDocs.jsx';
 import CarAgeFilingPanel from './CarAgeFilingPanel.jsx';
 import ScrapFilingPanel from './ScrapFilingPanel.jsx';
 import { makeA4PagesPdf } from '../../utils/printFit.js';
-import { FILING_KINDS, filingSheetOf, defaultReasonOf, defaultRegistrationLabelOf, carTypeKey, compareFleet } from '../../../../shared/fleetFiling.js';
+import { FILING_KINDS, GARAGE_REDUCTION, garageAreasOf, filingSheetOf, defaultReasonOf, defaultRegistrationLabelOf, carTypeKey, compareFleet } from '../../../../shared/fleetFiling.js';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 const API = `${API_HOST}/api/fleet-filings`;
@@ -41,6 +41,7 @@ const won = (n) => (Number(n) ? Math.round(n).toLocaleString() : '');
 const parseWon = (s) => Number(String(s).replace(/[^\d]/g, '')) || '';
 
 const emptyFiling = () => ({ filedAt: todayYmd(), kind: '증차·감차', reason: '', registrationLabel: '', items: [{ name: '', width: '', length: '', delta: 1, plates: '' }], contracts: [], memo: '', status: '작성중' });
+const emptyReduction = () => ({ ...emptyFiling(), kind: GARAGE_REDUCTION, items: [], garagePlan: { rate: 0.9, useExpected: false } });
 const emptyContract = () => ({ maker: '현대', contractNo: '', model: '', color: '', price: '', deliveryFee: '', qty: '1대', deposit: '' });
 
 // 지난 기록의 구분: 차종 줄이 있으면 그 부호, 구청 알림만 있으면 알림의 증차·감차 대수
@@ -49,6 +50,12 @@ const kindOfHistory = (f) => {
   const n = f.notice || {};
   return [n.increase ? `증차 ${n.increase}` : '', n.decrease ? `감차 ${n.decrease}` : ''].filter(Boolean).join('·') || '변경';
 };
+
+const areaText = (g) => {
+  const a = garageAreasOf(g);
+  return `감면후 ${Math.round(a.reducedRequired).toLocaleString()}㎡ · 잔여 ${Math.round(a.remaining).toLocaleString()}㎡`;
+};
+const changeLabel = (f) => (f.kind === GARAGE_REDUCTION ? `차고지 감면${f.applied && f.garageResult ? ` (${areaText(f.garageResult)})` : ''}` : changeText(f.items));
 
 const changeText = (items) => (items || []).map((it) => `${it.name} ${it.delta > 0 ? '+' : ''}${it.delta}`).join(', ');
 
@@ -103,7 +110,7 @@ function FilingEditor({ info, filing, canEdit, onSave, onStatus, onDelete, onOpe
       } else {
         const a = document.createElement('a');
         a.href = url;
-        a.download = `증차공문 서류_${ymd(draft.filedAt).slice(2).replace(/-/g, '')}(${(draft.items || []).map((it) => it.name).join(', ')}).pdf`;
+        a.download = `${isReduction ? '차고지감면' : '증차공문'} 서류_${ymd(draft.filedAt).slice(2).replace(/-/g, '')}${isReduction ? '' : `(${(draft.items || []).map((it) => it.name).join(', ')})`}.pdf`;
         a.click();
       }
       setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -118,6 +125,7 @@ function FilingEditor({ info, filing, canEdit, onSave, onStatus, onDelete, onOpe
   const status = filing.status;
   const nameList = info.carTypes.map((t) => t.name);
   const hasIncrease = sheet.increase > 0;
+  const isReduction = draft.kind === GARAGE_REDUCTION;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
@@ -125,7 +133,7 @@ function FilingEditor({ info, filing, canEdit, onSave, onStatus, onDelete, onOpe
         <StatusChip status={status} />
         <b style={{ fontSize: '0.95rem' }}>{filing._id ? `${ymd(filing.filedAt)} 공문` : '새 공문'}</b>
         <span style={{ color: 'var(--text-muted)', fontSize: '0.84rem' }}>
-          {sheet.beforeTotal}대 → <b style={{ color: 'var(--text-main)' }}>{sheet.afterTotal}대</b> (증차 {sheet.increase} · 감차 {Math.abs(sheet.decrease)})
+          {sheet.beforeTotal}대 → <b style={{ color: 'var(--text-main)' }}>{sheet.afterTotal}대</b> ({isReduction ? '차고지 감면' : `증차 ${sheet.increase} · 감차 ${Math.abs(sheet.decrease)}`})
           {filing.processedAt && ` · 구청 처리 ${ymd(filing.processedAt)}`}
         </span>
         <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
@@ -151,7 +159,7 @@ function FilingEditor({ info, filing, canEdit, onSave, onStatus, onDelete, onOpe
           {onOpenNotice && <button type="button" style={{ ...btn(), marginLeft: 'auto' }} onClick={() => onOpenNotice(filing._id)}>알림 PDF 열기</button>}
         </div>
       )}
-      {locked && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>구청 처리가 끝나 대수가 신고 현황에 들어간 공문입니다. 고치려면 [처리 완료 되돌리기]를 먼저 누르세요.</div>}
+      {locked && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>구청 처리가 끝나 신고 현황에 반영된 공문입니다. 고치려면 [처리 완료 되돌리기]를 먼저 누르세요.</div>}
 
       <div style={{ ...card, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.7rem' }}>
         <label style={{ fontSize: '0.78rem', fontWeight: 700 }}>신청일
@@ -190,7 +198,9 @@ function FilingEditor({ info, filing, canEdit, onSave, onStatus, onDelete, onOpe
         </label>
       </div>
 
-      <div style={card}>
+      {isReduction && <GarageReductionCard sheet={sheet} draft={draft} set={set} editable={editable} />}
+
+      {!isReduction && <div style={card}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.5rem' }}>
           <b style={{ fontSize: '0.9rem' }}>바뀌는 차종</b>
           <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginLeft: '0.6rem' }}>늘리면 +, 줄이면 −. 표에 없는 차종은 이름과 가로·세로(m)를 적으면 대비표 끝에 새 줄로 들어갑니다.</span>
@@ -218,9 +228,9 @@ function FilingEditor({ info, filing, canEdit, onSave, onStatus, onDelete, onOpe
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
 
-      <div style={card}>
+      {!isReduction && <div style={card}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.5rem' }}>
           <b style={{ fontSize: '0.9rem' }}>자동차매매계약서</b>
           <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginLeft: '0.6rem' }}>
@@ -242,7 +252,7 @@ function FilingEditor({ info, filing, canEdit, onSave, onStatus, onDelete, onOpe
             {editable ? <button type="button" style={{ ...btn(), padding: '0.35rem 0.4rem' }} onClick={() => set({ contracts: draft.contracts.filter((_, j) => j !== i) })}>✕</button> : <span />}
           </div>
         ))}
-      </div>
+      </div>}
 
       <div style={{ ...card, background: 'var(--bg-main)' }}>
         <div style={{ fontSize: '0.84rem', fontWeight: 800, marginBottom: '0.6rem' }}>
@@ -252,6 +262,59 @@ function FilingEditor({ info, filing, canEdit, onSave, onStatus, onDelete, onOpe
           <FleetFilingDocs info={info} filing={draft} />
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ── 차고지 감면 ───────────────────────────────────────────── */
+
+function GarageReductionCard({ sheet, draft, set, editable }) {
+  const now = garageAreasOf(sheet.garage);
+  const cur = draft.garagePlan?.useExpected ? null : now;
+  const { expected } = sheet;
+  const r = draft.garageResult || {};
+  const hasResult = ['requiredArea', 'reducedRequired', 'contractArea'].every((k) => r[k] !== '' && r[k] != null);
+  const result = hasResult ? garageAreasOf({ ...r }) : null;
+  const setResult = (k, v) => set({ garageResult: { ...r, [k]: v.replace(/[^\d.]/g, '') } });
+  const m = (n) => (n == null || !Number.isFinite(Number(n)) ? '-' : `${Math.round(n).toLocaleString()}㎡`);
+  const rows = [['감면전 소요면적', 'requiredArea'], ['감면 면적', 'reduction'], ['감면후 소요면적', 'reducedRequired'], ['재계약(확보) 면적', 'contractArea'], ['잔여면적', 'remaining']];
+  const rateText = String(Math.round((Number(draft.garagePlan?.rate ?? now.reductionRate) || 0) * 1000) / 10);
+  const cell = { ...td, textAlign: 'right', whiteSpace: 'nowrap' };
+  return (
+    <div style={card}>
+      <b style={{ fontSize: '0.9rem' }}>차고지 감면</b>
+      <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginLeft: '0.6rem' }}>
+        대수는 그대로이고 차고지 면적만 바뀝니다. 지금 사용면적 {m(sheet.beforeArea)} ({sheet.beforeTotal}대). 구청 알림이 오면 위 [구청 처리 알림 올리기]로 올리면 구청 결과가 채워집니다.
+      </span>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center', margin: '0.6rem 0' }}>
+        <label style={{ fontSize: '0.78rem', fontWeight: 700 }}>신청 감면율(%)&nbsp;
+          <input type="number" min="0" max="100" style={{ ...input, width: '80px' }} disabled={!editable} value={rateText} onChange={(e) => set({ garagePlan: { ...draft.garagePlan, rate: Math.min(100, Math.max(0, Number(e.target.value) || 0)) / 100 } })} />
+        </label>
+        <label style={{ fontSize: '0.78rem', fontWeight: 700, display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+          <input type="checkbox" disabled={!editable} checked={!!draft.garagePlan?.useExpected} onChange={(e) => set({ garagePlan: { rate: now.reductionRate, ...draft.garagePlan, useExpected: e.target.checked } })} />
+          대비표에 감면 예상 면적을 쓰기 (끄면 지금 신고된 면적)
+        </label>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ borderCollapse: 'collapse', minWidth: '560px' }}>
+          <thead><tr><th style={th} />{cur && <th style={{ ...th, textAlign: 'right' }}>지금 신고된 면적</th>}<th style={{ ...th, textAlign: 'right' }}>감면 예상</th><th style={{ ...th, textAlign: 'right' }}>구청 결과</th></tr></thead>
+          <tbody>
+            {rows.map(([label, k]) => (
+              <tr key={k}>
+                <td style={{ ...td, fontWeight: 700, whiteSpace: 'nowrap' }}>{label}</td>
+                {cur && <td style={cell}>{m(cur[k])}</td>}
+                <td style={{ ...cell, fontWeight: 700 }}>{m(expected[k])}</td>
+                <td style={cell}>
+                  {['requiredArea', 'reducedRequired', 'contractArea'].includes(k)
+                    ? <input style={{ ...input, width: '110px', textAlign: 'right' }} inputMode="decimal" disabled={!editable} value={r[k] ?? ''} placeholder="구청 알림 값" onChange={(e) => setResult(k, e.target.value)} />
+                    : <b>{m(result?.[k])}</b>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>알림 PDF 없이 처리할 때만 구청 결과를 직접 적고 [저장] → [구청 처리 완료]를 누릅니다. 그러면 신고된 차고지 면적이 바뀌고 다음 공문부터 이 면적으로 나옵니다.</div>
     </div>
   );
 }
@@ -419,7 +482,7 @@ function InfoPanel({ info, canEdit, onSaveInfo }) {
   const field = (label, value, onChange) => (
     <label style={{ fontSize: '0.78rem', fontWeight: 700 }}>{label}<input style={input} disabled={!canEdit} value={value ?? ''} onChange={(e) => onChange(e.target.value)} /></label>
   );
-  const reduction = (Number(garage.requiredArea) || 0) * (Number(garage.reductionRate) || 0);
+  const areas = garageAreasOf(garage);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
       <div style={{ ...card, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '0.7rem' }}>
@@ -436,9 +499,10 @@ function InfoPanel({ info, canEdit, onSaveInfo }) {
         {field('규모(㎡)', garage.area, (v) => setGarage({ ...garage, area: v }))}
         {field('감면전 소요면적(㎡)', garage.requiredArea, (v) => setGarage({ ...garage, requiredArea: v }))}
         {field('감면율 (0.9 = 90%)', garage.reductionRate, (v) => setGarage({ ...garage, reductionRate: v }))}
+        {field('감면후 소요면적(㎡, 구청 값 · 비우면 감면율로 계산)', garage.reducedRequired, (v) => setGarage({ ...garage, reducedRequired: v }))}
         {field('재계약 면적(㎡)', garage.contractArea, (v) => setGarage({ ...garage, contractArea: v }))}
         <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', alignSelf: 'end' }}>
-          감면 면적 {Math.round(reduction)}㎡ · 감면후 소요면적 {Math.round((Number(garage.requiredArea) || 0) - reduction)}㎡ · 잔여면적 {Math.round((Number(garage.contractArea) || 0) - ((Number(garage.requiredArea) || 0) - reduction))}㎡
+          감면 면적 {Math.round(areas.reduction)}㎡ · 감면후 소요면적 {Math.round(areas.reducedRequired)}㎡ · 잔여면적 {Math.round(areas.remaining)}㎡{garage.noticeAt ? ` · 구청 알림 ${ymd(garage.noticeAt)} 기준` : ''}
         </div>
       </div>
       {canEdit && <div><button type="button" style={btn('primary')} onClick={() => onSaveInfo({ company, garage })}>저장</button></div>}
@@ -490,7 +554,7 @@ function FleetFilingView({ showToast, currentUser }) {
   const setStatus = async (filing, status) => {
     const ask = {
       제출: '구청에 낸 공문으로 표시합니다. 지금 신고 대수가 이 공문에 찍혀, 나중에 다시 뽑아도 같은 서류가 나옵니다.',
-      처리완료: `구청 처리가 끝났다고 표시하고 신고 대수에 ${changeText(filing.items)}를 반영합니다.`,
+      처리완료: filing.kind === GARAGE_REDUCTION ? '구청 처리가 끝났다고 표시하고 구청 결과 면적을 신고된 차고지 면적에 반영합니다.' : `구청 처리가 끝났다고 표시하고 신고 대수에 ${changeText(filing.items)}를 반영합니다.`,
       작성중: '작성중으로 되돌립니다.'
     }[status] || `${status}(으)로 바꿉니다.`;
     if (!window.confirm(ask)) return;
@@ -555,6 +619,7 @@ function FleetFilingView({ showToast, currentUser }) {
       if (result.replaced) showToast(`같은 민원(${n.minwonNo})의 다시 온 알림이라 파일만 바꿨습니다.`, 'success');
       else if (result.applied) showToast(`구청 처리 알림을 반영했습니다. 민원 ${n.minwonNo} · ${n.before}대 → ${n.after}대 · 신고 대수 ${result.registered}대`, 'success');
       else showToast(`구청 처리 알림을 기록했습니다 (민원 ${n.minwonNo}). 신고 대수는 바꾸지 않았습니다.`, 'success');
+      if (result.garage) showToast(`차고지 면적을 구청 값으로 바꿨습니다. ${areaText(result.garage.before)} → ${areaText(result.garage.after)}`, 'success');
       if (result.mismatch) showToast(`구청 알림은 ${result.mismatch.notice}대인데 프로그램 신고 대수는 ${result.mismatch.program}대입니다. 차종별 신고 대수를 확인해 주세요.`, 'error');
       await load();
       setTab('filings');
@@ -593,13 +658,13 @@ function FleetFilingView({ showToast, currentUser }) {
 
   const own = filings.filter((f) => !f.source);
   const imported = filings.filter((f) => f.source);
-  const current = selected === 'new' ? null : filings.find((f) => f._id === selected);
+  const current = selected === 'new' || selected === 'reduction' ? null : filings.find((f) => f._id === selected);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.7rem' }}>
         <Kpi label="구청 신고 대수" value={`${registered}대`} sub={`차종 ${info.carTypes.filter((t) => Number(t.count)).length}개${pendingNet ? ` · 처리되면 ${registered + pendingNet}대` : ''}`} />
-        <Kpi label="구청 처리 기다림" value={`${pending.length}건`} sub={pending.length ? pending.map((f) => changeText(f.items)).join(' / ') : '낸 공문이 모두 처리됨'} color={pending.length ? '#b45309' : undefined} />
+        <Kpi label="구청 처리 기다림" value={`${pending.length}건`} sub={pending.length ? pending.map((f) => changeLabel(f)).join(' / ') : '낸 공문이 모두 처리됨'} color={pending.length ? '#b45309' : undefined} />
         <Kpi label="작성 중" value={`${drafts.length}건`} sub="아직 구청에 안 낸 공문" />
         <Kpi label="차고지 잔여면적" value={`${Math.round(g.remaining)}㎡`} sub={`재계약 ${g.contractArea}㎡ · 감면후 소요 ${Math.round(g.reducedRequired)}㎡`} color={g.remaining < 0 ? '#d9534f' : undefined} />
         <Kpi label="렌트차량 DB 운용 중" value={`${running}대`} sub={`장기 ${vehicleStats['장기렌트'] || 0} · 단기 ${vehicleStats['단기렌트'] || 0} · 재고 ${vehicleStats['재고'] || 0}${vehicleStats['계약중'] ? ` · 출고 전 ${vehicleStats['계약중']}대(증차 대상)` : ''}`} />
@@ -617,6 +682,7 @@ function FleetFilingView({ showToast, currentUser }) {
             <button type="button" style={btn()} onClick={() => fileRef.current?.click()}>엑셀 올리기</button>
             <input ref={noticeRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={(e) => uploadNotice(e.target.files?.[0])} />
             <button type="button" style={btn('ok')} onClick={() => noticeRef.current?.click()}>구청 처리 알림 올리기</button>
+            <button type="button" style={btn()} onClick={() => { setTab('filings'); setSelected('reduction'); }}>+ 차고지 감면</button>
             <button type="button" style={btn('primary')} onClick={() => { setTab('filings'); setSelected('new'); }}>+ 새 공문</button>
           </span>
         )}
@@ -630,7 +696,7 @@ function FleetFilingView({ showToast, currentUser }) {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
             {noticePick.candidates.map((c) => (
               <button key={c._id} type="button" style={btn()} onClick={() => uploadNotice(noticePick.file, { filingId: c._id })}>
-                {ymd(c.filedAt)} {c.status} · {changeText(c.items)} ({c.beforeTotal} → {c.afterTotal}) 공문에 반영
+                {ymd(c.filedAt)} {c.status} · {changeLabel(c)} ({c.beforeTotal} → {c.afterTotal}) 공문에 반영
               </button>
             ))}
             <button type="button" style={btn()} onClick={() => uploadNotice(noticePick.file, { mode: 'history' })}>공문 없이 기록만 남기기 (대수는 그대로)</button>
@@ -650,7 +716,7 @@ function FleetFilingView({ showToast, currentUser }) {
                     <td style={{ ...td, whiteSpace: 'nowrap' }}>{ymd(f.filedAt)}</td>
                     <td style={td}><StatusChip status={f.status} /></td>
                     <td style={td}>{f.source ? kindOfHistory(f) : f.kind}</td>
-                    <td style={td}>{f.items?.length ? changeText(f.items) : f.notice?.summary?.replace(/^○\s*주사무소\s*/, '')}{f.items?.some((it) => it.plates) && <span style={{ color: 'var(--text-muted)' }}> ({f.items.map((it) => it.plates).filter(Boolean).join(', ')})</span>}</td>
+                    <td style={td}>{f.kind === GARAGE_REDUCTION || f.items?.length ? changeLabel(f) : f.notice?.summary?.replace(/^○\s*주사무소\s*/, '')}{f.items?.some((it) => it.plates) && <span style={{ color: 'var(--text-muted)' }}> ({f.items.map((it) => it.plates).filter(Boolean).join(', ')})</span>}</td>
                     <td style={{ ...td, whiteSpace: 'nowrap' }}>{f.beforeTotal ?? '?'} → <b>{f.afterTotal ?? '?'}</b></td>
                     <td style={{ ...td, whiteSpace: 'nowrap' }}>
                       {ymd(f.processedAt)}
@@ -673,8 +739,8 @@ function FleetFilingView({ showToast, currentUser }) {
             )}
           </div>
 
-          {selected === 'new' && (
-            <FilingEditor key="new" info={info} filing={emptyFiling()} canEdit={canEdit} onSave={saveFiling} onStatus={setStatus} onDelete={remove} showToast={showToast} />
+          {(selected === 'new' || selected === 'reduction') && (
+            <FilingEditor key={selected} info={info} filing={selected === 'new' ? emptyFiling() : emptyReduction()} canEdit={canEdit} onSave={saveFiling} onStatus={setStatus} onDelete={remove} showToast={showToast} />
           )}
           {current && (
             <FilingEditor key={`${current._id}-${current.updatedAt}`} info={info} filing={{ ...current, filedAt: ymd(current.filedAt) }} canEdit={canEdit} onSave={saveFiling} onStatus={setStatus} onDelete={remove} onOpenNotice={openNotice} showToast={showToast} />

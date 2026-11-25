@@ -4,7 +4,7 @@ import Vehicle from '../models/Vehicle.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
 import { parseFleetWorkbook } from '../utils/fleetFilingImport.js';
 import { parseFleetNoticePdf } from '../utils/fleetNoticeParse.js';
-import { DEFAULT_FLEET_INFO, FILING_STATUSES, filingSheetOf, applyFilingToCarTypes, carTypeKey } from '../../shared/fleetFiling.js';
+import { DEFAULT_FLEET_INFO, FILING_STATUSES, GARAGE_REDUCTION, filingSheetOf, applyFilingToCarTypes, carTypeKey } from '../../shared/fleetFiling.js';
 
 /**
  * 증차·감차 공문 (영업 > 증차·감차 공문).
@@ -61,6 +61,59 @@ const cleanContracts = (list) => (Array.isArray(list) ? list : [])
   }))
   .filter((c) => c.model || c.contractNo);
 
+const cleanPlan = (p) => (p ? { rate: Math.min(1, Math.max(0, Number(p.rate) || 0)), useExpected: !!p.useExpected } : undefined);
+
+// 구청이 정해 준 면적. 감면전·감면후·확보 면적이 다 있어야 쓴다.
+const cleanResult = (r) => {
+  const n = (v) => (v === '' || v == null ? null : Number(String(v).replace(/,/g, '')));
+  const out = { requiredArea: n(r?.requiredArea), reducedRequired: n(r?.reducedRequired), contractArea: n(r?.contractArea), reductionRate: n(r?.reductionRate) };
+  return Object.values(out).some((v) => v != null && Number.isFinite(v)) ? out : undefined;
+};
+const resultReady = (r) => !!r && [r.requiredArea, r.reducedRequired, r.contractArea].every((v) => Number.isFinite(v) && v >= 0) && r.requiredArea > 0 && r.contractArea > 0;
+
+/**
+ * 구청이 정해 준 차고지 면적을 신고 현황에 넣는다. info를 고치기만 하고 저장은 부른 쪽이 한다.
+ * 이미 낸 공문은 그때 면적을 찍어 두어, 다시 뽑아도 낸 서류와 같다.
+ */
+const applyGarage = async (filing, info, result, at) => {
+  await FleetFiling.updateMany(
+    { _id: { $ne: filing._id }, source: '', status: { $in: ['제출', '처리완료'] }, garageSnapshot: { $exists: false } },
+    { $set: { garageSnapshot: info.garage } }
+  );
+  if (!filing.source && !filing.garageSnapshot) filing.garageSnapshot = info.garage;
+  if (!filing.garageBefore) filing.garageBefore = info.garage;
+  filing.garageResult = result;
+  info.garage = {
+    ...info.garage,
+    area: result.contractArea,
+    contractArea: result.contractArea,
+    requiredArea: result.requiredArea,
+    reducedRequired: result.reducedRequired,
+    reductionRate: result.reductionRate ?? info.garage.reductionRate,
+    ...(result.period ? { period: result.period } : {}),
+    noticeAt: at,
+    noticeFiling: String(filing._id)
+  };
+};
+
+// 더 나중 알림이 이미 있으면 지난 알림의 면적으로 되돌아가지 않게 한다
+const isLatestNotice = async (filing, info, at) => {
+  if (!at) return false;
+  if (info.garage.noticeAt && new Date(info.garage.noticeAt) > at) return false;
+  return !(await FleetFiling.exists({ _id: { $ne: filing._id }, 'notice.processedAt': { $gt: at } }));
+};
+
+const sameGarage = (garage, r) => garage.requiredArea === r.requiredArea && garage.contractArea === r.contractArea && garage.reducedRequired === r.reducedRequired;
+
+/** 알림에 적힌 면적이 지금 값과 다르고 가장 최근 알림이면 반영한다. 반영했으면 전·후 값을 돌려준다. */
+const applyNoticeGarage = async (filing, info, parsed) => {
+  const g = parsed.garage;
+  if (!g || !g.consistent || !resultReady(g) || sameGarage(info.garage, g) || !(await isLatestNotice(filing, info, parsed.processedAt))) return null;
+  const before = info.garage;
+  await applyGarage(filing, info, { ...g }, parsed.processedAt);
+  return { before, after: info.garage };
+};
+
 const withTotals = (filing, info) => {
   const sheet = filingSheetOf(info, filing);
   filing.beforeTotal = sheet.beforeTotal;
@@ -116,7 +169,8 @@ export const updateFleetInfo = async (req, res) => {
         area: Number(g.area ?? info.garage.area) || 0,
         requiredArea: Number(g.requiredArea ?? info.garage.requiredArea) || 0,
         reductionRate: Number(g.reductionRate ?? info.garage.reductionRate) || 0,
-        contractArea: Number(g.contractArea ?? info.garage.contractArea) || 0
+        contractArea: Number(g.contractArea ?? info.garage.contractArea) || 0,
+        reducedRequired: g.reducedRequired === '' ? null : g.reducedRequired == null ? info.garage.reducedRequired ?? null : Number(g.reducedRequired) || 0
       };
     }
     if (req.body.carTypes) info.carTypes = cleanCarTypes(req.body.carTypes);
@@ -136,8 +190,10 @@ export const createFleetFiling = async (req, res) => {
       kind: req.body.kind,
       reason: req.body.reason || '',
       registrationLabel: req.body.registrationLabel || '',
-      items: cleanItems(req.body.items),
+      items: req.body.kind === GARAGE_REDUCTION ? [] : cleanItems(req.body.items),
       contracts: cleanContracts(req.body.contracts),
+      garagePlan: cleanPlan(req.body.garagePlan),
+      garageResult: cleanResult(req.body.garageResult),
       memo: req.body.memo || '',
       createdBy: userName(req),
       updatedBy: userName(req)
@@ -164,7 +220,9 @@ export const updateFleetFiling = async (req, res) => {
     });
     if (req.body.filedAt) filing.filedAt = new Date(req.body.filedAt);
     if (req.body.processedAt !== undefined) filing.processedAt = req.body.processedAt ? new Date(req.body.processedAt) : undefined;
-    if (touchesCounts) filing.items = cleanItems(req.body.items);
+    if (touchesCounts) filing.items = filing.kind === GARAGE_REDUCTION ? [] : cleanItems(req.body.items);
+    if (req.body.garagePlan !== undefined) filing.garagePlan = cleanPlan(req.body.garagePlan);
+    if (req.body.garageResult !== undefined && !filing.applied) filing.garageResult = cleanResult(req.body.garageResult);
     if (req.body.contracts !== undefined) filing.contracts = cleanContracts(req.body.contracts);
     filing.updatedBy = userName(req);
     if (!filing.source) withTotals(filing, await loadInfo());
@@ -203,9 +261,15 @@ export const setFleetFilingStatus = async (req, res) => {
     if (filing.source) return res.status(400).json({ success: false, message: '엑셀 등록현황에서 옮긴 지난 기록은 상태를 바꾸지 않습니다.' });
 
     const info = await loadInfo();
-    if (status === '작성중') filing.snapshot = undefined;
+    if (status === '작성중') { filing.snapshot = undefined; filing.garageSnapshot = undefined; }
 
     if (status === '처리완료' && !filing.applied) {
+      if (filing.kind === GARAGE_REDUCTION) {
+        if (!resultReady(filing.garageResult)) {
+          return res.status(400).json({ success: false, message: '구청이 정해 준 감면전·감면후 소요면적과 확보 면적을 적고 저장한 뒤 눌러 주세요. 구청 알림 PDF를 올리면 저절로 채워집니다.' });
+        }
+        await applyGarage(filing, info, filing.garageResult, req.body.processedAt ? new Date(req.body.processedAt) : new Date());
+      }
       await markProcessed(filing, info, req.body.processedAt ? new Date(req.body.processedAt) : null, req);
     } else if (status !== '처리완료' && filing.applied) {
       // 이 공문으로 처음 들어온 차종(제출 때 표에 없던 줄)은 0대가 되면 다시 뺀다
@@ -214,9 +278,13 @@ export const setFleetFilingStatus = async (req, res) => {
         .filter((t) => t.count > 0 || before.has(carTypeKey(t.name)));
       filing.applied = false;
       filing.processedAt = undefined;
+      // 이 공문으로 바뀐 차고지 면적이 아직 쓰이고 있으면 전 값으로 되돌린다
+      if (filing.garageBefore && info.garage.noticeFiling === String(filing._id)) info.garage = filing.garageBefore;
+      filing.garageBefore = undefined;
       await saveInfo(info, req);
     }
     if (status !== '작성중' && (!filing.snapshot || !filing.snapshot.length)) filing.snapshot = info.carTypes;
+    if (status !== '작성중' && !filing.garageSnapshot) filing.garageSnapshot = info.garage;
     filing.status = status;
     filing.updatedBy = userName(req);
     withTotals(filing, info);
@@ -332,7 +400,7 @@ const noticeOf = (parsed, req) => ({
   uploadedBy: userName(req)
 });
 
-const openSummary = (f) => ({ _id: f._id, filedAt: f.filedAt, status: f.status, beforeTotal: f.beforeTotal, afterTotal: f.afterTotal, items: f.items });
+const openSummary = (f) => ({ _id: f._id, filedAt: f.filedAt, status: f.status, beforeTotal: f.beforeTotal, afterTotal: f.afterTotal, items: f.items, kind: f.kind });
 
 /**
  * 구청 "변경등록신청 처리 알림" PDF 올리기(대표님 2026-10-30 "이게 오면 항상 업로드 해줄께 그러면 최신화를 해줘").
@@ -357,12 +425,16 @@ export const uploadFleetNotice = async (req, res) => {
       }
       dup.notice = notice;
       dup.noticeFile = req.file.buffer;
+      const dupInfo = await loadInfo();
+      const garage = await applyNoticeGarage(dup, dupInfo, parsed);
+      if (garage) await saveInfo(dupInfo, req);
       await dup.save();
-      return res.json({ success: true, result: { filingId: dup._id, replaced: true, notice: parsed } });
+      return res.json({ success: true, result: { filingId: dup._id, replaced: true, notice: parsed, garage } });
     }
 
     const info = await loadInfo();
     let filing = null;
+    let reductionFiling = null;
     let applied = false;
 
     if (req.body.filingId) {
@@ -370,9 +442,24 @@ export const uploadFleetNotice = async (req, res) => {
       if (!filing) return res.status(404).json({ success: false, message: '고른 공문을 찾지 못했습니다.' });
     } else if (!history) {
       const open = await FleetFiling.find({ source: '', applied: false, status: { $in: ['제출', '작성중'] } }).sort({ filedAt: -1 });
-      const exact = open.filter((f) => f.beforeTotal === parsed.before && f.afterTotal === parsed.after);
-      const sameNet = open.filter((f) => f.afterTotal - f.beforeTotal === parsed.after - parsed.before);
-      filing = exact.length === 1 ? exact[0] : (!exact.length && sameNet.length === 1 ? sameNet[0] : null);
+      // 차고지 감면은 대수로 고르지 않고 알림에 감면 줄이 있을 때만 맞춘다
+      const reductions = open.filter((f) => f.kind === GARAGE_REDUCTION && f.status === '제출');
+      const counts = open.filter((f) => f.kind !== GARAGE_REDUCTION);
+      const hasCounts = parsed.increase > 0 || parsed.decrease > 0 || parsed.before !== parsed.after;
+      if (parsed.reduction && reductions.length === 1) {
+        if (hasCounts) reductionFiling = reductions[0]; // 증차와 감면이 한 알림으로 온 것(2025-06-11 51915,53723)
+        else filing = reductions[0];
+      }
+      if (!filing && (hasCounts || !parsed.reduction)) {
+        const exact = counts.filter((f) => f.beforeTotal === parsed.before && f.afterTotal === parsed.after);
+        // 이미 [처리 완료]를 누른 공문의 알림이 나중에 올라온 것: 대수는 그대로 두고 알림만 붙인다
+        const done = exact.length || !parsed.processedAt ? [] : await FleetFiling.find({
+          source: '', applied: true, kind: { $ne: GARAGE_REDUCTION }, 'notice.minwonNo': { $exists: false }, beforeTotal: parsed.before, afterTotal: parsed.after,
+          filedAt: { $gte: new Date(parsed.processedAt - 60 * 86400000), $lte: new Date(+parsed.processedAt + 86400000) }
+        });
+        const sameNet = counts.filter((f) => f.afterTotal - f.beforeTotal === parsed.after - parsed.before);
+        filing = exact.length === 1 ? exact[0] : done.length === 1 ? done[0] : (!exact.length && !done.length && sameNet.length === 1 ? sameNet[0] : null);
+      }
       if (!filing) {
         return res.status(422).json({
           success: false,
@@ -415,6 +502,18 @@ export const uploadFleetNotice = async (req, res) => {
     if (!filing.processedAt) filing.processedAt = parsed.processedAt;
     filing.notice = notice;
     filing.noticeFile = req.file.buffer;
+    // 알림에 적힌 차고지 면적(감면전·감면후 소요, 확보)을 신고 현황에 반영한다(대표님 2026-11-25)
+    const owner = reductionFiling || filing;
+    const garage = await applyNoticeGarage(owner, info, parsed);
+    if (garage) await saveInfo(info, req);
+    if (reductionFiling) {
+      if (!reductionFiling.snapshot?.length) reductionFiling.snapshot = filing.snapshot;
+      Object.assign(reductionFiling, { applied: true, status: '처리완료', processedAt: parsed.processedAt, notice, noticeFile: req.file.buffer, updatedBy: userName(req) });
+      if (!reductionFiling.garageResult && parsed.garage) reductionFiling.garageResult = { ...parsed.garage };
+      await reductionFiling.save();
+    } else if (filing.kind === GARAGE_REDUCTION && !filing.garageResult && parsed.garage) {
+      filing.garageResult = { ...parsed.garage };
+    }
     filing.updatedBy = userName(req);
     await filing.save();
 
@@ -424,7 +523,7 @@ export const uploadFleetNotice = async (req, res) => {
     if (!history) {
       logActivity({ req, dept: '영업부', action: ACTIONS.FLEET_FILING, target: { model: 'FleetFiling', id: filing._id }, summary: `구청 처리 알림 반영: 민원 ${parsed.minwonNo} ${parsed.before}대 → ${parsed.after}대` });
     }
-    res.json({ success: true, result: { filingId: filing._id, applied, notice: parsed, registered: now, mismatch } });
+    res.json({ success: true, result: { filingId: filing._id, applied, notice: parsed, registered: now, mismatch, garage, reductionId: reductionFiling?._id || null } });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }

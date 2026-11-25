@@ -1,4 +1,4 @@
-import { filingSheetOf } from '../../../../shared/fleetFiling.js';
+import { GARAGE_REDUCTION, filingSheetOf } from '../../../../shared/fleetFiling.js';
 
 /**
  * 구청에 내는 증차·감차 서류 한 묶음. 엑셀 "증차공문 서류_251013.xlsx"의 시트를 그대로 옮겼다.
@@ -152,7 +152,7 @@ const NEXT_ROWS = 34;
 function ComparisonHead({ info, sheet }) {
   const g = sheet.garage;
   const net = sheet.afterTotal - sheet.beforeTotal;
-  const note = sheet.increase && !sheet.decrease ? '증차' : sheet.decrease && !sheet.increase ? '감차' : '증감';
+  const note = sheet.kind === GARAGE_REDUCTION ? '차고지 감면' : sheet.increase && !sheet.decrease ? '증차' : sheet.decrease && !sheet.increase ? '감차' : '증감';
   return (
     <>
       <div style={{ textAlign: 'center', fontSize: '21px', fontWeight: 700, marginBottom: '22px' }}>자동차 대여사업 신구사업대비표</div>
@@ -194,7 +194,7 @@ function ComparisonHead({ info, sheet }) {
             <td style={{ ...th2, fontWeight: 400 }}>{sheet.afterTotal}</td>
             <td style={{ ...th2, fontWeight: 400 }}>{sheet.afterTotal}</td>
             <td style={{ ...th2, fontWeight: 400 }}>0</td>
-            <td style={{ ...th2, fontWeight: 400 }}>{net === 0 ? '변경' : note}</td>
+            <td style={{ ...th2, fontWeight: 400 }}>{net === 0 && sheet.kind !== GARAGE_REDUCTION ? '변경' : note}</td>
             <td style={{ ...th2, fontWeight: 400 }}>{net === 0 ? '-' : `${net}대`}</td>
           </tr>
         </tbody>

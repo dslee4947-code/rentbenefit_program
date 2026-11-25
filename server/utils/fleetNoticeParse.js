@@ -6,7 +6,8 @@ import { PDFParse } from 'pdf-parse';
  * 서초구 알림은 모양이 늘 같다.
  *   1. 서초구 민원-117457(2026.10.21.)호 …          → 민원번호, 신청일
  *   ○ 주사무소 승용차 1대 증차(141대 → 142대)       → 증차·감차 대수, 바뀌는 차(차종·차량번호)
- *   합계 141 141 0 142 142 0 455 860 86 369          → 변경 전·후 총대수
+ *   합계 141 141 0 142 142 0 455 860 86 369          → 변경 전·후 총대수, 확보·감면전 소요·감면후 소요·잔여 면적
+ *   사무소 141 141 0 142 142 0 99 90 서울특별시 …    → 장기차량 비율(%)·감면율(%), 차고지 위치와 계약 기간
  *   시행 교통행정과-126213 ( 2026. 10. 29. )         → 처리일
  */
 
@@ -15,7 +16,7 @@ const date = (y, m, d) => new Date(Date.UTC(Number(y), Number(m) - 1, Number(d))
 
 export const parseFleetNoticeText = (text) => {
   const t = String(text || '');
-  const out = { minwonNo: '', appliedAt: null, noticeNo: '', processedAt: null, before: null, after: null, increase: 0, decrease: 0, plates: [], summary: '' };
+  const out = { minwonNo: '', appliedAt: null, noticeNo: '', processedAt: null, before: null, after: null, increase: 0, decrease: 0, plates: [], summary: '', reduction: '', garage: null };
 
   const minwon = t.match(/민원-([\d,]+)\s*\((\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.?\)/);
   if (minwon) {
@@ -29,15 +30,21 @@ export const parseFleetNoticeText = (text) => {
   }
 
   // '가. 변경등록 내용'의 ○ 줄부터 '나. 차량 및 차고지 현황' 앞까지가 바뀐 내용
-  const start = t.indexOf('○ 주사무소');
+  // 대부분 '○ 주사무소 …'로 시작하지만 '○ 승용차 1대 증차 및 1대 감차'처럼 올 때도 있다(2026-10 E200)
   const end = t.indexOf('나. 차량');
+  const heading = t.indexOf('변경등록 내용');
+  const main0 = t.indexOf('○ 주사무소');
+  const start = main0 >= 0 ? main0 : heading >= 0 ? t.indexOf('○', heading) : -1;
   const change = start >= 0 ? t.slice(start, end > start ? end : start + 300) : '';
   // 장기차량 감면 줄은 대수 변경이 아니다(2025-06-11 알림: 감면 대상 27대 번호가 길게 붙어 있다)
-  const bullets = change.split('○').map((s) => s.trim()).filter((s) => s && !/장기차량|감면율/.test(s));
+  const parts = change.split('○').map((s) => s.trim()).filter(Boolean);
+  const isReduction = (s) => /장기차량|감면/.test(s);
+  out.reduction = parts.filter(isReduction).map((s) => s.replace(/\s+/g, ' ').replace(/^주사무소\s*/, '').replace(/\s*-\s*\d{2,3}\s?[가-힣].*$/, '').trim()).join(' / ');
+  const bullets = parts.filter((s) => !isReduction(s));
   const main = bullets.join(' ○ ');
   out.summary = bullets.length ? `○ ${main.replace(/\s+/g, ' ').replace(/,\s*$/, '').trim()}` : '';
-  const inc = main.match(/(\d+)\s*대\s*증차/);
-  const dec = main.match(/(\d+)\s*대\s*감차/);
+  const inc = main.match(/(\d+)\s*대\s*증차/) || main.match(/증차\s*(\d+)\s*대/);
+  const dec = main.match(/(\d+)\s*대\s*감차/) || main.match(/감차\s*(\d+)\s*대/);
   out.increase = inc ? Number(inc[1]) : 0;
   out.decrease = dec ? Number(dec[1]) : 0;
   out.plates = bullets.filter((b) => b.includes('감차')).flatMap((b) => b.match(PLATE) || []);
@@ -55,6 +62,21 @@ export const parseFleetNoticeText = (text) => {
   if (pick) {
     out.before = pick.before;
     out.after = pick.after;
+  }
+
+  const n = (s) => Number(String(s).replace(/,/g, ''));
+  const areas = t.match(/합계((?:\s+-?[\d,.]+){10})/);
+  if (areas) {
+    const v = areas[1].trim().split(/\s+/).map(n);
+    const row = t.match(/사무소\s+(?:[\d,]+\s+){6}(\d+)\s+(\d+)\s+([^\n(]+?)\s*\((\d{4}\.[\d.\s~]+)\)/);
+    // 확보 − 감면후 = 잔여가 맞을 때만 쓴다. 다른 표를 잘못 읽어 면적이 바뀌는 것을 막는다.
+    // (2025-06-11 알림처럼 구청이 안 맞게 적은 것은 건너뛴다)
+    out.garage = {
+      contractArea: v[6], requiredArea: v[7], reducedRequired: v[8], remaining: v[9],
+      longTermRate: row ? n(row[1]) : null, reductionRate: row ? n(row[2]) / 100 : null,
+      period: row ? row[4].replace(/\s+/g, '') : '',
+      consistent: Math.abs(v[6] - v[8] - v[9]) <= 1
+    };
   }
   return out;
 };

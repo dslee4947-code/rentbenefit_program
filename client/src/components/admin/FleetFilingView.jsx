@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import FleetFilingDocs from './FleetFilingDocs.jsx';
 import CarAgeFilingPanel from './CarAgeFilingPanel.jsx';
+import ScrapFilingPanel from './ScrapFilingPanel.jsx';
 import { makeA4PagesPdf } from '../../utils/printFit.js';
 import { FILING_KINDS, filingSheetOf, defaultReasonOf, defaultRegistrationLabelOf, carTypeKey, compareFleet } from '../../../../shared/fleetFiling.js';
 
@@ -606,6 +607,7 @@ function FleetFilingView({ showToast, currentUser }) {
 
       <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', borderBottom: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
         <button type="button" style={tabBtn(tab === 'filings')} onClick={() => setTab('filings')}>공문 {own.length}</button>
+        <button type="button" style={tabBtn(tab === 'scrap')} onClick={() => setTab('scrap')}>대폐차 신고</button>
         <button type="button" style={tabBtn(tab === 'types')} onClick={() => setTab('types')}>차종별 신고 대수</button>
         <button type="button" style={tabBtn(tab === 'info')} onClick={() => setTab('info')}>법인·차고지 · 차량 현황</button>
         <button type="button" style={tabBtn(tab === 'carAge')} onClick={() => setTab('carAge')}>차령연장 신청서</button>
@@ -680,6 +682,7 @@ function FleetFilingView({ showToast, currentUser }) {
         </>
       )}
 
+      {tab === 'scrap' && <ScrapFilingPanel canEdit={canEdit} showToast={showToast} />}
       {tab === 'carAge' && <CarAgeFilingPanel canEdit={canEdit} showToast={showToast} />}
       {tab === 'types' && <CarTypesPanel key={data.info.updatedAt} info={info} canEdit={canEdit} onSaveInfo={saveInfo} />}
       {tab === 'info' && (

@@ -11,6 +11,7 @@ import {
   getFleetNoticeFile
 } from '../controllers/fleetFilingController.js';
 import { getCarAgeFilings, createCarAgeFiling, updateCarAgeFiling, setCarAgeFilingStatus, deleteCarAgeFiling } from '../controllers/carAgeFilingController.js';
+import { getScrapFilings, createScrapFiling, updateScrapFiling, setScrapFilingStatus, deleteScrapFiling } from '../controllers/scrapFilingController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
 import { uploadSingleFile } from '../middleware/uploadMiddleware.js';
 
@@ -26,6 +27,12 @@ router.post('/car-age', createCarAgeFiling);
 router.put('/car-age/:id', updateCarAgeFiling);
 router.post('/car-age/:id/status', setCarAgeFilingStatus);
 router.delete('/car-age/:id', deleteCarAgeFiling);
+// 대폐차 신고서. '/:id'보다 먼저 둔다.
+router.get('/scrap', getScrapFilings);
+router.post('/scrap', createScrapFiling);
+router.put('/scrap/:id', updateScrapFiling);
+router.post('/scrap/:id/status', setScrapFilingStatus);
+router.delete('/scrap/:id', deleteScrapFiling);
 router.put('/info', updateFleetInfo);
 router.post('/import', uploadSingleFile(), importFleetWorkbook);
 router.post('/notice', uploadSingleFile(), uploadFleetNotice);

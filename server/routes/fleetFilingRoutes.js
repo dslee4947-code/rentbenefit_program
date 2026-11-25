@@ -13,6 +13,7 @@ import {
 import { getCarAgeFilings, createCarAgeFiling, updateCarAgeFiling, setCarAgeFilingStatus, deleteCarAgeFiling } from '../controllers/carAgeFilingController.js';
 import { getScrapFilings, createScrapFiling, updateScrapFiling, setScrapFilingStatus, deleteScrapFiling } from '../controllers/scrapFilingController.js';
 import { listScrapFiles, uploadScrapFile, getScrapFile, deleteScrapFile, sendScrapMail, listRegCerts, uploadRegCert, getRegCert } from '../controllers/scrapMailController.js';
+import { getLongTermList, importLongTermList } from '../controllers/longTermListController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
 import { uploadSingleFile } from '../middleware/uploadMiddleware.js';
 
@@ -42,6 +43,9 @@ router.post('/scrap/:id/files', uploadSingleFile(), uploadScrapFile);
 router.get('/scrap/:id/files/:fileId', getScrapFile);
 router.delete('/scrap/:id/files/:fileId', deleteScrapFile);
 router.post('/scrap/:id/mail', uploadSingleFile(), sendScrapMail);
+// 차고지 감면 공문에 붙이는 장기렌트 차량 명세
+router.get('/long-term-list', getLongTermList);
+router.post('/long-term-list/import', uploadSingleFile(), importLongTermList);
 router.put('/info', updateFleetInfo);
 router.post('/import', uploadSingleFile(), importFleetWorkbook);
 router.post('/notice', uploadSingleFile(), uploadFleetNotice);

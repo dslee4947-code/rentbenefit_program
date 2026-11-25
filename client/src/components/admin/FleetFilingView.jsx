@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import FleetFilingDocs from './FleetFilingDocs.jsx';
 import CarAgeFilingPanel from './CarAgeFilingPanel.jsx';
 import ScrapFilingPanel from './ScrapFilingPanel.jsx';
+import { GarageResultDialog, LongTermListCard } from './GarageReduction.jsx';
 import { makeA4PagesPdf } from '../../utils/printFit.js';
 import { FILING_KINDS, GARAGE_REDUCTION, garageAreasOf, filingSheetOf, defaultReasonOf, defaultRegistrationLabelOf, carTypeKey, compareFleet } from '../../../../shared/fleetFiling.js';
 
@@ -41,7 +42,7 @@ const won = (n) => (Number(n) ? Math.round(n).toLocaleString() : '');
 const parseWon = (s) => Number(String(s).replace(/[^\d]/g, '')) || '';
 
 const emptyFiling = () => ({ filedAt: todayYmd(), kind: '증차·감차', reason: '', registrationLabel: '', items: [{ name: '', width: '', length: '', delta: 1, plates: '' }], contracts: [], memo: '', status: '작성중' });
-const emptyReduction = () => ({ ...emptyFiling(), kind: GARAGE_REDUCTION, items: [], garagePlan: { rate: 0.9, useExpected: false } });
+const emptyReduction = (longTermList) => ({ ...emptyFiling(), kind: GARAGE_REDUCTION, items: [], longTermList });
 const emptyContract = () => ({ maker: '현대', contractNo: '', model: '', color: '', price: '', deliveryFee: '', qty: '1대', deposit: '' });
 
 // 지난 기록의 구분: 차종 줄이 있으면 그 부호, 구청 알림만 있으면 알림의 증차·감차 대수
@@ -198,7 +199,7 @@ function FilingEditor({ info, filing, canEdit, onSave, onStatus, onDelete, onOpe
         </label>
       </div>
 
-      {isReduction && <GarageReductionCard sheet={sheet} draft={draft} set={set} editable={editable} />}
+      {isReduction && <LongTermListCard api={API} rows={draft.longTermList || []} setRows={(longTermList) => set({ longTermList })} editable={editable} showToast={showToast} />}
 
       {!isReduction && <div style={card}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.5rem' }}>
@@ -256,65 +257,12 @@ function FilingEditor({ info, filing, canEdit, onSave, onStatus, onDelete, onOpe
 
       <div style={{ ...card, background: 'var(--bg-main)' }}>
         <div style={{ fontSize: '0.84rem', fontWeight: 800, marginBottom: '0.6rem' }}>
-          구청에 낼 서류 미리보기 <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}>— 신청서 · 신구사업대비표{hasIncrease && draft.contracts.length ? ` · 매매계약서 ${draft.contracts.length}장` : ''}. [인쇄용 열기]로 인쇄하거나 [PDF 받기]로 저장합니다.</span>
+          구청에 낼 서류 미리보기 <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}>— 신청서 · 신구사업대비표{hasIncrease && draft.contracts.length ? ` · 매매계약서 ${draft.contracts.length}장` : ''}{isReduction ? ` · 장기렌트 차량 명세 ${draft.longTermList?.length || 0}대` : ''}. [인쇄용 열기]로 인쇄하거나 [PDF 받기]로 저장합니다.</span>
         </div>
         <div ref={docsRef} style={{ display: 'flex', flexDirection: 'column', gap: '18px', alignItems: 'flex-start', overflowX: 'auto', paddingBottom: '6px' }}>
           <FleetFilingDocs info={info} filing={draft} />
         </div>
       </div>
-    </div>
-  );
-}
-
-/* ── 차고지 감면 ───────────────────────────────────────────── */
-
-function GarageReductionCard({ sheet, draft, set, editable }) {
-  const now = garageAreasOf(sheet.garage);
-  const cur = draft.garagePlan?.useExpected ? null : now;
-  const { expected } = sheet;
-  const r = draft.garageResult || {};
-  const hasResult = ['requiredArea', 'reducedRequired', 'contractArea'].every((k) => r[k] !== '' && r[k] != null);
-  const result = hasResult ? garageAreasOf({ ...r }) : null;
-  const setResult = (k, v) => set({ garageResult: { ...r, [k]: v.replace(/[^\d.]/g, '') } });
-  const m = (n) => (n == null || !Number.isFinite(Number(n)) ? '-' : `${Math.round(n).toLocaleString()}㎡`);
-  const rows = [['감면전 소요면적', 'requiredArea'], ['감면 면적', 'reduction'], ['감면후 소요면적', 'reducedRequired'], ['재계약(확보) 면적', 'contractArea'], ['잔여면적', 'remaining']];
-  const rateText = String(Math.round((Number(draft.garagePlan?.rate ?? now.reductionRate) || 0) * 1000) / 10);
-  const cell = { ...td, textAlign: 'right', whiteSpace: 'nowrap' };
-  return (
-    <div style={card}>
-      <b style={{ fontSize: '0.9rem' }}>차고지 감면</b>
-      <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginLeft: '0.6rem' }}>
-        대수는 그대로이고 차고지 면적만 바뀝니다. 지금 사용면적 {m(sheet.beforeArea)} ({sheet.beforeTotal}대). 구청 알림이 오면 위 [구청 처리 알림 올리기]로 올리면 구청 결과가 채워집니다.
-      </span>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center', margin: '0.6rem 0' }}>
-        <label style={{ fontSize: '0.78rem', fontWeight: 700 }}>신청 감면율(%)&nbsp;
-          <input type="number" min="0" max="100" style={{ ...input, width: '80px' }} disabled={!editable} value={rateText} onChange={(e) => set({ garagePlan: { ...draft.garagePlan, rate: Math.min(100, Math.max(0, Number(e.target.value) || 0)) / 100 } })} />
-        </label>
-        <label style={{ fontSize: '0.78rem', fontWeight: 700, display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-          <input type="checkbox" disabled={!editable} checked={!!draft.garagePlan?.useExpected} onChange={(e) => set({ garagePlan: { rate: now.reductionRate, ...draft.garagePlan, useExpected: e.target.checked } })} />
-          대비표에 감면 예상 면적을 쓰기 (끄면 지금 신고된 면적)
-        </label>
-      </div>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', minWidth: '560px' }}>
-          <thead><tr><th style={th} />{cur && <th style={{ ...th, textAlign: 'right' }}>지금 신고된 면적</th>}<th style={{ ...th, textAlign: 'right' }}>감면 예상</th><th style={{ ...th, textAlign: 'right' }}>구청 결과</th></tr></thead>
-          <tbody>
-            {rows.map(([label, k]) => (
-              <tr key={k}>
-                <td style={{ ...td, fontWeight: 700, whiteSpace: 'nowrap' }}>{label}</td>
-                {cur && <td style={cell}>{m(cur[k])}</td>}
-                <td style={{ ...cell, fontWeight: 700 }}>{m(expected[k])}</td>
-                <td style={cell}>
-                  {['requiredArea', 'reducedRequired', 'contractArea'].includes(k)
-                    ? <input style={{ ...input, width: '110px', textAlign: 'right' }} inputMode="decimal" disabled={!editable} value={r[k] ?? ''} placeholder="구청 알림 값" onChange={(e) => setResult(k, e.target.value)} />
-                    : <b>{m(result?.[k])}</b>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>알림 PDF 없이 처리할 때만 구청 결과를 직접 적고 [저장] → [구청 처리 완료]를 누릅니다. 그러면 신고된 차고지 면적이 바뀌고 다음 공문부터 이 면적으로 나옵니다.</div>
     </div>
   );
 }
@@ -516,6 +464,8 @@ function FleetFilingView({ showToast, currentUser }) {
   const [data, setData] = useState(null);
   const [tab, setTab] = useState('filings');
   const [selected, setSelected] = useState(null); // 공문 id 또는 'new'
+  const [resultFor, setResultFor] = useState(null); // 감면 면적을 적을 공문
+  const [reductionRows, setReductionRows] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const fileRef = useRef(null);
   const noticeRef = useRef(null);
@@ -552,9 +502,10 @@ function FleetFilingView({ showToast, currentUser }) {
   };
 
   const setStatus = async (filing, status) => {
+    if (status === '처리완료' && filing.kind === GARAGE_REDUCTION) { setResultFor(filing); return; }
     const ask = {
       제출: '구청에 낸 공문으로 표시합니다. 지금 신고 대수가 이 공문에 찍혀, 나중에 다시 뽑아도 같은 서류가 나옵니다.',
-      처리완료: filing.kind === GARAGE_REDUCTION ? '구청 처리가 끝났다고 표시하고 구청 결과 면적을 신고된 차고지 면적에 반영합니다.' : `구청 처리가 끝났다고 표시하고 신고 대수에 ${changeText(filing.items)}를 반영합니다.`,
+      처리완료: `구청 처리가 끝났다고 표시하고 신고 대수에 ${changeText(filing.items)}를 반영합니다.`,
       작성중: '작성중으로 되돌립니다.'
     }[status] || `${status}(으)로 바꿉니다.`;
     if (!window.confirm(ask)) return;
@@ -563,6 +514,25 @@ function FleetFilingView({ showToast, currentUser }) {
       showToast(`공문을 '${status}'(으)로 바꿨습니다.`, 'success');
       await load();
     } catch (err) { showToast(err.message, 'error'); }
+  };
+
+  // 차고지 감면: 감면받은 면적을 적고 처리 완료
+  const applyReduction = async (garageResult) => {
+    try {
+      await call(`${API}/${resultFor._id}/status`, 'POST', { status: '처리완료', garageResult });
+      showToast(`감면받은 면적을 반영했습니다. ${areaText(garageResult)}`, 'success');
+      setResultFor(null);
+      await load();
+    } catch (err) { showToast(err.message, 'error'); }
+  };
+
+  // 새 차고지 감면 공문은 장기렌트 차량 명세를 채워서 연다
+  const openReduction = async () => {
+    setTab('filings');
+    let rows = [];
+    try { rows = (await call(`${API}/long-term-list`, 'GET')).rows; } catch (err) { showToast(err.message, 'error'); }
+    setReductionRows(rows);
+    setSelected('reduction');
   };
 
   const remove = async (filing) => {
@@ -682,11 +652,13 @@ function FleetFilingView({ showToast, currentUser }) {
             <button type="button" style={btn()} onClick={() => fileRef.current?.click()}>엑셀 올리기</button>
             <input ref={noticeRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={(e) => uploadNotice(e.target.files?.[0])} />
             <button type="button" style={btn('ok')} onClick={() => noticeRef.current?.click()}>구청 처리 알림 올리기</button>
-            <button type="button" style={btn()} onClick={() => { setTab('filings'); setSelected('reduction'); }}>+ 차고지 감면</button>
+            <button type="button" style={btn()} onClick={openReduction}>+ 차고지 감면</button>
             <button type="button" style={btn('primary')} onClick={() => { setTab('filings'); setSelected('new'); }}>+ 새 공문</button>
           </span>
         )}
       </div>
+
+      {resultFor && <GarageResultDialog garage={info.garage} usedArea={filingSheetOf(info, resultFor).beforeArea} onApply={applyReduction} onClose={() => setResultFor(null)} />}
 
       {noticePick && (
         <div style={{ ...card, borderColor: '#b45309' }}>
@@ -740,7 +712,7 @@ function FleetFilingView({ showToast, currentUser }) {
           </div>
 
           {(selected === 'new' || selected === 'reduction') && (
-            <FilingEditor key={selected} info={info} filing={selected === 'new' ? emptyFiling() : emptyReduction()} canEdit={canEdit} onSave={saveFiling} onStatus={setStatus} onDelete={remove} showToast={showToast} />
+            <FilingEditor key={selected} info={info} filing={selected === 'new' ? emptyFiling() : emptyReduction(reductionRows)} canEdit={canEdit} onSave={saveFiling} onStatus={setStatus} onDelete={remove} showToast={showToast} />
           )}
           {current && (
             <FilingEditor key={`${current._id}-${current.updatedAt}`} info={info} filing={{ ...current, filedAt: ymd(current.filedAt) }} canEdit={canEdit} onSave={saveFiling} onStatus={setStatus} onDelete={remove} onOpenNotice={openNotice} showToast={showToast} />

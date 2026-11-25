@@ -1,3 +1,4 @@
+import LongTermListPages from './LongTermListPages.jsx';
 import { GARAGE_REDUCTION, filingSheetOf } from '../../../../shared/fleetFiling.js';
 
 /**
@@ -367,6 +368,7 @@ export default function FleetFilingDocs({ info, filing }) {
       <ApplicationPage info={info} filing={filing} sheet={sheet} />
       <ComparisonPages info={info} sheet={sheet} />
       {contracts.map((c, i) => <ContractPage key={i} contract={c} />)}
+      {sheet.kind === GARAGE_REDUCTION && <LongTermListPages rows={filing.longTermList} baseDate={String(filing.filedAt || '').slice(0, 10)} />}
     </>
   );
 }

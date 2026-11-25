@@ -33,6 +33,11 @@ const snapshotSchema = new mongoose.Schema({
   name: String, width: Number, length: Number, count: Number
 }, { _id: false });
 
+const longTermRowSchema = new mongoose.Schema({
+  party: String, bizNo: String, contractNo: String, plateNo: String, vin: String, model: String,
+  start: String, end: String, months: Number, fee: Number, short: Boolean
+}, { _id: false });
+
 const fleetFilingSchema = new mongoose.Schema({
   filedAt: { type: Date, required: true },               // 신청일(서류에 찍히는 날)
   kind: { type: String, enum: FILING_KINDS, default: '증차·감차' },
@@ -41,8 +46,7 @@ const fleetFilingSchema = new mongoose.Schema({
   registrationLabel: { type: String, default: '' },      // 대비표 '변경등록내역'. 비우면 "렌터카 증차"
   items: { type: [itemSchema], default: [] },
   contracts: { type: [contractSchema], default: [] },
-  // 차고지 감면: 신청 감면율, 대비표에 예상 면적을 쓸지
-  garagePlan: { rate: Number, useExpected: Boolean },
+  longTermList: { type: [longTermRowSchema], default: undefined }, // 차고지 감면에 붙이는 장기렌트 차량 명세
   garageSnapshot: { type: mongoose.Schema.Types.Mixed }, // 낼 때의 차고지 면적
   garageResult: { type: mongoose.Schema.Types.Mixed },   // 구청이 정해 준 면적(알림 PDF 또는 직접 입력)
   garageBefore: { type: mongoose.Schema.Types.Mixed },   // 구청 면적을 반영하기 전 값(되돌리기용)

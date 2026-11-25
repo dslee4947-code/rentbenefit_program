@@ -24,19 +24,37 @@ test('신구사업대비표: 변경 전·후 대수, 늘어난 면적, 변경 �
   assert.equal(Math.round(s.garage.remaining), 369);
 });
 
-test('차고지 감면: 대수는 그대로, 구청 값이 있으면 그 면적, 예상은 지금 사용면적에 감면율', () => {
-  const s = filingSheetOf(info, { kind: '차고지 감면', items: [{ name: 'G90', delta: 1 }], garagePlan: { rate: 0.9 } });
+test('차고지 감면: 대수도 면적도 지금 그대로, 구청 값을 받으면 그 면적으로 계산', () => {
+  const s = filingSheetOf(info, { kind: '차고지 감면', items: [{ name: 'G90', delta: 1 }] });
   assert.equal(s.beforeTotal, s.afterTotal);
   assert.equal(s.reason, '차고지 감면');
   assert.equal(s.registrationLabel, '차고지 감면');
   assert.equal(Math.round(s.garage.remaining), 369);
-  assert.ok(Math.abs(s.expected.reducedRequired - s.beforeArea * 0.1) < 1e-6);
-  const used = filingSheetOf(info, { kind: '차고지 감면', garagePlan: { rate: 0.9, useExpected: true } });
-  assert.ok(Math.abs(used.garage.afterUsedArea - s.beforeArea * 0.1) < 1e-6);
   const fixed = filingSheetOf({ ...info, garage: { ...info.garage, requiredArea: 1167, reducedRequired: 117 } }, {});
   assert.deepEqual([fixed.garage.reduction, fixed.garage.remaining], [1050, 338]);
   const old = filingSheetOf({ ...info, garage: { ...info.garage, requiredArea: 1167, reducedRequired: 117 } }, { garageSnapshot: info.garage });
   assert.equal(Math.round(old.garage.remaining), 369);
+});
+
+test('장기렌트 차량 명세 엑셀 읽기: 묶음 줄의 사업자번호, 단기렌트, 계약자별 정렬', async () => {
+  const { parseLongTermSheet, longTermCounts } = await import('../../shared/longTermList.js');
+  const rows = parseLongTermSheet([
+    ['장기렌트 차량 명세'],
+    ['No', '계약자 (대여인)', '계약번호', '차량번호', '차대번호', '차종', '대여 시작일\n(최초 인도일)', '반납 예정일\n(계약종료일)', '대여기간', '월대여료\n(VAT포함)'],
+    ['홍현창   ·   1대   ·   계약 1건   ·   692-47-00065'],
+    [1, '홍현창', '22020016', '101하7231', 'W1K', 'S580', '2022-03-08', '2027-03-07', 60, 1828200],
+    ['신흥   ·   2대'],
+    [2, '신흥', 'A-1', '101호2163', 'K1', 'Ray', '2021-10-28', '2028-09-27', 23, '130,000'],
+    [3, '신흥', 'A-1', '101호2164', 'K2', 'Ray', '2021-10-28', '2028-09-27', 23, 130000],
+    ['단기렌트 (사고대차)   ·   1대'],
+    [4, '단기렌트 (사고대차)', '-', '142호9512', 'K3', 'K5', '-', '-', '-', '-']
+  ]);
+  assert.deepEqual(rows.map((r) => r.plateNo), ['101호2163', '101호2164', '101하7231', '142호9512']);
+  assert.equal(rows[2].bizNo, '692-47-00065');
+  assert.equal(rows[0].bizNo, '');
+  assert.equal(rows[0].fee, 130000);
+  assert.equal(rows[3].short, true);
+  assert.deepEqual(longTermCounts(rows), { long: 3, short: 1, contracts: 2, parties: 2 });
 });
 
 test('구청 알림의 차고지 면적과 감면 줄', async () => {

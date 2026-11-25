@@ -61,7 +61,13 @@ const cleanContracts = (list) => (Array.isArray(list) ? list : [])
   }))
   .filter((c) => c.model || c.contractNo);
 
-const cleanPlan = (p) => (p ? { rate: Math.min(1, Math.max(0, Number(p.rate) || 0)), useExpected: !!p.useExpected } : undefined);
+const cleanLongTerm = (list) => (Array.isArray(list) ? list : []).map((r) => {
+  const text = (k) => String(r?.[k] ?? '').trim();
+  return {
+    party: text('party'), bizNo: text('bizNo'), contractNo: text('contractNo'), plateNo: text('plateNo').replace(/\s+/g, ''), vin: text('vin').toUpperCase(), model: text('model'),
+    start: text('start'), end: text('end'), months: Number(r?.months) || undefined, fee: Number(r?.fee) || undefined, short: !!r?.short
+  };
+}).filter((r) => r.plateNo);
 
 // 구청이 정해 준 면적. 감면전·감면후·확보 면적이 다 있어야 쓴다.
 const cleanResult = (r) => {
@@ -192,8 +198,7 @@ export const createFleetFiling = async (req, res) => {
       registrationLabel: req.body.registrationLabel || '',
       items: req.body.kind === GARAGE_REDUCTION ? [] : cleanItems(req.body.items),
       contracts: cleanContracts(req.body.contracts),
-      garagePlan: cleanPlan(req.body.garagePlan),
-      garageResult: cleanResult(req.body.garageResult),
+      longTermList: req.body.longTermList ? cleanLongTerm(req.body.longTermList) : undefined,
       memo: req.body.memo || '',
       createdBy: userName(req),
       updatedBy: userName(req)
@@ -221,8 +226,7 @@ export const updateFleetFiling = async (req, res) => {
     if (req.body.filedAt) filing.filedAt = new Date(req.body.filedAt);
     if (req.body.processedAt !== undefined) filing.processedAt = req.body.processedAt ? new Date(req.body.processedAt) : undefined;
     if (touchesCounts) filing.items = filing.kind === GARAGE_REDUCTION ? [] : cleanItems(req.body.items);
-    if (req.body.garagePlan !== undefined) filing.garagePlan = cleanPlan(req.body.garagePlan);
-    if (req.body.garageResult !== undefined && !filing.applied) filing.garageResult = cleanResult(req.body.garageResult);
+    if (req.body.longTermList !== undefined) filing.longTermList = cleanLongTerm(req.body.longTermList);
     if (req.body.contracts !== undefined) filing.contracts = cleanContracts(req.body.contracts);
     filing.updatedBy = userName(req);
     if (!filing.source) withTotals(filing, await loadInfo());
@@ -265,10 +269,11 @@ export const setFleetFilingStatus = async (req, res) => {
 
     if (status === '처리완료' && !filing.applied) {
       if (filing.kind === GARAGE_REDUCTION) {
-        if (!resultReady(filing.garageResult)) {
-          return res.status(400).json({ success: false, message: '구청이 정해 준 감면전·감면후 소요면적과 확보 면적을 적고 저장한 뒤 눌러 주세요. 구청 알림 PDF를 올리면 저절로 채워집니다.' });
+        const result = cleanResult(req.body.garageResult);
+        if (!resultReady(result) || result.reducedRequired > result.requiredArea) {
+          return res.status(400).json({ success: false, message: '구청에서 감면받은 면적(감면전·감면후 소요면적, 재계약 면적)을 적어 주세요.' });
         }
-        await applyGarage(filing, info, filing.garageResult, req.body.processedAt ? new Date(req.body.processedAt) : new Date());
+        await applyGarage(filing, info, result, req.body.processedAt ? new Date(req.body.processedAt) : new Date());
       }
       await markProcessed(filing, info, req.body.processedAt ? new Date(req.body.processedAt) : null, req);
     } else if (status !== '처리완료' && filing.applied) {

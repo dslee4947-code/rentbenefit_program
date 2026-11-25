@@ -8,7 +8,7 @@
  * 화면(서류 미리보기)과 서버(구청 처리 완료 때 대수 반영)가 같은 규칙을 쓰도록 여기 한 곳에 둔다.
  */
 
-export const GARAGE_REDUCTION = '차고지 감면'; // 1년에 한 번, 대수는 그대로 두고 장기렌트 차량의 차고지 면적 감면을 신청한다
+export const GARAGE_REDUCTION = '차고지 감면'; // 1년에 한 번, 지금 상황 그대로 공문을 내고 장기렌트 차량 명세를 붙인다. 감면 면적은 구청 처리 뒤에 적는다
 export const FILING_KINDS = ['증차·감차', GARAGE_REDUCTION, '차고지 변경', '계약 취소 감차'];
 export const FILING_STATUSES = ['작성중', '제출', '처리완료', '취소'];
 
@@ -112,11 +112,7 @@ export const filingSheetOf = (info, filing = {}) => {
   const changeArea = rows.reduce((s, r) => s + r.afterArea, 0);
 
   // 낸 공문은 낼 때의 차고지 면적으로 다시 뽑는다(그 뒤 구청 감면 결과로 면적이 바뀌어도 낸 서류는 그대로)
-  const current = garageAreasOf(filing.garageSnapshot || info.garage);
-  // 감면 예상: 지금 사용면적에 신청 감면율을 적용한 값
-  const planRate = num(filing.garagePlan?.rate ?? current.reductionRate);
-  const expected = garageAreasOf({ ...current, requiredArea: beforeArea, reductionRate: planRate, reducedRequired: null });
-  const garage = kind === GARAGE_REDUCTION && filing.garagePlan?.useExpected ? expected : current;
+  const garage = garageAreasOf(filing.garageSnapshot || info.garage);
 
   return {
     rows,
@@ -127,7 +123,6 @@ export const filingSheetOf = (info, filing = {}) => {
     beforeArea,
     changeArea,
     kind,
-    expected,
     garage: {
       ...garage,
       // 엑셀 AH14: 변경 전 사용면적 − 감면 면적 + 이번에 늘어난 면적

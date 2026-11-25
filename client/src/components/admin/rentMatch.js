@@ -10,10 +10,13 @@
  *      몇 달 몫이 한꺼번에 들어왔으면 앞의 빈 회차도 함께 낸 것(미납 → 합산)
  *   2) 회차 번호가 맞고 출금일 +15일 안이면 연휴로 늦은 것으로 그 회차
  *   3) 그 달 몫보다 적게 들어온 입금은 일부 입금
+ *      모자란 만큼이 렌트료가 아닌 줄(예: 기존차 반납비)로 따로 들어왔으면 '따로 입금'(대표님 2026-11-25, 다산제약)
  *   4) 남은 입금은 오래된 빈 회차부터(늦게 입금)
  */
 
 const DAY = 864e5;
+// 원장 입금은 청구액보다 275원(CMS 출금 수수료로 보인다) 적게 적힌다
+const CMS_FEE = 275;
 const KST = 9 * 3600e3;
 const dayNo = (d) => Math.floor((new Date(d).getTime() + KST) / DAY);
 const ymdOf = (d) => new Date(new Date(d).getTime() + KST).toISOString().slice(0, 10);
@@ -31,11 +34,13 @@ export const ownAmountOf = (r) => Math.max(0, (r.monthlyRent || 0) + (r.fine || 
  * @param {Array<object>} rounds 청구서 회차(no, dueDate, monthlyRent, fine …)
  * @param {Array<{_id, date, amount, round?}>} deposits 원장 렌트료 입금 줄(date는 'YYYY-MM-DD' 또는 Date)
  * @param {Date} [now]
+ * @param {{ perCarRent?: number, otherDeposits?: Array<{date, amount, label}> }} [options]
+ *   otherDeposits: 렌트료가 아닌 입금 줄. 그 회차 청구 항목(기타·정비·범칙금)과 금액이 같을 때만 본다
  * @returns {{ rows: Array<object>, unmatched: Array<object> }}
  *   rows: { no, dueDate, own, kind, entryIds, paidAmount, paidDate, note, due, overdue }
- *   kind: 정상 · 늦게 입금 · 미납→합산 · 일부 입금 · 미입금 · 예정 · 청구 없음
+ *   kind: 정상 · 늦게 입금 · 미납→합산 · 일부 입금 · 따로 입금 · 미입금 · 예정 · 청구 없음
  */
-export function matchRentToRounds(rounds, deposits, now = new Date(), { perCarRent = 0 } = {}) {
+export function matchRentToRounds(rounds, deposits, now = new Date(), { perCarRent = 0, otherDeposits = [] } = {}) {
   // 차 여러 대를 한 청구서로 받는 계약(신흥정보통신 20대 등)은 청구 금액이 여러 대 합계라, 원장(차 한 대)과는
   // 차 한 대의 월 렌트료로 맞춘다. 범칙금 등 차별로 나눌 수 없는 금액은 뺀다.
   if (perCarRent > 0) {
@@ -49,8 +54,12 @@ export function matchRentToRounds(rounds, deposits, now = new Date(), { perCarRe
     .map((d) => ({ ...d, t: new Date(`${String(d.date).slice(0, 10)}T00:00:00+09:00`), used: [] }))
     .sort((a, b) => a.t - b.t);
   const rows = [...rounds].sort((a, b) => a.no - b.no).map((r) => ({
-    no: r.no, dueDate: r.dueDate, own: ownAmountOf(r), kind: null, deps: [], note: ''
+    no: r.no, dueDate: r.dueDate, own: ownAmountOf(r), kind: null, deps: [], note: '',
+    items: [...(r.extras || []).map((e) => Number(e.amount) || 0), r.maintenance || 0, r.fine || 0].filter((v) => v > 0)
   }));
+  const others = otherDeposits
+    .filter((d) => d.date && Number(d.amount) > 0)
+    .map((d) => ({ label: d.label, amount: Number(d.amount), t: new Date(`${String(d.date).slice(0, 10)}T00:00:00+09:00`), taken: false }));
   const free = (d) => !d.used.length;
   const covers = (amount, own) => own > 0 && amount >= own * 0.9;
   const times = (amount, own) => (own > 0 ? Math.max(1, Math.round(amount / own)) : 1);
@@ -91,7 +100,16 @@ export function matchRentToRounds(rounds, deposits, now = new Date(), { perCarRe
   for (const row of rows) {
     if (row.kind || !(row.own > 0)) continue;
     const d = deps.find((x) => free(x) && labelOf(x) === row.no && inWin(x, row, true) && x.amount >= row.own * 0.3);
-    if (d) take(row, d, '일부 입금', `${(row.own - d.amount).toLocaleString()}원 부족`);
+    if (!d) continue;
+    const separate = [];
+    for (const item of row.items) {
+      const x = others.find((o) => !o.taken && Math.abs(item - o.amount) <= CMS_FEE && inWin(o, row, true));
+      if (x) { x.taken = true; separate.push(x); }
+    }
+    const short = row.own - d.amount - separate.reduce((a, x) => a + x.amount, 0);
+    const note = separate.map((x) => `${x.label || '기타 입금'} ${x.amount.toLocaleString()}원 (${ymdOf(x.t)})`).join(', ');
+    if (separate.length && short <= CMS_FEE) take(row, d, '따로 입금', note);
+    else take(row, d, '일부 입금', `${short.toLocaleString()}원 부족${note ? ` · 따로 ${note}` : ''}`);
   }
   // 회차 번호는 맞는데 출금일보다 한참 앞선 날짜로 적힌 입금 → 갑지 날짜 오타 의심(예: 2023-03-03을 2023-02-03으로)
   for (const row of rows) {

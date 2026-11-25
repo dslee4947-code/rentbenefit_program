@@ -8,6 +8,7 @@ import { vehicleEndOf, lastDayOf } from '../utils/contractTerm.js';
 import { readInvoiceText, parseRepairInvoice } from '../utils/repairInvoice.js';
 import { parseServiceDocument, pickServiceTarget } from '../utils/serviceDocument.js';
 import { planVehicle, mileageUsageOf, kstYmd, addMonths, SERVICE_KINDS, REPAIR_KINDS, INSPECTION_RULE, MAINTENANCE_RULE, CAR_AGE_RULE } from '../utils/vehicleServicePlan.js';
+import { bookingStateOf } from '../utils/serviceBooking.js';
 import { SERVICE_ACTIVE_STATUSES, partyNameOf, syncVehicleServiceSchedules, loadServiceRecords } from '../utils/vehicleServiceScheduleJob.js';
 
 // 화면에서 고칠 수 있는 항목. 차량과 파일은 올릴 때만 정해진다.
@@ -134,8 +135,18 @@ export const snowTireSeasonOf = (snowTire, records, today = kstYmd(new Date())) 
   return { type: season.type, label: season.label, done };
 };
 
+// 구글 업무캘린더에서 읽었지만 아직 '확인 대기'인 일정. 기록으로 옮기기 전에도 달력·목록에 보이게 한다
+// (2026-10-30 임태형 이사님 그랜저 사고수리·정기점검·검사가 대기에만 있어 달력에 안 보였다).
+const loadWaiting = (vehicle = { $ne: null }) => CalendarInbox.find({ status: '대기', vehicle })
+  .select('eventId vehicle start title description parsed htmlLink').lean();
+const pendingView = (w) => ({
+  id: w._id, date: kstYmd(w.start), kinds: w.parsed?.kinds || [], title: w.title || '', link: w.htmlLink || '', description: w.description || '',
+  // 달력 정보 창에서 칸마다 미리 채울 값
+  parsed: { shop: w.parsed?.shop || '', staff: w.parsed?.staff || '', request: w.parsed?.request || '', done: w.parsed?.done || '', mileage: w.parsed?.mileageOut || w.parsed?.mileageIn || '', amount: w.parsed?.amount || '' }
+});
+
 /** 화면 한 줄. 목록과 차량 상세가 같은 모양을 쓴다. */
-const rowOf = (v, records) => {
+const rowOf = (v, records, waiting = []) => {
   const plan = planVehicle(v, records);
   return {
     vehicleId: v._id,
@@ -165,7 +176,10 @@ const rowOf = (v, records) => {
       .filter((r) => !REPAIR_KINDS.includes(r.kind) && r.status && r.status !== '완료')
       .map((r) => ({ id: r._id, kind: r.kind, date: kstYmd(r.date), status: r.status, shop: r.shop || '' })),
     ...plan,
-    ...usageOf(v, records, plan)
+    ...usageOf(v, records, plan),
+    // 프로그램 예약과 구글 일정을 합친 예약 상태. 목록 칩([정기점검 지남] 등)이 이것으로 예약한 차를 뺀다(2026-11-25)
+    booking: Object.fromEntries(['정기점검', '자동차검사'].map((k) => [k, bookingStateOf(k, records, waiting)])),
+    pending: waiting.map(pendingView)
   };
 };
 
@@ -485,23 +499,10 @@ export const getServicePlan = async (req, res) => {
       .populate('company', 'name')
       .lean();
     // 같은 번호판의 예전 차량 문서에 붙은 기록도 함께 센다(loadServiceRecords 설명)
-    const byVehicle = await loadServiceRecords(vehicles, 'vehicle kind date mileage amount description status shop carAgeExtended');
+    const byVehicle = await loadServiceRecords(vehicles, 'vehicle kind date mileage amount description status shop carAgeExtended calendarEventId');
 
-    const rows = vehicles.map((v) => rowOf(v, byVehicle.get(String(v._id)) || []));
-
-    // 구글 업무캘린더에서 읽었지만 아직 '확인 대기'인 일정. 기록으로 옮기기 전에도 달력에 보이게 한다
-    // (2026-10-30 임태형 이사님 그랜저 사고수리·정기점검·검사가 대기에만 있어 달력에 안 보였다).
-    const waiting = await CalendarInbox.find({ status: '대기', vehicle: { $ne: null } }).select('vehicle start title description parsed htmlLink').lean();
-    const waitingByVehicle = new Map();
-    waiting.forEach((w) => {
-      const key = String(w.vehicle);
-      waitingByVehicle.set(key, [...(waitingByVehicle.get(key) || []), {
-        id: w._id, date: kstYmd(w.start), kinds: w.parsed?.kinds || [], title: w.title || '', link: w.htmlLink || '', description: w.description || '',
-        // 달력 정보 창에서 칸마다 미리 채울 값
-        parsed: { shop: w.parsed?.shop || '', staff: w.parsed?.staff || '', request: w.parsed?.request || '', done: w.parsed?.done || '', mileage: w.parsed?.mileageOut || w.parsed?.mileageIn || '', amount: w.parsed?.amount || '' }
-      }]);
-    });
-    rows.forEach((r) => { r.pending = waitingByVehicle.get(String(r.vehicleId)) || []; });
+    const waiting = await loadWaiting();
+    const rows = vehicles.map((v) => rowOf(v, byVehicle.get(String(v._id)) || [], waiting.filter((w) => String(w.vehicle) === String(v._id))));
     res.json({ success: true, rows, kinds: SERVICE_KINDS, rules: { inspection: INSPECTION_RULE, maintenance: MAINTENANCE_RULE, carAge: CAR_AGE_RULE } });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -518,7 +519,7 @@ export const getVehicleServices = async (req, res) => {
     const vehicle = await loadVehicle({ _id: req.params.vehicleId });
     if (!vehicle) return res.status(404).json({ success: false, message: '차량을 찾을 수 없습니다.' });
     const records = (await loadServiceRecords([vehicle])).get(String(vehicle._id)) || [];
-    res.json({ success: true, records, row: rowOf(vehicle, records), transportRates: await transportRates() });
+    res.json({ success: true, records, row: rowOf(vehicle, records, await loadWaiting(vehicle._id)), transportRates: await transportRates() });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

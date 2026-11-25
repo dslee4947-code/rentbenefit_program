@@ -3,6 +3,7 @@ import VehicleService from '../models/VehicleService.js';
 import Vehicle from '../models/Vehicle.js';
 import Setting from '../models/Setting.js';
 import { SERVICE_KINDS } from '../utils/vehicleServicePlan.js';
+import { hasResult, isOpenRecord, SAME_JOB_DAYS } from '../utils/serviceBooking.js';
 import { syncVehicleServiceSchedules } from '../utils/vehicleServiceScheduleJob.js';
 import { syncCalendarInbox, refreshInboxSuggestions } from '../utils/calendarInboxSync.js';
 import { isGoogleCalendarConfigured } from '../utils/googleCalendar.js';
@@ -54,7 +55,8 @@ export const syncCalendarInboxNow = async (req, res) => {
   try {
     const r = await syncCalendarInbox();
     if (r.skipped) return res.status(400).json({ success: false, message: r.reason });
-    res.json({ success: true, ...r, message: `캘린더 일정 ${r.read}건을 읽었습니다. 새로 올라온 정비 일정 ${r.waiting + r.noPlate}건.` });
+    const waiting = await CalendarInbox.countDocuments({ status: { $in: ['대기', '번호없음'] } });
+    res.json({ success: true, ...r, message: `구글 일정을 읽었습니다. 지난번 뒤로 바뀐 일정 ${r.read}건, 그중 새 정비 일정 ${r.waiting + r.noPlate}건. 확인 대기는 모두 ${waiting}건입니다.` });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -65,7 +67,10 @@ export const syncCalendarInboxNow = async (req, res) => {
  * (일괄 이관과 같게, 둘째부터 calendarEventId 뒤에 '#종류'). 금액은 첫 기록에만 넣는다.
  *
  * @route POST /api/vehicle-services/calendar-inbox/:id/import
- * @body {vehicleId?, kinds[], date?, amount?, mileageIn?, mileageOut?, shop?, request?, description?}
+ * 같은 종류로 잡아 둔 '예정' 기록이 앞뒤 14일 안에 있으면 새로 만들지 않고 그 기록을 채운다(2026-11-25).
+ * reuseDone: 이미 끝난 같은 종류 기록이 있으면 새로 만들지 않고 잇기만 한다(목록의 [완료 기록]).
+ *
+ * @body {vehicleId?, kinds[], date?, reuseDone?, amount?, mileageIn?, mileageOut?, shop?, request?, description?}
  */
 export const importCalendarInbox = async (req, res) => {
   try {
@@ -85,9 +90,61 @@ export const importCalendarInbox = async (req, res) => {
     const mileageOut = num(pick('mileageOut'));
     const who = req.user?.name || req.user?.email || '';
 
+    // 오늘 일정은 결과가 적혔을 때만 끝난 것으로 본다
+    const day = new Date(`${ymd}T00:00:00+09:00`);
+    const finished = ymd < kstToday() || (ymd === kstToday() && hasResult(p.done));
+    const span = SAME_JOB_DAYS * 24 * 3600e3;
+    const nearby = await VehicleService.find({
+      kind: { $in: kinds },
+      $and: [
+        { $or: [{ vehicle: vehicle._id }, ...(vehicle.plateNo ? [{ plateNo: vehicle.plateNo }] : [])] },
+        { $or: [
+          { calendarEventId: { $in: [item.eventId, ...kinds.map((k) => `${item.eventId}#${k}`)] } },
+          { date: { $gte: new Date(day.getTime() - span), $lte: new Date(day.getTime() + span) } }
+        ] }
+      ]
+    });
+    const isMine = (r) => String(r.calendarEventId || '').split('#')[0] === item.eventId;
+    // 다른 구글 일정에 이어진 기록은 다른 일이다
+    const usable = nearby.filter((r) => !r.calendarEventId || isMine(r)).sort((x, y) => Number(isMine(y)) - Number(isMine(x)));
+
     const created = [];
+    const reused = [];
     for (const [i, kind] of kinds.entries()) {
       const eventKey = i === 0 ? item.eventId : `${item.eventId}#${kind}`;
+      const open = usable.find((r) => r.kind === kind && isOpenRecord(r));
+      const closed = b.reuseDone ? usable.find((r) => r.kind === kind && !isOpenRecord(r)) : null;
+      const hit = open || closed;
+      if (hit) {
+        // eslint-disable-next-line no-await-in-loop
+        if (!hit.calendarEventId && !(await VehicleService.exists({ calendarEventId: eventKey, vehicle: hit.vehicle }))) hit.calendarEventId = eventKey;
+        if (open) {
+          hit.date = day;
+          if (finished) hit.status = '완료';
+          if (mileageIn) hit.mileageIn = mileageIn;
+          if (mileageOut) hit.mileageOut = mileageOut;
+          if (mileageOut || mileageIn) hit.mileage = mileageOut || mileageIn;
+          if (i === 0 && num(pick('amount')) && !hit.amount) hit.amount = num(pick('amount'));
+          // 화면에서 적어 둔 값은 덮지 않고 빈 칸만 채운다
+          const fill = {
+            shop: String(pick('shop') || ''), staff: p.staff, request: String(pick('request') || ''),
+            description: String(b.description !== undefined ? b.description : p.done || ''), fuelIn: p.fuelIn, fuelOut: p.fuelOut,
+            contactName: p.contactName, contactPhone: p.contactPhone, callAfterIn: p.callAfterIn, callGuide: p.callGuide, callAfterOut: p.callAfterOut
+          };
+          Object.entries(fill).forEach(([key, v]) => { if (v && !hit[key]) hit[key] = v; });
+          if (!String(hit.memo || '').includes('구글 캘린더:')) {
+            hit.memo = [hit.memo, p.notes ? `특이사항: ${p.notes}` : '', `구글 캘린더: ${item.title}`, p.costText ? `비용: ${p.costText}` : ''].filter(Boolean).join(' / ');
+          }
+          if (kind === '정기점검' && !hit.checkRound) {
+            // eslint-disable-next-line no-await-in-loop
+            hit.checkRound = (await VehicleService.countDocuments({ kind, _id: { $ne: hit._id }, $or: [{ vehicle: vehicle._id }, { plateNo: vehicle.plateNo }] })) + 1;
+          }
+        }
+        // eslint-disable-next-line no-await-in-loop
+        await hit.save();
+        reused.push(hit);
+        continue;
+      }
       // eslint-disable-next-line no-await-in-loop
       if (await VehicleService.exists({ calendarEventId: eventKey, vehicle: vehicle._id })) continue;
       const checkRound = kind === '정기점검'
@@ -100,7 +157,7 @@ export const importCalendarInbox = async (req, res) => {
         plateNo: vehicle.plateNo || '',
         kind,
         date: new Date(`${ymd}T00:00:00+09:00`),
-        status: ymd > kstToday() ? '예정' : '완료',
+        status: finished ? '완료' : '예정',
         mileage: mileageOut || mileageIn,
         mileageIn,
         mileageOut,
@@ -130,7 +187,8 @@ export const importCalendarInbox = async (req, res) => {
 
     item.status = '옮김';
     item.vehicle = vehicle._id;
-    item.serviceIds = [...(item.serviceIds || []), ...created.map((r) => r._id)];
+    item.serviceIds = [...(item.serviceIds || []), ...[...created, ...reused].map((r) => r._id)];
+    item.suggested = [];
     item.handledBy = who;
     item.handledAt = new Date();
     await item.save();
@@ -139,10 +197,10 @@ export const importCalendarInbox = async (req, res) => {
     logActivity({
       req, dept: '차량관리부', action: ACTIONS.VEHICLE_SERVICE_RECORD,
       target: { model: 'CalendarInbox', id: item._id },
-      summary: `캘린더 일정 → 정비 기록 ${created.length}건 (${vehicle.plateNo} · ${kinds.join('·')})`,
+      summary: `캘린더 일정 → 정비 기록 ${created.length + reused.length}건 (${vehicle.plateNo} · ${kinds.join('·')})`,
       meta: { eventId: item.eventId, kinds }
     });
-    res.json({ success: true, created: created.length, records: created.map((r) => ({ id: r._id, kind: r.kind })), message: `${vehicle.plateNo} ${kinds.join('·')} 기록 ${created.length}건을 남겼습니다.` });
+    res.json({ success: true, created: created.length, records: created.map((r) => ({ id: r._id, kind: r.kind })), reused: reused.length, message: `${vehicle.plateNo} ${kinds.join('·')} ${finished ? '완료' : '예약'} 기록을 남겼습니다${reused.length ? ` (있던 기록 ${reused.length}건에 반영)` : ''}.` });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

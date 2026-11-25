@@ -45,6 +45,7 @@ export default function CalendarInboxPanel({ vehicles, onImported, showToast }) 
       const d = await res.json().catch(() => ({}));
       showToast?.(d.message || '처리했습니다.', d.success ? 'success' : 'error');
       await load();
+      if (d.success) onImported?.(); // 읽어 온 예약이 아래 목록·칩에 바로 반영되게
     } finally { setBusy(''); }
   };
 
@@ -63,7 +64,7 @@ export default function CalendarInboxPanel({ vehicles, onImported, showToast }) 
       showToast?.(d.message || '처리했습니다.', d.success ? 'success' : 'error');
       if (d.success) {
         await load();
-        if (action === 'import' || action === 'link') onImported?.();
+        onImported?.();
       }
     } finally { setBusy(''); }
   };
@@ -158,6 +159,7 @@ export default function CalendarInboxPanel({ vehicles, onImported, showToast }) 
           })}
           <div style={{ padding: '0.5rem 0.8rem', ...small, lineHeight: 1.6 }}>
             업무캘린더에 '&lt; 차종 / 차량번호 &gt; AS' 줄이 있는 일정 중 우리 차만 올라옵니다. 종류는 제목·점검 의뢰·점검 내용으로 짐작한 것이라 확인하고 옮겨 주세요.
+            정기점검·검사 일정은 옮기기 전에도 목록의 예약으로 잡힙니다. 프로그램에 잡아 둔 예약이 있으면 [기록으로 옮기기]가 그 예약을 채웁니다.
             여러 종류를 고르면(예: 사고수리 + 정기점검) 종류마다 기록이 하나씩 생기고, 금액은 첫 기록에만 들어갑니다.
             예약일과 실제 날짜가 달라 같은 일이 두 번 들어가지 않게, 앞뒤 14일 안에 같은 기록이 있으면 '이미 기록 있음'으로 알려 줍니다.
           </div>

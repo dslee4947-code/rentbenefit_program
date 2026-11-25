@@ -1034,8 +1034,18 @@ const STAGE = {
   '수리 중': { label: '진행 중', color: '#b45309', bg: '#fef3c7' }
 };
 // 그 종류로 고객과 잡아 둔 일정(예정·진행 중) 중 가장 이른 것
-const bookingOf = (r, kind) => (r.bookings || []).filter((x) => x.kind === kind).sort((x, y) => (x.date < y.date ? -1 : 1))[0] || null;
-const stageOf = (b) => (b ? STAGE[b.status] || STAGE.예정 : null);
+// 프로그램 예약과 구글 일정을 서버가 합친 것(serviceBooking.js). state: done·working·booked·late
+const bookingOf = (r, kind) => { const b = r.booking?.[kind]; return b ? { ...b, id: b.recordId } : null; };
+const stageOf = (b) => {
+  if (!b) return null;
+  if (b.state === 'done') return { label: '끝남 · 기록 대기', color: '#047857', bg: '#d1fae5' };
+  if (b.state === 'late') return { label: '예약일 지남', color: '#b91c1c', bg: '#fee2e2' };
+  return STAGE[b.status] || STAGE.예정;
+};
+// 챙기는 중이라 [지남]·[30일 이내]에서 빼는 차. 예약일이 지났는데 결과가 없으면(late) 다시 챙겨야 하니 빼지 않는다
+const isHandled = (r, kind) => ['done', 'working', 'booked'].includes(r.booking?.[kind]?.state);
+// 검사 마감(과태료) 뒤로 잡힌 예약은 예약이 있어도 [검사일 지남]에 남긴다
+const inspHandled = (r) => isHandled(r, '자동차검사') && (r.booking.자동차검사.state === 'done' || r.booking.자동차검사.date <= (r.inspection?.windowEnd || ''));
 
 /** 목록의 '진행' 칸: [예약 잡기] → 일정 잡힘 MM-DD [진행] [완료] → 진행 중 MM-DD [완료] */
 function ProgressCell({ r, kind, onStep, cell }) {
@@ -1049,9 +1059,9 @@ function ProgressCell({ r, kind, onStep, cell }) {
     <td style={cell} onClick={(e) => e.stopPropagation()}>
       {!b ? btn('📌 예약 잡기', color, () => onStep(kind, 'book', r)) : (
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-          <span style={{ background: st.color, color: '#fff', borderRadius: '6px', padding: '0.15rem 0.45rem', fontSize: '0.76rem', fontWeight: 800 }} title={b.shop || ''}>{b.status === '예정' ? '📌' : '🔧'} {st.label} {b.date.slice(5)}</span>
-          {b.status === '예정' && btn('진행', '#b45309', () => onStep(kind, 'start', r, b))}
-          {btn('완료', color, () => onStep(kind, 'finish', r, b))}
+          <span style={{ background: st.color, color: '#fff', borderRadius: '6px', padding: '0.15rem 0.45rem', fontSize: '0.76rem', fontWeight: 800 }} title={[b.title && `구글 일정: ${b.title}`, b.shop].filter(Boolean).join(' · ')}>{b.state === 'done' ? '✅' : b.state === 'late' ? '⚠️' : b.status === '예정' ? '📌' : '🔧'} {st.label} {b.date.slice(5)}{b.inboxId ? ' · 구글' : ''}</span>
+          {b.recordId && b.status === '예정' && ['booked', 'late'].includes(b.state) && btn('진행', '#b45309', () => onStep(kind, 'start', r, b))}
+          {(b.recordId || b.state === 'done') && btn(b.state === 'done' ? '완료 기록' : '완료', color, () => onStep(kind, 'finish', r, b))}
         </div>
       )}
     </td>
@@ -1223,13 +1233,16 @@ const FILTER_GROUPS = [
   { id: 'maint', label: '정기점검', color: KIND.정기점검.color, bg: KIND.정기점검.bg }
 ];
 const FILTERS = [
-  { id: 'insp-over', group: 'insp', urgent: true, label: '검사일 지남', test: (r) => ['over', 'grace'].includes(inspectionLevelOf(r)) },
-  { id: 'insp-due', group: 'insp', label: '검사 2개월 이내', test: (r) => inspectionLevelOf(r) === 'due' },
+  { id: 'insp-over', group: 'insp', urgent: true, label: '검사일 지남', test: (r) => ['over', 'grace'].includes(inspectionLevelOf(r)) && !inspHandled(r) },
+  { id: 'insp-due', group: 'insp', label: '검사 2개월 이내', test: (r) => inspectionLevelOf(r) === 'due' && !inspHandled(r) },
+  { id: 'insp-booked', group: 'insp', label: '📌 검사 예약됨', test: (r) => isHandled(r, '자동차검사') },
   { id: 'insp-unverified', group: 'insp', label: '검사 기록 없음', test: (r) => Boolean(r.inspection?.unverified) },
   { id: 'age-now', group: 'insp', sub: '차령', urgent: true, label: '연장 신청', test: (r) => ['end', 'expired', 'confirm', 'last', 'apply'].includes(carAgeLevelOf(r)) },
   { id: 'age-soon', group: 'insp', sub: '차령', label: '6개월 이내', test: (r) => carAgeLevelOf(r) === 'soon' },
-  { id: 'maint-over', group: 'maint', urgent: true, label: '정기점검 지남', test: (r) => r.maintenance?.status === '지남' },
-  { id: 'maint-soon', group: 'maint', label: '정기점검 30일 이내', test: (r) => r.maintenance?.status === '30일 이내' },
+  { id: 'maint-over', group: 'maint', urgent: true, label: '정기점검 지남', test: (r) => r.maintenance?.status === '지남' && !isHandled(r, '정기점검') },
+  { id: 'maint-soon', group: 'maint', label: '정기점검 30일 이내', test: (r) => r.maintenance?.status === '30일 이내' && !isHandled(r, '정기점검') },
+  // 프로그램 예약 + 구글 업무캘린더 일정. 점검이 끝나 [완료 기록]만 남은 차도 여기 있다(대표님 2026-11-25)
+  { id: 'maint-booked', group: 'maint', label: '📌 점검 예약됨', test: (r) => isHandled(r, '정기점검') },
   // 스노우 타이어 고객 중 이번 철(10~12월 스노우로, 3~4월 일반으로) 교체 기록이 아직 없는 차
   { id: 'snow', group: 'maint', urgent: true, label: '❄ 타이어 교체 안내', test: (r) => Boolean(r.snowSeason && !r.snowSeason.done) }
 ];
@@ -1282,6 +1295,7 @@ function VehicleServiceView({ showToast, currentUser }) {
   // 상세 입력 양식(테스트판). { record: null }이면 새 기록, record가 있으면 고치기
   const [formOpen, setFormOpen] = useState(null);
   const [docUploadOpen, setDocUploadOpen] = useState(false);
+  const [inboxKey, setInboxKey] = useState(0); // 목록에서 완료 기록을 남기면 위 '확인 대기'를 다시 불러온다
 
   const canWrite = currentUser?.role !== 'viewer';
 
@@ -1372,6 +1386,30 @@ function VehicleServiceView({ showToast, currentUser }) {
       }
       return;
     }
+    // 구글 일정에 결과가 적혀 있으면 그 내용(주행거리·정비소·금액·점검 내용)으로 바로 완료 기록을 남긴다
+    if (b.state === 'done' && b.inboxId) {
+      if (!canWrite) return;
+      const w = (r.pending || []).find((x) => String(x.id) === String(b.inboxId));
+      const lines = [
+        `${r.plateNo} ${(w?.kinds || [kind]).join('·')}을(를) 완료로 기록할까요?`,
+        `날짜: ${b.date}`,
+        w?.parsed?.done && `내용: ${w.parsed.done.slice(0, 200)}`,
+        w?.parsed?.mileage && `주행거리: ${Number(w.parsed.mileage).toLocaleString()}km`,
+        w?.parsed?.amount && `금액: ${Number(w.parsed.amount).toLocaleString()}원`
+      ];
+      if (!window.confirm(lines.filter(Boolean).join('\n'))) return;
+      try {
+        const res = await fetch(`${API_HOST}/api/vehicle-services/calendar-inbox/${b.inboxId}/import`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reuseDone: true })
+        });
+        const data = await res.json().catch(() => ({}));
+        showToast?.(data.message || '처리하지 못했습니다.', res.ok && data.success ? 'success' : 'error');
+        if (data.success) { load(); setInboxKey((k) => k + 1); if (selectedId) loadDetail(selectedId); }
+      } catch {
+        showToast?.('서버 통신 오류가 발생했습니다.', 'error');
+      }
+      return;
+    }
     // 완료: 잡아 둔 기록을 '완료'로 열어 견적서·점검 결과서를 올리게 한다
     openVehicle(r.vehicleId);
     editFromCalendar(r.vehicleId, b.id, { status: '완료' });
@@ -1405,7 +1443,7 @@ function VehicleServiceView({ showToast, currentUser }) {
   const modeKind = mode === 'maint' ? '정기점검' : mode === 'insp' ? '자동차검사' : '';
   const bookedRank = (r) => {
     const b = modeKind && bookingOf(r, modeKind);
-    return !b ? 2 : b.status === '예정' ? 1 : 0;
+    return !b ? 2 : b.state === 'done' || b.state === 'working' ? 0 : 1;
   };
   const bookedDate = (r) => (modeKind && bookingOf(r, modeKind)?.date) || '';
   const visible = rows
@@ -1450,7 +1488,7 @@ function VehicleServiceView({ showToast, currentUser }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
-      <CalendarInboxPanel vehicles={rows} onImported={() => { load(); if (selectedId) loadDetail(selectedId); }} showToast={showToast} />
+      <CalendarInboxPanel key={inboxKey} vehicles={rows} onImported={() => { load(); if (selectedId) loadDetail(selectedId); }} showToast={showToast} />
       <div style={{ display: 'flex', gap: '0.3rem' }}>
         {[['calendar', '달력'], ['list', '목록']].map(([id, label]) => (
           <button key={id} type="button" onClick={() => setView(id)} style={{ border: '1px solid var(--border-color)', background: view === id ? 'var(--primary)' : '#fff', color: view === id ? '#fff' : 'var(--text-bright)', padding: '0.35rem 0.9rem', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 800, cursor: 'pointer' }}>

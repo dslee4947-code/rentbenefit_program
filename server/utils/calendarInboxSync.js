@@ -1,8 +1,10 @@
 import Setting from '../models/Setting.js';
 import Vehicle from '../models/Vehicle.js';
+import { SERVICE_KINDS, kstYmd } from './vehicleServicePlan.js';
 import VehicleService from '../models/VehicleService.js';
 import CalendarInbox from '../models/CalendarInbox.js';
-import { isGoogleCalendarConfigured, listChangedEvents } from './googleCalendar.js';
+import { isGoogleCalendarConfigured, listChangedEvents, listEventsBetween } from './googleCalendar.js';
+import { SAME_JOB_DAYS, hasResult, isBookedTitle, isOpenRecord } from './serviceBooking.js';
 
 /**
  * 구글 업무캘린더 → 정비 기록 '확인 대기'.
@@ -240,7 +242,7 @@ export const parseServiceEvent = (event) => {
 };
 
 // 같은 일로 보는 날짜 폭. 예약일(캘린더)과 실제 입고·출고일(기록)이 며칠~2주 벌어진다.
-export const SAME_JOB_DAYS = 14;
+export { SAME_JOB_DAYS };
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -297,9 +299,15 @@ const startOf = (event) => {
 export const syncCalendarInbox = async ({ since, dryRun = false } = {}) => {
   if (!isGoogleCalendarConfigured()) return { skipped: true, reason: '구글 캘린더 열쇠가 설정되지 않았습니다.' };
   const state = await Setting.findOne({ key: SYNC_KEY }).lean();
-  const from = since || (state?.value?.lastSyncAt ? new Date(new Date(state.value.lastSyncAt).getTime() - OVERLAP_MS) : FIRST_SINCE);
+  const lastFrom = since || (state?.value?.lastSyncAt ? new Date(new Date(state.value.lastSyncAt).getTime() - OVERLAP_MS) : FIRST_SINCE);
   const startedAt = new Date();
-  const events = await listChangedEvents(from);
+  // 구글은 약 한 달 넘게 지난 때부터의 변경분은 주지 않는다(410)
+  const from = new Date(Math.max(lastFrom.getTime(), startedAt.getTime() - 25 * DAY_MS));
+  const changed = await listChangedEvents(from);
+  // 변경분만 보면 그때 놓친 일정(나중에 등록한 차, 읽지 못한 때 적은 일정)이 끝내 안 올라온다. 지난 30일~앞으로 180일은 매번 훑는다(2026-11-25).
+  const seen = new Set(changed.map((e) => e.id));
+  const around = await listEventsBetween(new Date(startedAt.getTime() - 30 * DAY_MS), new Date(startedAt.getTime() + 180 * DAY_MS));
+  const events = [...changed, ...around.filter((e) => !seen.has(e.id))];
 
   const vehicles = await Vehicle.find({ plateNo: { $nin: [null, ''] } }).select('plateNo status').lean();
   // 같은 번호판으로 차량 문서가 둘이면(재계약) 운행 중인 쪽을 고른다
@@ -310,11 +318,14 @@ export const syncCalendarInbox = async ({ since, dryRun = false } = {}) => {
     if (!cur || (cur.status === '거래완료' && v.status !== '거래완료')) byPlate.set(k, v);
   }
   const ids = events.map((e) => e.id);
-  const imported = new Set((await VehicleService.find({ calendarEventId: { $in: ids.flatMap((id) => [id, `${id}#정기점검`, `${id}#자동차검사`]) } })
-    .select('calendarEventId').lean()).map((r) => r.calendarEventId.split('#')[0]));
+  const linked = await VehicleService.find({ calendarEventId: { $in: ids.flatMap((id) => [id, ...SERVICE_KINDS.map((k) => `${id}#${k}`)]) } })
+    .select('calendarEventId status date inAt').lean();
+  const imported = new Set(linked.map((r) => r.calendarEventId.split('#')[0]));
+  // 아직 안 끝난 기록과 이어진 일정. 구글에서 날짜를 바꾸거나 결과를 적으면 따라간다(2026-11-25)
+  const openOf = (eventId) => linked.filter((r) => r.calendarEventId.split('#')[0] === eventId && isOpenRecord(r));
   const existing = new Map((await CalendarInbox.find({ eventId: { $in: ids } }).lean()).map((x) => [x.eventId, x]));
 
-  const counts = { read: events.length, waiting: 0, noPlate: 0, updated: 0, removed: 0, flagged: 0 };
+  const counts = { read: changed.length, waiting: 0, noPlate: 0, updated: 0, removed: 0, flagged: 0, moved: 0 };
   for (const e of events) {
     const old = existing.get(e.id);
     // 프로그램이 올린 일정은 프로그램 기록이 원본이라 여기서 다시 올리지 않는다
@@ -333,7 +344,8 @@ export const syncCalendarInbox = async ({ since, dryRun = false } = {}) => {
     }
     // 반복 일정은 'AS일정 기재 양식'·센터 정보 같은 안내라 정비 기록이 아니다
     if (e.recurringEventId) continue;
-    if (!old && imported.has(e.id)) continue;
+    const openRecs = openOf(e.id);
+    if (!old && imported.has(e.id) && !openRecs.length) continue;
 
     const title = String(e.summary || '');
     const p = parseServiceEvent(e);
@@ -374,14 +386,30 @@ export const syncCalendarInbox = async ({ since, dryRun = false } = {}) => {
       },
       vehicle: vehicle?._id
     };
+    const finished = Boolean(hasResult(p.done) && doc.start && doc.start <= startedAt);
+    // 이미 이어진 일정인데 기록이 아직 안 끝났으면, 결과가 적혔을 때만 '대기'로 올려 [완료 기록]을 누르게 한다
+    if (!old && imported.has(e.id) && !finished) continue;
+    const eventChanged = String(old?.eventUpdated?.toISOString?.() || '') !== String(doc.eventUpdated?.toISOString?.() || '');
+    // 구글에서 날짜를 바꿨으면 잡아 둔 '예정' 기록도 그날로 옮긴다
+    if (old && eventChanged && old.start && doc.start && kstYmd(old.start) !== kstYmd(doc.start) && isBookedTitle(title)) {
+      const day = new Date(`${kstYmd(doc.start)}T00:00:00+09:00`);
+      for (const r of openRecs.filter((x) => x.status === '예정' && kstYmd(x.date) !== kstYmd(day))) {
+        counts.moved += 1;
+        const shift = day.getTime() - new Date(`${kstYmd(r.date)}T00:00:00+09:00`).getTime();
+        // eslint-disable-next-line no-await-in-loop
+        if (!dryRun) await VehicleService.updateOne({ _id: r._id }, { $set: { date: day, ...(r.inAt ? { inAt: new Date(r.inAt.getTime() + shift) } : {}) } });
+      }
+    }
+
     if (!old) {
       counts[status === '대기' ? 'waiting' : 'noPlate'] += 1;
       if (!dryRun) await CalendarInbox.create({ eventId: e.id, status, ...doc });
-    } else if (String(old.eventUpdated?.toISOString?.() || '') !== String(doc.eventUpdated?.toISOString?.() || '')) {
+    } else if (eventChanged) {
       counts.updated += 1;
       if (old.status === '옮김') counts.flagged += 1;
       // 옮긴 뒤에 고친 일정은 기록을 다시 보게 표시만 한다. 제외한 일정은 그대로 둔다
-      const set = old.status === '옮김' ? { ...doc, changedAfterImport: true }
+      const reopen = old.status === '옮김' && finished && status === '대기' && openRecs.some((r) => r.status === '예정');
+      const set = reopen ? { ...doc, status: '대기', changedAfterImport: false } : old.status === '옮김' ? { ...doc, changedAfterImport: true }
         : old.status === '제외' ? doc
           : { ...doc, status };
       if (!dryRun) await CalendarInbox.updateOne({ _id: old._id }, { $set: set });

@@ -4,6 +4,8 @@ import Vehicle from '../models/Vehicle.js';
 import '../models/Contract.js';
 import '../models/Company.js';
 import VehicleService from '../models/VehicleService.js';
+import CalendarInbox from '../models/CalendarInbox.js';
+import { bookingStateOf } from './serviceBooking.js';
 import { ACCIDENT_RENTAL_PARTY, SHORT_TERM_RENTAL_STATUS } from './accidentRentalCompany.js';
 import { planVehicle, addDays, kstYmd } from './vehicleServicePlan.js';
 
@@ -118,7 +120,8 @@ export const syncVehicleServiceSchedules = async ({ dryRun = false } = {}) => {
     .populate('contract', 'leaseCompany')
     .populate('company', 'name')
     .lean();
-  const recordsByVehicle = await loadServiceRecords(vehicles, 'vehicle kind date mileage amount description status carAgeExtended');
+  const recordsByVehicle = await loadServiceRecords(vehicles, 'vehicle kind date mileage amount description status carAgeExtended calendarEventId');
+  const waiting = await CalendarInbox.find({ status: '대기', vehicle: { $ne: null } }).select('eventId vehicle start title parsed').lean();
 
   const existing = await Schedule.find({ 'source.key': { $regex: '^svc:' } }).lean();
   const existingByKey = new Map(existing.map((s) => [s.source.key, s]));
@@ -139,17 +142,16 @@ export const syncVehicleServiceSchedules = async ({ dryRun = false } = {}) => {
       const planned = pick(plan);
       if (!planned) continue;
       // 직접 잡은 일정(예정·입고·수리 중 기록)이 있으면 그날 진행한다. 계산한 날 대신 그 날짜로 올린다.
-      const booking = records
-        .filter((r) => r.kind === label && r.status && r.status !== '완료' && r.date)
-        .sort((a, b) => new Date(a.date) - new Date(b.date))[0];
-      const item = booking ? { ...planned, date: kstYmd(booking.date) } : planned;
+      // 구글 업무캘린더에만 적힌 예약도 같다(2026-11-25).
+      const booking = bookingStateOf(label, records, waiting.filter((w) => String(w.vehicle) === String(v._id)));
+      const item = booking ? { ...planned, date: booking.date } : planned;
       const key = serviceKeyOf(type, v._id);
       keep.add(key);
       const dueDate = kstMidnight(item.date);
       const title = buildServiceTitle(partyName, v.plateNo, label);
       const old = existingByKey.get(key);
 
-      if (old && old.dueDate.getTime() !== dueDate.getTime() && dueDate > old.dueDate && isCovered(type, old, item)) {
+      if (old && old.dueDate.getTime() !== dueDate.getTime() && dueDate > old.dueDate && !booking && isCovered(type, old, item)) {
         // 받은 일정은 열쇠를 바꿔 '완료'로 남긴다. 열쇠를 비우면 다음 날 또 새로 만들게 된다.
         const oldYmd = new Date(old.dueDate.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
         const closedKey = `${key}:${oldYmd}`;

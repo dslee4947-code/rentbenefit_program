@@ -12,7 +12,7 @@ import {
 } from '../controllers/fleetFilingController.js';
 import { getCarAgeFilings, createCarAgeFiling, updateCarAgeFiling, setCarAgeFilingStatus, deleteCarAgeFiling } from '../controllers/carAgeFilingController.js';
 import { getScrapFilings, createScrapFiling, updateScrapFiling, setScrapFilingStatus, deleteScrapFiling } from '../controllers/scrapFilingController.js';
-import { listScrapFiles, uploadScrapFile, getScrapFile, deleteScrapFile, sendScrapMail } from '../controllers/scrapMailController.js';
+import { listScrapFiles, uploadScrapFile, getScrapFile, deleteScrapFile, sendScrapMail, listRegCerts, uploadRegCert, getRegCert } from '../controllers/scrapMailController.js';
 import { checkWritePermission } from '../middleware/roleMiddleware.js';
 import { uploadSingleFile } from '../middleware/uploadMiddleware.js';
 
@@ -31,6 +31,9 @@ router.delete('/car-age/:id', deleteCarAgeFiling);
 // 대폐차 신고서. '/:id'보다 먼저 둔다.
 router.get('/scrap', getScrapFilings);
 router.post('/scrap', createScrapFiling);
+router.get('/scrap/certs', listRegCerts);
+router.post('/scrap/certs', uploadSingleFile(), uploadRegCert);
+router.get('/scrap/certs/:plateNo', getRegCert);
 router.put('/scrap/:id', updateScrapFiling);
 router.post('/scrap/:id/status', setScrapFilingStatus);
 router.delete('/scrap/:id', deleteScrapFiling);

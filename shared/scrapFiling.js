@@ -12,6 +12,14 @@ export const SCRAP_FILE_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
 // 메일 한 통은 4MB까지라(Graph), 파일을 글자로 바꾸며 3분의 1이 늘어나는 것과 서명 그림을 빼면 첨부는 이만큼이다
 export const SCRAP_MAIL_LIMIT = 2.8 * 1024 * 1024;
 
+/** 등록증 파일 이름에서 차량번호를 찾는다. 'G90-001_101호 1807_자동차등록증.pdf' → '101호1807' */
+export const plateOfFileName = (name) => {
+  const m = String(name || '').normalize('NFC').match(/(\d{2,3})\s*([가-힣])\s*(\d{4})(?!\d)/);
+  return m ? `${m[1]}${m[2]}${m[3]}` : '';
+};
+const CERT_EXT = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png' };
+export const certFileName = (plateNo, contentType) => `자동차등록증_${plateNo}.${CERT_EXT[contentType] || 'pdf'}`;
+
 /** 조합에 보내는 메일의 처음 글. 보내기 전에 화면에서 고칠 수 있다. */
 export const scrapMailDraft = (filing) => {
   const items = filing.items || [];

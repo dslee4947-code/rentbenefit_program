@@ -1,8 +1,9 @@
 import ScrapFiling from '../models/ScrapFiling.js';
 import ScrapFilingFile from '../models/ScrapFilingFile.js';
+import VehicleRegCert from '../models/VehicleRegCert.js';
 import { sendScrapFilingMail } from '../utils/mailService.js';
 import { logActivity, ACTIONS } from '../utils/activityLog.js';
-import { SCRAP_FILE_TYPES, SCRAP_MAIL_LIMIT } from '../../shared/scrapFiling.js';
+import { SCRAP_FILE_TYPES, SCRAP_MAIL_LIMIT, certFileName } from '../../shared/scrapFiling.js';
 
 /** 대폐차 신고서의 자동차등록증 첨부와 조합 메일 (대표님 2026-11-25). 메일은 [메일 보내기]를 눌렀을 때만 나간다. */
 const userName = (req) => req.user?.name || req.user?.email || '';
@@ -27,10 +28,9 @@ export const uploadScrapFile = async (req, res) => {
     const filing = await ScrapFiling.findById(req.params.id);
     if (!filing) return res.status(404).json({ success: false, message: '신고서를 찾을 수 없습니다. 먼저 저장해 주세요.' });
     const plateNo = String(req.body.plateNo || '').replace(/\s+/g, '');
-    const ext = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png' }[file.mimetype];
     const saved = await ScrapFilingFile.create({
       filing: filing._id, plateNo, contentType: file.mimetype, size: file.size, data: file.buffer, uploadedBy: userName(req),
-      fileName: plateNo ? `자동차등록증_${plateNo}.${ext}` : nameOf(file)
+      fileName: plateNo ? certFileName(plateNo, file.mimetype) : nameOf(file)
     });
     const { data, ...rest } = saved.toObject();
     res.json({ success: true, file: rest });
@@ -61,6 +61,47 @@ export const deleteScrapFile = async (req, res) => {
   }
 };
 
+/* ── 차량번호별 자동차등록증 ───────────────────────────────── */
+
+export const listRegCerts = async (req, res) => {
+  try {
+    res.json({ success: true, certs: await VehicleRegCert.find().sort({ plateNo: 1 }).lean() });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const uploadRegCert = async (req, res) => {
+  try {
+    const { file } = req;
+    const plateNo = String(req.body.plateNo || '').replace(/\s+/g, '');
+    if (!file) return res.status(400).json({ success: false, message: '파일이 없습니다.' });
+    if (!/^\d{2,3}[가-힣]\d{4}$/.test(plateNo)) return res.status(400).json({ success: false, message: '차량번호를 확인해 주세요.' });
+    if (!SCRAP_FILE_TYPES.includes(file.mimetype)) return res.status(400).json({ success: false, message: 'PDF, JPG, PNG 파일만 올릴 수 있습니다.' });
+    if (file.size > SCRAP_MAIL_LIMIT) return res.status(400).json({ success: false, message: '2.8MB가 넘는 파일입니다.' });
+    await VehicleRegCert.findOneAndUpdate({ plateNo }, {
+      plateNo, sourceName: String(req.body.sourceName || ''), sourceKey: String(req.body.sourceKey || ''), sourceTime: Number(req.body.sourceTime) || 0,
+      contentType: file.mimetype, size: file.size, data: file.buffer, updatedBy: userName(req)
+    }, { upsert: true });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+};
+
+export const getRegCert = async (req, res) => {
+  try {
+    const cert = await VehicleRegCert.findOne({ plateNo: req.params.plateNo }).select('+data');
+    if (!cert) return res.status(404).json({ success: false, message: '등록증이 없습니다.' });
+    res.setHeader('Content-Type', cert.contentType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(certFileName(cert.plateNo, cert.contentType))}`);
+    res.send(cert.data);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+};
+
 export const sendScrapMail = async (req, res) => {
   try {
     const filing = await ScrapFiling.findById(req.params.id);
@@ -74,7 +115,15 @@ export const sendScrapMail = async (req, res) => {
     if (cc && !EMAIL.test(cc)) return res.status(400).json({ success: false, message: '참조 이메일을 확인해 주세요. 한 주소만 적을 수 있습니다.' });
     if (!subject || !body) return res.status(400).json({ success: false, message: '제목과 본문을 적어 주세요.' });
 
-    const files = await ScrapFilingFile.find({ filing: filing._id }).select('+data').sort({ createdAt: 1 });
+    const own = await ScrapFilingFile.find({ filing: filing._id }).select('+data').sort({ createdAt: 1 });
+    // 신고서에 따로 올린 등록증이 있으면 그것을, 없으면 등록증 보관함의 것을 붙인다
+    const need = filing.items.map((it) => it.before?.plateNo).filter((p) => p && !own.some((f) => f.plateNo === p));
+    const stored = need.length ? await VehicleRegCert.find({ plateNo: { $in: need } }).select('+data') : [];
+    const files = [
+      ...own,
+      ...need.map((p) => stored.find((c) => c.plateNo === p)).filter(Boolean)
+        .map((c) => ({ fileName: certFileName(c.plateNo, c.contentType), contentType: c.contentType, size: c.size, data: c.data }))
+    ];
     const total = req.file.size + files.reduce((s, f) => s + f.size, 0);
     if (total > SCRAP_MAIL_LIMIT) return res.status(400).json({ success: false, message: `첨부를 합친 크기가 ${(total / 1048576).toFixed(1)}MB라 메일로 보낼 수 없습니다(2.8MB까지). 등록증 파일을 줄여 주세요.` });
 

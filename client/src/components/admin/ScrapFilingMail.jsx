@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { SCRAP_FILE_TYPES, SCRAP_MAIL_LIMIT, SCRAP_MAIL_TO, scrapMailDraft } from '../../../../shared/scrapFiling.js';
+import { SCRAP_FILE_TYPES, SCRAP_MAIL_LIMIT, SCRAP_MAIL_TO, certFileName, plateOfFileName, scrapMailDraft } from '../../../../shared/scrapFiling.js';
 
 /**
  * 대폐차 신고서: 자동차등록증 첨부 + 조합에 메일 보내기 (대표님 2026-11-25).
@@ -28,18 +28,62 @@ const shrink = async (file) => {
   return blob && blob.size < file.size ? new File([blob], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' }) : file;
 };
 
+/**
+ * 등록증 폴더 올리기: Dropbox "02. 렌트베네핏 자동차등록증" 폴더를 통째로 고르면 파일 이름의 차량번호로 맞춰 보관한다.
+ * 이미 올린 파일(크기·고친 시각이 같음)은 건너뛴다. 한 차에 여러 개면 가장 나중에 고친 것을 쓴다.
+ */
+function CertFolderButton({ api, certs, disabled, onDone, showToast }) {
+  const [progress, setProgress] = useState('');
+  const run = async (list) => {
+    const newest = new Map();
+    list.filter((f) => SCRAP_FILE_TYPES.includes(f.type)).forEach((f) => {
+      const p = plateOfFileName(f.name);
+      if (p && (!newest.has(p) || newest.get(p).lastModified < f.lastModified)) newest.set(p, f);
+    });
+    const have = new Map(certs.map((c) => [c.plateNo, c]));
+    const key = (f) => `${f.size}|${Math.floor(f.lastModified / 1000)}`;
+    const todo = [...newest].filter(([p, f]) => have.get(p)?.sourceKey !== key(f) && !(have.get(p)?.sourceTime > f.lastModified));
+    const failed = [];
+    for (const [i, [plateNo, raw]] of todo.entries()) {
+      setProgress(`${i + 1}/${todo.length}`);
+      try {
+        const file = await shrink(raw);
+        const form = new FormData();
+        Object.entries({ plateNo, sourceName: raw.name, sourceKey: key(raw), sourceTime: raw.lastModified }).forEach(([k, v]) => form.append(k, v));
+        form.append('file', file);
+        const r = await fetch(`${api}/certs`, { method: 'POST', body: form });
+        const d = await r.json();
+        if (!r.ok || !d.success) throw new Error(d.message);
+      } catch { failed.push(plateNo); }
+    }
+    setProgress('');
+    showToast(failed.length ? `등록증 ${todo.length - failed.length}개를 넣었고 ${failed.length}개는 넣지 못했습니다: ${failed.join(', ')}` : todo.length ? `등록증 ${todo.length}개를 넣었습니다.` : '새로 넣을 등록증이 없습니다.', failed.length ? 'error' : 'success');
+    await onDone();
+  };
+  return (
+    <label style={{ ...btn(), opacity: disabled || progress ? 0.6 : 1 }}>{progress ? `올리는 중 ${progress}` : '등록증 폴더 올리기'}
+      <input type="file" webkitdirectory="" multiple disabled={disabled || !!progress} style={{ display: 'none' }} onChange={(e) => { const list = [...e.target.files]; e.target.value = ''; if (list.length) run(list); }} />
+    </label>
+  );
+}
+
 export default function ScrapFilingMail({ api, filing, dirty, canEdit, makePdf, pdfName, onSent, showToast }) {
   const id = filing._id;
   const url = `${api}/${id}`;
-  const [files, setFiles] = useState([]);
+  const [own, setOwn] = useState([]);
+  const [certs, setCerts] = useState([]);
   const [busy, setBusy] = useState('');
   const [mail, setMail] = useState(null);
 
   const load = useCallback(() => (id ? fetch(`${url}/files`)
     .then((r) => r.json())
-    .then((d) => { if (!d.success) throw new Error(d.message); setFiles(d.files); })
+    .then((d) => { if (!d.success) throw new Error(d.message); setOwn(d.files); })
     .catch((err) => showToast(err.message || '등록증 목록을 불러오지 못했습니다.', 'error')) : Promise.resolve()), [id, url, showToast]);
-  useEffect(() => { load(); }, [load]);
+  const loadCerts = useCallback(() => fetch(`${api}/certs`)
+    .then((r) => r.json())
+    .then((d) => { if (!d.success) throw new Error(d.message); setCerts(d.certs); })
+    .catch((err) => showToast(err.message || '등록증 보관함을 불러오지 못했습니다.', 'error')), [api, showToast]);
+  useEffect(() => { load(); loadCerts(); }, [load, loadCerts]);
 
   const upload = async (picked, plateNo) => {
     setBusy('upload');
@@ -66,7 +110,7 @@ export default function ScrapFilingMail({ api, filing, dirty, canEdit, makePdf, 
   const open = async (f) => {
     const win = window.open('', '_blank');
     try {
-      const r = await fetch(`${url}/files/${f._id}`);
+      const r = await fetch(f.cert ? `${api}/certs/${encodeURIComponent(f.plateNo)}` : `${url}/files/${f._id}`);
       if (!r.ok) throw new Error('파일을 열지 못했습니다.');
       const u = URL.createObjectURL(await r.blob());
       win.location.href = u;
@@ -84,6 +128,9 @@ export default function ScrapFilingMail({ api, filing, dirty, canEdit, makePdf, 
   };
 
   const plates = filing.items.map((it) => it.before?.plateNo).filter(Boolean);
+  // 신고서에 따로 올린 등록증이 없으면 보관함의 것이 붙는다(서버도 같은 규칙)
+  const files = [...own, ...plates.filter((p) => !own.some((f) => f.plateNo === p)).map((p) => certs.find((c) => c.plateNo === p)).filter(Boolean)
+    .map((c) => ({ _id: c.plateNo, plateNo: c.plateNo, size: c.size, cert: true, fileName: certFileName(c.plateNo, c.contentType) }))];
   const missing = plates.filter((p) => !files.some((f) => f.plateNo === p));
 
   const send = async () => {
@@ -116,7 +163,8 @@ export default function ScrapFilingMail({ api, filing, dirty, canEdit, makePdf, 
   return (
     <div style={card}>
       <b style={{ fontSize: '0.9rem' }}>자동차등록증</b>
-      <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>차마다 PDF나 사진을 올리면 메일에 신고서와 함께 붙습니다.</span>
+      <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>보관함에 있는 등록증이 저절로 붙어 신고서와 함께 갑니다. 다른 파일을 쓰려면 [+ 올리기]로 바꿉니다.</span>
+      {canEdit && <span style={{ float: 'right' }}><CertFolderButton api={api} certs={certs} disabled={!!busy} onDone={loadCerts} showToast={showToast} /></span>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', margin: '0.5rem 0' }}>
         {[...plates, ''].map((p) => {
           const mine = files.filter((f) => (p ? f.plateNo === p : !plates.includes(f.plateNo)));
@@ -126,7 +174,8 @@ export default function ScrapFilingMail({ api, filing, dirty, canEdit, makePdf, 
               {mine.map((f) => (
                 <span key={f._id} style={{ display: 'inline-flex', gap: '0.3rem', alignItems: 'center' }}>
                   <button type="button" style={btn()} onClick={() => open(f)}>{f.fileName} ({kb(f.size)})</button>
-                  {canEdit && <button type="button" aria-label={`${f.fileName} 빼기`} style={{ ...btn(), padding: '0.2rem 0.45rem' }} onClick={() => remove(f)}>✕</button>}
+                  {f.cert && <span style={{ color: 'var(--text-muted)', fontSize: '0.76rem' }}>보관함</span>}
+                  {canEdit && !f.cert && <button type="button" aria-label={`${f.fileName} 빼기`} style={{ ...btn(), padding: '0.2rem 0.45rem' }} onClick={() => remove(f)}>✕</button>}
                 </span>
               ))}
               {p && !mine.length && <span style={{ color: '#b45309' }}>없음</span>}

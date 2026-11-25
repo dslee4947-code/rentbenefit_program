@@ -4,7 +4,7 @@ import path from 'path';
 import mongoose from 'mongoose';
 import BillingSchedule from '../models/BillingSchedule.js';
 import Contract from '../models/Contract.js';
-import { recalcRound } from '../controllers/billingScheduleController.js';
+import { collectHeldInterest, putHeldInterest } from '../utils/heldInterest.js';
 
 dotenv.config();
 
@@ -46,21 +46,9 @@ try {
   if (!target) throw new Error('넣을 회차를 찾지 못했습니다.');
   if (target.issuedAt) throw new Error(`${target.no}회차는 이미 발행했습니다. 보낸 청구서 금액은 바꾸지 않습니다.`);
 
-  // 다른 회차에서 이미 모아 청구한 이자는 뺀다
-  const elsewhere = new Set(rounds.filter((r) => r.no !== target.no)
-    .flatMap((r) => (r.pastInterestCharge?.items || []).map((it) => `${it.onNo}:${it.fromNo}`)));
-  const items = rounds
-    .filter((r) => r.no < target.no)
-    .flatMap((r) => (r.unbilledInterest?.items || []).map((it) => ({
-      onNo: r.no, fromNo: it.fromNo, principal: it.principal, from: it.from, to: it.to, days: it.days, rate: it.rate, amount: it.amount
-    })))
-    .filter((it) => !elsewhere.has(`${it.onNo}:${it.fromNo}`) && Number(it.amount) > 0);
+  const held = collectHeldInterest(rounds, target);
+  const { items, amount, label } = held;
   if (!items.length) throw new Error('모아 청구할 미청구 이자가 없습니다.');
-
-  const amount = items.reduce((s, it) => s + it.amount, 0);
-  const firstNo = Math.min(...items.map((it) => it.onNo));
-  const lastNo = Math.max(...items.map((it) => it.onNo));
-  const label = `지난 연체 이자 (${firstNo}~${lastNo}회차 청구서 미청구분 ${items.length}건)`;
 
   console.log(`${contract.leaseCompany || contract.contractorName} (${contract.contractNo}) → ${target.no}회차 (${kst(target.dueDate)}) 청구서`);
   for (const it of items) {
@@ -69,11 +57,6 @@ try {
   console.log(`  합계 ${amount.toLocaleString()}원 · 줄 이름 "${label}"`);
 
   const before = target.total;
-  const oldLabel = target.pastInterestCharge?.label;
-  const extras = (target.extras || []).filter((e) => e.label !== oldLabel).map((e) => ({ label: e.label, amount: e.amount }));
-  // 기타 청구가 비어 있으면서 other만 적혀 있던 예전 방식이면, 그 금액을 줄로 살려 둔다(합계가 extras로 다시 계산되므로)
-  if (!(target.extras || []).length && Number(target.other) > 0) extras.push({ label: '기타 청구', amount: target.other });
-  extras.push({ label, amount });
 
   if (!apply) {
     console.log(`  청구 합계 ${before.toLocaleString()}원 → ${(before - (target.pastInterestCharge?.amount || 0) + amount).toLocaleString()}원 (시험 실행, 저장 안 함. --apply로 저장)`);
@@ -84,9 +67,7 @@ try {
     fs.writeFileSync(file, JSON.stringify(schedule.toObject(), null, 2));
     console.log(`  백업 ${file}`);
 
-    target.extras = extras;
-    target.pastInterestCharge = { label, amount, chargedAt: new Date(), items };
-    recalcRound(target);
+    putHeldInterest(target, held);
     schedule.markModified('rounds');
     await schedule.save();
     console.log(`  저장함 · 청구 합계 ${before.toLocaleString()}원 → ${target.total.toLocaleString()}원`);

@@ -5,6 +5,7 @@ import RentalNotice from '../models/RentalNotice.js';
 import Contract from '../models/Contract.js';
 import ExcelInvoice from '../models/ExcelInvoice.js';
 import { lateInterestByRound } from '../utils/lateInterestHistory.js';
+import { syncHeldInterestToLastRound } from '../utils/heldInterest.js';
 import Vehicle from '../models/Vehicle.js';
 import Company from '../models/Company.js';
 import Schedule from '../models/Schedule.js';
@@ -151,8 +152,8 @@ export const carryInto = (rounds, no) => {
   for (const r of sorted) {
     if (r.no >= no) break;
     const owe = r.status === '미납' && !chargedByHand(r.no) ? Math.max(0, (r.total || 0) - (r.paidAmount || 0)) : 0;
-    // 이 회차 청구액 안의 이자 = 이번에 붙은 이자 + 앞에서 넘어온 이자. 입금은 원금부터 갚은 것으로 보므로 이자가 남는다.
-    const interestPart = Math.min(owe, (r.interest || 0) + Math.min(r.prevUnpaid || 0, interestIn));
+    // 이 회차 청구액 안의 이자 = 이번에 붙은 이자 + 모아 청구한 지난 이자 + 앞에서 넘어온 이자. 입금은 원금부터 갚은 것으로 보므로 이자가 남는다.
+    const interestPart = Math.min(owe, (r.interest || 0) + (Number(r.pastInterestCharge?.amount) || 0) + Math.min(r.prevUnpaid || 0, interestIn));
     // 이 회차가 앞 회차 미납을 안 담은 채 나갔으면 그 돈은 아직 청구되지 않았으니 계속 넘어간다
     const skipped = r.issuedAt && !(r.prevUnpaid > 0);
     const leftOver = skipped ? carried : 0;
@@ -192,7 +193,8 @@ export const applyCarryForward = (schedule, annualRate, fromNo = 0) => {
 
     const { carried, interestBase } = carryInto(rounds, round.no);
     const days = daysBetween(prev.dueDate, round.dueDate);
-    const interest = calcLateInterest({ unpaid: interestBase, annualRate, days });
+    // 이자를 적어만 두는 계약은 달마다 청구하지 않는다(마지막 회차에 모아 청구, utils/heldInterest.js)
+    const interest = schedule.interestHold || schedule.interestWaived ? 0 : calcLateInterest({ unpaid: interestBase, annualRate, days });
 
     const before = round.total;
     round.prevUnpaid = carried;
@@ -476,9 +478,9 @@ export const getDueRounds = async (req, res) => {
       const prev = s.rounds.find((r) => r.no === round.no - 1) || null;
       // 넘어오는 돈 전부(unpaid)와 그중 이자가 붙는 원금(interestBase). 이자에는 이자를 붙이지 않는다.
       const { carried: unpaid, interestBase } = carryInto(s.rounds, round.no);
-      const lateInterestRate = rateByContract.get(String(s.contract?._id))
+      const lateInterestRate = s.interestHold || s.interestWaived ? 0 : (rateByContract.get(String(s.contract?._id))
         || s.contract?.terms?.lateInterestRate
-        || 0;
+        || 0);
       const overdueDays = prev ? daysBetween(prev.dueDate, round.dueDate) : 0;
 
       const sendDate = calcSendDate(round.dueDate);
@@ -898,7 +900,7 @@ const buildAutoSendQueue = async (days) => {
 
       const prev = s.rounds.find((r) => r.no === round.no - 1) || null;
       const { carried: unpaid, interestBase } = carryInto(s.rounds, round.no);
-      const lateInterestRate = rateByContract.get(String(s.contract?._id)) || s.contract?.terms?.lateInterestRate || 0;
+      const lateInterestRate = s.interestHold || s.interestWaived ? 0 : (rateByContract.get(String(s.contract?._id)) || s.contract?.terms?.lateInterestRate || 0);
       const overdueDays = prev ? daysBetween(prev.dueDate, round.dueDate) : 0;
       const to = round.autoSend?.to || recipientOf(s);
 
@@ -954,7 +956,7 @@ const buildAutoSendQueue = async (days) => {
  */
 const isRoutineRound = async (schedule, round) => {
   const contractId = schedule.contract?._id || schedule.contract;
-  const rate = (await loadLateInterestRates([contractId])).get(String(contractId)) || 0;
+  const rate = schedule.interestHold || schedule.interestWaived ? 0 : ((await loadLateInterestRates([contractId])).get(String(contractId)) || 0);
   const prev = schedule.rounds.find((r) => r.no === round.no - 1) || null;
   const { carried: unpaid, interestBase } = carryInto(schedule.rounds, round.no);
   const days = prev ? daysBetween(prev.dueDate, round.dueDate) : 0;
@@ -3080,7 +3082,8 @@ export const updateRound = async (req, res) => {
 export const refreshUnbilledInterestOf = (s, rate, now = new Date()) => {
   // 대경인트라넷: 계약 중간에 차 대수가 바뀌어 회차 금액과 원장이 맞지 않는다. 확인 전까지 뺀다.
   if (s.contract?.contractNo === '21110022') return false;
-  const map = lateInterestByRound(s.rounds, rate, now);
+  // 받지 않기로 한 계약(비지글로벌: 반납하며 위약금까지 정산)은 이자를 남기지 않는다
+  const map = s.interestWaived ? new Map() : lateInterestByRound(s.rounds, rate, now);
   let touched = false;
   for (const r of s.rounds) {
     const made = r.issuedAt || new Date(r.dueDate).getTime() - 12 * 864e5 <= now.getTime();
@@ -3113,7 +3116,9 @@ export const refreshAllUnbilledInterest = async () => {
   let changed = 0;
   for (const s of schedules) {
     const rate = rates.get(String(s.contract?._id)) || s.contract?.terms?.lateInterestRate || 20;
-    if (refreshUnbilledInterestOf(s, rate, now)) { s.markModified('rounds'); await s.save(); changed += 1; }
+    const refreshed = refreshUnbilledInterestOf(s, rate, now);
+    const moved = syncHeldInterestToLastRound(s);
+    if (refreshed || moved) { s.markModified('rounds'); await s.save(); changed += 1; }
   }
   return { schedules: schedules.length, changed };
 };
@@ -3170,7 +3175,7 @@ export const toggleRoundUnpaid = async (req, res) => {
         r.paidAmount = 0;
         r.paidAt = undefined;
       }
-      return applyCarryForward({ rounds }, rate, no);
+      return applyCarryForward({ rounds, interestHold: schedule.interestHold, interestWaived: schedule.interestWaived }, rate, no);
     };
 
     // 바뀌는 회차를 사본에서 먼저 센다. 실제 저장도 같은 함수로 하므로 미리보기와 결과가 같다.

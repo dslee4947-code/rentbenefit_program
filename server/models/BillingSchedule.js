@@ -240,6 +240,11 @@ const BillingScheduleSchema = new Schema({
   autoSendExcluded: { type: Boolean, default: false },
   autoSendExcludedReason: String,
 
+  // 연체 이자를 달마다 청구하지 않고 청구서에 적어만 두었다가 마지막 회차에 모아 청구하는 계약(대표님 2026-11-25)
+  interestHold: { type: Boolean, default: false },
+  // 연체 이자를 받지 않기로 한 계약
+  interestWaived: { type: Boolean, default: false },
+
   /**
    * 1회차 일할 정산.
    *

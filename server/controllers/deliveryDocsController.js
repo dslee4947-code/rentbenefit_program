@@ -576,7 +576,7 @@ export const unpaidInterestOf = (rounds, rate) => {
   // 아직 안 받은 회차의 원금. 마지막 미납 회차의 출금일부터 반납일까지 이자가 더 붙는다
   const today = kstYmd(new Date());
   const unpaid = rounds.filter((r) => ['청구됨', '미납'].includes(r.status) && kstYmd(r.dueDate) <= today).sort((a, b) => a.no - b.no);
-  const principal = unpaid.reduce((s, r) => s + ownAmountOf(r) - (Number(r.pastInterestCharge?.amount) || 0), 0);
+  const principal = unpaid.reduce((s, r) => s + ownAmountOf(r), 0);
   const sum = (list) => list.reduce((s, it) => s + (Number(it.amount) || 0), 0);
   return {
     rate,

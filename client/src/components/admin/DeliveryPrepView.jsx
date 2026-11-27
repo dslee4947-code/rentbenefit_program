@@ -3,6 +3,7 @@ import { Truck, Search, X, Save, CheckCircle2, Plus, Trash2, Edit } from 'lucide
 import { formatCustomerName, PAYMENT_DAY_OPTIONS } from '../../utils/format.js';
 import MoneyInput from './MoneyInput.jsx';
 import CustomerPicker from './CustomerPicker.jsx';
+import InsuranceRequestBox from './InsuranceRequestBox.jsx';
 import { useTableSort } from './useTableSort.js';
 import { useSaveShortcut } from './useSaveShortcut.js';
 import { SortableTh, SortControls } from './TableSort.jsx';
@@ -694,6 +695,7 @@ function DeliveryPrepView({ showToast, currentUser }) {
                     <input value={formData.insurance.company} onChange={(e) => setSection('insurance', 'company', e.target.value)} style={inputStyle} />
                   </div>
                 </div>
+                {editingVehicle && <InsuranceRequestBox key={editingVehicle._id} vehicle={editingVehicle} form={formData} showToast={showToast} />}
               </div>
 
               {/* 3. 출고지 등록 */}

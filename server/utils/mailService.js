@@ -187,6 +187,12 @@ export const sendEndDocMail = async ({ to, templateKey, fileName, fileBuffer, va
  * 대폐차 신고서 메일 (증차·감차 공문 > 대폐차 신고). 제목·본문은 화면에서 적은 그대로, 서명은 회사 서명을 붙인다.
  * @param {{to: string, cc?: string, mailSubject: string, mailBody: string, files: Array<{fileName: string, buffer: Buffer, contentType?: string}>}} params
  */
+/**
+ * 연대보증서 메일(전자계약서 > 연대보증서). 제목·본문은 화면 발송 창에서 고친 그대로, 서명은 회사 서명을 붙인다.
+ * @param {{to: string, cc?: string, mailSubject: string, mailBody: string, files: Array<{fileName: string, buffer: Buffer, contentType?: string}>}} params
+ */
+export const sendGuarantyMail = async ({ to, cc, mailSubject, mailBody, files }) => sendTemplateMail({ to, cc, mailSubject, mailBody, files });
+
 export const sendScrapFilingMail = async ({ to, cc, mailSubject, mailBody, files }) => sendTemplateMail({ to, cc, mailSubject, mailBody, files });
 
 /**

@@ -3,6 +3,7 @@ import ContractTemplateFile from '../models/ContractTemplateFile.js';
 import ContractTemplatePdf from '../models/ContractTemplatePdf.js';
 import { buildContractPdf, buildGuarantyPdf } from '../utils/contractPdf.js';
 import { guarantyInfoOf } from '../utils/guarantyPage.js';
+import { sendGuarantyMail } from '../utils/mailService.js';
 import ContractDocument from '../models/ContractDocument.js';
 import Contract from '../models/Contract.js';
 import { parseContractTemplate, extractTemplateMedia } from '../utils/contractTemplateParser.js';
@@ -319,7 +320,7 @@ const cachedById = async (Model, filter, key) => {
  */
 export const getDocumentPdf = async (req, res) => {
   try {
-    const doc = await ContractDocument.findById(req.params.id).populate(GUARANTY_POPULATE).lean();
+    const doc = await ContractDocument.findById(req.params.id).populate({ path: 'contract', select: 'contractNo' }).lean();
     if (!doc) return res.status(404).json({ success: false, message: '계약서를 찾을 수 없습니다.' });
     const template = await cachedById(ContractTemplate, { _id: doc.template }, 'tpl');
     const base = await cachedById(ContractTemplatePdf, { template: doc.template }, 'base');
@@ -331,8 +332,7 @@ export const getDocumentPdf = async (req, res) => {
     const notes = note ? [{ page: 1, text: note }, { page: 2, text: note }] : [];
     const contractNo = doc.values?.contractNo || doc.contract?.contractNo;
     const values = { ...(doc.values || {}), contractNo };
-    const guaranty = guarantyInfoOf(values, doc.contract, doc.documentDate || doc.createdAt);
-    const pdf = await buildContractPdf({ template, base, values, documentDate: doc.documentDate || doc.createdAt, notes, guaranty });
+    const pdf = await buildContractPdf({ template, base, values, documentDate: doc.documentDate || doc.createdAt, notes });
     const name = `자동차임대차계약서_${contractNo || doc._id}${note ? '_연장' : ''}.pdf`;
     res.set('Content-Type', 'application/pdf');
     res.set('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(name)}`);
@@ -344,25 +344,92 @@ export const getDocumentPdf = async (req, res) => {
 };
 
 /**
- * 연대보증서 한 장(계약서 맨 뒤 장과 같은 모양). 화면에서 아직 저장하지 않은 보증인·최고액은 쿼리로 받아 미리 본다.
+ * 연대보증서 한 장을 만든다. 화면에서 아직 저장하지 않은 보증인·최고액은 overrides로 받는다.
+ * @returns {Promise<{doc: object, info: object, pdf: Uint8Array, name: string}|null>}
+ */
+const makeGuaranty = async (id, overrides = {}) => {
+  const doc = await ContractDocument.findById(id).populate(GUARANTY_POPULATE).lean();
+  if (!doc) return null;
+  const values = { ...(doc.values || {}), contractNo: doc.values?.contractNo || doc.contract?.contractNo };
+  if (overrides.guarantorName !== undefined) values.guarantorName = String(overrides.guarantorName);
+  if (overrides.guarantyMax !== undefined) values.guarantyMax = String(overrides.guarantyMax);
+  const info = guarantyInfoOf(values, doc.contract, doc.documentDate || doc.createdAt);
+  const pdf = await buildGuarantyPdf(info);
+  return { doc, values, info, pdf, name: `연대보증서_${info.partyName || ''}_${info.contractNo || doc._id}.pdf` };
+};
+
+/**
+ * 연대보증서 한 장. 계약서 PDF에는 붙이지 않는다(대표님 2026-11-27).
  * @route GET /api/contract-documents/:id/guaranty-pdf?guarantorName=&guarantyMax=&download=1
  */
 export const getGuarantyPdf = async (req, res) => {
   try {
-    const doc = await ContractDocument.findById(req.params.id).populate(GUARANTY_POPULATE).lean();
-    if (!doc) return res.status(404).json({ success: false, message: '계약서를 찾을 수 없습니다.' });
-    const values = { ...(doc.values || {}), contractNo: doc.values?.contractNo || doc.contract?.contractNo };
-    if (req.query.guarantorName !== undefined) values.guarantorName = String(req.query.guarantorName);
-    if (req.query.guarantyMax !== undefined) values.guarantyMax = String(req.query.guarantyMax);
-    const info = guarantyInfoOf(values, doc.contract, doc.documentDate || doc.createdAt);
-    const pdf = await buildGuarantyPdf(info);
-    const name = `연대보증서_${info.partyName || ''}_${info.contractNo || doc._id}.pdf`;
+    const made = await makeGuaranty(req.params.id, req.query);
+    if (!made) return res.status(404).json({ success: false, message: '계약서를 찾을 수 없습니다.' });
     res.set('Content-Type', 'application/pdf');
-    res.set('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.set('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(made.name)}`);
     res.set('Cache-Control', 'no-store');
-    res.send(Buffer.from(pdf));
+    res.send(Buffer.from(made.pdf));
   } catch (error) {
     res.status(500).json({ success: false, message: `연대보증서를 만들지 못했습니다: ${error.message}` });
+  }
+};
+
+/** 연대보증서 메일의 기본 제목·본문. 화면 발송 창이 이 글을 받아 고친 뒤 보낸다. */
+export const guarantyMailDraft = (info, values = {}) => ({
+  to: values.email || '',
+  subject: `[렌트베네핏] 자동차 임대차 계약 연대보증서 (${info.contractNo || ''}) 날인 요청`,
+  body: [
+    `${info.partyName || ''} 담당자님 안녕하세요, ㈜렌트베네핏입니다.`,
+    `자동차 임대차 계약(계약번호 ${info.contractNo || ''}${info.plateNo ? `, 차량 ${info.plateNo}` : ''})의 대표이사 연대보증서를 보내드립니다.`,
+    '연대보증은 법에 따라 전자서명으로는 효력이 없어, 종이 원본으로 받고 있습니다(민법 제428조의2).',
+    [
+      '1. 첨부 PDF를 A4로 출력해 주세요.',
+      '2. 보증인(대표이사)께서 보증 최고액을 자필로 적고, 성명·주소·연락처를 쓴 뒤 자필 서명과 개인 인감을 날인해 주세요.',
+      '3. 개인 인감증명서(또는 본인서명사실확인서) 1부와 함께 원본을 당사로 보내 주세요(등기 또는 퀵).'
+    ].join('\n'),
+    '전자계약서(모두싸인) 서명은 따로 진행됩니다. 궁금하신 점은 언제든 연락 주세요.'
+  ].join('\n\n')
+});
+
+/**
+ * 연대보증서를 메일로 보낸다. 담당자가 화면에서 [메일 보내기]를 눌렀을 때만 나간다(자동 발송 없음).
+ * @route POST /api/contract-documents/:id/guaranty-mail  { to, cc, subject, body, guarantorName, guarantyMax }
+ */
+export const sendGuarantyMailHandler = async (req, res) => {
+  try {
+    const { to, cc, subject, body, guarantorName, guarantyMax } = req.body || {};
+    const made = await makeGuaranty(req.params.id, { guarantorName, guarantyMax });
+    if (!made) return res.status(404).json({ success: false, message: '계약서를 찾을 수 없습니다.' });
+    const email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email.test(String(to || '').trim())) return res.status(400).json({ success: false, message: '받는 사람 이메일을 확인해 주세요.' });
+    if (cc && !email.test(String(cc).trim())) return res.status(400).json({ success: false, message: '참조 이메일을 확인해 주세요.' });
+    const draft = guarantyMailDraft(made.info, made.values);
+    const sent = await sendGuarantyMail({
+      to: String(to).trim(),
+      cc: cc ? String(cc).trim() : undefined,
+      mailSubject: subject || draft.subject,
+      mailBody: body || draft.body,
+      files: [{ fileName: made.name, buffer: Buffer.from(made.pdf), contentType: 'application/pdf' }]
+    });
+    const sentAt = new Date();
+    await ContractDocument.updateOne({ _id: made.doc._id }, { $set: { guarantyMail: { to: sent.to, cc: cc || '', sentAt, by: req.user?.name || '' } } });
+    await logActivity({ req, dept: '계약·출고부', action: ACTIONS.CONTRACT_TEMPLATE, target: { model: 'ContractDocument', id: made.doc._id },
+      summary: `연대보증서 메일 발송 (${made.info.contractNo} → ${sent.to})` });
+    res.json({ success: true, to: sent.to, sentAt });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** @route GET /api/contract-documents/:id/guaranty-mail  보낼 메일의 기본 받는 사람·제목·본문과 지난 발송 */
+export const getGuarantyMailDraft = async (req, res) => {
+  try {
+    const made = await makeGuaranty(req.params.id, req.query);
+    if (!made) return res.status(404).json({ success: false, message: '계약서를 찾을 수 없습니다.' });
+    res.json({ success: true, draft: guarantyMailDraft(made.info, made.values), last: made.doc.guarantyMail || null });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 

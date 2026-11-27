@@ -111,7 +111,7 @@ const hexColor = (hex) => {
  * @param {Array<{page: number, text: string}>} [args.notes] 양식 칸 밖에 찍는 안내 줄(연장 계약 표시 등). 장 위쪽 오른쪽에 빨간 글자로.
  * @returns {Promise<Uint8Array>}
  */
-export const buildContractPdf = async ({ template, base, values, documentDate, notes = [], guaranty = null }) => {
+export const buildContractPdf = async ({ template, base, values, documentDate, notes = [] }) => {
   const pdf = await PDFDocument.load(Buffer.from(base.blank.buffer || base.blank));
   pdf.registerFontkit(fontkit);
   const fonts = loadFonts();
@@ -214,8 +214,7 @@ export const buildContractPdf = async ({ template, base, values, documentDate, n
     page.drawText(n.text, { x: width - 30 - w, y: height - 22, size, font: bold, color: rgb(0.85, 0, 0) });
   }
 
-  // 법인 계약(공동임차인 칸 '별첨 연대보증서')은 대표 개인 연대보증서를 맨 뒤 장으로 붙인다(대표님 2026-11-27)
-  if (values?.coLessee === '별첨 연대보증서' && guaranty) addGuarantyPage(pdf, { regular, bold }, guaranty);
+  // 연대보증서는 계약서에 붙이지 않는다. 모두싸인으로 보내는 계약서와 따로, [연대보증서] 창에서 메일로 보낸다(대표님 2026-11-27)
 
   pdf.setTitle(`자동차 임대차 계약서 ${values?.contractNo || ''}`.trim());
   pdf.setProducer('렌트베네핏 사내 프로그램');
@@ -223,7 +222,7 @@ export const buildContractPdf = async ({ template, base, values, documentDate, n
 };
 
 /**
- * 연대보증서 한 장만 담은 PDF([연대보증서] 버튼). 계약서 맨 뒤 장과 같은 모양이다.
+ * 연대보증서 한 장만 담은 PDF([연대보증서] 버튼·메일). 계약서와 같은 글꼴·색으로 그린다.
  * @param {ReturnType<import('./guarantyPage.js').guarantyInfoOf>} info
  */
 export const buildGuarantyPdf = async (info) => {

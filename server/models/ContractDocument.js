@@ -26,6 +26,7 @@ const ContractDocumentSchema = new Schema({
   // [연장 반영]으로 새 계약이 생기면 contract를 새 계약으로 옮기고 extensionPending을 false로 바꾼다.
   extensionOf: { type: Schema.Types.ObjectId, ref: 'Contract', index: true },
   extensionPending: { type: Boolean, default: false },
+  guarantyMail: { type: Schema.Types.Mixed }, // 연대보증서 메일 마지막 발송 { to, cc, sentAt, by }
   extensionTerms: { type: Schema.Types.Mixed }, // 견적에서 온 조건 { startDate, termMonths, monthlyFee, ... , note }
 
   status: { type: String, enum: ['작성중', '확정'], default: '작성중' },

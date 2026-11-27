@@ -206,7 +206,10 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
           {canWrite && doc.status !== '확정' && <button type="button" disabled={busy} onClick={() => confirm(false)} style={btn('#15803d', true)}><CheckCircle2 size={13} /> 확정</button>}
           {canWrite && doc.status === '확정' && <button type="button" disabled={busy} onClick={() => confirm(true)} style={btn('#a16207')}><Unlock size={13} /> 확정 풀기</button>}
           <button type="button" disabled={busy || (!pdf.url && !dirtyCount)} onClick={download} style={btn('#0f172a', true)} title={dirtyCount ? '고친 칸을 저장한 뒤 PDF를 받습니다' : ''}><Download size={13} /> PDF 받기</button>
-          <button type="button" onClick={() => setGuarantyOpen(true)} style={btn('#7c2d12')} title="대표 개인 연대보증서(A4 1장). 종이로 자필 서명·개인 인감을 받습니다"><ShieldCheck size={13} /> 연대보증서</button>
+          {/* 법인 계약만: 대표 개인 연대보증서(A4 1장)를 계약서와 따로 메일로 보낸다(대표님 2026-11-27) */}
+          {(values.coLessee === '별첨 연대보증서' || values.driverScope === '법인') && (
+            <button type="button" onClick={() => setGuarantyOpen(true)} style={btn('#7c2d12', true)} title="대표 개인 연대보증서(A4 1장)를 고객에게 메일로 보냅니다. 종이로 자필 서명·개인 인감을 받습니다"><ShieldCheck size={13} /> 연대보증서 메일</button>
+          )}
           {canWrite && doc.status !== '확정' && <button type="button" disabled={busy} onClick={remove} style={btn('#dc2626')} title="이 전자계약서를 지웁니다. 계약은 그대로입니다."><Trash2 size={13} /> 삭제</button>}
         </div>
       </div>
@@ -288,7 +291,7 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
 
         <div style={{ flex: 1, minWidth: 0, background: '#f1f5f9', borderRadius: 8, padding: '0.6rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
           <div style={{ ...small, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <span>고객에게 보내는 PDF와 같은 파일입니다 (A4 12쪽{values.coLessee === '별첨 연대보증서' ? ' + 맨 뒤 연대보증서 1장' : ''}).</span>
+            <span>고객에게 보내는 PDF와 같은 파일입니다 (A4 12쪽{values.coLessee === '별첨 연대보증서' ? ' · 연대보증서는 [연대보증서 메일]로 따로 보냅니다' : ''}).</span>
             {dirtyCount > 0 && <span style={{ color: '#b45309', fontWeight: 700 }}>저장하지 않은 칸 {dirtyCount}개는 아직 PDF에 없습니다.</span>}
             {pdf.loading && <span>PDF 만드는 중...</span>}
             <button type="button" onClick={loadPdf} style={{ ...btn(), marginLeft: 'auto', padding: '0.2rem 0.5rem' }}><RefreshCw size={12} /> 다시 만들기</button>

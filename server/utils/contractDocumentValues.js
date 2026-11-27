@@ -145,6 +145,8 @@ export const buildContractValues = (contract) => {
   const billingDay = Number(pricing.billingDay) || 0;
   set('payDay', billingDay ? (billingDay >= 28 ? '말일' : String(billingDay)) : '', 'contract');
   set('driverScope', isCompany ? '법인' : '개인', 'contract');
+  // 법인 계약은 대표 개인 보증을 종이 연대보증서로 받으므로 공동임차인 칸에 '별첨 연대보증서로 갈음'을 찍는다(2026-11-27)
+  if (isCompany) set('coLessee', '별첨 연대보증서', 'contract');
 
   const terms = contract.terms || quote?.terms || {};
   set('penaltyRate', pct(terms.earlyTerminationRate ?? pricing.penaltyRate), 'contract');

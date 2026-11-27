@@ -190,6 +190,19 @@ export const buildContractPdf = async ({ template, base, values, documentDate, n
   // 블랙박스는 안 달고 나가는 차가 없어 늘 '장착'에 V(대표님 2026-11-03). 화면에서도 고르는 칸을 뺐다
   mark(checks.blackbox?.['장착'], 3);
 
+  // 공동임차인(연대보증인) 칸: 대표 개인 보증을 종이 연대보증서로 받는 계약은 그 칸에 '별첨 연대보증서로 갈음'.
+  // 칸은 엑셀 글상자(셀 밖)라 위치 지도에 없어, 현재 양식(2026-11-25 약관)의 회색 칸 자리를 쪽 위 기준 pt로 적어 둔다.
+  if (values?.coLessee === '별첨 연대보증서') {
+    const CO_LESSEE_BOXES = [{ page: 2, x: 253, top: 728 }, { page: 4, x: 241, top: 773 }];
+    const text = '별첨 연대보증서로 갈음';
+    for (const b of CO_LESSEE_BOXES) {
+      const page = pages[b.page - 1];
+      if (!page) continue;
+      const { height } = page.getSize();
+      page.drawText(text, { x: b.x, y: height - b.top, size: 8.5, font: bold, color: rgb(0.75, 0, 0) });
+    }
+  }
+
   for (const n of notes) {
     const page = pages[n.page - 1];
     if (!page || !n.text) continue;

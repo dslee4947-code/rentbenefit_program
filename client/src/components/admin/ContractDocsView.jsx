@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { FileSignature, Upload, RefreshCw, Save, CheckCircle2, Unlock, Search, Download, ArrowLeft, BookOpen, Trash2 } from 'lucide-react';
+import { FileSignature, Upload, RefreshCw, Save, CheckCircle2, Unlock, Search, Download, ArrowLeft, BookOpen, Trash2, ShieldCheck } from 'lucide-react';
 import { buildReadableTerms, readableTermsText, FIELD_GROUPS, HIDDEN_FIELDS, SOURCE_LABEL } from './contractSheetUtils.js';
 import ContractExtendDialog from './ContractExtendDialog.jsx';
+import GuarantyDialog from './GuarantyDialog.jsx';
 
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
@@ -42,7 +43,10 @@ const input = { width: '100%', padding: '0.35rem 0.45rem', borderRadius: '6px', 
 // 계약서 체크 칸(엑셀 입력 칸 밖). 서버 utils/contractPdf.js가 이 값으로 V를 찍는다.
 const CHECK_FIELDS = [
   { key: 'payDay', label: '대여료 결제일', options: ['5', '10', '15', '25', '말일'], suffix: (v) => (v === '말일' ? '' : '일') },
-  { key: 'driverScope', label: '운전자 범위', options: ['법인', '개인'] }
+  { key: 'driverScope', label: '운전자 범위', options: ['법인', '개인'] },
+  // 공동임차인(연대보증인) 칸. '별첨 연대보증서'면 2·4쪽 그 칸에 "별첨 연대보증서로 갈음"을 찍고, 대표 개인 보증은
+  // 종이 연대보증서로 받는다(보증은 전자서명이면 효력이 없음, 민법 제428조의2). '전자서명'이면 칸을 비워 모두싸인으로 받는다
+  { key: 'coLessee', label: '공동임차인 칸', options: ['별첨 연대보증서', '전자서명'] }
   // 블랙박스는 늘 '장착'으로 찍는다(안 달고 나가는 차가 없다, 대표님 2026-11-03). 서버 utils/contractPdf.js
 ];
 
@@ -60,6 +64,7 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
   const [busy, setBusy] = useState(false);
   const [pdf, setPdf] = useState({ url: '', error: '', loading: false });
   const [extendOpen, setExtendOpen] = useState(false);
+  const [guarantyOpen, setGuarantyOpen] = useState(false);
 
   const loadPdf = useCallback(async () => {
     setPdf((p) => ({ ...p, loading: true, error: '' }));
@@ -201,6 +206,7 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
           {canWrite && doc.status !== '확정' && <button type="button" disabled={busy} onClick={() => confirm(false)} style={btn('#15803d', true)}><CheckCircle2 size={13} /> 확정</button>}
           {canWrite && doc.status === '확정' && <button type="button" disabled={busy} onClick={() => confirm(true)} style={btn('#a16207')}><Unlock size={13} /> 확정 풀기</button>}
           <button type="button" disabled={busy || (!pdf.url && !dirtyCount)} onClick={download} style={btn('#0f172a', true)} title={dirtyCount ? '고친 칸을 저장한 뒤 PDF를 받습니다' : ''}><Download size={13} /> PDF 받기</button>
+          <button type="button" onClick={() => setGuarantyOpen(true)} style={btn('#7c2d12')} title="대표 개인 연대보증서(A4 1장). 종이로 자필 서명·개인 인감을 받습니다"><ShieldCheck size={13} /> 연대보증서</button>
           {canWrite && doc.status !== '확정' && <button type="button" disabled={busy} onClick={remove} style={btn('#dc2626')} title="이 전자계약서를 지웁니다. 계약은 그대로입니다."><Trash2 size={13} /> 삭제</button>}
         </div>
       </div>
@@ -218,6 +224,9 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
             <button type="button" onClick={() => setExtendOpen(true)} style={btn('#4338ca', true)}>연장 반영 (서명 완료본 올리기)</button>
           )}
         </div>
+      )}
+      {guarantyOpen && (
+        <GuarantyDialog doc={doc} values={values} locked={locked} onChange={setValue} onClose={() => setGuarantyOpen(false)} />
       )}
       {extendOpen && (
         <ContractExtendDialog contractId={doc.extensionOf} initial={doc.extensionTerms} showToast={showToast}

@@ -184,8 +184,10 @@ export const downloadTemplateFile = async (req, res) => {
 
 const DOC_POPULATE = {
   path: 'contract',
-  select: 'contractNo status partyType customer companyId contractDate termMonths',
-  populate: [{ path: 'customer', select: 'name' }, { path: 'companyId', select: 'name' }]
+  select: 'contractNo status partyType customer companyId contractDate termMonths rentStartDate endDate vehicles vehicle',
+  // 차량번호·기간은 연대보증서(화면 GuarantyDialog)가 쓴다
+  populate: [{ path: 'customer', select: 'name' }, { path: 'companyId', select: 'name' },
+    { path: 'vehicles', select: 'plateNo carModel' }, { path: 'vehicle', select: 'plateNo carModel' }]
 };
 
 /** @route GET /api/contract-documents?contract=ID  (contract가 없으면 최근 목록) */

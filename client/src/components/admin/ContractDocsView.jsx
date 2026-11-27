@@ -226,7 +226,7 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
         </div>
       )}
       {guarantyOpen && (
-        <GuarantyDialog doc={doc} values={values} locked={locked} onChange={setValue} onClose={() => setGuarantyOpen(false)} />
+        <GuarantyDialog doc={doc} values={values} locked={locked} onChange={setValue} showToast={showToast} onClose={() => setGuarantyOpen(false)} />
       )}
       {extendOpen && (
         <ContractExtendDialog contractId={doc.extensionOf} initial={doc.extensionTerms} showToast={showToast}
@@ -288,7 +288,7 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
 
         <div style={{ flex: 1, minWidth: 0, background: '#f1f5f9', borderRadius: 8, padding: '0.6rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
           <div style={{ ...small, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <span>고객에게 보내는 PDF와 같은 파일입니다 (A4 12쪽).</span>
+            <span>고객에게 보내는 PDF와 같은 파일입니다 (A4 12쪽{values.coLessee === '별첨 연대보증서' ? ' + 맨 뒤 연대보증서 1장' : ''}).</span>
             {dirtyCount > 0 && <span style={{ color: '#b45309', fontWeight: 700 }}>저장하지 않은 칸 {dirtyCount}개는 아직 PDF에 없습니다.</span>}
             {pdf.loading && <span>PDF 만드는 중...</span>}
             <button type="button" onClick={loadPdf} style={{ ...btn(), marginLeft: 'auto', padding: '0.2rem 0.5rem' }}><RefreshCw size={12} /> 다시 만들기</button>

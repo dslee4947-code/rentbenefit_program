@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { PDFDocument, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { stripHonorific, maskResidentNo } from './personName.js';
+import { addGuarantyPage } from './guarantyPage.js';
 
 /**
  * 계약서 PDF 만들기: 엑셀이 만든 빈 계약서 PDF 위에 계약 값을 찍는다.
@@ -110,7 +111,7 @@ const hexColor = (hex) => {
  * @param {Array<{page: number, text: string}>} [args.notes] 양식 칸 밖에 찍는 안내 줄(연장 계약 표시 등). 장 위쪽 오른쪽에 빨간 글자로.
  * @returns {Promise<Uint8Array>}
  */
-export const buildContractPdf = async ({ template, base, values, documentDate, notes = [] }) => {
+export const buildContractPdf = async ({ template, base, values, documentDate, notes = [], guaranty = null }) => {
   const pdf = await PDFDocument.load(Buffer.from(base.blank.buffer || base.blank));
   pdf.registerFontkit(fontkit);
   const fonts = loadFonts();
@@ -213,7 +214,26 @@ export const buildContractPdf = async ({ template, base, values, documentDate, n
     page.drawText(n.text, { x: width - 30 - w, y: height - 22, size, font: bold, color: rgb(0.85, 0, 0) });
   }
 
+  // 법인 계약(공동임차인 칸 '별첨 연대보증서')은 대표 개인 연대보증서를 맨 뒤 장으로 붙인다(대표님 2026-11-27)
+  if (values?.coLessee === '별첨 연대보증서' && guaranty) addGuarantyPage(pdf, { regular, bold }, guaranty);
+
   pdf.setTitle(`자동차 임대차 계약서 ${values?.contractNo || ''}`.trim());
+  pdf.setProducer('렌트베네핏 사내 프로그램');
+  return pdf.save();
+};
+
+/**
+ * 연대보증서 한 장만 담은 PDF([연대보증서] 버튼). 계약서 맨 뒤 장과 같은 모양이다.
+ * @param {ReturnType<import('./guarantyPage.js').guarantyInfoOf>} info
+ */
+export const buildGuarantyPdf = async (info) => {
+  const pdf = await PDFDocument.create();
+  pdf.registerFontkit(fontkit);
+  const fonts = loadFonts();
+  const regular = await pdf.embedFont(fonts.regular, { subset: SUBSET, features: NO_FEATURES });
+  const bold = await pdf.embedFont(fonts.bold, { subset: SUBSET, features: NO_FEATURES });
+  addGuarantyPage(pdf, { regular, bold }, info, { pageLabel: '' });
+  pdf.setTitle(`연대보증서 ${info.contractNo || ''}`.trim());
   pdf.setProducer('렌트베네핏 사내 프로그램');
   return pdf.save();
 };

@@ -145,8 +145,11 @@ export const buildContractValues = (contract) => {
   const billingDay = Number(pricing.billingDay) || 0;
   set('payDay', billingDay ? (billingDay >= 28 ? '말일' : String(billingDay)) : '', 'contract');
   set('driverScope', isCompany ? '법인' : '개인', 'contract');
-  // 법인 계약은 대표 개인 보증을 종이 연대보증서로 받으므로 공동임차인 칸에 '별첨 연대보증서로 갈음'을 찍는다(2026-11-27)
-  if (isCompany) set('coLessee', '별첨 연대보증서', 'contract');
+  // 법인 계약은 대표 개인 보증을 종이 연대보증서로 받으므로 공동임차인 칸에 '별첨 연대보증서로 갈음'을 찍고
+  // 계약서 맨 뒤에 연대보증서를 붙인다(2026-11-27). 계약이 '개인'으로 저장됐어도 법인등록번호가 있거나
+  // 사업자번호 가운데 두 자리가 81~88(법인)이면 법인으로 본다(다성테크).
+  const corporate = isCompany || Boolean(plain(values.corpRegNo)) || /^\d{3}-?8[1-8]-?\d{5}$/.test(plain(values.bizNo));
+  if (corporate) set('coLessee', '별첨 연대보증서', 'contract');
 
   const terms = contract.terms || quote?.terms || {};
   set('penaltyRate', pct(terms.earlyTerminationRate ?? pricing.penaltyRate), 'contract');

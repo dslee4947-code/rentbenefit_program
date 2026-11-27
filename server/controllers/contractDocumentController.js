@@ -1,7 +1,8 @@
 import ContractTemplate from '../models/ContractTemplate.js';
 import ContractTemplateFile from '../models/ContractTemplateFile.js';
 import ContractTemplatePdf from '../models/ContractTemplatePdf.js';
-import { buildContractPdf } from '../utils/contractPdf.js';
+import { buildContractPdf, buildGuarantyPdf } from '../utils/contractPdf.js';
+import { guarantyInfoOf } from '../utils/guarantyPage.js';
 import ContractDocument from '../models/ContractDocument.js';
 import Contract from '../models/Contract.js';
 import { parseContractTemplate, extractTemplateMedia } from '../utils/contractTemplateParser.js';
@@ -182,6 +183,13 @@ export const downloadTemplateFile = async (req, res) => {
 
 // ───────────────────────── 계약서 ─────────────────────────
 
+// 연대보증서(계약서 맨 뒤 장)에 차량번호·기간·계약일이 필요하다
+const GUARANTY_POPULATE = {
+  path: 'contract',
+  select: 'contractNo contractDate termMonths rentStartDate endDate vehicles vehicle',
+  populate: [{ path: 'vehicles', select: 'plateNo' }, { path: 'vehicle', select: 'plateNo' }]
+};
+
 const DOC_POPULATE = {
   path: 'contract',
   select: 'contractNo status partyType customer companyId contractDate termMonths rentStartDate endDate vehicles vehicle',
@@ -311,7 +319,7 @@ const cachedById = async (Model, filter, key) => {
  */
 export const getDocumentPdf = async (req, res) => {
   try {
-    const doc = await ContractDocument.findById(req.params.id).populate('contract', 'contractNo').lean();
+    const doc = await ContractDocument.findById(req.params.id).populate(GUARANTY_POPULATE).lean();
     if (!doc) return res.status(404).json({ success: false, message: '계약서를 찾을 수 없습니다.' });
     const template = await cachedById(ContractTemplate, { _id: doc.template }, 'tpl');
     const base = await cachedById(ContractTemplatePdf, { template: doc.template }, 'base');
@@ -322,7 +330,9 @@ export const getDocumentPdf = async (req, res) => {
     const note = doc.extensionTerms?.note;
     const notes = note ? [{ page: 1, text: note }, { page: 2, text: note }] : [];
     const contractNo = doc.values?.contractNo || doc.contract?.contractNo;
-    const pdf = await buildContractPdf({ template, base, values: { ...(doc.values || {}), contractNo }, documentDate: doc.documentDate || doc.createdAt, notes });
+    const values = { ...(doc.values || {}), contractNo };
+    const guaranty = guarantyInfoOf(values, doc.contract, doc.documentDate || doc.createdAt);
+    const pdf = await buildContractPdf({ template, base, values, documentDate: doc.documentDate || doc.createdAt, notes, guaranty });
     const name = `자동차임대차계약서_${contractNo || doc._id}${note ? '_연장' : ''}.pdf`;
     res.set('Content-Type', 'application/pdf');
     res.set('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(name)}`);
@@ -330,6 +340,29 @@ export const getDocumentPdf = async (req, res) => {
     res.send(Buffer.from(pdf));
   } catch (error) {
     res.status(500).json({ success: false, message: `PDF를 만들지 못했습니다: ${error.message}` });
+  }
+};
+
+/**
+ * 연대보증서 한 장(계약서 맨 뒤 장과 같은 모양). 화면에서 아직 저장하지 않은 보증인·최고액은 쿼리로 받아 미리 본다.
+ * @route GET /api/contract-documents/:id/guaranty-pdf?guarantorName=&guarantyMax=&download=1
+ */
+export const getGuarantyPdf = async (req, res) => {
+  try {
+    const doc = await ContractDocument.findById(req.params.id).populate(GUARANTY_POPULATE).lean();
+    if (!doc) return res.status(404).json({ success: false, message: '계약서를 찾을 수 없습니다.' });
+    const values = { ...(doc.values || {}), contractNo: doc.values?.contractNo || doc.contract?.contractNo };
+    if (req.query.guarantorName !== undefined) values.guarantorName = String(req.query.guarantorName);
+    if (req.query.guarantyMax !== undefined) values.guarantyMax = String(req.query.guarantyMax);
+    const info = guarantyInfoOf(values, doc.contract, doc.documentDate || doc.createdAt);
+    const pdf = await buildGuarantyPdf(info);
+    const name = `연대보증서_${info.partyName || ''}_${info.contractNo || doc._id}.pdf`;
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.set('Cache-Control', 'no-store');
+    res.send(Buffer.from(pdf));
+  } catch (error) {
+    res.status(500).json({ success: false, message: `연대보증서를 만들지 못했습니다: ${error.message}` });
   }
 };
 

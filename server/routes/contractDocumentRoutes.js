@@ -15,7 +15,8 @@ import {
   refreshDocument,
   confirmDocument,
   deleteDocument,
-  getDocumentPdf
+  getDocumentPdf,
+  getGuarantyPdf
 } from '../controllers/contractDocumentController.js';
 import { checkWritePermission, checkAdminPermission } from '../middleware/roleMiddleware.js';
 
@@ -35,6 +36,7 @@ templateRouter.patch('/:id/activate', checkAdminPermission, activateTemplate);
 export const documentRouter = express.Router();
 documentRouter.get('/', listDocuments);
 documentRouter.get('/:id/pdf', getDocumentPdf);
+documentRouter.get('/:id/guaranty-pdf', getGuarantyPdf);
 documentRouter.get('/:id', getDocument);
 documentRouter.post('/', checkWritePermission, createDocument);
 documentRouter.patch('/:id', checkWritePermission, updateDocument);

@@ -7,7 +7,10 @@ import GuarantyDialog from './GuarantyDialog.jsx';
 const API_HOST = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
 const ymd = (d) => (d ? new Date(new Date(d).getTime() + 9 * 3600e3).toISOString().slice(0, 10) : '');
-const partyOf = (doc) => doc?.contract?.companyId?.name || doc?.contract?.customer?.name || '-';
+// 계약자 이름은 계약서의 '개인/법인' 칸이 먼저다. 연락처 카드 이름은 차량 메모 등이 들어 있기도 하다(다성테크 2026-11-27)
+const partyOf = (doc) => String(doc?.values?.partyName || '').trim() || doc?.contract?.companyId?.name || doc?.contract?.customer?.name || '-';
+/** 받는 PDF 이름: 장기렌트_계약자_계약번호.pdf (대표님 2026-11-27). 파일 이름에 못 쓰는 글자는 뺀다 */
+const pdfNameOf = (doc) => `장기렌트_${partyOf(doc)}_${contractNoOf(doc)}${doc?.extensionOf ? '_연장' : ''}.pdf`.replace(/[\/:*?"<>|]+/g, ' ');
 // 반영 전 연장 계약서는 contract가 이전 계약이라, 계약번호는 계약서 칸(새 번호)을 먼저 본다
 const contractNoOf = (doc) => (doc?.extensionPending ? doc.values?.contractNo : '') || doc?.contract?.contractNo || '';
 const ExtensionTag = ({ doc }) => (doc?.extensionOf ? (
@@ -168,7 +171,7 @@ function DocumentEditor({ docId, onBack, showToast, canWrite }) {
     }
     const a = document.createElement('a');
     a.href = url;
-    a.download = `자동차임대차계약서_${partyOf(doc)}_${contractNoOf(doc)}${doc?.extensionOf ? '_연장' : ''}.pdf`;
+    a.download = pdfNameOf(doc);
     a.click();
     if (temp) setTimeout(() => URL.revokeObjectURL(url), 5000);
   };

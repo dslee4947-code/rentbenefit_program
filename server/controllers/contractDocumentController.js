@@ -333,7 +333,8 @@ export const getDocumentPdf = async (req, res) => {
     const contractNo = doc.values?.contractNo || doc.contract?.contractNo;
     const values = { ...(doc.values || {}), contractNo };
     const pdf = await buildContractPdf({ template, base, values, documentDate: doc.documentDate || doc.createdAt, notes });
-    const name = `자동차임대차계약서_${contractNo || doc._id}${note ? '_연장' : ''}.pdf`;
+    const party = String(values.partyName || '').trim();
+    const name = `장기렌트_${party ? `${party}_` : ''}${contractNo || doc._id}${note ? '_연장' : ''}.pdf`.replace(/[\/:*?"<>|]+/g, ' ');
     res.set('Content-Type', 'application/pdf');
     res.set('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(name)}`);
     res.set('Cache-Control', 'no-store');

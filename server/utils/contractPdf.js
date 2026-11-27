@@ -132,12 +132,9 @@ export const buildContractPdf = async ({ template, base, values, documentDate, n
   const { resolve, sheetCells } = makeResolver(template, merged, documentDate);
   const styles = template.styles || [];
 
-  for (const f of base.map.fields || []) {
-    const cell = sheetCells[f.sheet]?.[f.a];
+  const drawField = (f, cell, text) => {
     const page = pages[f.page - 1];
-    if (!cell?.bind || !page) continue;
-    const text = formatLikeExcel(String(resolve(cell.bind) ?? '').replace(/\s+/g, ' ').trim(), cell.z);
-    if (!text) continue;
+    if (!page || !text) return;
     const st = styles[cell.s] || {};
     const font = st.b ? bold : regular;
     // 맞춤이 정해지지 않은 칸의 숫자는 엑셀처럼 오른쪽에 붙인다(회계 형식도 오른쪽)
@@ -157,6 +154,26 @@ export const buildContractPdf = async ({ template, base, values, documentDate, n
     const w = font.widthOfTextAtSize(shown, size);
     const x = align === 'left' ? f.x : align === 'right' ? rightEdge - w : f.x + f.tokenW / 2 - w / 2;
     page.drawText(shown, { x, y: f.y, size, font, color: hexColor(st.color) });
+  };
+
+  for (const f of base.map.fields || []) {
+    const cell = sheetCells[f.sheet]?.[f.a];
+    if (!cell?.bind) continue;
+    drawField(f, cell, formatLikeExcel(String(resolve(cell.bind) ?? '').replace(/\s+/g, ' ').trim(), cell.z));
+  }
+
+  // 표지 '계약서작성일'은 엑셀 양식에 값 칸이 비어 있어(수식 없음) 늘 빈칸으로 나왔다(2026-11-27).
+  // 바로 아래 '계약번호' 값 칸과 같은 열, 한 줄 위(계약번호↔계약담당자 줄 간격)에 문서 날짜를 찍는다.
+  const coverFields = (base.map.fields || []).filter((f) => f.sheet === '계약서_1');
+  const noField = coverFields.find((f) => sheetCells[f.sheet]?.[f.a]?.bind?.cell === 'B3' && sheetCells[f.sheet]?.[f.a]?.bind?.op === 'ref');
+  const mgrField = coverFields.find((f) => sheetCells[f.sheet]?.[f.a]?.bind?.cell === 'B14');
+  const dateLabelRow = Object.values(sheetCells['계약서_1'] || {}).find((c) => String(c.t || '').replace(/\s/g, '') === '계약서작성일');
+  if (noField && mgrField && dateLabelRow && mgrField.page === noField.page) {
+    const valueCell = sheetCells['계약서_1'][noField.a.replace(/\d+$/, '') + dateLabelRow.a.replace(/^[A-Z]+/, '')];
+    if (!valueCell?.bind && !String(valueCell?.t ?? '').trim()) {
+      const dy = noField.y - mgrField.y;
+      drawField({ ...noField, y: noField.y + dy }, sheetCells['계약서_1'][noField.a], ymdDots(documentDate));
+    }
   }
 
   // 체크 칸: 네모 칸은 글 바로 왼쪽에 있다

@@ -88,9 +88,19 @@ export const buildContractValues = (contract) => {
   set('email', company?.billingEmail, 'company');
   set('email', customer.email, 'customer');
   set('email', contract.finesEmail, 'contract');
-  // 계약담당자는 고객 쪽 담당자다(계약서_3 '법인담당자의 정보')
-  set('managerName', stripHonorific(customer.contactName), 'customer');
-  set('managerPhone', customer.contactPhone || customer.mobilePhone, 'customer');
+  // 계약담당자는 고객 쪽 담당자다(계약서_3 '법인담당자의 정보').
+  // 계약 등록 때 적은 책임담당자 → 실무담당자 → 고객 카드의 담당자 순. 이름과 번호는 같은 사람 것으로 짝을 맞춘다.
+  // 예전에는 고객 카드 담당자만 봐서, 고객 카드가 비어 있으면 계약에 실무담당자를 적어도 표지가 비었다(다성테크, 2026-11-27).
+  const managerPairs = [
+    [contract.managerMain, contract.managerMainPhone, 'contract'],
+    [contract.managerOps, contract.managerOpsPhone, 'contract'],
+    [customer.contactName, customer.contactPhone || customer.mobilePhone, 'customer']
+  ];
+  const manager = managerPairs.find(([name]) => plain(stripHonorific(name)));
+  if (manager) {
+    set('managerName', stripHonorific(manager[0]), manager[2]);
+    set('managerPhone', manager[1], manager[2]);
+  }
 
   const model = [info.model, info.spec].filter(Boolean).join(' ') || vehicle?.carModel
     || [quote?.vehicleModel, (quote?.vehicleSpec || '').split(' / ')[0]].filter(Boolean).join(' ');
@@ -124,7 +134,10 @@ export const buildContractValues = (contract) => {
   set('personalInjury_2', values.personalInjury, sources.personalInjury);
   set('uninsuredInjury', ins.uninsuredInjury || vins.uninsuredInjury, ins.uninsuredInjury ? 'contract' : 'vehicle');
   set('deductible', manWon(ins.deductible ?? vins.deductible), ins.deductible ? 'contract' : 'vehicle');
-  set('emergencyService', maint.emergencyService || ins.emergencyCall || vins.emergencyService, 'contract');
+  // 긴급출동은 견적서처럼 정비 포함 여부와 상관없는 기본 제공 '5회/년'. 예전 화면 프리셋이 남긴
+  // '미가입'(정비 미포함)·'가입'·'포함'은 계약서에 그대로 찍히면 견적서와 달라 '5회/년'으로 읽는다(2026-11-27)
+  const emergencyRaw = maint.emergencyService || ins.emergencyCall || vins.emergencyService;
+  set('emergencyService', ['포함', '가입', '미가입', '-'].includes(String(emergencyRaw || '').trim()) ? '5회/년' : emergencyRaw, 'contract');
   set('tire', maint.tireType || vehicle?.maintenance?.tireType, 'contract');
 
   // 계약서 체크 칸(양식 입력 칸 밖). 결제일은 계약의 렌트료 결제일, 운전자 범위는 법인/개인 구분에서.

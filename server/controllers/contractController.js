@@ -140,7 +140,7 @@ const buildVehicleFields = (vehicleInfo, pricing, status, bank, terms) => ({
         ? vehicleInfo.insurance.deductible
         : (parseInt(String(vehicleInfo.insurance.deductible).replace(/[^0-9]/g, '')) * 10000 || 300000)
     ) : 300000,
-    emergencyService: vehicleInfo.maintenance?.emergencyService || vehicleInfo.insurance?.emergencyCall || '가입'
+    emergencyService: vehicleInfo.maintenance?.emergencyService || vehicleInfo.insurance?.emergencyCall || '5회/년'
   },
 
   // 정비는 일반정비 하나로 정해진다. 순회정비·소모품교환은 normalizeMaintenance가 맞춰 준다.
@@ -1234,7 +1234,7 @@ export const importContracts = async (req, res) => {
         uninsuredCarInjury: '2억원',
         deductible: 300000,
         insuranceType: '임직원특약',
-        emergencyService: '가입',
+        emergencyService: '5회/년',
         accidentRepair: '',
         generalMaintenance: '',
         consumablesExchange: '',

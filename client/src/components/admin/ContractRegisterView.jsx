@@ -222,7 +222,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     uninsuredInjury: '2억원/ 1인당',
     deductible: '30만원',
     type: '임직원',
-    emergencyCall: '포함',
+    emergencyCall: '5회/년',
     accidentRepair: '',
     generalMaintenance: ''
   });
@@ -233,11 +233,11 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
     mileage: '',
     tireType: '',
     consumables: '미가입',
-    tireCount: '미가입',
+    tireCount: '미제공',
     tireSpec: '',
     tireCost: '',
     regularCheck: '미가입',
-    emergencyService: '미가입',
+    emergencyService: '5회/년',
     generalMaintenance: '미가입'
   });
 
@@ -301,7 +301,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
         personalInjury: '자상 1억/부상 1500만',
         deductible: '30만원',
         uninsuredInjury: '2억원/ 1인당',
-        emergencyCall: '포함'
+        emergencyCall: '5회/년'
       });
     } else if (preset === '보험2') {
       setInsurance({
@@ -310,29 +310,33 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
         personalInjury: '자상 2억/부상 3000만',
         deductible: '50만원',
         uninsuredInjury: '2억원/ 1인당',
-        emergencyCall: '포함'
+        emergencyCall: '5회/년'
       });
     }
   };
 
   // 정비 서비스 여부에 따른 세부 항목 기본값.
   // 선택 상자로 바꿀 때와 저장된 계약을 불러올 때가 같은 값을 쓰도록 한 곳에 모아 둔다.
+  // 견적서와 같은 말을 쓴다(대표님 2026-11-27): 긴급출동은 정비 포함 여부와 상관없는 기본 제공 '5회/년',
+  // 정비 미포함의 타이어 교체는 '미제공'. 예전에는 미포함이면 긴급출동이 '미가입'으로 계약서에 찍혔다.
   const MAINTENANCE_PRESETS = {
     '포함': {
       consumables: '가입',
       tireCount: '계약 기간 동안 4본 제공',
       regularCheck: '가입',
-      emergencyService: '가입',
+      emergencyService: '5회/년',
       generalMaintenance: '가입'
     },
     '미포함': {
       consumables: '미가입',
-      tireCount: '미가입',
+      tireCount: '미제공',
       regularCheck: '미가입',
-      emergencyService: '미가입',
+      emergencyService: '5회/년',
       generalMaintenance: '미가입'
     }
   };
+  // 예전 프리셋이 남긴 '포함'·'가입'·'미가입'은 견적서 문구 '5회/년'으로 읽는다(긴급출동은 늘 기본 제공)
+  const emergencyOf = (v) => (!v || ['포함', '가입', '미가입', '-'].includes(String(v).trim()) ? '5회/년' : v);
 
   // 견적서에서 정해진 연간 주행거리와 타이어 등급은 정비 포함/미포함과 무관한 값이라,
   // 프리셋을 바꿔도 지우지 않고 그대로 둔다.
@@ -368,7 +372,8 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
       ...(MAINTENANCE_PRESETS[preset] || MAINTENANCE_PRESETS['미포함']),
       mileage: prev.mileage,
       tireType: prev.tireType,
-      tireCountOverride: prev.tireCountOverride
+      tireCountOverride: prev.tireCountOverride,
+      emergencyService: prev.emergencyService || '5회/년'
     }));
   };
 
@@ -674,7 +679,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
       personalInjury: veh.insurance?.personalInjury || '자상 1억/부상 1500만',
       deductible: veh.insurance?.deductible ? (veh.insurance.deductible >= 500000 ? '50만원' : '30만원') : '30만원',
       uninsuredInjury: veh.insurance?.uninsuredInjury || '2억원/ 1인당',
-      emergencyCall: veh.insurance?.emergencyService || '포함'
+      emergencyCall: emergencyOf(veh.insurance?.emergencyService)
     });
 
     // 1-6. 정비 - maintenance.enabled로 프리셋을 판정하고, 저장된 세부값이 있으면 그대로 되살린다.
@@ -696,7 +701,7 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
       // 예전에는 여기에 tireType을 넣어 등급이 설명 자리로 새고 차량 DB에는 아무것도 안 남았다.
       tireCount: maintenanceDefaults.tireCount,
       regularCheck: veh.maintenance?.regularCheck || maintenanceDefaults.regularCheck,
-      emergencyService: veh.insurance?.emergencyService || maintenanceDefaults.emergencyService,
+      emergencyService: emergencyOf(veh.insurance?.emergencyService),
       generalMaintenance: veh.maintenance?.generalMaintenance || maintenanceDefaults.generalMaintenance
     });
 
@@ -2534,12 +2539,12 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                   </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-                  {renderInput('대인', 'text', insurance.liabilityLimit, () => {}, '', false, true)}
-                  {renderInput('대물', 'text', insurance.propertyLimit, () => {}, '', false, true)}
-                  {renderInput('자기손해', 'text', insurance.personalInjury, () => {}, '', false, true)}
-                  {renderInput('자기부담금', 'text', insurance.deductible, () => {}, '', false, true)}
-                  {renderInput('무보험차상해', 'text', insurance.uninsuredInjury, () => {}, '', false, true)}
-                  {renderInput('긴급출동', 'text', insurance.emergencyCall, () => {}, '', false, true)}
+                  {renderInput('대인', 'text', insurance.liabilityLimit, (val) => setInsurance((p) => ({ ...p, liabilityLimit: val })))}
+                  {renderInput('대물', 'text', insurance.propertyLimit, (val) => setInsurance((p) => ({ ...p, propertyLimit: val })))}
+                  {renderInput('자기손해', 'text', insurance.personalInjury, (val) => setInsurance((p) => ({ ...p, personalInjury: val })))}
+                  {renderInput('자기부담금', 'text', insurance.deductible, (val) => setInsurance((p) => ({ ...p, deductible: val })))}
+                  {renderInput('무보험차상해', 'text', insurance.uninsuredInjury, (val) => setInsurance((p) => ({ ...p, uninsuredInjury: val })))}
+                  {renderInput('긴급출동', 'text', insurance.emergencyCall, (val) => { setInsurance((p) => ({ ...p, emergencyCall: val })); setMaintenance((p) => ({ ...p, emergencyService: val })); })}
                 </div>
               </div>
 
@@ -2567,10 +2572,10 @@ function ContractRegisterView({ prefilledQuoteData, setPrefilledQuoteData, prefi
                   </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-                  {renderInput('긴급 출동서비스', 'text', maintenance.emergencyService, () => {}, '', false, true)}
-                  {renderInput('순회정비', 'text', maintenance.regularCheck, () => {}, '', false, true)}
-                  {renderInput('일반정비', 'text', maintenance.generalMaintenance, () => {}, '', false, true)}
-                  {renderInput('소모품 교환', 'text', maintenance.consumables, () => {}, '', false, true)}
+                  {renderInput('긴급 출동서비스', 'text', maintenance.emergencyService, (val) => { setMaintenance((p) => ({ ...p, emergencyService: val })); setInsurance((p) => ({ ...p, emergencyCall: val })); })}
+                  {renderInput('순회정비', 'text', maintenance.regularCheck, (val) => setMaintenance((p) => ({ ...p, regularCheck: val })))}
+                  {renderInput('일반정비', 'text', maintenance.generalMaintenance, (val) => setMaintenance((p) => ({ ...p, generalMaintenance: val })))}
+                  {renderInput('소모품 교환', 'text', maintenance.consumables, (val) => setMaintenance((p) => ({ ...p, consumables: val })))}
                   {/* 타이어는 렌트 기간 × 연간 주행거리 5만km마다 4본. 예전에는 '4본 제공'이 고정 문구였다. */}
                   {renderInput('타이어 교체', 'text', maintenancePreset === '포함' ? describeTireProvision(termMonths, maintenance.mileage, maintenance.tireCountOverride) : maintenance.tireCount, () => {}, '', false, true)}
                   {renderInput('타이어 등급', 'text', maintenance.tireType, () => {}, '견적서에서 선택', false, true)}
